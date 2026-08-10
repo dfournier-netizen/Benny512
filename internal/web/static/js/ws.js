@@ -1,0 +1,44 @@
+// ws.js — WebSocket client with auto-reconnect and a tiny pub/sub so each
+// screen module can subscribe to the message types it cares about without
+// coupling to connection lifecycle.
+const Live = (() => {
+  let socket = null;
+  let retryMs = 1000;
+  const listeners = { node: [], rdm: [], capture: [], all: [] };
+
+  function connect() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    socket = new WebSocket(`${proto}://${location.host}/ws`);
+
+    socket.onopen = () => {
+      retryMs = 1000;
+      setStatus(true);
+    };
+    socket.onclose = () => {
+      setStatus(false);
+      setTimeout(connect, retryMs);
+      retryMs = Math.min(retryMs * 1.5, 15000);
+    };
+    socket.onerror = () => { socket.close(); };
+    socket.onmessage = (ev) => {
+      let msg;
+      try { msg = JSON.parse(ev.data); } catch (e) { return; }
+      (listeners[msg.type] || []).forEach(fn => fn(msg));
+      listeners.all.forEach(fn => fn(msg));
+    };
+  }
+
+  function setStatus(ok) {
+    const el = document.getElementById('connStatus');
+    if (!el) return;
+    el.textContent = ok ? 'live' : 'reconnecting…';
+    el.className = 'conn-status ' + (ok ? 'ok' : 'bad');
+  }
+
+  function on(type, fn) {
+    (listeners[type] || (listeners[type] = [])).push(fn);
+  }
+
+  connect();
+  return { on };
+})();

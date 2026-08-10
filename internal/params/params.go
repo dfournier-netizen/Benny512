@@ -1,0 +1,273 @@
+// Package params provides typed helpers over session.RDMController for the
+// Fixtures screen: encode/decode of the handful of well-known RDM PIDs Dom
+// needs, layered over the controller's Get/Set so callers work with typed
+// Go values and the controller's own typed errors instead of raw bytes.
+//
+// Layering rule: this package touches no socket and owns no state; it is a
+// thin, pure encode/decode + Get/Set wrapper, tested against
+// session.FakeTransport exactly like the engines it wraps.
+package params
+
+import (
+	"context"
+	"encoding/binary"
+	"errors"
+	"fmt"
+
+	"benny512/internal/rdm"
+	"benny512/internal/session"
+)
+
+// ErrBadLength is returned when a GET response's Parameter Data isn't the
+// length the PID's struct requires.
+var ErrBadLength = errors.New("params: unexpected parameter data length")
+
+// DeviceInfo is RDM's DEVICE_INFO (PID 0x0060) parameter, the 19-byte
+// struct verified byte-for-byte in the Phase-1a wire-format report
+// (phase1a-wire-format-verification_2026-08-04_2305.md §3.9).
+type DeviceInfo struct {
+	ProtocolVersionMajor byte
+	ProtocolVersionMinor byte
+	DeviceModelID        uint16
+	ProductCategory      uint16
+	SoftwareVersionID    uint32
+	DMXFootprint         uint16
+	CurrentPersonality   byte
+	PersonalityCount     byte
+	DMXStartAddress      uint16
+	SubDeviceCount       uint16
+	SensorCount          byte
+}
+
+// DecodeDeviceInfo parses the 19-byte DEVICE_INFO parameter data. Layout
+// (golden fixture, Phase-1a report §3.9): RDM Protocol Version (2), Device
+// Model ID (2), Product Category (2), Software Version ID (4), DMX
+// Footprint (2), Current Personality (1), Personality Count (1), DMX Start
+// Address (2), Sub-Device Count (2), Sensor Count (1) — all big-endian.
+func DecodeDeviceInfo(data []byte) (DeviceInfo, error) {
+	if len(data) != 19 {
+		return DeviceInfo{}, fmt.Errorf("%w: DEVICE_INFO wants 19 bytes, got %d", ErrBadLength, len(data))
+	}
+	return DeviceInfo{
+		ProtocolVersionMajor: data[0],
+		ProtocolVersionMinor: data[1],
+		DeviceModelID:        binary.BigEndian.Uint16(data[2:4]),
+		ProductCategory:      binary.BigEndian.Uint16(data[4:6]),
+		SoftwareVersionID:    binary.BigEndian.Uint32(data[6:10]),
+		DMXFootprint:         binary.BigEndian.Uint16(data[10:12]),
+		CurrentPersonality:   data[12],
+		PersonalityCount:     data[13],
+		DMXStartAddress:      binary.BigEndian.Uint16(data[14:16]),
+		SubDeviceCount:       binary.BigEndian.Uint16(data[16:18]),
+		SensorCount:          data[18],
+	}, nil
+}
+
+// EncodeDeviceInfo is the inverse of DecodeDeviceInfo, mostly useful for
+// tests and for the demo-mode fake responder.
+func EncodeDeviceInfo(d DeviceInfo) []byte {
+	b := make([]byte, 19)
+	b[0], b[1] = d.ProtocolVersionMajor, d.ProtocolVersionMinor
+	binary.BigEndian.PutUint16(b[2:4], d.DeviceModelID)
+	binary.BigEndian.PutUint16(b[4:6], d.ProductCategory)
+	binary.BigEndian.PutUint32(b[6:10], d.SoftwareVersionID)
+	binary.BigEndian.PutUint16(b[10:12], d.DMXFootprint)
+	b[12] = d.CurrentPersonality
+	b[13] = d.PersonalityCount
+	binary.BigEndian.PutUint16(b[14:16], d.DMXStartAddress)
+	binary.BigEndian.PutUint16(b[16:18], d.SubDeviceCount)
+	b[18] = d.SensorCount
+	return b
+}
+
+// Client wraps an RDMController with typed per-PID methods aimed at one
+// responder through one node port.
+type Client struct {
+	ctrl *session.RDMController
+	node session.NodeRef
+	uid  rdm.UID
+}
+
+// New builds a params.Client for one responder.
+func New(ctrl *session.RDMController, node session.NodeRef, uid rdm.UID) *Client {
+	return &Client{ctrl: ctrl, node: node, uid: uid}
+}
+
+// getRaw issues a GET and returns the raw ACK data, translating any
+// non-ACK result into an error (NackError for NACK, session's own typed
+// errors for timeout/deadline/etc).
+func (c *Client) getRaw(ctx context.Context, pid rdm.ParameterID, data []byte) ([]byte, error) {
+	cmd := c.ctrl.Get(c.node, c.uid, pid, data)
+	res, err := cmd.Await(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if res.Kind != session.ResultAck {
+		if res.Err != nil {
+			return nil, res.Err
+		}
+		return nil, fmt.Errorf("params: GET 0x%04X returned %s", uint16(pid), res.Kind)
+	}
+	return res.Data, nil
+}
+
+func (c *Client) setRaw(ctx context.Context, pid rdm.ParameterID, data []byte) error {
+	cmd := c.ctrl.Set(c.node, c.uid, pid, data)
+	res, err := cmd.Await(ctx)
+	if err != nil {
+		return err
+	}
+	if res.Kind != session.ResultAck {
+		if res.Err != nil {
+			return res.Err
+		}
+		return fmt.Errorf("params: SET 0x%04X returned %s", uint16(pid), res.Kind)
+	}
+	return nil
+}
+
+// DeviceInfo issues GET DEVICE_INFO and decodes the response.
+func (c *Client) DeviceInfo(ctx context.Context) (DeviceInfo, error) {
+	data, err := c.getRaw(ctx, rdm.PIDDeviceInfo, nil)
+	if err != nil {
+		return DeviceInfo{}, err
+	}
+	return DecodeDeviceInfo(data)
+}
+
+// DMXStartAddress issues GET DMX_START_ADDRESS (2-byte big-endian, 1-based).
+func (c *Client) DMXStartAddress(ctx context.Context) (uint16, error) {
+	data, err := c.getRaw(ctx, rdm.PIDDMXStartAddress, nil)
+	if err != nil {
+		return 0, err
+	}
+	if len(data) != 2 {
+		return 0, fmt.Errorf("%w: DMX_START_ADDRESS wants 2 bytes, got %d", ErrBadLength, len(data))
+	}
+	return binary.BigEndian.Uint16(data), nil
+}
+
+// SetDMXStartAddress issues SET DMX_START_ADDRESS. addr must be 1-512.
+func (c *Client) SetDMXStartAddress(ctx context.Context, addr uint16) error {
+	if addr < 1 || addr > 512 {
+		return fmt.Errorf("params: DMX start address out of range: %d", addr)
+	}
+	b := make([]byte, 2)
+	binary.BigEndian.PutUint16(b, addr)
+	return c.setRaw(ctx, rdm.PIDDMXStartAddress, b)
+}
+
+// Personality is DMX_PERSONALITY's GET response: current index + count.
+type Personality struct {
+	Current byte
+	Count   byte
+}
+
+// DMXPersonality issues GET DMX_PERSONALITY.
+func (c *Client) DMXPersonality(ctx context.Context) (Personality, error) {
+	data, err := c.getRaw(ctx, rdm.PIDDMXPersonality, nil)
+	if err != nil {
+		return Personality{}, err
+	}
+	if len(data) != 2 {
+		return Personality{}, fmt.Errorf("%w: DMX_PERSONALITY wants 2 bytes, got %d", ErrBadLength, len(data))
+	}
+	return Personality{Current: data[0], Count: data[1]}, nil
+}
+
+// SetDMXPersonality issues SET DMX_PERSONALITY with a 1-based personality
+// index.
+func (c *Client) SetDMXPersonality(ctx context.Context, index byte) error {
+	return c.setRaw(ctx, rdm.PIDDMXPersonality, []byte{index})
+}
+
+// PersonalityDescription is GET DMX_PERSONALITY_DESCRIPTION's response for
+// one personality index (request data is the 1-byte index).
+type PersonalityDescription struct {
+	Index        byte
+	DMXFootprint uint16
+	Description  string
+}
+
+// DMXPersonalityDescription issues GET DMX_PERSONALITY_DESCRIPTION for one
+// index. Wire layout: 1 byte index (echoed), 2 bytes footprint, then a
+// variable-length ASCII description (no NUL, per RDM label convention).
+func (c *Client) DMXPersonalityDescription(ctx context.Context, index byte) (PersonalityDescription, error) {
+	data, err := c.getRaw(ctx, rdm.PIDDMXPersonalityDescription, []byte{index})
+	if err != nil {
+		return PersonalityDescription{}, err
+	}
+	if len(data) < 3 {
+		return PersonalityDescription{}, fmt.Errorf("%w: DMX_PERSONALITY_DESCRIPTION wants >=3 bytes, got %d", ErrBadLength, len(data))
+	}
+	return PersonalityDescription{
+		Index:        data[0],
+		DMXFootprint: binary.BigEndian.Uint16(data[1:3]),
+		Description:  string(data[3:]),
+	}, nil
+}
+
+// label helpers -------------------------------------------------------------
+
+func (c *Client) getLabel(ctx context.Context, pid rdm.ParameterID) (string, error) {
+	data, err := c.getRaw(ctx, pid, nil)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func (c *Client) setLabel(ctx context.Context, pid rdm.ParameterID, label string) error {
+	if len(label) > 32 {
+		label = label[:32]
+	}
+	return c.setRaw(ctx, pid, []byte(label))
+}
+
+// DeviceLabel issues GET DEVICE_LABEL.
+func (c *Client) DeviceLabel(ctx context.Context) (string, error) {
+	return c.getLabel(ctx, rdm.PIDDeviceLabel)
+}
+
+// SetDeviceLabel issues SET DEVICE_LABEL. RDM labels are ASCII, max 32
+// bytes; longer input is truncated rather than rejected, matching how most
+// consoles behave.
+func (c *Client) SetDeviceLabel(ctx context.Context, label string) error {
+	return c.setLabel(ctx, rdm.PIDDeviceLabel, label)
+}
+
+// ManufacturerLabel issues GET MANUFACTURER_LABEL.
+func (c *Client) ManufacturerLabel(ctx context.Context) (string, error) {
+	return c.getLabel(ctx, rdm.PIDManufacturerLabel)
+}
+
+// DeviceModelDescription issues GET DEVICE_MODEL_DESCRIPTION.
+func (c *Client) DeviceModelDescription(ctx context.Context) (string, error) {
+	return c.getLabel(ctx, rdm.PIDDeviceModelDescription)
+}
+
+// SoftwareVersionLabel issues GET SOFTWARE_VERSION_LABEL.
+func (c *Client) SoftwareVersionLabel(ctx context.Context) (string, error) {
+	return c.getLabel(ctx, rdm.PIDSoftwareVersionLabel)
+}
+
+// IdentifyDevice issues GET IDENTIFY_DEVICE (1-byte bool: 0/1).
+func (c *Client) IdentifyDevice(ctx context.Context) (bool, error) {
+	data, err := c.getRaw(ctx, rdm.PIDIdentifyDevice, nil)
+	if err != nil {
+		return false, err
+	}
+	if len(data) != 1 {
+		return false, fmt.Errorf("%w: IDENTIFY_DEVICE wants 1 byte, got %d", ErrBadLength, len(data))
+	}
+	return data[0] != 0, nil
+}
+
+// SetIdentifyDevice issues SET IDENTIFY_DEVICE.
+func (c *Client) SetIdentifyDevice(ctx context.Context, on bool) error {
+	v := byte(0)
+	if on {
+		v = 1
+	}
+	return c.setRaw(ctx, rdm.PIDIdentifyDevice, []byte{v})
+}

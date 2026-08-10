@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Benny512</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<header class="app-header">
+  <div class="brand">Benny512</div>
+  <nav class="tabs" id="tabs">
+    <button class="tab-btn" data-tab="nodes">Nodes</button>
+    <button class="tab-btn" data-tab="fixtures">Fixtures</button>
+    <button class="tab-btn" data-tab="analyzer">Analyzer</button>
+    <button class="tab-btn" data-tab="send">Send</button>
+    <button class="tab-btn" data-tab="settings">Settings</button>
+  </nav>
+  <div class="conn-status" id="connStatus">connecting…</div>
+</header>
+
+<main id="main">
+
+  <section id="screen-nodes" class="screen">
+    <div class="panel-split">
+      <div class="panel-list">
+        <div class="panel-toolbar">
+          <button id="btnRefreshNodes">Refresh</button>
+          <span class="hint">Art-Net nodes on this network. BiDi/RDM shown per node.</span>
+        </div>
+        <table class="data-table" id="nodesTable">
+          <thead><tr>
+            <th>Name</th><th>IP</th><th>Ports</th><th>RDM</th><th>Last seen</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="panel-detail" id="nodeDetail">
+        <p class="empty-hint">Select a node to see its ports and universes.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="screen-fixtures" class="screen">
+    <div class="panel-split">
+      <div class="panel-list">
+        <div class="panel-toolbar">
+          <label>Node/port:
+            <select id="fixtureNodeSelect"></select>
+          </label>
+          <button id="btnDiscover">Discover</button>
+          <span class="hint" id="discoverStatus"></span>
+        </div>
+        <table class="data-table" id="fixturesTable">
+          <thead><tr>
+            <th>Mfr</th><th>UID</th><th>Address</th><th>Footprint</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="panel-detail" id="fixtureDetail">
+        <p class="empty-hint">Select a fixture to view/edit its RDM parameters.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="screen-analyzer" class="screen">
+    <div class="panel-toolbar">
+      <button id="btnPause">Pause</button>
+      <label>Kind: <select id="filterKind">
+        <option value="">any</option>
+        <option value="ArtDmx">ArtDmx</option>
+        <option value="ArtPoll">ArtPoll</option>
+        <option value="ArtPollReply">ArtPollReply</option>
+        <option value="ArtRdm">ArtRdm</option>
+        <option value="ArtTodData">ArtTodData</option>
+        <option value="ArtTodControl">ArtTodControl</option>
+      </select></label>
+      <label>Universe: <input type="number" id="filterUniverse" min="0" max="32767" placeholder="any"></label>
+      <button id="btnClearAnalyzer">Clear</button>
+    </div>
+    <table class="data-table analyzer-table" id="analyzerTable">
+      <thead><tr>
+        <th>Time</th><th>Dir</th><th>Kind</th><th>Src</th><th>Univ</th><th>Size</th><th>Key fields</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section id="screen-send" class="screen">
+    <div class="panel-toolbar">
+      <label>Universe (Port-Address): <input type="number" id="sendUniverse" min="0" max="32767" value="0"></label>
+      <button id="btnDmxStart">Start</button>
+      <button id="btnDmxStop">Stop</button>
+      <button id="btnDmxAllOff">All off</button>
+      <span class="hint">Circuit values 0-255. Changes apply on blur/change, not while dragging.</span>
+    </div>
+    <div class="dmx-grid" id="dmxGrid"></div>
+  </section>
+
+  <section id="screen-settings" class="screen">
+    <div class="settings-form">
+      <label>Network interface (NIC):
+        <select id="nicSelect"></select>
+      </label>
+      <label>Poll interval (ms):
+        <input type="number" id="pollInterval" min="500" step="500">
+      </label>
+      <label>Capture limit (entries):
+        <input type="number" id="captureLimit" min="100" step="100">
+      </label>
+      <label>Default timeout profile:
+        <select id="timeoutProfile">
+          <option value="Direct">Direct</option>
+          <option value="WirelessProxy">Wireless (BiDi proxy)</option>
+        </select>
+      </label>
+      <button id="btnSaveSettings">Save settings</button>
+      <span class="hint" id="settingsStatus"></span>
+    </div>
+  </section>
+
+</main>
+
+<script src="/js/api.js"></script>
+<script src="/js/ws.js"></script>
+<script src="/js/nodes.js"></script>
+<script src="/js/fixtures.js"></script>
+<script src="/js/analyzer.js"></script>
+<script src="/js/send.js"></script>
+<script src="/js/settings.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>
