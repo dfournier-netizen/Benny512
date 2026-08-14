@@ -11,11 +11,14 @@
 
   tabs.forEach(t => t.addEventListener('click', () => activate(t.dataset.tab)));
 
-  const initial = localStorage.getItem('benny512.tab') || 'nodes';
+  // 'fixtures' migrates to 'devices' (Phase 1c+ screen rename) for anyone
+  // with a stale localStorage value from before this change.
+  let initial = localStorage.getItem('benny512.tab') || 'nodes';
+  if (initial === 'fixtures') initial = 'devices';
   activate(initial);
 
   NodesScreen.init();
-  FixturesScreen.init();
+  DevicesScreen.init();
   AnalyzerScreen.init();
   SendScreen.init();
   SettingsScreen.init();

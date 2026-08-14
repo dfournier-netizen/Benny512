@@ -232,3 +232,145 @@ main { padding: 20px; }
   gap: 6px;
   color: var(--text-dim);
 }
+
+/* --- Device class badges (Devices screen) --- */
+
+.cls-badge { border: 1px solid transparent; }
+.cls-fixture    { background: rgba(95,180,255,0.15); color: var(--accent-strong); }
+.cls-gateway    { background: rgba(94,217,140,0.15); color: var(--good); }
+.cls-splitter   { background: rgba(94,217,140,0.15); color: var(--good); }
+.cls-dimmer     { background: rgba(255,207,92,0.15); color: var(--warn); }
+.cls-wireless   { background: rgba(180,140,255,0.18); color: #c7a8ff; }
+.cls-controller { background: rgba(255,255,255,0.08); color: var(--text-dim); }
+.cls-other      { background: rgba(255,255,255,0.06); color: var(--text-dim); }
+.cls-unknown    { background: rgba(255,255,255,0.04); color: var(--text-dim); border-style: dashed; border-color: var(--border); }
+
+.proxy-badge { background: rgba(180,140,255,0.18); color: #c7a8ff; }
+.detail-badge { background: var(--bg-panel-alt); color: var(--text-dim); border: 1px solid var(--border); margin-right: 4px; }
+.ro-badge { background: rgba(255,255,255,0.06); color: var(--text-dim); }
+.adv-badge { background: rgba(255,207,92,0.15); color: var(--warn); }
+.warn-badge { background: rgba(255,107,107,0.15); color: var(--bad); border: 1px solid var(--bad); }
+
+/* --- Device detail: section tabs --- */
+
+.detail-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 10px 0 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.detail-tab-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  padding: 8px 14px;
+  border-radius: var(--radius) var(--radius) 0 0;
+  color: var(--text-dim);
+}
+
+.detail-tab-btn.active {
+  background: var(--bg-panel-alt);
+  border-color: var(--border);
+  color: var(--accent-strong);
+}
+
+/* --- Generic manufacturer-PID editor --- */
+
+.param-editor { display: flex; flex-direction: column; gap: 2px; }
+
+.param-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.param-row-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 260px; }
+
+.pid-hex {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px;
+  color: var(--text-dim);
+  background: var(--bg-panel-alt);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.param-label { font-weight: 600; }
+
+.param-row-field { display: flex; align-items: center; gap: 6px; }
+.param-row-field input[type=number] { width: 100px; }
+.param-row-field input[type=text] { width: 160px; }
+.param-row-field .hex-input { font-family: ui-monospace, Consolas, monospace; }
+
+.field-error { color: var(--bad); }
+
+/* --- Sensor gauges --- */
+
+.gauge-card {
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+.gauge-card.out-of-band {
+  border: 2px dashed var(--bad);
+}
+
+.gauge-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.gauge-title { font-weight: 700; }
+.gauge-value { color: var(--accent-strong); font-weight: 700; margin-left: auto; }
+
+.gauge-svg { width: 100%; height: 56px; display: block; }
+.gauge-track { fill: var(--bg-panel); stroke: var(--border); stroke-width: 0.5; }
+.gauge-normal-band { fill: rgba(94,217,140,0.28); }
+.gauge-marker { fill: var(--accent); }
+.gauge-marker-line { stroke: var(--accent); stroke-width: 1; }
+.gauge-marker-warn { stroke: var(--bad); stroke-width: 1; }
+.gauge-hatch-bg { fill: var(--bad); opacity: 0.35; }
+.gauge-hatch-line { stroke: var(--bad); stroke-width: 1; }
+.gauge-tick { stroke: var(--text-dim); stroke-width: 0.6; }
+.gauge-tick-low, .gauge-tick-high { stroke-dasharray: 1.5,1; }
+.gauge-tick-recorded { fill: var(--accent-strong); }
+
+.gauge-range-labels { display: flex; justify-content: space-between; margin-top: 2px; }
+
+.gauge-meta { margin-top: 4px; }
+.gauge-actions { display: flex; gap: 8px; margin-top: 8px; }
+
+/* --- Node configuration (Nodes screen detail pane) --- */
+
+.caution-banner {
+  background: rgba(255,207,92,0.12);
+  border: 1px solid var(--warn);
+  color: var(--text);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  margin: 12px 0 16px;
+  font-size: 14px;
+}
+
+.caution-banner strong { color: var(--warn); display: block; margin-bottom: 4px; }
+.caution-banner button { margin-top: 8px; }
+
+.ip-confirm-box {
+  background: rgba(255,107,107,0.1);
+  border: 1px solid var(--bad);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  margin-top: 8px;
+  font-size: 14px;
+}

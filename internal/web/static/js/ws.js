@@ -39,6 +39,18 @@ const Live = (() => {
     (listeners[type] || (listeners[type] = [])).push(fn);
   }
 
+  // send delivers a client->server control message (currently
+  // subscribe_sensors/unsubscribe_sensors — see wsClientMessage in
+  // internal/web/server.go). No-op while disconnected/reconnecting; the
+  // sensors panel re-subscribes on next open via its own effect, so a
+  // dropped subscribe during a reconnect window self-heals rather than
+  // needing a queue here.
+  function send(obj) {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify(obj));
+    }
+  }
+
   connect();
-  return { on };
+  return { on, send };
 })();

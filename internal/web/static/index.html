@@ -11,7 +11,7 @@
   <div class="brand">Benny512</div>
   <nav class="tabs" id="tabs">
     <button class="tab-btn" data-tab="nodes">Nodes</button>
-    <button class="tab-btn" data-tab="fixtures">Fixtures</button>
+    <button class="tab-btn" data-tab="devices">Devices</button>
     <button class="tab-btn" data-tab="analyzer">Analyzer</button>
     <button class="tab-btn" data-tab="send">Send</button>
     <button class="tab-btn" data-tab="settings">Settings</button>
@@ -41,7 +41,7 @@
     </div>
   </section>
 
-  <section id="screen-fixtures" class="screen">
+  <section id="screen-devices" class="screen">
     <div class="panel-split">
       <div class="panel-list">
         <div class="panel-toolbar">
@@ -50,16 +50,27 @@
           </label>
           <button id="btnDiscover">Discover</button>
           <span class="hint" id="discoverStatus"></span>
+          <label>Class: <select id="deviceClassFilter">
+            <option value="">all</option>
+            <option value="Fixture">Fixture</option>
+            <option value="Gateway/Node">Gateway/Node</option>
+            <option value="Splitter">Splitter</option>
+            <option value="Dimmer/Power">Dimmer/Power</option>
+            <option value="Wireless">Wireless</option>
+            <option value="Controller">Controller</option>
+            <option value="Other">Other</option>
+            <option value="Unknown">Unknown</option>
+          </select></label>
         </div>
         <table class="data-table" id="fixturesTable">
           <thead><tr>
-            <th>Mfr</th><th>UID</th><th>Address</th><th>Footprint</th>
+            <th>Class</th><th>Mfr</th><th>UID</th><th>Address</th><th>Node/Port</th>
           </tr></thead>
           <tbody></tbody>
         </table>
       </div>
       <div class="panel-detail" id="fixtureDetail">
-        <p class="empty-hint">Select a fixture to view/edit its RDM parameters.</p>
+        <p class="empty-hint">Select a device to view/edit its RDM parameters, sensors and status.</p>
       </div>
     </div>
   </section>
@@ -125,7 +136,7 @@
 <script src="/js/api.js"></script>
 <script src="/js/ws.js"></script>
 <script src="/js/nodes.js"></script>
-<script src="/js/fixtures.js"></script>
+<script src="/js/devices.js"></script>
 <script src="/js/analyzer.js"></script>
 <script src="/js/send.js"></script>
 <script src="/js/settings.js"></script>

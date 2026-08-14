@@ -1,28 +1,41 @@
 // settings.js — Settings screen: NIC picker, poll interval, timeout
-// profile, capture limit. NIC list itself currently comes from the same
-// /api/settings payload's echo (server owns the authoritative list via
-// internal/transport.ListInterfaces in a future iteration); for now the
-// picker is populated from whatever the server currently reports selected
-// plus a manual-entry fallback, since Phase 1c's REST surface does not yet
-// expose a dedicated NIC-list endpoint (see architect review notes).
+// profile, capture limit. NIC list is populated from GET /api/nics
+// (internal/transport.ListInterfaces) — Phase 1c+ closes the gap flagged
+// in the earlier architect review notes ("stub"); current.nic is matched
+// against the real interface list by name, falling back to a synthesized
+// option if the previously-saved NIC name isn't present on this machine
+// (e.g. settings.json carried over from another host).
 const SettingsScreen = (() => {
   let current = null;
+  let nics = [];
 
   async function refresh() {
-    current = await Api.getSettings();
+    [current, nics] = await Promise.all([Api.getSettings(), Api.getNICs().catch(() => [])]);
     render();
   }
 
   function render() {
     if (!current) return;
     const nicSel = document.getElementById('nicSelect');
-    if (![...nicSel.options].some(o => o.value === current.nic)) {
+    const prevValue = nicSel.value || current.nic;
+    nicSel.innerHTML = '';
+    const blank = document.createElement('option');
+    blank.value = ''; blank.textContent = '(default / any)';
+    nicSel.appendChild(blank);
+    nics.forEach(nic => {
+      const opt = document.createElement('option');
+      opt.value = nic.name;
+      const addrs = (nic.ipv4 || []).join(', ');
+      opt.textContent = `${nic.displayName || nic.name}${addrs ? ' — ' + addrs : ''}${nic.up ? '' : ' (down)'}`;
+      nicSel.appendChild(opt);
+    });
+    if (current.nic && ![...nicSel.options].some(o => o.value === current.nic)) {
       const opt = document.createElement('option');
       opt.value = current.nic;
-      opt.textContent = current.nic || '(default / any)';
+      opt.textContent = current.nic + ' (not present on this machine)';
       nicSel.appendChild(opt);
     }
-    nicSel.value = current.nic || '';
+    nicSel.value = prevValue || current.nic || '';
     document.getElementById('pollInterval').value = current.pollIntervalMs || 3000;
     document.getElementById('captureLimit').value = current.captureLimit || 10000;
   }

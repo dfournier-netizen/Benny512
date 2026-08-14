@@ -37,5 +37,21 @@ const Api = (() => {
       const qs = new URLSearchParams(params || {}).toString();
       return req('GET', '/api/capture/snapshot' + (qs ? '?' + qs : ''));
     },
+
+    // --- Phase 1c+: device-centric (generic PIDs, sensors, status) ---
+    getDeviceParams: (uid) => req('GET', `/api/device/${encodeURIComponent(uid)}/params`),
+    getDeviceParam: (uid, pid) => req('GET', `/api/device/${encodeURIComponent(uid)}/param/${pid}`),
+    setDeviceParam: (uid, pid, value) => req('POST', `/api/device/${encodeURIComponent(uid)}/param/${pid}`, { value }),
+    introspectDevice: (uid) => req('POST', `/api/device/${encodeURIComponent(uid)}/introspect`),
+    getDeviceSensors: (uid) => req('GET', `/api/device/${encodeURIComponent(uid)}/sensors`),
+    recordDeviceSensors: (uid, sensor) => req('POST', `/api/device/${encodeURIComponent(uid)}/sensors/record`, { sensor }),
+    resetDeviceSensors: (uid, sensor) => req('POST', `/api/device/${encodeURIComponent(uid)}/sensors/reset`, { sensor }),
+    getDeviceStatus: (uid, filter) => req('GET', `/api/device/${encodeURIComponent(uid)}/status` + (filter ? `?filter=${filter}` : '')),
+
+    // --- Phase 1c+: node/network configuration ---
+    setNodeAddress: (ip, body) => req('POST', `/api/node/${encodeURIComponent(ip)}/address`, body),
+    setNodeIPConfig: (ip, body) => req('POST', `/api/node/${encodeURIComponent(ip)}/ipconfig`, body),
+    setNodeInput: (ip, body) => req('POST', `/api/node/${encodeURIComponent(ip)}/input`, body),
+    getNICs: () => req('GET', '/api/nics'),
   };
 })();
