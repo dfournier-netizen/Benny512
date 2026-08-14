@@ -110,6 +110,23 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/settings", s.handleGetSettings)
 	s.mux.HandleFunc("POST /api/settings", s.handlePostSettings)
 	s.mux.HandleFunc("GET /api/capture/snapshot", s.handleCaptureSnapshot)
+
+	// --- Phase 1c+: self-describing PIDs, sensors, device status ---
+	s.mux.HandleFunc("GET /api/device/{uid}/params", s.handleGetDeviceParams)
+	s.mux.HandleFunc("GET /api/device/{uid}/param/{pid}", s.handleGetDeviceParam)
+	s.mux.HandleFunc("POST /api/device/{uid}/param/{pid}", s.handleSetDeviceParam)
+	s.mux.HandleFunc("POST /api/device/{uid}/introspect", s.handleIntrospectDevice)
+	s.mux.HandleFunc("GET /api/device/{uid}/sensors", s.handleGetDeviceSensors)
+	s.mux.HandleFunc("POST /api/device/{uid}/sensors/record", s.handleRecordDeviceSensors)
+	s.mux.HandleFunc("POST /api/device/{uid}/sensors/reset", s.handleResetDeviceSensors)
+	s.mux.HandleFunc("GET /api/device/{uid}/status", s.handleGetDeviceStatus)
+
+	// --- Phase 1c+: node/network configuration ---
+	s.mux.HandleFunc("POST /api/node/{ip}/address", s.handleNodeAddress)
+	s.mux.HandleFunc("POST /api/node/{ip}/ipconfig", s.handleNodeIPConfig)
+	s.mux.HandleFunc("POST /api/node/{ip}/input", s.handleNodeInput)
+	s.mux.HandleFunc("GET /api/nics", s.handleGetNICs)
+
 	s.mux.HandleFunc("GET /ws", s.handleWS)
 }
 
@@ -191,13 +208,21 @@ type fixtureJSON struct {
 	BindIndex        byte      `json:"bindIndex"`
 	PortAddress      uint16    `json:"portAddress"`
 	LastSeen         time.Time `json:"lastSeen"`
+	// Class/IsWirelessProxy surface registry.DeviceClass (report §1.3):
+	// "Fixture" is the JSON default (ClassUnknown also renders as a string,
+	// "Unknown", until DEVICE_INFO/PRODUCT_DETAIL_ID_LIST/
+	// PROXIED_DEVICE_COUNT have actually been fetched at least once — the
+	// UI should treat "Unknown" as "not yet classified", not as its own
+	// category). See internal/registry/deviceclass.go for the full enum.
+	Class           string `json:"class"`
+	IsWirelessProxy bool   `json:"isWirelessProxy"`
 }
 
 func toFixtureJSON(f registry.Fixture) fixtureJSON {
 	return fixtureJSON{
 		UID: f.UID.String(), ManufacturerID: f.ManufacturerID, ManufacturerName: f.ManufacturerName,
 		NodeIP: f.Node.IP.String(), BindIndex: f.Node.BindIndex, PortAddress: f.Port.RawValue(),
-		LastSeen: f.LastSeen,
+		LastSeen: f.LastSeen, Class: f.Class.String(), IsWirelessProxy: f.IsWirelessProxy,
 	}
 }
 
@@ -515,8 +540,17 @@ func (s *Server) handleCaptureSnapshot(w http.ResponseWriter, r *http.Request) {
 
 // --- node/RDM event -> WS pump ------------------------------------------------
 
+// pumpNodeEvents/pumpRDMEvents read from Registry's fan-out republish
+// channels (NodeEvents()/RDMEvents()), not the engines' own Events()
+// directly. Registry.Run() is the sole true consumer of the engine
+// channels; a second independent reader there would silently steal a
+// random subset of events out from under Registry (Go channels split
+// values across concurrent readers, they don't broadcast) — see the
+// Registry doc comment in internal/registry/registry.go for the bug this
+// fixed (found via the demo end-to-end test, where device classification
+// went nondeterministic).
 func (s *Server) pumpNodeEvents(ctx context.Context) {
-	events := s.Nodes.Events()
+	events := s.Registry.NodeEvents()
 	for {
 		select {
 		case <-ctx.Done():
@@ -534,7 +568,7 @@ func (s *Server) pumpNodeEvents(ctx context.Context) {
 }
 
 func (s *Server) pumpRDMEvents(ctx context.Context) {
-	events := s.RDM.Events()
+	events := s.Registry.RDMEvents()
 	for {
 		select {
 		case <-ctx.Done():
@@ -584,14 +618,39 @@ func (s *Server) pumpCapture(ctx context.Context) {
 
 // --- WebSocket hub -----------------------------------------------------------
 
+// wsMessage is the envelope for every server->client WebSocket push. Type
+// selects which of the optional fields below is populated:
+//
+//	"node"                 — Node (an ArtNetSession NodeEvent)
+//	"rdm"                  — Result and/or ToD (an RDMController Event)
+//	"capture"              — Batch (a capture-ring publish tick)
+//	"introspect_progress"  — Introspect (Kind carries the UID string)
+//	"introspect_complete"  — Descriptors (and/or Err on failure; Kind carries the UID string)
+//	"sensor_values"        — Sensors (Kind carries the UID string) — sent only to
+//	                         connections subscribed to that UID (see handleWS)
+//	"node_config"          — NodeConfig (Kind carries the node IP string) — a
+//	                         SetPortAddresses/SetNodeNames/ProgramIP/SetInputEnabled result
 type wsMessage struct {
-	Type   string          `json:"type"` // "node" | "rdm" | "capture" | "dmxTick"
-	Kind   string          `json:"kind,omitempty"`
-	At     time.Time       `json:"at"`
-	Node   nodeJSON        `json:"node,omitempty"`
-	Result *resultJSON     `json:"result,omitempty"`
-	ToD    *todJSON        `json:"tod,omitempty"`
-	Batch  []capture.Entry `json:"batch,omitempty"`
+	Type        string                  `json:"type"`
+	Kind        string                  `json:"kind,omitempty"`
+	At          time.Time               `json:"at"`
+	Node        nodeJSON                `json:"node,omitempty"`
+	Result      *resultJSON             `json:"result,omitempty"`
+	ToD         *todJSON                `json:"tod,omitempty"`
+	Batch       []capture.Entry         `json:"batch,omitempty"`
+	Introspect  *introspectProgressJSON `json:"introspect,omitempty"`
+	Descriptors []paramDescriptorJSON   `json:"descriptors,omitempty"`
+	Sensors     []sensorReadingJSON     `json:"sensors,omitempty"`
+	NodeConfig  *nodeConfigResultJSON   `json:"nodeConfig,omitempty"`
+	Err         string                  `json:"err,omitempty"`
+}
+
+// introspectProgressJSON mirrors params.IntrospectProgress.
+type introspectProgressJSON struct {
+	UID   string `json:"uid"`
+	Done  int    `json:"done"`
+	Total int    `json:"total"`
+	PID   string `json:"pid"`
 }
 
 type resultJSON struct {
@@ -644,6 +703,39 @@ func (h *hub) broadcast(msg wsMessage) {
 	}
 }
 
+// sendTo delivers msg to one specific connection's channel, used for
+// sensor-value pushes (report task: "poll live sensors... only for devices
+// whose detail panel is open" — a per-connection subscription, not a
+// global broadcast). Race-safe against a concurrent hub.remove: the lookup
+// and the send both happen while holding h.mu, the same lock remove uses
+// to close+delete the channel, so this can never send on an already-closed
+// channel.
+func (h *hub) sendTo(c *ws.Conn, msg wsMessage) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	ch, ok := h.clients[c]
+	if !ok {
+		return
+	}
+	select {
+	case ch <- msg:
+	default:
+	}
+}
+
+// DefaultSensorPollInterval is how often a connection's subscribed devices'
+// live sensor values are re-fetched (report task: "poll live sensors...
+// default 2s").
+const DefaultSensorPollInterval = 2 * time.Second
+
+// wsClientMessage is an inbound client->server WS message: currently just
+// the sensor-subscription control channel (report task: "expose subscribe/
+// unsubscribe").
+type wsClientMessage struct {
+	Type string `json:"type"` // "subscribe_sensors" | "unsubscribe_sensors"
+	UID  string `json:"uid"`
+}
+
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := ws.Upgrade(w, r)
 	if err != nil {
@@ -658,15 +750,40 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	captureCh, cancelCapture := s.Capture.Subscribe(capture.Filter{})
 	defer cancelCapture()
 
+	var subsMu sync.Mutex
+	subs := make(map[string]bool)
+
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		for {
-			if _, err := conn.ReadMessage(); err != nil {
+			data, err := conn.ReadMessage()
+			if err != nil {
 				return
+			}
+			var cmd wsClientMessage
+			if jsonErr := json.Unmarshal(data, &cmd); jsonErr != nil {
+				continue
+			}
+			uid, ok := rdmParseUIDForWS(cmd.UID)
+			if !ok {
+				continue
+			}
+			switch cmd.Type {
+			case "subscribe_sensors":
+				subsMu.Lock()
+				subs[uid] = true
+				subsMu.Unlock()
+			case "unsubscribe_sensors":
+				subsMu.Lock()
+				delete(subs, uid)
+				subsMu.Unlock()
 			}
 		}
 	}()
+
+	ticker := time.NewTicker(DefaultSensorPollInterval)
+	defer ticker.Stop()
 
 	for {
 		select {
@@ -689,6 +806,56 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			if err := conn.WriteMessage(b); err != nil {
 				return
 			}
+		case <-ticker.C:
+			subsMu.Lock()
+			uids := make([]string, 0, len(subs))
+			for u := range subs {
+				uids = append(uids, u)
+			}
+			subsMu.Unlock()
+			for _, u := range uids {
+				go s.publishSensorValues(conn, u)
+			}
 		}
 	}
+}
+
+// rdmParseUIDForWS validates and normalizes a client-supplied UID string
+// (round-tripping through rdm.UID so a malformed subscribe request can't
+// accumulate garbage keys in a connection's subscription set).
+func rdmParseUIDForWS(s string) (string, bool) {
+	uid, ok := rdm.ParseUID(s)
+	if !ok {
+		return "", false
+	}
+	return uid.String(), true
+}
+
+// publishSensorValues fetches live sensor values for uidStr and pushes them
+// to conn via the hub's race-safe targeted send. Runs on its own goroutine
+// per poll tick per subscribed device so one slow/unreachable device (e.g.
+// a wireless proxy mid-retry) never delays delivery of other events to this
+// connection — see hub.sendTo's doc comment for why this is safe against a
+// concurrent disconnect.
+func (s *Server) publishSensorValues(conn *ws.Conn, uidStr string) {
+	uid, ok := rdm.ParseUID(uidStr)
+	if !ok {
+		return
+	}
+	node, ok := s.Registry.FixtureNode(uid)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	client := params.New(s.RDM, node, uid)
+	readings, err := client.SensorValues(ctx)
+	if err != nil {
+		return
+	}
+	out := make([]sensorReadingJSON, 0, len(readings))
+	for _, r := range readings {
+		out = append(out, toSensorReadingJSON(r))
+	}
+	s.hub.sendTo(conn, wsMessage{Type: "sensor_values", Kind: uidStr, At: time.Now(), Sensors: out})
 }

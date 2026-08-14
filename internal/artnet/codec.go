@@ -128,6 +128,30 @@ func Decode(b []byte) (Packet, error) {
 			return Packet{}, err
 		}
 		return Packet{Kind: KindTimeCode, TimeCode: p}, nil
+	case 0x6000:
+		p, err := decodeAddress(b)
+		if err != nil {
+			return Packet{}, err
+		}
+		return Packet{Kind: KindAddress, Address: p}, nil
+	case 0x7000:
+		p, err := decodeInput(b)
+		if err != nil {
+			return Packet{}, err
+		}
+		return Packet{Kind: KindInput, Input: p}, nil
+	case 0xf800:
+		p, err := decodeIpProg(b)
+		if err != nil {
+			return Packet{}, err
+		}
+		return Packet{Kind: KindIpProg, IpProg: p}, nil
+	case 0xf900:
+		p, err := decodeIpProgReply(b)
+		if err != nil {
+			return Packet{}, err
+		}
+		return Packet{Kind: KindIpProgReply, IpProgReply: p}, nil
 	default:
 		var payload []byte
 		if len(b) > 10 {
@@ -160,6 +184,14 @@ func Encode(packet Packet) []byte {
 		return encodeRdmSub(packet.RdmSub)
 	case KindTimeCode:
 		return encodeTimeCode(packet.TimeCode)
+	case KindAddress:
+		return encodeAddress(packet.Address)
+	case KindInput:
+		return encodeInput(packet.Input)
+	case KindIpProg:
+		return encodeIpProg(packet.IpProg)
+	case KindIpProgReply:
+		return encodeIpProgReply(packet.IpProgReply)
 	default:
 		w := bytesio.NewWriter()
 		w.WriteBytes(IDBytes)

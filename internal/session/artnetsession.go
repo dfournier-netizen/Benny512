@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"benny512/internal/artnet"
+	"benny512/internal/rdm"
 )
 
 // Default ArtNetSession timings. 3 s is Art-Net's recommended controller poll
@@ -108,6 +109,17 @@ type Node struct {
 	SubSwitch byte
 	NumPorts  int
 	Ports     []NodePort
+
+	// DefaultRespUID is ArtPollReply's DefaultRespUID field: the UID the
+	// node forwards RDM to when it has no better Port-Address routing for
+	// it. In practice, many single-purpose gateways/nodes set this to their
+	// own root RDM UID, which is what lets the UI offer "this node's own
+	// RDM parameters" (report's feature-C node/RDM merge ask) — but that
+	// reading is a field-observed convention, not something the Art-Net 4
+	// spec text guarantees. WEAKLY CONFIRMED; treat a zero UID as "not
+	// advertised" and confirm any non-zero value against a live DEVICE_INFO
+	// GET before presenting it as authoritative (see registry.NodeSelfUID).
+	DefaultRespUID rdm.UID
 
 	Status1 byte
 	Status2 byte
@@ -227,6 +239,11 @@ type ArtNetSession struct {
 	polls   uint64
 	dropped uint64
 
+	// configWaiters holds pending SetPortAddresses/SetNodeNames/ProgramIP/
+	// SetInputEnabled calls waiting for a node's follow-up ArtPollReply —
+	// see nodeconfig.go.
+	configWaiters map[NodeKey][]chan Node
+
 	events chan NodeEvent
 }
 
@@ -251,9 +268,10 @@ func NewArtNetSession(cfg ArtNetConfig) *ArtNetSession {
 		cfg.EventBuffer = DefaultEventBufferSize
 	}
 	return &ArtNetSession{
-		cfg:    cfg,
-		nodes:  make(map[NodeKey]*Node),
-		events: make(chan NodeEvent, cfg.EventBuffer),
+		cfg:           cfg,
+		nodes:         make(map[NodeKey]*Node),
+		configWaiters: make(map[NodeKey][]chan Node),
+		events:        make(chan NodeEvent, cfg.EventBuffer),
 	}
 }
 
@@ -377,13 +395,48 @@ func (s *ArtNetSession) Run(ctx context.Context) error {
 }
 
 // HandleInbound decodes one datagram and folds any ArtPollReply into the
-// node table. Non-Art-Net bytes and other packet types are ignored.
+// node table (also notifying config-waiters — see nodeconfig.go); an
+// ArtIpProgReply notifies config-waiters too (its own confirmation signal
+// for ProgramIP) without otherwise touching the node table, since it
+// carries IP/subnet/DHCP status, not the full PollReply shape a Node needs.
+// Non-Art-Net bytes and other packet types are ignored.
 func (s *ArtNetSession) HandleInbound(in Inbound) {
 	pkt, err := artnet.Decode(in.Data)
-	if err != nil || pkt.Kind != artnet.KindPollReply {
+	if err != nil {
 		return
 	}
-	s.HandlePollReply(pkt.PollReply, in.From)
+	switch pkt.Kind {
+	case artnet.KindPollReply:
+		s.HandlePollReply(pkt.PollReply, in.From)
+	case artnet.KindIpProgReply:
+		s.handleIPProgReply(pkt.IpProgReply, in.From)
+	}
+}
+
+// handleIPProgReply notifies any pending ProgramIP waiter for the node at
+// in.From's address. It does not create or update a Node table entry —
+// ArtIpProgReply doesn't carry a Node's full advertised shape — so the
+// delivered Node is whatever this session already has on file for that
+// address (zero value if none), which is sufficient for ConfigResult's
+// Confirmed:true signal even if Updated ends up mostly empty.
+func (s *ArtNetSession) handleIPProgReply(reply artnet.IpProgReply, from netip.AddrPort) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key, waiters := range s.configWaiters {
+		if key.IP != from.Addr() {
+			continue
+		}
+		node := Node{}
+		if existing, ok := s.nodes[key]; ok {
+			node = *existing
+		}
+		for _, ch := range waiters {
+			select {
+			case ch <- node:
+			default:
+			}
+		}
+	}
 }
 
 // HandlePollReply folds an already-decoded ArtPollReply into the table.
@@ -402,6 +455,7 @@ func (s *ArtNetSession) HandlePollReply(reply artnet.PollReply, from netip.AddrP
 		copyNode := node
 		s.nodes[node.Key] = &copyNode
 		s.emitLocked(NodeEvent{Kind: NodeAdded, Node: copyNode, At: now})
+		s.notifyConfigWaitersLocked(copyNode.Key, copyNode)
 		return
 	}
 
@@ -419,6 +473,14 @@ func (s *ArtNetSession) HandlePollReply(reply artnet.PollReply, from netip.AddrP
 	case changed:
 		s.emitLocked(NodeEvent{Kind: NodeUpdated, Node: *existing, At: now})
 	}
+	// Any ArtPollReply following a config-change send is treated as
+	// confirmation (report task ask: "confirms by observing the follow-up
+	// ArtPollReply") — including one that reports no visible field change,
+	// since some nodes echo back identical values for fields the app didn't
+	// ask to change, and the app's own request may not touch anything
+	// nodeAdvertisedFieldsDiffer compares (e.g. per-port universe changes
+	// not yet reflected because the node debounces its reply).
+	s.notifyConfigWaitersLocked(existing.Key, *existing)
 }
 
 // advertised is the comparable projection of a Node: everything the node
@@ -439,6 +501,7 @@ type advertised struct {
 	NetSwitch           byte
 	SubSwitch           byte
 	NumPorts            int
+	DefaultRespUID      rdm.UID
 	Status1             byte
 	Status2             byte
 	Status3             byte
@@ -452,7 +515,8 @@ func advertisedOf(n Node) advertised {
 		NodeReport: n.NodeReport, EstaManufacturer: n.EstaManufacturer, Oem: n.Oem,
 		Style: n.Style, VersInfo: n.VersInfo, MAC: n.MAC, BindIP: n.BindIP,
 		NetSwitch: n.NetSwitch, SubSwitch: n.SubSwitch, NumPorts: n.NumPorts,
-		Status1: n.Status1, Status2: n.Status2, Status3: n.Status3,
+		DefaultRespUID: n.DefaultRespUID,
+		Status1:        n.Status1, Status2: n.Status2, Status3: n.Status3,
 		RDMCapable: n.RDMCapable, RDMDiscoveryRunning: n.RDMDiscoveryRunning,
 	}
 }
@@ -512,6 +576,8 @@ func nodeFromPollReply(r artnet.PollReply, from netip.AddrPort) Node {
 		ports = append(ports, p)
 	}
 
+	defaultRespUID, _ := rdm.UIDFromBytes(r.DefaultRespUID[:])
+
 	return Node{
 		Key:                 NodeKey{IP: ip, BindIndex: bind},
 		Addr:                netip.AddrPortFrom(ip, ArtNetUDPPort),
@@ -528,6 +594,7 @@ func nodeFromPollReply(r artnet.PollReply, from netip.AddrPort) Node {
 		SubSwitch:           r.SubSwitch & 0x0F,
 		NumPorts:            numPorts,
 		Ports:               ports,
+		DefaultRespUID:      defaultRespUID,
 		Status1:             r.Status1,
 		Status2:             r.Status2,
 		Status3:             r.Status3,

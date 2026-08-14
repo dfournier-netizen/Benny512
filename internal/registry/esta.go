@@ -41,7 +41,7 @@ var estaManufacturers = map[uint16]string{
 	0x3038: "GLP German Light Products",
 	0x3341: "COEMAR",
 	0x352D: "Barco",
-	0x4348: "Chroma-Q",
+	0x4348: "Chroma-Q", // pre-existing guess — see 0x5370 below, report-CONFIRMED
 	0x454C: "Elation Lighting",
 	0x4653: "Flying Pig Systems (ETC/Nicolaudie)",
 	0x4741: "MA Lighting",
@@ -68,7 +68,7 @@ var estaManufacturers = map[uint16]string{
 	0x6574: "ETC (Electronic Theatre Controls)",
 	0x6644: "Ford Douglas",
 	0x6765: "GDS (Green Dot)",
-	0x6C74: "LumenRadio",
+	0x6C74: "LumenRadio", // pre-existing guess — see 0x4C55 below, report-CONFIRMED
 	0x7000: "Enttec",
 	0x7574: "Chamsys",
 	0x7A70: "Prototyping / development (test UIDs)",
@@ -79,6 +79,21 @@ var estaManufacturers = map[uint16]string{
 	0xC0DE: "Obsidian Control Systems",
 	0xE1E1: "E1.20 example",
 	0xFFFF: "Broadcast / no manufacturer",
+
+	// --- Added from rdm-pids-sensors-research_2026-08-13_2347.md §7.4 ---
+	// (WEAKLY CONFIRMED: single-source OLA manufacturer_names.proto
+	// snapshot, not cross-verified against the live ESTA TSP database this
+	// research session — re-verify against a live device UID's actual
+	// reported manufacturer ID before trusting the name over the number).
+	// These take priority in this map over the pre-existing 0x4348/0x6C74
+	// guesses above for the demo fixtures added alongside this pass (see
+	// cmd/benny512/demo.go) since they're the report's best-available
+	// numbers for Dom's actual hardware (Chroma-Q Color Force II,
+	// LumenRadio Aurora/MoonLite2, Obsidian Netron EN4).
+	0x5370: "Chroma-Q",
+	0x4C55: "LumenRadio AB",
+	0x22A6: "Elation Lighting Inc.", // candidate for Obsidian EN4 (report §7.3, UNVERIFIED which of 0x1900/0x22A6 the EN4 actually reports)
+	0x1900: "ADJ Products LLC",      // other candidate for Obsidian EN4 — see above
 }
 
 // ManufacturerName resolves a 16-bit ESTA manufacturer ID to a display name,

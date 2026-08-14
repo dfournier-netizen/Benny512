@@ -283,6 +283,10 @@ const (
 	KindRdm
 	KindRdmSub
 	KindTimeCode
+	KindAddress
+	KindInput
+	KindIpProg
+	KindIpProgReply
 	KindUnknown
 )
 
@@ -293,15 +297,19 @@ const (
 type Packet struct {
 	Kind PacketKind
 
-	Poll       Poll
-	PollReply  PollReply
-	Dmx        Dmx
-	TodRequest TodRequest
-	TodData    TodData
-	TodControl TodControl
-	Rdm        Rdm
-	RdmSub     RdmSub
-	TimeCode   TimeCode
+	Poll        Poll
+	PollReply   PollReply
+	Dmx         Dmx
+	TodRequest  TodRequest
+	TodData     TodData
+	TodControl  TodControl
+	Rdm         Rdm
+	RdmSub      RdmSub
+	TimeCode    TimeCode
+	Address     Address
+	Input       Input
+	IpProg      IpProg
+	IpProgReply IpProgReply
 
 	// Unknown holds the OpCode and payload (every byte after the 10-byte
 	// ID+OpCode header) when Kind == KindUnknown. Payload may or may not
@@ -341,6 +349,14 @@ func (p Packet) AsAny() any {
 		return p.RdmSub
 	case KindTimeCode:
 		return p.TimeCode
+	case KindAddress:
+		return p.Address
+	case KindInput:
+		return p.Input
+	case KindIpProg:
+		return p.IpProg
+	case KindIpProgReply:
+		return p.IpProgReply
 	default:
 		return Unknown{OpCode: p.UnknownOpCode, Payload: p.UnknownPayload}
 	}
