@@ -9,14 +9,33 @@
     // flashing — task ask: "turn Identify OFF ... when the user leaves Rig
     // Walk, navigates away". WalkScreen.onLeaveScreen is a no-op if no walk
     // session is active.
-    if (currentTab === 'walk' && name !== 'walk' && window.WalkScreen) {
+    //
+    // ROOT CAUSE (2026-08-15, "Rig Walk is a blank page"): this used to
+    // gate both calls behind `window.WalkScreen`. WalkScreen is declared as
+    // a top-level `const` in walk.js (a classic, non-module <script>, same
+    // as every other *Screen module here) — per JS semantics, a top-level
+    // let/const creates a global-scope binding but is NEVER added as a
+    // property of `window` (only `var`/function declarations are). So
+    // `window.WalkScreen` was always undefined, both guards always
+    // evaluated false, and WalkScreen.onEnterScreen() — the only thing that
+    // actually calls refresh()/render() and populates #walkRoot — never
+    // ran, on any device, on every navigation to the tab. WalkScreen.init()
+    // below is NOT gated this way, which is why the safety-net
+    // pagehide/visibilitychange listeners it wires still worked and made
+    // the bug look partial rather than an obvious crash. Every other
+    // screen module (NodesScreen, DevicesScreen, ...) is referenced by its
+    // bare identifier, never through `window.`; WalkScreen now matches that
+    // same convention (script load order in index.html guarantees walk.js
+    // has already run by the time app.js executes, so no existence guard
+    // is needed here any more than the other five screens have one).
+    if (currentTab === 'walk' && name !== 'walk') {
       WalkScreen.onLeaveScreen();
     }
     tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === name));
     screens.forEach(s => s.classList.toggle('active', s.id === 'screen-' + name));
     localStorage.setItem('benny512.tab', name);
     currentTab = name;
-    if (name === 'walk' && window.WalkScreen) {
+    if (name === 'walk') {
       WalkScreen.onEnterScreen();
     }
   }

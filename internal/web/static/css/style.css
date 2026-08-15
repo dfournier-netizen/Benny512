@@ -245,7 +245,6 @@ main { padding: 20px; }
 .cls-other      { background: rgba(255,255,255,0.06); color: var(--text-dim); }
 .cls-unknown    { background: rgba(255,255,255,0.04); color: var(--text-dim); border-style: dashed; border-color: var(--border); }
 
-.proxy-badge { background: rgba(180,140,255,0.18); color: #c7a8ff; }
 .detail-badge { background: var(--bg-panel-alt); color: var(--text-dim); border: 1px solid var(--border); margin-right: 4px; }
 .ro-badge { background: rgba(255,255,255,0.06); color: var(--text-dim); }
 .adv-badge { background: rgba(255,207,92,0.15); color: var(--warn); }
@@ -403,12 +402,17 @@ main { padding: 20px; }
   font-size: 14px;
 }
 
-/* --- Rig Walk mode: phone-optimized, huge touch targets, high contrast.
-   Nothing critical sits in the top corners; Next/Previous own the bottom
-   of the screen. Status is never color-only — every state pairs a color
-   with text/a glyph (accessibility standing constraint). Works in portrait
-   on a phone-sized viewport without horizontal scroll: everything here is
-   block-stacked, no fixed widths past 100%. --- */
+/* --- Rig Walk mode: usable on any device, optimized for mobile (task ask:
+   "Rigwalk should be accessible regardless of device — just optimized for
+   mobile when possible"). Nothing critical sits in the top corners;
+   Next/Previous own the bottom of the screen. Status is never color-only —
+   every state pairs a color with text/a glyph (accessibility standing
+   constraint). The 520px cap below is a phone's width on the nose, so on
+   an actual phone viewport nothing here changes from a pre-desktop-fix
+   build; on a desktop-width window it keeps the walk card from stretching
+   into an ugly full-width phone view, centering it instead while keeping
+   every control's size (huge touch targets, big text) exactly as tuned for
+   a thumb. --- */
 
 .walk-root {
   max-width: 520px;
@@ -599,12 +603,23 @@ main { padding: 20px; }
 
 /* Primary Next/Previous: fixed to the bottom of the viewport, full-width
    split, thumb-reachable, well over the 72px minimum touch-target height
-   (task spec) so they work reliably while the tech is mid-stride. */
+   (task spec) so they work reliably while the tech is mid-stride. On a
+   phone viewport (<=520px) this is still edge-to-edge, unchanged from the
+   original mobile-only build. On a desktop-width window, left:0/right:0
+   alone would stretch it the full width of the browser while the card
+   above sits in a centered 520px column — max-width + auto margins center
+   this bar to match .walk-root instead (CSS centers a fixed element with
+   left/right set and an explicit width via auto margins), so desktop
+   doesn't get an ugly full-bleed phone artifact. Button size/height is
+   untouched either way — only the bar's placement changes. */
 .walk-navbar {
   position: fixed;
   left: 0;
   right: 0;
   bottom: 0;
+  max-width: 520px;
+  margin-left: auto;
+  margin-right: auto;
   display: flex;
   gap: 2px;
   z-index: 20;

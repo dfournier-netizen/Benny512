@@ -36,12 +36,22 @@ const DevicesScreen = (() => {
   let nodes = [];
   let fixtures = [];
   let selectedUID = null;
-  let classFilter = '';
+  // Filters combine (AND) — class + node + universe (task ask, item 3: the
+  // Devices table already aggregates every node/port's devices in one
+  // rig-wide list, per Registry.Devices()/handleGetFixtures; these three
+  // filters narrow that list without ever re-scoping the underlying fetch).
+  // Persisted to sessionStorage (item 4: "persist sort/filter choice for
+  // the session") rather than localStorage, which the rest of this app
+  // reserves for cross-restart preferences like the active tab.
+  let classFilter = sessionStorage.getItem('benny512.devices.classFilter') || '';
+  let nodeFilter = sessionStorage.getItem('benny512.devices.nodeFilter') || '';
+  let universeFilter = sessionStorage.getItem('benny512.devices.universeFilter') || '';
+  let sortOrder = sessionStorage.getItem('benny512.devices.sort') || 'address';
   let activeTab = 'info'; // info | params | sensors | status
 
   // Per-UID caches, kept for the life of the page (cheap; matches the
   // backend's own "learned cache" philosophy for descriptors).
-  let infoCache = {};     // uid -> { deviceInfo, label, mfrLabel, model, swVersion, personality, ident, productDetailHex, proxiedCount }
+  let infoCache = {};     // uid -> { deviceInfo, label, mfrLabel, model, swVersion, personality, ident, productDetailHex }
   let paramsCache = {};   // uid -> { descriptors: [...], values: {pid: {...}}, introspecting: bool, progress: {done,total} }
   let sensorsCache = {};  // uid -> { readings: [...], loading, error }
   let statusCache = {};   // uid -> { filter, messages, loading, error }
@@ -63,12 +73,59 @@ const DevicesScreen = (() => {
       });
     });
     if (prevValue) sel.value = prevValue;
+    refreshFilterOptions();
   }
 
   async function refreshFixtures() {
     fixtures = await Api.getFixtures();
+    refreshFilterOptions();
     render();
     classifyUnknown();
+  }
+
+  // nodeFilterKey/refreshFilterOptions: the Node/Universe filter selects'
+  // options are derived from live data (which nodes/universes actually
+  // have devices right now), not a static list — rebuilt on every
+  // nodes/fixtures refresh, preserving the current selection unless the
+  // selected node/universe no longer exists (falls back to "all" rather
+  // than silently filtering against a value the UI no longer offers).
+  function nodeFilterKey(ipLike) {
+    return `${ipLike.nodeIp || ipLike.ip}|${ipLike.bindIndex}`;
+  }
+
+  function refreshFilterOptions() {
+    const nodeSel = document.getElementById('deviceNodeFilter');
+    if (nodeSel) {
+      nodeSel.innerHTML = '<option value="">all</option>';
+      nodes.forEach(n => {
+        const opt = document.createElement('option');
+        opt.value = nodeFilterKey(n);
+        opt.textContent = n.shortName || n.longName || n.ip;
+        nodeSel.appendChild(opt);
+      });
+      nodeSel.value = nodeFilter;
+      if (nodeSel.value !== nodeFilter) { nodeFilter = ''; persistFilters(); }
+    }
+    const uniSel = document.getElementById('deviceUniverseFilter');
+    if (uniSel) {
+      const universes = Array.from(new Set(fixtures.map(f => f.portAddress))).sort((a, b) => a - b);
+      uniSel.innerHTML = '<option value="">all</option>';
+      universes.forEach(u => {
+        const opt = document.createElement('option');
+        opt.value = String(u);
+        opt.textContent = `Universe ${u}`;
+        uniSel.appendChild(opt);
+      });
+      uniSel.value = universeFilter;
+      if (uniSel.value !== universeFilter) { universeFilter = ''; persistFilters(); }
+    }
+  }
+
+  function persistFilters() {
+    sessionStorage.setItem('benny512.devices.classFilter', classFilter);
+    sessionStorage.setItem('benny512.devices.nodeFilter', nodeFilter);
+    sessionStorage.setItem('benny512.devices.universeFilter', universeFilter);
+    sessionStorage.setItem('benny512.devices.sort', sortOrder);
   }
 
   // classifyUnknown fires a background classification probe for every
@@ -114,9 +171,71 @@ const DevicesScreen = (() => {
     });
   }
 
+  // filteredFixtures ANDs every active filter together (task ask, item 3:
+  // "filters combine"). The underlying `fixtures` array is already
+  // rig-wide (every node/port — see refreshFixtures/Api.getFixtures, which
+  // hits GET /api/fixtures, itself backed by Registry.Devices()'s
+  // unfiltered walk of every discovered device regardless of node/port);
+  // these filters only narrow what's *displayed*, never what's fetched.
   function filteredFixtures() {
-    if (!classFilter) return fixtures;
-    return fixtures.filter(f => f.class === classFilter);
+    return fixtures.filter(f => {
+      if (classFilter && f.class !== classFilter) return false;
+      if (nodeFilter && nodeFilterKey(f) !== nodeFilter) return false;
+      if (universeFilter !== '' && String(f.portAddress) !== universeFilter) return false;
+      return true;
+    });
+  }
+
+  // sortKeyFor adapts one fixtureJSON + its infoCache entry (DEVICE_INFO's
+  // cached DMXStartAddress/DMXFootprint — the same source addressLabel
+  // reads, so the table's displayed address and its sort order can never
+  // disagree) into the shape Api.compareDevices expects. footprintKnown
+  // mirrors walk.SortableDevice.FootprintKnown: true only once DEVICE_INFO
+  // has actually been fetched for this device (infoCache holds an entry at
+  // all), never assumed from footprint's unfetched zero-value default.
+  function sortKeyFor(f) {
+    const info = infoCache[f.uid] && infoCache[f.uid].deviceInfo;
+    return {
+      uid: f.uid,
+      model: f.model || '',
+      portAddress: f.portAddress,
+      address: info ? info.DMXStartAddress : 0,
+      footprint: info ? info.DMXFootprint : 0,
+      footprintKnown: !!info,
+      addressKnown: !!info,
+    };
+  }
+
+  // visibleFixtures is filteredFixtures, sorted per the current sortOrder
+  // (task ask, item 4: DMX address asc/desc, model/fixture type, UID).
+  function visibleFixtures() {
+    const list = filteredFixtures().slice();
+    list.sort((a, b) => Api.compareDevices(sortKeyFor(a), sortKeyFor(b), sortOrder));
+    return list;
+  }
+
+  // updateFilterSummary shows the active filter state in plain text (task
+  // ask, item 3: "show active filter state clearly with a one-tap clear")
+  // and toggles the Clear button — a single tap resets all three filters
+  // at once, matching the Devices/Rig Walk apply-to-confirm screens'
+  // existing "never leave the user guessing what's filtered" pattern.
+  function updateFilterSummary() {
+    const parts = [];
+    if (classFilter) parts.push(`class=${classFilter}`);
+    if (nodeFilter) {
+      const n = nodes.find(x => nodeFilterKey(x) === nodeFilter);
+      parts.push(`node=${n ? (n.shortName || n.ip) : nodeFilter}`);
+    }
+    if (universeFilter !== '') parts.push(`universe=${universeFilter}`);
+    const summaryEl = document.getElementById('deviceFilterSummary');
+    const clearBtn = document.getElementById('btnClearDeviceFilters');
+    const shown = filteredFixtures().length;
+    if (summaryEl) {
+      summaryEl.textContent = parts.length
+        ? `Filtering by ${parts.join(', ')} — showing ${shown} of ${fixtures.length} device(s)`
+        : (fixtures.length ? `Showing all ${fixtures.length} device(s)` : '');
+    }
+    if (clearBtn) clearBtn.style.display = parts.length ? '' : 'none';
   }
 
   // Note: params.DeviceInfo has no JSON struct tags, so encoding/json
@@ -124,13 +243,16 @@ const DevicesScreen = (() => {
   // camelCase — confirmed against the running server (curl
   // /api/fixture/{uid}/param/device_info), not assumed. Every DeviceInfo
   // field access in this file uses that exact casing.
+  // addressLabel renders through the shared Api.formatAddressRange (task
+  // ask, item 5) so this table's address column always matches the format
+  // every other DMX-address surface (device detail Info tab, Rig Walk
+  // card) uses: "141 (141-160)", footprint 1 -> "141 (141)", footprint
+  // 0/unknown -> "141" alone, no address at all -> "—", and a
+  // start+footprint-1 > 512 overflow gets an explicit text warning.
   function addressLabel(f) {
     const info = infoCache[f.uid] && infoCache[f.uid].deviceInfo;
     if (!info) return classifying[f.uid] ? '…' : '—';
-    if (!info.DMXFootprint) return '—';
-    const start = info.DMXStartAddress;
-    const end = start + info.DMXFootprint - 1;
-    return info.DMXFootprint > 1 ? `${start}–${end}` : `${start}`;
+    return Api.formatAddressRange(info.DMXStartAddress, info.DMXFootprint, true);
   }
 
   // manufacturerCell/modelCell render the Devices table's Manufacturer/
@@ -154,15 +276,16 @@ const DevicesScreen = (() => {
   }
 
   function render() {
+    updateFilterSummary();
     const tbody = document.querySelector('#fixturesTable tbody');
     const scrollTop = tbody.parentElement.scrollTop;
     tbody.innerHTML = '';
-    filteredFixtures().forEach(f => {
+    visibleFixtures().forEach(f => {
       const tr = document.createElement('tr');
       if (f.uid === selectedUID) tr.classList.add('selected');
       const badgeCls = CLASS_BADGE[f.class] || 'cls-unknown';
       tr.innerHTML = `
-        <td><span class="badge cls-badge ${badgeCls}">${escapeHtml(f.class)}</span>${f.isWirelessProxy ? ' <span class="badge proxy-badge">proxy</span>' : ''}</td>
+        <td><span class="badge cls-badge ${badgeCls}">${escapeHtml(f.class)}</span></td>
         <td>${escapeHtml(manufacturerCell(f))}</td>
         <td>${escapeHtml(modelCell(f))}</td>
         <td>${escapeHtml(f.uid)}</td>
@@ -256,16 +379,12 @@ const DevicesScreen = (() => {
     const di = deviceInfo.status === 'fulfilled' ? deviceInfo.value.value : null;
     infoCache[uid] = Object.assign({}, infoCache[uid], { deviceInfo: di });
 
-    let proxyInfoHtml = '';
-    if (f.isWirelessProxy) {
-      let count = '—';
-      try {
-        const r = await Api.getDeviceParam(uid, '0011'); // PROXIED_DEVICE_COUNT
-        if (r.hex && r.hex.length >= 4) count = parseInt(r.hex.slice(0, 4), 16);
-      } catch (e) { /* leave as — */ }
-      if (selectedUID !== uid || activeTab !== 'info') return;
-      proxyInfoHtml = `<div class="field-row"><label>Proxied devices</label><span>${count}</span></div>`;
-    }
+    // No "proxied devices" callout here (task ask: a proxied fixture's RDM
+    // packets still carry its own manufacturer/type, so it's an ordinary
+    // device — no special-case UI treatment). PROXIED_DEVICES/
+    // PROXIED_DEVICE_COUNT (0x0010/0x0011) are still fully reachable for
+    // whoever wants to inspect them via the generic manufacturer-parameter
+    // editor on the Parameters tab, same as any other PID.
 
     let detailsHtml = '<span class="hint">none reported</span>';
     if (prodDetail.status === 'fulfilled' && prodDetail.value.hex) {
@@ -297,12 +416,11 @@ const DevicesScreen = (() => {
       <div class="field-row"><label>Software version</label><span>${swVersion.status === 'fulfilled' ? escapeHtml(swVersion.value.value) : '—'}</span></div>
       <div class="field-row"><label>Node / port</label><span>${escapeHtml(f.nodeIp)} (bind ${f.bindIndex}) / addr ${f.portAddress}</span></div>
       <div class="field-row"><label>DMX footprint</label><span>${di ? di.DMXFootprint : '—'}</span></div>
-      <div class="field-row"><label>DMX start address</label><span>${di && di.DMXFootprint ? di.DMXStartAddress : '—'}</span></div>
+      <div class="field-row"><label>DMX start address</label><span>${di ? Api.formatAddressRange(di.DMXStartAddress, di.DMXFootprint, true) : '—'}</span></div>
       <div class="field-row"><label>Personality</label><span>${di ? `${di.CurrentPersonality} of ${di.PersonalityCount}` : '—'}</span></div>
       <div class="field-row"><label>Sub-devices</label><span>${di ? di.SubDeviceCount : '—'}</span></div>
       <div class="field-row"><label>Sensors</label><span>${di ? di.SensorCount : '—'}</span></div>
       <div class="field-row"><label>Product details</label><span>${detailsHtml}</span></div>
-      ${proxyInfoHtml}
     `;
   }
 
@@ -338,7 +456,7 @@ const DevicesScreen = (() => {
           <button id="fxLabelRevert" class="btn-revert" style="display:none;">Revert</button>
         </span>
       </div>
-      <div class="field-row"><label>Start address</label>
+      <div class="field-row"><label>Start address${di ? ` <span class="hint">(${Api.formatAddressRange(di.DMXStartAddress, di.DMXFootprint, true)})</span>` : ''}</label>
         <span class="apply-field">
           <input id="fxStartAddr" type="number" min="1" max="512" value="${di && di.DMXFootprint ? di.DMXStartAddress : ''}" ${di && di.DMXFootprint ? '' : 'disabled'}>
           <span id="fxStartAddrDirty" class="badge dirty-badge" style="display:none;">pending</span>
@@ -1028,10 +1146,37 @@ const DevicesScreen = (() => {
 
   function init() {
     document.getElementById('btnDiscover').addEventListener('click', discover);
-    const filterSel = document.getElementById('deviceClassFilter');
-    if (filterSel) {
-      filterSel.addEventListener('change', (e) => { classFilter = e.target.value; render(); });
+
+    const classSel = document.getElementById('deviceClassFilter');
+    if (classSel) {
+      classSel.value = classFilter;
+      classSel.addEventListener('change', (e) => { classFilter = e.target.value; persistFilters(); render(); });
     }
+    const nodeSel = document.getElementById('deviceNodeFilter');
+    if (nodeSel) {
+      nodeSel.addEventListener('change', (e) => { nodeFilter = e.target.value; persistFilters(); render(); });
+    }
+    const uniSel = document.getElementById('deviceUniverseFilter');
+    if (uniSel) {
+      uniSel.addEventListener('change', (e) => { universeFilter = e.target.value; persistFilters(); render(); });
+    }
+    const sortSel = document.getElementById('deviceSort');
+    if (sortSel) {
+      sortSel.value = sortOrder;
+      sortSel.addEventListener('change', (e) => { sortOrder = e.target.value; persistFilters(); render(); });
+    }
+    const clearBtn = document.getElementById('btnClearDeviceFilters');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        classFilter = ''; nodeFilter = ''; universeFilter = '';
+        persistFilters();
+        if (classSel) classSel.value = '';
+        if (nodeSel) nodeSel.value = '';
+        if (uniSel) uniSel.value = '';
+        render();
+      });
+    }
+
     wireLiveUpdates();
     refreshNodes();
     refreshFixtures();

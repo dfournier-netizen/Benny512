@@ -67,7 +67,9 @@ func (s *Server) handleGetWalkSession(w http.ResponseWriter, r *http.Request) {
 // --- starting/ending a session -----------------------------------------------
 
 type startWalkRequest struct {
-	Order        string `json:"order"`        // "address" (default) | "discovery"
+	// Order: "address" (default) | "address_desc" | "model" | "uid" |
+	// "discovery" — see walk.Order / walk.Less for what each does.
+	Order        string `json:"order"`
 	ScopeKind    string `json:"scopeKind"`    // "" / "all" | "node" | "port" | "universe" | "class"
 	ScopeValue   string `json:"scopeValue"`   // interpretation depends on ScopeKind — see walkCandidates
 	FixturesOnly bool   `json:"fixturesOnly"` // task ask: "defaulting to fixtures" — the UI defaults this checkbox checked
@@ -80,9 +82,10 @@ func (s *Server) handleStartWalkSession(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	order := walk.OrderAddress
-	if req.Order == "discovery" {
-		order = walk.OrderDiscovery
+	order, ok := walk.ParseOrder(req.Order)
+	if !ok {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("order must be address|address_desc|model|uid|discovery, got %q", req.Order))
+		return
 	}
 
 	candidates, scope, err := s.walkCandidates(req.ScopeKind, req.ScopeValue)
@@ -121,16 +124,34 @@ func (s *Server) handleStartWalkSession(w http.ResponseWriter, r *http.Request) 
 	}
 
 	addrs := s.resolveWalkAddresses(candidates)
-	sort.SliceStable(candidates, func(i, j int) bool {
-		if order == walk.OrderDiscovery {
-			return candidates[i].FirstSeen.Before(candidates[j].FirstSeen)
+	// Pair each candidate with its sort key and sort the pairs as one slice
+	// — sorting `candidates` and a parallel key slice independently would
+	// desync the two the moment any swap happens, since sort.SliceStable's
+	// comparator closure is evaluated against positions that move during
+	// the sort. walk.Less is the single source of truth for the
+	// compound-key/footprint-0-last rules (see internal/walk/sort.go),
+	// unit-tested there without any RDM I/O.
+	type candidatePair struct {
+		fixture registry.Fixture
+		key     walk.SortableDevice
+	}
+	pairs := make([]candidatePair, len(candidates))
+	for i, f := range candidates {
+		a := addrs[f.UID.String()]
+		pairs[i] = candidatePair{
+			fixture: f,
+			key: walk.SortableDevice{
+				UID: f.UID.String(), Model: effectiveModel(f),
+				PortAddress: f.Port.RawValue(), Address: a.addr, Footprint: f.DMXFootprint,
+				FootprintKnown: f.HasDeviceInfo,
+				AddressKnown:   a.known, FirstSeen: f.FirstSeen,
+			},
 		}
-		pi, pj := candidates[i].Port.RawValue(), candidates[j].Port.RawValue()
-		if pi != pj {
-			return pi < pj
-		}
-		return addrs[candidates[i].UID.String()].addr < addrs[candidates[j].UID.String()].addr
-	})
+	}
+	sort.SliceStable(pairs, func(i, j int) bool { return walk.Less(pairs[i].key, pairs[j].key, order) })
+	for i, p := range pairs {
+		candidates[i] = p.fixture
+	}
 
 	devices := make([]walk.Device, len(candidates))
 	for i, f := range candidates {
@@ -233,7 +254,7 @@ func (s *Server) walkCandidates(kind, value string) ([]registry.Fixture, walk.Sc
 func buildWalkDevice(f registry.Fixture, addr uint16, addrKnown bool) walk.Device {
 	return walk.Device{
 		UID: f.UID.String(), Manufacturer: effectiveManufacturer(f), Model: effectiveModel(f),
-		Class: f.Class.String(), IsWirelessProxy: f.IsWirelessProxy,
+		Class:  f.Class.String(),
 		NodeIP: f.Node.IP.String(), BindIndex: f.Node.BindIndex, PortAddress: f.Port.RawValue(),
 		DMXStartAddress: addr, DMXFootprint: f.DMXFootprint, AddressKnown: addrKnown,
 		Status: walk.StatusUnvisited,
@@ -694,22 +715,10 @@ func writeWalkExportText(w io.Writer, at time.Time, sess walk.Session) {
 
 	for i, d := range sess.Devices {
 		fmt.Fprintf(w, "%3d. [%s] %s — %s\n", i+1, strings.ToUpper(string(d.Status)), d.Manufacturer, d.Model)
-		fmt.Fprintf(w, "     UID %s | node %s port-addr %d | DMX ", d.UID, d.NodeIP, d.PortAddress)
-		if d.AddressKnown {
-			fmt.Fprintf(w, "%d", d.DMXStartAddress)
-			if d.DMXFootprint > 1 {
-				fmt.Fprintf(w, "-%d", int(d.DMXStartAddress)+int(d.DMXFootprint)-1)
-			}
-		} else {
-			fmt.Fprint(w, "unknown")
-		}
-		fmt.Fprintln(w)
+		fmt.Fprintf(w, "     UID %s | node %s port-addr %d | DMX %s\n", d.UID, d.NodeIP, d.PortAddress,
+			walk.FormatAddressRange(d.DMXStartAddress, d.DMXFootprint, d.AddressKnown))
 		if d.Class != "" {
-			proxy := ""
-			if d.IsWirelessProxy {
-				proxy = " (wireless proxy)"
-			}
-			fmt.Fprintf(w, "     class: %s%s\n", d.Class, proxy)
+			fmt.Fprintf(w, "     class: %s\n", d.Class)
 		}
 		if d.Note != "" {
 			fmt.Fprintf(w, "     note: %s\n", d.Note)

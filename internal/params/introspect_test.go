@@ -194,6 +194,57 @@ func TestIntrospectNackFallback(t *testing.T) {
 	}
 }
 
+// TestIntrospectReachesProxiedDevicePIDs guards task item 2 ("keep
+// PROXIED_DEVICES/PROXIED_DEVICE_COUNT reachable via the generic parameter
+// editor"): the Devices screen dropped its dedicated proxy-status callout
+// (0x0011 used to be fetched and rendered as a standalone "Proxied
+// devices" field), so Introspect's normal SUPPORTED_PARAMETERS walk is now
+// the *only* way either PID ever reaches the UI. Before this change both
+// PIDs were listed in knownDecodedESTAPIDs and so were deliberately
+// excluded from introspection (isIntrospectionTarget returned false) —
+// that exclusion had to be lifted for this test to pass, matching what
+// TestIntrospectSelfDescribing already asserts DEVICE_LABEL should NOT do.
+func TestIntrospectReachesProxiedDevicePIDs(t *testing.T) {
+	uid := rdm.UID{ManufacturerID: 0x6C74, DeviceID: 1}
+	supported := rdm.EncodeSupportedParameters([]rdm.ParameterID{rdm.PIDProxiedDevices, rdm.PIDProxiedDeviceCount})
+
+	client, clock := newTestClient(t, uid, func(msg rdm.Message) ([]byte, bool, rdm.NackReason) {
+		switch msg.ParameterID {
+		case rdm.PIDSupportedParameters:
+			return supported, false, 0
+		default:
+			// A real proxy commonly won't implement PARAMETER_DESCRIPTION for
+			// these standard PIDs (report §2.2 notes it's optional even for
+			// PIDs a responder is technically allowed to describe) — NACKing
+			// here proves the universal raw-hex fallback still surfaces the
+			// PID rather than silently dropping it (report §1.1 item 4).
+			return nil, true, rdm.NackUnknownPID
+		}
+	})
+
+	var result IntrospectResult
+	var err error
+	runAsync(t, clock, func() {
+		result, err = client.Introspect(context.Background(), nil)
+	})
+	if err != nil {
+		t.Fatalf("Introspect: %v", err)
+	}
+	if len(result.Descriptors) != 2 {
+		t.Fatalf("expected PROXIED_DEVICES and PROXIED_DEVICE_COUNT both reachable via Introspect, got %+v", result.Descriptors)
+	}
+	seen := map[rdm.ParameterID]bool{}
+	for _, d := range result.Descriptors {
+		seen[d.PID] = true
+		if d.SelfDescribing {
+			t.Errorf("PID 0x%04X: expected non-self-describing (NACKed PARAMETER_DESCRIPTION), got %+v", uint16(d.PID), d)
+		}
+	}
+	if !seen[rdm.PIDProxiedDevices] || !seen[rdm.PIDProxiedDeviceCount] {
+		t.Fatalf("descriptors=%+v, want both 0x0010 and 0x0011", result.Descriptors)
+	}
+}
+
 // --- GetParam / SetParam -----------------------------------------------------
 
 func TestGetSetParamNumericRoundTrip(t *testing.T) {

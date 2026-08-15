@@ -331,8 +331,14 @@ func buildDemoDevices(en4IP, wirelessIP netip.Addr, port0, port1, port2 artnet.P
 		deviceInfo:  basePV(rdm.CategoryFixtureFixed, 8, 1, 0),
 		paramValues: map[rdm.ParameterID][]byte{rdm.PIDDMXStartAddress: dmxAddr(81), rdm.PIDDMXPersonality: {1, 1}, rdm.PIDIdentifyDevice: {0}},
 	}
+	// model is a plain fixture name — deliberately NOT "(via Aurora proxy)"
+	// or similar (task ask, item 2: a fixture reached through an RDM proxy
+	// still identifies its own manufacturer/type over the wire and must
+	// look like an ordinary device in the UI, not specially labeled). This
+	// device is still exercised on the wireless/ACK_TIMER path (proxied:
+	// true below drives the fake responder's timing, not any UI text).
 	wirelessMover := &demoDevice{
-		uid: rdm.UID{ManufacturerID: 0x6C74, DeviceID: 6}, label: "Wireless Mover", model: "Wireless Mover (via Aurora proxy)",
+		uid: rdm.UID{ManufacturerID: 0x6C74, DeviceID: 6}, label: "Wireless Mover", model: "Wireless Mover",
 		nodeIP: wirelessIP, port: port0, startAdr: 1, proxied: true,
 		deviceInfo:  basePV(rdm.CategoryFixtureMovingYoke, 20, 2, 0),
 		paramValues: map[rdm.ParameterID][]byte{rdm.PIDDMXStartAddress: dmxAddr(1), rdm.PIDDMXPersonality: {1, 2}, rdm.PIDIdentifyDevice: {0}},

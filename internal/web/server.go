@@ -326,14 +326,18 @@ type fixtureJSON struct {
 	BindIndex        byte      `json:"bindIndex"`
 	PortAddress      uint16    `json:"portAddress"`
 	LastSeen         time.Time `json:"lastSeen"`
-	// Class/IsWirelessProxy surface registry.DeviceClass (report §1.3):
-	// "Fixture" is the JSON default (ClassUnknown also renders as a string,
-	// "Unknown", until DEVICE_INFO/PRODUCT_DETAIL_ID_LIST/
-	// PROXIED_DEVICE_COUNT have actually been fetched at least once — the
-	// UI should treat "Unknown" as "not yet classified", not as its own
-	// category). See internal/registry/deviceclass.go for the full enum.
-	Class           string `json:"class"`
-	IsWirelessProxy bool   `json:"isWirelessProxy"`
+	// Class surfaces registry.DeviceClass (report §1.3): "Fixture" is the
+	// JSON default (ClassUnknown also renders as a string, "Unknown", until
+	// DEVICE_INFO/PRODUCT_DETAIL_ID_LIST/PROXIED_DEVICE_COUNT have actually
+	// been fetched at least once — the UI should treat "Unknown" as "not
+	// yet classified", not as its own category). See
+	// internal/registry/deviceclass.go for the full enum. Deliberately no
+	// separate "is this a wireless proxy" field here: Dom's explicit call
+	// (task ask) is that a proxied fixture's RDM packets still carry its
+	// own manufacturer/type, so it's an ordinary device like any other —
+	// Class already says "Wireless" for the radio unit itself without a
+	// second proxy-specific label layered on top.
+	Class string `json:"class"`
 
 	// Manufacturer/Model are the Devices screen's ready-to-render column
 	// values, resolved server-side per the task's priority rule:
@@ -389,7 +393,7 @@ func toFixtureJSON(f registry.Fixture) fixtureJSON {
 	return fixtureJSON{
 		UID: f.UID.String(), ManufacturerID: f.ManufacturerID, ManufacturerName: f.ManufacturerName,
 		NodeIP: f.Node.IP.String(), BindIndex: f.Node.BindIndex, PortAddress: f.Port.RawValue(),
-		LastSeen: f.LastSeen, Class: f.Class.String(), IsWirelessProxy: f.IsWirelessProxy,
+		LastSeen: f.LastSeen, Class: f.Class.String(),
 		Manufacturer: effectiveManufacturer(f), Model: effectiveModel(f),
 		ManufacturerLabel: f.ManufacturerLabel, ManufacturerLabelKnown: f.ManufacturerLabelKnown,
 		ModelDescription: f.ModelDescription, ModelDescriptionKnown: f.ModelDescriptionKnown,

@@ -16,6 +16,7 @@ package walk
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"sync"
 	"time"
@@ -35,13 +36,18 @@ const (
 
 // Order is how the walk list was sorted when the session was built (task
 // ask: "let the user pick the walk order — by universe+DMX address
-// ascending is the sensible default; also offer discovery order").
+// ascending is the sensible default; also offer discovery order", extended
+// by a later task to also offer descending address, model/fixture type, and
+// UID — see Less below for the compound comparison each performs).
 type Order string
 
 // Walk orders.
 const (
-	OrderAddress   Order = "address"   // Port-Address (universe), then DMX start address ascending
-	OrderDiscovery Order = "discovery" // order devices were first seen (ToD assembly order)
+	OrderAddress     Order = "address"      // Port-Address (universe), then DMX start address ascending
+	OrderAddressDesc Order = "address_desc" // same compound key, descending
+	OrderModel       Order = "model"        // fixture type/model, ascending, UID tiebreak
+	OrderUID         Order = "uid"          // RDM UID ascending
+	OrderDiscovery   Order = "discovery"    // order devices were first seen (ToD assembly order)
 )
 
 // Scope records what device set the session was built from, purely for
@@ -60,7 +66,6 @@ type Device struct {
 	Manufacturer    string `json:"manufacturer"`
 	Model           string `json:"model"`
 	Class           string `json:"class"`
-	IsWirelessProxy bool   `json:"isWirelessProxy"`
 	NodeIP          string `json:"nodeIp"`
 	BindIndex       byte   `json:"bindIndex"`
 	PortAddress     uint16 `json:"portAddress"` // Art-Net Port-Address (the "universe" the owner walks by)
@@ -83,6 +88,49 @@ type Device struct {
 	// so the UI can offer a retry affordance.
 	IdentifyOn  bool   `json:"identifyOn"`
 	IdentifyErr string `json:"identifyErr,omitempty"`
+}
+
+// MaxDMXAddress is the highest valid DMX512 channel/address (E1.11) — used
+// by FormatAddressRange to detect a patch that overflows past the end of a
+// universe.
+const MaxDMXAddress = 512
+
+// FormatAddressRange renders a DMX start address plus its occupied channel
+// range for display (task ask: "Address: 141 (141-160)" for a 20-channel
+// fixture at 141 — end = start+footprint-1). Every UI surface that shows a
+// DMX start address (Devices table, device detail Info tab, Rig Walk card,
+// export text) should render through this one function so the arithmetic
+// and edge cases never drift between them:
+//
+//   - !known (no address resolved at all) -> "—"
+//   - footprint 0 or unknown -> the address alone, no parenthetical range
+//     (a splitter/gateway occupies no DMX channels, so a range would be
+//     meaningless)
+//   - footprint 1 -> "141 (141)" — a single-channel range still gets the
+//     parenthetical for consistency, just start==end
+//   - footprint >1 -> "141 (141-160)"
+//   - end (start+footprint-1) > 512 -> the range is still shown, plus a
+//     trailing text warning (never color alone — accessibility standing
+//     constraint) since that's a real patch error worth surfacing
+func FormatAddressRange(start, footprint uint16, known bool) string {
+	if !known {
+		return "—"
+	}
+	if footprint == 0 {
+		return fmt.Sprintf("%d", start)
+	}
+	end := int(start) + int(footprint) - 1
+	var rng string
+	if footprint > 1 {
+		rng = fmt.Sprintf("%d-%d", start, end)
+	} else {
+		rng = fmt.Sprintf("%d", start)
+	}
+	out := fmt.Sprintf("%d (%s)", start, rng)
+	if end > MaxDMXAddress {
+		out += " ⚠ overflows past 512"
+	}
+	return out
 }
 
 // Session is one Rig Walk run: an ordered device list plus cursor/settings.

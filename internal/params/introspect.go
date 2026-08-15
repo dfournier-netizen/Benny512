@@ -50,9 +50,19 @@ func paramDescriptorFromPD(pd rdm.ParameterDescription) ParamDescriptor {
 // but NOT in this set is treated as "unknown ESTA PID" and is
 // PARAMETER_DESCRIPTION-probed exactly like a manufacturer PID, per report
 // §1.1 item 5's recommendation.
+//
+// PIDProxiedDevices/PIDProxiedDeviceCount (0x0010/0x0011) are deliberately
+// NOT in this set (task ask, item 2: "keep PROXIED_DEVICES/
+// PROXIED_DEVICE_COUNT reachable via the generic parameter editor" — the
+// UI dropped its dedicated proxy-status callout, so the *only* remaining
+// way to inspect either PID is Introspect's normal manufacturer/unknown-PID
+// walk). A device that doesn't implement proxy behavior simply won't list
+// either PID in SUPPORTED_PARAMETERS, so this is a no-op for it; a proxy
+// that does will get it PARAMETER_DESCRIPTION-probed like any other PID,
+// falling back to the raw-hex editor if the device NACKs the description
+// (report §1.1 item 4's universal fallback) — no special-casing needed.
 var knownDecodedESTAPIDs = map[rdm.ParameterID]bool{
 	rdm.PIDDiscUniqueBranch: true, rdm.PIDDiscMute: true, rdm.PIDDiscUnMute: true,
-	rdm.PIDProxiedDevices: true, rdm.PIDProxiedDeviceCount: true,
 	rdm.PIDQueuedMessage: true, rdm.PIDStatusMessages: true, rdm.PIDStatusIDDescription: true,
 	rdm.PIDSupportedParameters: true, rdm.PIDParameterDescription: true, rdm.PIDDeviceInfo: true,
 	rdm.PIDProductDetailIDList: true, rdm.PIDDeviceModelDescription: true, rdm.PIDManufacturerLabel: true,

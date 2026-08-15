@@ -46,11 +46,13 @@
     <div class="panel-split">
       <div class="panel-list">
         <div class="panel-toolbar">
-          <label>Node/port:
+          <label>Node/port (discover target):
             <select id="fixtureNodeSelect"></select>
           </label>
           <button id="btnDiscover">Discover</button>
           <span class="hint" id="discoverStatus"></span>
+        </div>
+        <div class="panel-toolbar">
           <label>Class: <select id="deviceClassFilter">
             <option value="">all</option>
             <option value="Fixture">Fixture</option>
@@ -62,7 +64,17 @@
             <option value="Other">Other</option>
             <option value="Unknown">Unknown</option>
           </select></label>
+          <label>Node: <select id="deviceNodeFilter"><option value="">all</option></select></label>
+          <label>Universe: <select id="deviceUniverseFilter"><option value="">all</option></select></label>
+          <label>Sort: <select id="deviceSort">
+            <option value="address">DMX address (low&rarr;high)</option>
+            <option value="address_desc">DMX address (high&rarr;low)</option>
+            <option value="model">Model / fixture type</option>
+            <option value="uid">UID</option>
+          </select></label>
+          <button id="btnClearDeviceFilters" style="display:none;">Clear filters</button>
         </div>
+        <div class="hint" id="deviceFilterSummary"></div>
         <table class="data-table" id="fixturesTable">
           <thead><tr>
             <th>Class</th><th>Manufacturer</th><th>Model/Type</th><th>UID</th><th>Address</th><th>Node/Port</th>

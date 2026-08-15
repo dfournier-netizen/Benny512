@@ -19,11 +19,15 @@ const WalkScreen = (() => {
   let summary = null;   // walk.Summary JSON, or null
   let statusMsg = '';
 
-  // Setup-screen (pre-walk) state.
+  // Setup-screen (pre-walk) state. order/scope/fixturesOnly are persisted
+  // to sessionStorage (task ask, item 4: "persist sort/filter choice for
+  // the session") so re-opening the setup screen mid-session (e.g. after
+  // switching to Devices and back) doesn't silently reset the tech's
+  // choice back to the defaults.
   let nodesCache = [];
-  let scopeKind = 'all';
-  let orderMode = 'address';
-  let fixturesOnly = true;
+  let scopeKind = sessionStorage.getItem('benny512.walk.scopeKind') || 'all';
+  let orderMode = sessionStorage.getItem('benny512.walk.order') || 'address';
+  let fixturesOnly = sessionStorage.getItem('benny512.walk.fixturesOnly') !== 'false';
   let starting = false;
 
   // Active-walk staged state (never sent until an explicit action).
@@ -113,7 +117,10 @@ const WalkScreen = (() => {
         <div class="walk-field">
           <label>Order</label>
           <select id="walkOrder">
-            <option value="address">Universe + DMX address (ascending)</option>
+            <option value="address">Universe + DMX address (low&rarr;high)</option>
+            <option value="address_desc">Universe + DMX address (high&rarr;low)</option>
+            <option value="model">Model / fixture type</option>
+            <option value="uid">UID</option>
             <option value="discovery">Discovery order</option>
           </select>
         </div>
@@ -127,13 +134,22 @@ const WalkScreen = (() => {
       </div>
     `;
     renderScopeValue();
+    document.getElementById('walkScopeKind').value = scopeKind;
+    document.getElementById('walkOrder').value = orderMode;
 
     document.getElementById('walkScopeKind').addEventListener('change', (e) => {
       scopeKind = e.target.value;
+      sessionStorage.setItem('benny512.walk.scopeKind', scopeKind);
       renderScopeValue();
     });
-    document.getElementById('walkOrder').addEventListener('change', (e) => { orderMode = e.target.value; });
-    document.getElementById('walkFixturesOnly').addEventListener('change', (e) => { fixturesOnly = e.target.checked; });
+    document.getElementById('walkOrder').addEventListener('change', (e) => {
+      orderMode = e.target.value;
+      sessionStorage.setItem('benny512.walk.order', orderMode);
+    });
+    document.getElementById('walkFixturesOnly').addEventListener('change', (e) => {
+      fixturesOnly = e.target.checked;
+      sessionStorage.setItem('benny512.walk.fixturesOnly', String(fixturesOnly));
+    });
     document.getElementById('walkStartBtn').addEventListener('click', startWalk);
   }
 
@@ -256,7 +272,12 @@ const WalkScreen = (() => {
   // counter — task ask), UID, node+port smallest. Status is never
   // color-only: every state pairs a color with text/a glyph.
   function renderDeviceCard(dev, idx, total) {
-    const addr = dev.addressKnown ? dev.dmxStartAddress : '—';
+    // Address + occupied footprint range render through the same shared
+    // Api.formatAddressRange every other DMX-address surface uses (task
+    // ask, item 5): "141 (141-160)", footprint 1 -> "141 (141)", footprint
+    // 0/unknown -> "141" alone, unresolved -> "—", overflow past 512 gets
+    // an explicit text warning glyph (never color alone).
+    const addr = Api.formatAddressRange(dev.dmxStartAddress, dev.dmxFootprint, dev.addressKnown);
     const statusClass = dev.status === 'confirmed' ? 'walk-status-confirmed' : dev.status === 'problem' ? 'walk-status-problem' : 'walk-status-unvisited';
     const statusGlyph = dev.status === 'confirmed' ? '✓ CONFIRMED' : dev.status === 'problem' ? '⚠ PROBLEM' : 'UNVISITED';
     const identifyBlock = dev.identifyErr
@@ -269,7 +290,7 @@ const WalkScreen = (() => {
         <div class="walk-address">U${dev.portAddress} / ${addr}</div>
         <div class="walk-model">${escapeHtml(dev.model || '—')}</div>
         <div class="walk-mfr">${escapeHtml(dev.manufacturer || '—')}</div>
-        <div class="walk-meta">UID ${escapeHtml(dev.uid)}${dev.isWirelessProxy ? ' <span class="badge proxy-badge">proxy</span>' : ''}</div>
+        <div class="walk-meta">UID ${escapeHtml(dev.uid)}</div>
         <div class="walk-meta">${escapeHtml(dev.nodeIp)} bind ${dev.bindIndex} &middot; port-addr ${dev.portAddress}</div>
         ${identifyBlock}
         ${dev.note ? `<div class="walk-note-display">note: ${escapeHtml(dev.note)}</div>` : ''}
