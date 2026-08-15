@@ -116,7 +116,10 @@ const Api = (() => {
     getFixtures: () => req('GET', '/api/fixtures'),
     discover: (node, bindIndex, portAddress) =>
       req('POST', '/api/discover', { node, bindIndex, portAddress }),
-    getParam: (uid, pid) => req('GET', `/api/fixture/${encodeURIComponent(uid)}/param/${pid}`),
+    // getParam's optional `query` (e.g. {index:3}) drives the *_DESCRIPTION-
+    // style dimmer PIDs (CURVE_DESCRIPTION etc.), which need an index
+    // alongside {uid}/{pid} — see internal/web/server.go's parseIndexQuery.
+    getParam: (uid, pid, query) => req('GET', `/api/fixture/${encodeURIComponent(uid)}/param/${pid}` + (query ? '?' + new URLSearchParams(query).toString() : '')),
     setParam: (uid, pid, value) => req('POST', `/api/fixture/${encodeURIComponent(uid)}/param/${pid}`, { value }),
     identify: (uid, on) => req('POST', '/api/identify', { uid, on }),
     sendDmx: (universe, channels) => req('POST', '/api/dmx', { universe, channels }),

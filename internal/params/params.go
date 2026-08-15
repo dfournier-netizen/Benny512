@@ -271,3 +271,124 @@ func (c *Client) SetIdentifyDevice(ctx context.Context, on bool) error {
 	}
 	return c.setRaw(ctx, rdm.PIDIdentifyDevice, []byte{v})
 }
+
+// --- E1.37-1 dimmer PIDs -----------------------------------------------
+//
+// Typed helpers for the "dimmer curve" family the owner asked for by name
+// (rdm-pids-sensors-research_2026-08-13_2347.md §6.1). See
+// internal/rdm/dimmer.go's file doc comment for the TODO(hardware) caveat
+// that applies to every wire layout in this section: the research report
+// confirms these PIDs' *numbers* but not their byte layouts.
+
+// Curve issues GET CURVE (0x0343).
+func (c *Client) Curve(ctx context.Context) (rdm.IndexedChoice, error) {
+	data, err := c.getRaw(ctx, rdm.PIDCurve, nil)
+	if err != nil {
+		return rdm.IndexedChoice{}, err
+	}
+	return rdm.DecodeCurve(data)
+}
+
+// SetCurve issues SET CURVE with a 1-based curve index.
+func (c *Client) SetCurve(ctx context.Context, index byte) error {
+	return c.setRaw(ctx, rdm.PIDCurve, rdm.EncodeIndexedChoiceSet(index))
+}
+
+// CurveDescription issues GET CURVE_DESCRIPTION for one curve index.
+func (c *Client) CurveDescription(ctx context.Context, index byte) (rdm.IndexedDescription, error) {
+	data, err := c.getRaw(ctx, rdm.PIDCurveDescription, rdm.EncodeIndexedDescriptionRequest(index))
+	if err != nil {
+		return rdm.IndexedDescription{}, err
+	}
+	return rdm.DecodeCurveDescription(data)
+}
+
+// OutputResponseTime issues GET OUTPUT_RESPONSE_TIME (0x0345).
+func (c *Client) OutputResponseTime(ctx context.Context) (rdm.IndexedChoice, error) {
+	data, err := c.getRaw(ctx, rdm.PIDOutputResponseTime, nil)
+	if err != nil {
+		return rdm.IndexedChoice{}, err
+	}
+	return rdm.DecodeOutputResponseTime(data)
+}
+
+// SetOutputResponseTime issues SET OUTPUT_RESPONSE_TIME with a 1-based index.
+func (c *Client) SetOutputResponseTime(ctx context.Context, index byte) error {
+	return c.setRaw(ctx, rdm.PIDOutputResponseTime, rdm.EncodeIndexedChoiceSet(index))
+}
+
+// OutputResponseTimeDescription issues GET OUTPUT_RESPONSE_TIME_DESCRIPTION
+// for one index.
+func (c *Client) OutputResponseTimeDescription(ctx context.Context, index byte) (rdm.IndexedDescription, error) {
+	data, err := c.getRaw(ctx, rdm.PIDOutputResponseTimeDescription, rdm.EncodeIndexedDescriptionRequest(index))
+	if err != nil {
+		return rdm.IndexedDescription{}, err
+	}
+	return rdm.DecodeOutputResponseTimeDescription(data)
+}
+
+// ModulationFrequency issues GET MODULATION_FREQUENCY (0x0347).
+func (c *Client) ModulationFrequency(ctx context.Context) (rdm.IndexedChoice, error) {
+	data, err := c.getRaw(ctx, rdm.PIDModulationFrequency, nil)
+	if err != nil {
+		return rdm.IndexedChoice{}, err
+	}
+	return rdm.DecodeModulationFrequency(data)
+}
+
+// SetModulationFrequency issues SET MODULATION_FREQUENCY with a 1-based index.
+func (c *Client) SetModulationFrequency(ctx context.Context, index byte) error {
+	return c.setRaw(ctx, rdm.PIDModulationFrequency, rdm.EncodeIndexedChoiceSet(index))
+}
+
+// ModulationFrequencyDescription issues GET MODULATION_FREQUENCY_DESCRIPTION
+// for one index.
+func (c *Client) ModulationFrequencyDescription(ctx context.Context, index byte) (rdm.IndexedDescription, error) {
+	data, err := c.getRaw(ctx, rdm.PIDModulationFrequencyDescription, rdm.EncodeIndexedDescriptionRequest(index))
+	if err != nil {
+		return rdm.IndexedDescription{}, err
+	}
+	return rdm.DecodeModulationFrequencyDescription(data)
+}
+
+// MinimumLevel issues GET MINIMUM_LEVEL (0x0341).
+func (c *Client) MinimumLevel(ctx context.Context) (rdm.MinimumLevel, error) {
+	data, err := c.getRaw(ctx, rdm.PIDMinimumLevel, nil)
+	if err != nil {
+		return rdm.MinimumLevel{}, err
+	}
+	return rdm.DecodeMinimumLevel(data)
+}
+
+// SetMinimumLevel issues SET MINIMUM_LEVEL.
+func (c *Client) SetMinimumLevel(ctx context.Context, v rdm.MinimumLevel) error {
+	return c.setRaw(ctx, rdm.PIDMinimumLevel, rdm.EncodeMinimumLevel(v))
+}
+
+// MaximumLevel issues GET MAXIMUM_LEVEL (0x0342).
+func (c *Client) MaximumLevel(ctx context.Context) (uint16, error) {
+	data, err := c.getRaw(ctx, rdm.PIDMaximumLevel, nil)
+	if err != nil {
+		return 0, err
+	}
+	return rdm.DecodeMaximumLevel(data)
+}
+
+// SetMaximumLevel issues SET MAXIMUM_LEVEL.
+func (c *Client) SetMaximumLevel(ctx context.Context, v uint16) error {
+	return c.setRaw(ctx, rdm.PIDMaximumLevel, rdm.EncodeMaximumLevel(v))
+}
+
+// IdentifyMode issues GET IDENTIFY_MODE (0x1040).
+func (c *Client) IdentifyMode(ctx context.Context) (rdm.IdentifyMode, error) {
+	data, err := c.getRaw(ctx, rdm.PIDIdentifyMode, nil)
+	if err != nil {
+		return 0, err
+	}
+	return rdm.DecodeIdentifyMode(data)
+}
+
+// SetIdentifyMode issues SET IDENTIFY_MODE.
+func (c *Client) SetIdentifyMode(ctx context.Context, m rdm.IdentifyMode) error {
+	return c.setRaw(ctx, rdm.PIDIdentifyMode, rdm.EncodeIdentifyMode(m))
+}

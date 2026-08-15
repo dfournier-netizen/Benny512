@@ -510,6 +510,45 @@ func (s *Server) handleGetParam(w http.ResponseWriter, r *http.Request) {
 		val, err = client.SoftwareVersionLabel(ctx)
 	case "identify_device":
 		val, err = client.IdentifyDevice(ctx)
+
+	// --- E1.37-1 dimmer PIDs (task ask: "typed support for E1.37-1 dimmer
+	// PIDs... same pattern as DMX_PERSONALITY/DMX_PERSONALITY_DESCRIPTION").
+	// TODO(hardware): every wire layout behind these calls is a best-reading
+	// implementation, not confirmed by the research doc — see
+	// internal/rdm/dimmer.go's file doc comment.
+	case "curve":
+		val, err = client.Curve(ctx)
+	case "curve_description":
+		idx, perr := parseIndexQuery(r)
+		if perr != nil {
+			writeError(w, http.StatusBadRequest, perr)
+			return
+		}
+		val, err = client.CurveDescription(ctx, idx)
+	case "output_response_time":
+		val, err = client.OutputResponseTime(ctx)
+	case "output_response_time_description":
+		idx, perr := parseIndexQuery(r)
+		if perr != nil {
+			writeError(w, http.StatusBadRequest, perr)
+			return
+		}
+		val, err = client.OutputResponseTimeDescription(ctx, idx)
+	case "modulation_frequency":
+		val, err = client.ModulationFrequency(ctx)
+	case "modulation_frequency_description":
+		idx, perr := parseIndexQuery(r)
+		if perr != nil {
+			writeError(w, http.StatusBadRequest, perr)
+			return
+		}
+		val, err = client.ModulationFrequencyDescription(ctx, idx)
+	case "minimum_level":
+		val, err = client.MinimumLevel(ctx)
+	case "maximum_level":
+		val, err = client.MaximumLevel(ctx)
+	case "identify_mode":
+		val, err = client.IdentifyMode(ctx)
 	default:
 		writeError(w, http.StatusNotFound, fmt.Errorf("unknown param %q", r.PathValue("pid")))
 		return
@@ -519,6 +558,22 @@ func (s *Server) handleGetParam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"value": val})
+}
+
+// parseIndexQuery reads the ?index=N query param the *_DESCRIPTION-style
+// dimmer PIDs (CURVE_DESCRIPTION etc.) need alongside the {uid}/{pid} path —
+// mirrors how DMX_PERSONALITY_DESCRIPTION would need an index if this
+// convenience-name endpoint had grown a dedicated case for it too.
+func parseIndexQuery(r *http.Request) (byte, error) {
+	v := r.URL.Query().Get("index")
+	if v == "" {
+		return 0, fmt.Errorf("missing ?index= query parameter")
+	}
+	n, err := strconv.ParseUint(v, 10, 8)
+	if err != nil {
+		return 0, fmt.Errorf("bad index %q: %w", v, err)
+	}
+	return byte(n), nil
 }
 
 type setParamRequest struct {
@@ -568,6 +623,54 @@ func (s *Server) handleSetParam(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		err = client.SetIdentifyDevice(ctx, on)
+
+	// --- E1.37-1 dimmer PIDs (TODO(hardware), see handleGetParam above) ---
+	case "curve":
+		var idx byte
+		if jsonErr := json.Unmarshal(req.Value, &idx); jsonErr != nil {
+			writeError(w, http.StatusBadRequest, jsonErr)
+			return
+		}
+		err = client.SetCurve(ctx, idx)
+	case "output_response_time":
+		var idx byte
+		if jsonErr := json.Unmarshal(req.Value, &idx); jsonErr != nil {
+			writeError(w, http.StatusBadRequest, jsonErr)
+			return
+		}
+		err = client.SetOutputResponseTime(ctx, idx)
+	case "modulation_frequency":
+		var idx byte
+		if jsonErr := json.Unmarshal(req.Value, &idx); jsonErr != nil {
+			writeError(w, http.StatusBadRequest, jsonErr)
+			return
+		}
+		err = client.SetModulationFrequency(ctx, idx)
+	case "minimum_level":
+		var v rdm.MinimumLevel
+		if jsonErr := json.Unmarshal(req.Value, &v); jsonErr != nil {
+			writeError(w, http.StatusBadRequest, jsonErr)
+			return
+		}
+		err = client.SetMinimumLevel(ctx, v)
+	case "maximum_level":
+		var v uint16
+		if jsonErr := json.Unmarshal(req.Value, &v); jsonErr != nil {
+			writeError(w, http.StatusBadRequest, jsonErr)
+			return
+		}
+		err = client.SetMaximumLevel(ctx, v)
+	case "identify_mode":
+		var loud bool
+		if jsonErr := json.Unmarshal(req.Value, &loud); jsonErr != nil {
+			writeError(w, http.StatusBadRequest, jsonErr)
+			return
+		}
+		mode := rdm.IdentifyModeQuiet
+		if loud {
+			mode = rdm.IdentifyModeLoud
+		}
+		err = client.SetIdentifyMode(ctx, mode)
 	default:
 		writeError(w, http.StatusNotFound, fmt.Errorf("param %q is not settable", r.PathValue("pid")))
 		return

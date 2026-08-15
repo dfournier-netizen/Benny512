@@ -373,6 +373,21 @@ func pidName(pid rdm.ParameterID) string {
 	return "Unknown"
 }
 
+// PIDName is pidName's exported form, for other packages (currently
+// internal/web's generic-PID label fallback, task ask: "surface it... using
+// the PID-name table for the label") that want the same ANSI E1.20/E1.37
+// mnemonic lookup this package already built for capture/export
+// rendering — one table, not a second copy. Returns "" (not "Unknown"/
+// "Manufacturer-Specific") when the PID isn't in the known-mnemonic table,
+// so callers can tell "no name available" apart from a real lookup result
+// and fall back to their own PID-hex display.
+func PIDName(pid rdm.ParameterID) string {
+	if name, ok := pidNames[pid]; ok {
+		return name
+	}
+	return ""
+}
+
 var pidNames = map[rdm.ParameterID]string{
 	rdm.PIDDiscUniqueBranch: "DISC_UNIQUE_BRANCH",
 	rdm.PIDDiscMute:         "DISC_MUTE",

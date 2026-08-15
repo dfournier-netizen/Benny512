@@ -65,6 +65,12 @@ type demoDevice struct {
 	paramValues map[rdm.ParameterID][]byte // mutable GET/SET store
 	sensors     []rdm.SensorDefinition
 	sensorVals  []rdm.SensorValue // mutable, index-aligned with sensors
+	// curveLabels maps a CURVE index (1-based) to its CURVE_DESCRIPTION
+	// label — task ask: "extend --demo so a fake fixture exposes a curve
+	// PID with descriptions (so the labeled dropdown is exercisable)".
+	// paramValues[rdm.PIDCurve] carries the current+count bytes; this map
+	// is what handle() consults for CURVE_DESCRIPTION's per-index GET.
+	curveLabels map[byte]string
 	// proxiedDeviceCount > 0 marks this device as acting as an RDM proxy
 	// (report §1.3's PROXIED_DEVICES/PROXIED_DEVICE_COUNT signal).
 	proxiedDeviceCount uint16
@@ -172,6 +178,22 @@ func (d *demoDevice) handle(msg rdm.Message) (data []byte, nack bool, reason rdm
 		b := make([]byte, 2)
 		binary.BigEndian.PutUint16(b, d.proxiedDeviceCount)
 		return b, false, 0
+	case rdm.PIDCurveDescription:
+		// Task ask: "a fake fixture exposes a curve PID with descriptions
+		// (so the labeled dropdown is exercisable)". CURVE itself (current +
+		// count) is a plain paramValues entry (default branch below);
+		// CURVE_DESCRIPTION needs per-index special-casing like
+		// PARAMETER_DESCRIPTION does, since the response varies by the
+		// requested index.
+		if len(msg.ParameterData) < 1 {
+			return nil, true, rdm.NackFormatError
+		}
+		idx := msg.ParameterData[0]
+		label, ok := d.curveLabels[idx]
+		if !ok {
+			return nil, true, rdm.NackDataOutOfRange
+		}
+		return append([]byte{idx}, []byte(label)...), false, 0
 	default:
 		v, ok := d.paramValues[msg.ParameterID]
 		if !ok {
@@ -349,16 +371,35 @@ func buildDemoDevices(en4IP, wirelessIP netip.Addr, port0, port1, port2 artnet.P
 	chromaQ := &demoDevice{
 		uid: rdm.UID{ManufacturerID: 0x5370, DeviceID: 1}, label: "CF2 48", mfrLabel: "Chroma-Q", model: "Color Force II 48",
 		nodeIP: en4IP, port: port2, startAdr: 1,
-		deviceInfo:     basePV(rdm.CategoryFixtureFixed, 20, 1, 2),
-		supportedExtra: []rdm.ParameterID{0x8010, 0x8011, 0x8012},
+		deviceInfo: basePV(rdm.CategoryFixtureFixed, 20, 1, 2),
+		// 0x8010-0x8012 are the pre-existing generic manufacturer-PID demo
+		// PIDs (self-describing via PARAMETER_DESCRIPTION). rdm.PIDCurve/
+		// PIDCurveDescription (E1.37-1, task ask: "a fake fixture exposes a
+		// curve PID with descriptions so the labeled dropdown is
+		// exercisable") are standard PIDs with dedicated typed Client
+		// methods, not manufacturer PIDs — still must be listed here since
+		// they're outside baseSupportedParams. rdm.PIDBurnIn (E1.37-1,
+		// 0x0440) demonstrates the generic-ESTA-PID fallback path (task ask:
+		// "at least one unrecognized ESTA PID hitting the generic path"): no
+		// paramDescriptions entry below, so it NACKs PARAMETER_DESCRIPTION
+		// and renders via the raw-hex fallback with its label resolved from
+		// the PID-name table (capture.PIDName) rather than a device-reported
+		// description.
+		supportedExtra: []rdm.ParameterID{0x8010, 0x8011, 0x8012, rdm.PIDCurve, rdm.PIDCurveDescription, rdm.PIDBurnIn},
 		paramDescriptions: map[rdm.ParameterID]rdm.ParameterDescription{
 			0x8010: {PID: 0x8010, PDLSize: 1, DataType: rdm.DSUnsignedByte, CommandClass: rdm.PDCommandClassGetSet, Unit: rdm.UnitNone, Prefix: rdm.PrefixNone, MinValue: 0, MaxValue: 16, DefaultValue: 16, Description: "PIXEL COUNT"},
 			0x8011: {PID: 0x8011, PDLSize: 2, DataType: rdm.DSUnsignedWord, CommandClass: rdm.PDCommandClassGetSet, Unit: rdm.UnitHertz, Prefix: rdm.PrefixNone, MinValue: 750, MaxValue: 24000, DefaultValue: 1500, Description: "REFRESH RATE"},
 			0x8012: {PID: 0x8012, PDLSize: 1, DataType: rdm.DSBoolean, CommandClass: rdm.PDCommandClassGetSet, Unit: rdm.UnitNone, Prefix: rdm.PrefixNone, MinValue: 0, MaxValue: 1, DefaultValue: 0, Description: "LED FLIP"},
 		},
+		noDescribe: map[rdm.ParameterID]bool{rdm.PIDBurnIn: true},
+		curveLabels: map[byte]string{
+			1: "Linear", 2: "Square Law", 3: "S-Curve",
+		},
 		paramValues: map[rdm.ParameterID][]byte{
 			rdm.PIDDMXStartAddress: dmxAddr(1), rdm.PIDDMXPersonality: {1, 1}, rdm.PIDIdentifyDevice: {0},
 			0x8010: {16}, 0x8011: {0x05, 0xDC} /* 1500 */, 0x8012: {0},
+			rdm.PIDCurve:  {3, 3}, // current=3 (S-Curve) of 3
+			rdm.PIDBurnIn: {0x00},
 		},
 		sensors: []rdm.SensorDefinition{
 			{SensorNumber: 0, Type: rdm.SensorTemperature, Unit: rdm.UnitCentigrade, Prefix: rdm.PrefixNone, RangeMin: -20, RangeMax: 100, NormalMin: 0, NormalMax: 60, SupportsRecording: 0x03, Description: "PSU TEMP"},

@@ -27,6 +27,7 @@ import (
 	"strconv"
 	"time"
 
+	"benny512/internal/capture"
 	"benny512/internal/params"
 	"benny512/internal/rdm"
 )
@@ -81,9 +82,23 @@ type paramDescriptorJSON struct {
 	SelfDescribing bool   `json:"selfDescribing"`
 }
 
+// paramLabel resolves a descriptor's display label: the device's own
+// PARAMETER_DESCRIPTION-reported description when available (d.Label,
+// self-describing PIDs), else the ANSI E1.20/E1.37 mnemonic from the shared
+// PID-name table (task ask, "Generic ESTA PID rendering": "still surface it
+// ... using the PID-name table for the label") for any PID this app
+// recognizes by number even without a live description, else empty — the
+// UI's own fallback renders "PID 0x____" when this is empty.
+func paramLabel(d params.ParamDescriptor) string {
+	if d.Label != "" {
+		return d.Label
+	}
+	return capture.PIDName(d.PID)
+}
+
 func toParamDescriptorJSON(d params.ParamDescriptor) paramDescriptorJSON {
 	return paramDescriptorJSON{
-		PID: fmt.Sprintf("%04X", uint16(d.PID)), Label: d.Label,
+		PID: fmt.Sprintf("%04X", uint16(d.PID)), Label: paramLabel(d),
 		DataType: byte(d.DataType), DataTypeName: d.DataType.String(),
 		CommandClass: byte(d.CommandClass), SupportsGet: d.CommandClass.SupportsGet(), SupportsSet: d.CommandClass.SupportsSet(),
 		PDLSize: d.PDLSize, Unit: byte(d.Unit), UnitSuffix: d.Unit.Suffix(), Prefix: byte(d.Prefix),

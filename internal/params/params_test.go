@@ -184,3 +184,108 @@ func TestClientDeviceInfoAndLabels(t *testing.T) {
 	}
 	t.Fatal("timed out waiting for client calls to complete")
 }
+
+// TestClientDimmerPIDs exercises the E1.37-1 dimmer-PID typed helpers
+// (Curve/CurveDescription/MinimumLevel/MaximumLevel/IdentifyMode) end to end
+// through a scripted FakeTransport responder, mirroring
+// TestClientDeviceInfoAndLabels' pattern.
+func TestClientDimmerPIDs(t *testing.T) {
+	clock := session.NewFakeClock(time.Time{})
+	uid := rdm.UID{ManufacturerID: 0x5370, DeviceID: 1}
+	ctrlRef := make([]*session.RDMController, 1)
+	tport := scriptedResponder(t, clock, &ctrlRef, uid, map[rdm.ParameterID][]byte{
+		rdm.PIDCurve:               {3, 5}, // current=3 of 5
+		rdm.PIDCurveDescription:    append([]byte{3}, []byte("S-Curve")...),
+		rdm.PIDOutputResponseTime:  {1, 2},
+		rdm.PIDModulationFrequency: {2, 6},
+		rdm.PIDMinimumLevel:        rdm.EncodeMinimumLevel(rdm.MinimumLevel{Increasing: 10, Decreasing: 5, OnBelowMin: 1}),
+		rdm.PIDMaximumLevel:        rdm.EncodeMaximumLevel(65000),
+		rdm.PIDIdentifyMode:        {byte(rdm.IdentifyModeLoud)},
+	})
+	ctrl := session.NewRDMController(session.RDMConfig{Transport: tport, Clock: clock})
+	ctrlRef[0] = ctrl
+
+	port, _ := artnet.NewPortAddress(0, 0, 1)
+	node := session.NodeRef{
+		Key:  session.NodeKey{IP: netip.MustParseAddr("10.0.0.6"), BindIndex: 1},
+		Addr: netip.MustParseAddrPort("10.0.0.6:6454"),
+		Port: port,
+	}
+	client := New(ctrl, node, uid)
+
+	type result struct {
+		curve     rdm.IndexedChoice
+		curveDesc rdm.IndexedDescription
+		ort       rdm.IndexedChoice
+		modFreq   rdm.IndexedChoice
+		minLevel  rdm.MinimumLevel
+		maxLevel  uint16
+		identMode rdm.IdentifyMode
+		err       error
+	}
+	resCh := make(chan result, 1)
+	go func() {
+		var r result
+		if r.curve, r.err = client.Curve(context.Background()); r.err != nil {
+			resCh <- r
+			return
+		}
+		if r.curveDesc, r.err = client.CurveDescription(context.Background(), 3); r.err != nil {
+			resCh <- r
+			return
+		}
+		if r.ort, r.err = client.OutputResponseTime(context.Background()); r.err != nil {
+			resCh <- r
+			return
+		}
+		if r.modFreq, r.err = client.ModulationFrequency(context.Background()); r.err != nil {
+			resCh <- r
+			return
+		}
+		if r.minLevel, r.err = client.MinimumLevel(context.Background()); r.err != nil {
+			resCh <- r
+			return
+		}
+		if r.maxLevel, r.err = client.MaximumLevel(context.Background()); r.err != nil {
+			resCh <- r
+			return
+		}
+		r.identMode, r.err = client.IdentifyMode(context.Background())
+		resCh <- r
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		clock.Advance(2 * time.Millisecond)
+		select {
+		case r := <-resCh:
+			if r.err != nil {
+				t.Fatalf("client call failed: %v", r.err)
+			}
+			if r.curve != (rdm.IndexedChoice{Current: 3, Count: 5}) {
+				t.Errorf("Curve = %+v", r.curve)
+			}
+			if r.curveDesc != (rdm.IndexedDescription{Index: 3, Description: "S-Curve"}) {
+				t.Errorf("CurveDescription = %+v", r.curveDesc)
+			}
+			if r.ort != (rdm.IndexedChoice{Current: 1, Count: 2}) {
+				t.Errorf("OutputResponseTime = %+v", r.ort)
+			}
+			if r.modFreq != (rdm.IndexedChoice{Current: 2, Count: 6}) {
+				t.Errorf("ModulationFrequency = %+v", r.modFreq)
+			}
+			if r.minLevel != (rdm.MinimumLevel{Increasing: 10, Decreasing: 5, OnBelowMin: 1}) {
+				t.Errorf("MinimumLevel = %+v", r.minLevel)
+			}
+			if r.maxLevel != 65000 {
+				t.Errorf("MaximumLevel = %d, want 65000", r.maxLevel)
+			}
+			if r.identMode != rdm.IdentifyModeLoud {
+				t.Errorf("IdentifyMode = %v, want Loud", r.identMode)
+			}
+			return
+		case <-time.After(time.Millisecond):
+		}
+	}
+	t.Fatal("timed out waiting for dimmer-PID client calls to complete")
+}

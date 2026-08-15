@@ -601,6 +601,55 @@ main { padding: 20px; }
   border-top: 1px solid var(--border);
 }
 
+/* Rig Walk's full-device-detail accordion (task ask: "sections as large
+   collapsible accordions rather than small tabs... big touch targets,
+   generous type"). Each header is a full-width button — well over the
+   walk screen's 72px touch-target convention isn't required here (this
+   isn't a primary action), but padding is still generous for a thumb tap
+   at arm's length. Body content reuses the shared devicedetail.js section
+   renderers verbatim (field-row/param-row/gauge-card styles below already
+   apply), so no separate "walk mode" styling fork is needed for the
+   content itself — only the accordion chrome around it is Rig-Walk-
+   specific. */
+.walk-accordion {
+  margin-bottom: 16px;
+}
+.walk-accordion-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+.walk-accordion-header {
+  width: 100%;
+  text-align: left;
+  font-size: 17px;
+  font-weight: 700;
+  padding: 16px 14px;
+  background: var(--bg-panel);
+  border: none;
+  border-radius: 0;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.walk-accordion-chevron {
+  color: var(--accent-strong);
+  font-size: 15px;
+  width: 1em;
+}
+.walk-accordion-body {
+  padding: 14px;
+  border-top: 1px solid var(--border);
+  text-align: left;
+}
+/* device-detail-dimmer/standard/mfr are the shared section's own internal
+   grouping hooks (devicedetail.js) — no Rig-Walk-specific styling needed
+   beyond what .field-row/.param-row already provide at the top of this
+   file; declared here only so future per-mode tuning has a stable target. */
+.device-detail-standard, .device-detail-mfr, .device-detail-dimmer {}
+
 /* Primary Next/Previous: fixed to the bottom of the viewport, full-width
    split, thumb-reachable, well over the 72px minimum touch-target height
    (task spec) so they work reliably while the tech is mid-stride. On a

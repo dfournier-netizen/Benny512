@@ -70,6 +70,16 @@ var knownDecodedESTAPIDs = map[rdm.ParameterID]bool{
 	rdm.PIDDMXPersonalityDescription: true, rdm.PIDDMXStartAddress: true,
 	rdm.PIDSensorDefinition: true, rdm.PIDSensorValue: true, rdm.PIDRecordSensors: true,
 	rdm.PIDIdentifyDevice: true,
+
+	// E1.37-1 dimmer PIDs this package now has typed Client methods for
+	// (see this file's dimmer-PID section below and internal/rdm/dimmer.go)
+	// — excluded from the generic manufacturer-PID walk so a device exposing
+	// these doesn't get a redundant raw-hex row alongside its dedicated
+	// typed field, mirroring how DMX_PERSONALITY is excluded above.
+	rdm.PIDCurve: true, rdm.PIDCurveDescription: true,
+	rdm.PIDOutputResponseTime: true, rdm.PIDOutputResponseTimeDescription: true,
+	rdm.PIDModulationFrequency: true, rdm.PIDModulationFrequencyDescription: true,
+	rdm.PIDMinimumLevel: true, rdm.PIDMaximumLevel: true, rdm.PIDIdentifyMode: true,
 }
 
 // isIntrospectionTarget reports whether pid should be walked via

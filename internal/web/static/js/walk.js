@@ -1,29 +1,42 @@
 // walk.js — Rig Walk mode: a phone-optimized, one-device-at-a-time
-// walkthrough. The owner holds his phone and walks the physical rig; this
-// screen auto-drives IDENTIFY_DEVICE (ON for whatever's on screen, OFF for
+// walkthrough. The owner holds his phone and walks the physical rig; the
+// server auto-drives IDENTIFY_DEVICE (ON for whatever's on screen, OFF for
 // whatever was) so exactly one fixture is ever flashing, plus a big-button
 // verification checklist (Confirmed/Problem/note) and export.
+//
+// Task ask ("in rig walk mode, we need access to the full device UI"): the
+// device card below the walk chrome is now the SAME shared DeviceDetail
+// component (see devicedetail.js) the Devices tab uses, rendered in its
+// "walk" presentation — large collapsible accordions instead of small tabs,
+// sensible default (only Parameters, the address/personality section,
+// starts expanded) so the card stays scannable at arm's length, big touch
+// targets, generous type. Everything on the Devices tab is reachable here:
+// sensor gauges, DMX address/personality, label, identify, standard PIDs
+// incl. the new E1.37-1 dimmer fields, manufacturer/generic-ESTA PIDs with
+// Introspect + raw-hex fallback, and status messages.
 //
 // Rules (same as every other screen, architecture rev 5 §4): oninput
 // mutates local state only (noteDraft/addressDraft below), full re-render
 // happens on onchange/explicit action. This screen leans on that harder
 // than most — since almost every action is a server round-trip that
-// replaces the whole session object, staged text fields (the problem note,
-// the address fix) are deliberately NOT part of the server session; they
-// live in this module's own closure state until the user explicitly
-// submits/applies them, so a slow wireless-proxied identify round-trip
-// elsewhere on screen never clobbers what the tech is mid-typing.
+// replaces the whole session object, staged text fields (the problem note)
+// are deliberately NOT part of the server session; they live in this
+// module's own closure state until the user explicitly submits/applies
+// them, so a slow wireless-proxied identify round-trip elsewhere on screen
+// never clobbers what the tech is mid-typing.
+//
+// Probe fan-out: device selection (Next/Previous/goto) flows through
+// DeviceDetail.select(uid, sections), which debounces ~300ms and cancels
+// stale results — see devicedetail.js's file doc comment. A tech tapping
+// Next repeatedly never queues probes for devices they've already moved
+// past.
 const WalkScreen = (() => {
   let active = false;
   let session = null;   // walk.Session JSON, or null
   let summary = null;   // walk.Summary JSON, or null
   let statusMsg = '';
 
-  // Setup-screen (pre-walk) state. order/scope/fixturesOnly are persisted
-  // to sessionStorage (task ask, item 4: "persist sort/filter choice for
-  // the session") so re-opening the setup screen mid-session (e.g. after
-  // switching to Devices and back) doesn't silently reset the tech's
-  // choice back to the defaults.
+  // Setup-screen (pre-walk) state.
   let nodesCache = [];
   let scopeKind = sessionStorage.getItem('benny512.walk.scopeKind') || 'all';
   let orderMode = sessionStorage.getItem('benny512.walk.order') || 'address';
@@ -34,13 +47,19 @@ const WalkScreen = (() => {
   let showProblemNote = false;
   let noteDraft = '';
 
+  // Accordion expand/collapse state — task ask: "sensible default (start
+  // collapsed except the most-used section — address/personality)". Kept
+  // across Next/Previous within one walk session (a tech who opens Sensors
+  // once probably wants it open for the next fixture too), reset to the
+  // default whenever a NEW device is actually selected is deliberately NOT
+  // done — persisting the tech's own preference beats re-collapsing on
+  // every step.
+  let expandedSections = { info: false, params: true, sensors: false, status: false };
+  let currentDeviceUID = null;
+
   // --- lifecycle ------------------------------------------------------------
 
   function init() {
-    // Safety net: never leave a fixture flashing if the tab/browser dies
-    // outright (task ask: "the page unloads"). visibilitychange covers a
-    // phone screen lock / app-switch away, which is the more common real
-    // exit than an actual page close on mobile Safari/Chrome.
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden' && active) {
         Api.walkIdentifyOffBeacon();
@@ -49,20 +68,19 @@ const WalkScreen = (() => {
     window.addEventListener('pagehide', () => {
       if (active) Api.walkIdentifyOffBeacon();
     });
+    DeviceDetail.init(() => { if (active) render(); });
   }
 
-  // onEnterScreen/onLeaveScreen are called by app.js's tab switcher.
   function onEnterScreen() {
     refresh();
   }
 
   function onLeaveScreen() {
     if (active) {
-      // Fire-and-forget: turning off Identify shouldn't block switching
-      // tabs, and the lightweight endpoint is safe to call even if a
-      // refresh is mid-flight.
       Api.walkIdentifyOffBeacon();
     }
+    DeviceDetail.deselect();
+    currentDeviceUID = null;
   }
 
   async function refresh() {
@@ -79,7 +97,47 @@ const WalkScreen = (() => {
         try { nodesCache = await Api.getNodes(); } catch (e) { /* setup screen still usable with "all" scope */ }
       }
     }
+    syncDeviceSelection();
     render();
+  }
+
+  // syncDeviceSelection tells DeviceDetail which device the walk card is
+  // currently showing (task ask: debounce/cancel/subscribe-follows-
+  // selection). Called on every refresh (goto/status/address/auto-advance
+  // all end in refresh()) — a no-op when the device hasn't actually changed
+  // (DeviceDetail.select itself short-circuits same-uid calls to "apply
+  // sections immediately", see devicedetail.js).
+  function syncDeviceSelection() {
+    const dev = currentDevice();
+    const uid = dev ? dev.uid : null;
+    if (uid !== currentDeviceUID) currentDeviceUID = uid;
+    if (uid) DeviceDetail.select(uid, expandedSections);
+    else DeviceDetail.deselect();
+  }
+
+  function currentDevice() {
+    if (!active || !session) return null;
+    const devices = session.devices || [];
+    const idx = session.current;
+    return idx >= 0 && idx < devices.length ? devices[idx] : null;
+  }
+
+  // toDetailFixture adapts walk.Device's JSON shape into the {uid,
+  // manufacturerId, manufacturerName, nodeIp, bindIndex, portAddress}
+  // shape DeviceDetail's Info section expects (mirrors fixtureJSON's
+  // shape from the Devices tab, minus the fields Info doesn't use).
+  // manufacturerId is derived from the UID's own manufacturer-ID prefix
+  // (first 4 hex digits) since walk.Device doesn't carry it separately —
+  // Info section's live MANUFACTURER_LABEL GET fetch supersedes this
+  // fallback the moment it resolves either way.
+  function toDetailFixture(dev) {
+    const mfrHex = (dev.uid || '0000:00000000').split(':')[0];
+    return {
+      uid: dev.uid,
+      manufacturerId: parseInt(mfrHex, 16) || 0,
+      manufacturerName: dev.manufacturer || 'Unknown',
+      nodeIp: dev.nodeIp, bindIndex: dev.bindIndex, portAddress: dev.portAddress,
+    };
   }
 
   // --- render dispatch --------------------------------------------------------
@@ -100,7 +158,7 @@ const WalkScreen = (() => {
     el.innerHTML = `
       <div class="walk-setup">
         <h2>Rig Walk</h2>
-        <p class="hint">Pick what to walk. Landing on a device flashes it (Identify ON); moving on turns it off and flashes the next one — exactly one fixture at a time.</p>
+        <p class="hint">Pick what to walk. Landing on a device flashes it (Identify ON); moving on turns it off and flashes the next one — exactly one fixture at a time. The full device panel — sensors, address, personality, standard and manufacturer parameters, status — is available below each device as expandable sections.</p>
 
         <div class="walk-field">
           <label>Scope</label>
@@ -245,6 +303,8 @@ const WalkScreen = (() => {
       </div>
       ` : ''}
 
+      ${dev ? renderDeviceAccordion(dev) : ''}
+
       <div class="walk-export">
         <span class="hint">Export for the architect:</span>
         <button id="walkExportJsonBtn">Export JSON</button>
@@ -258,6 +318,7 @@ const WalkScreen = (() => {
       </div>
     `;
     wireActiveHandlers(dev, idx, devices);
+    if (dev) wireAccordionHandlers(dev);
 
     const noteInput = document.getElementById('walkProblemNote');
     if (noteInput) {
@@ -270,13 +331,10 @@ const WalkScreen = (() => {
   // then identity in descending size — model/type, manufacturer, DMX
   // universe/address (the two things a tech reads most, biggest after the
   // counter — task ask), UID, node+port smallest. Status is never
-  // color-only: every state pairs a color with text/a glyph.
+  // color-only: every state pairs a color with text/a glyph. The full
+  // device panel (accordion) renders separately, below — see
+  // renderDeviceAccordion.
   function renderDeviceCard(dev, idx, total) {
-    // Address + occupied footprint range render through the same shared
-    // Api.formatAddressRange every other DMX-address surface uses (task
-    // ask, item 5): "141 (141-160)", footprint 1 -> "141 (141)", footprint
-    // 0/unknown -> "141" alone, unresolved -> "—", overflow past 512 gets
-    // an explicit text warning glyph (never color alone).
     const addr = Api.formatAddressRange(dev.dmxStartAddress, dev.dmxFootprint, dev.addressKnown);
     const statusClass = dev.status === 'confirmed' ? 'walk-status-confirmed' : dev.status === 'problem' ? 'walk-status-problem' : 'walk-status-unvisited';
     const statusGlyph = dev.status === 'confirmed' ? '✓ CONFIRMED' : dev.status === 'problem' ? '⚠ PROBLEM' : 'UNVISITED';
@@ -307,6 +365,70 @@ const WalkScreen = (() => {
     `;
   }
 
+  // renderDeviceAccordion is the shared device-detail panel, task ask's
+  // "sub-view after a device is selected... phone-optimized: sections as
+  // large collapsible accordions rather than small tabs, big touch
+  // targets, generous type". Each section header is a full-width button
+  // (large touch target); the section body is only rendered (and its data
+  // only fetched — see wireAccordionHandlers) while expanded.
+  const SECTIONS = [
+    { key: 'info', label: 'Info' },
+    { key: 'params', label: 'Parameters (address, personality, standard & manufacturer PIDs)' },
+    { key: 'sensors', label: 'Sensors' },
+    { key: 'status', label: 'Status' },
+  ];
+
+  function renderDeviceAccordion(dev) {
+    return `
+      <div class="walk-accordion" id="walkAccordion">
+        ${SECTIONS.map(s => `
+          <div class="walk-accordion-item">
+            <button class="walk-accordion-header" data-section="${s.key}" aria-expanded="${expandedSections[s.key] ? 'true' : 'false'}">
+              <span class="walk-accordion-chevron">${expandedSections[s.key] ? '▾' : '▸'}</span> ${s.label}
+            </button>
+            <div class="walk-accordion-body" data-section-body="${s.key}" style="display:${expandedSections[s.key] ? '' : 'none'};"></div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  function wireAccordionHandlers(dev) {
+    const root = document.getElementById('walkAccordion');
+    if (!root) return;
+    const f = toDetailFixture(dev);
+
+    root.querySelectorAll('.walk-accordion-header').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.section;
+        expandedSections[key] = !expandedSections[key];
+        // Deliberate user action on an already-settled selection — applies
+        // immediately (no debounce), and only for the section just opened
+        // (task ask: "Introspection should be... lazy per section").
+        DeviceDetail.select(dev.uid, expandedSections);
+        render();
+      });
+    });
+
+    SECTIONS.forEach(s => {
+      if (!expandedSections[s.key]) return;
+      const body = root.querySelector(`[data-section-body="${s.key}"]`);
+      if (!body) return;
+      switch (s.key) {
+        case 'info': DeviceDetail.renderInfoSection(body, f); break;
+        case 'params': DeviceDetail.renderParamsSection(body, f, setWalkStatus, { hideAddressField: true }); break;
+        case 'sensors': DeviceDetail.renderSensorsSection(body, f); break;
+        case 'status': DeviceDetail.renderStatusSection(body, f); break;
+      }
+    });
+  }
+
+  function setWalkStatus(msg) {
+    statusMsg = msg;
+    const el = document.getElementById('walkStatusMsg');
+    if (el) el.textContent = msg;
+  }
+
   function wireActiveHandlers(dev, idx, devices) {
     document.getElementById('walkAllOffBtn').addEventListener('click', async () => {
       try { await Api.walkIdentifyAllOff(); } catch (e) { statusMsg = 'error: ' + e.message; }
@@ -317,6 +439,8 @@ const WalkScreen = (() => {
       try { await Api.endWalk(); } catch (e) { statusMsg = 'error: ' + e.message; }
       showProblemNote = false;
       noteDraft = '';
+      DeviceDetail.deselect();
+      currentDeviceUID = null;
       await refresh();
     });
     document.getElementById('walkExportJsonBtn').addEventListener('click', () => window.open(Api.walkExportUrl('json'), '_blank'));
@@ -352,9 +476,13 @@ const WalkScreen = (() => {
       await refresh();
     });
 
-    // Quick DMX start-address fix — Apply-to-confirm rule: oninput only
-    // toggles the dirty/Apply state, the value is only sent when Apply is
-    // tapped.
+    // Quick DMX start-address fix — the one address editor Rig Walk shows
+    // (the shared Parameters accordion hides its own copy of this field —
+    // see renderDeviceAccordion/hideAddressField) since this one is
+    // walk-session-aware: applying here also updates the walk card's
+    // header address immediately via the normal refresh() below, which a
+    // generic params-endpoint apply wouldn't do on its own. Apply-to-
+    // confirm rule unchanged: oninput only toggles dirty/Apply state.
     const addrInput = document.getElementById('walkAddrInput');
     const applyBtn = document.getElementById('walkAddrApply');
     const revertBtn = document.getElementById('walkAddrRevert');
