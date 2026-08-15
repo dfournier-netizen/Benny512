@@ -53,6 +53,29 @@ type Fixture struct {
 	ProductDetails  []rdm.ProductDetail
 	DMXFootprint    uint16
 	IsWirelessProxy bool
+
+	// DeviceModelID/HasDeviceInfo cache DEVICE_INFO's numeric model ID (the
+	// Devices screen's Model column fallback when DEVICE_MODEL_DESCRIPTION
+	// is unavailable — see ManufacturerLabel/ModelDescription below).
+	// HasDeviceInfo is true once DEVICE_INFO has ACKed at least once,
+	// distinguishing "model ID legitimately 0" from "never fetched".
+	DeviceModelID uint16
+	HasDeviceInfo bool
+
+	// ManufacturerLabel/ModelDescription cache the device's OWN report of
+	// MANUFACTURER_LABEL (0x0081) / DEVICE_MODEL_DESCRIPTION (0x0080) —
+	// task ask: "prefer the device's own report" over the static ESTA
+	// manufacturer-ID table (ManufacturerName, above) for the Devices
+	// screen's Manufacturer/Model columns. The *Known flags are true once a
+	// GET for the respective PID has completed at all (ACK -> the string;
+	// NACK -> stays "" but Known still flips true) so callers can tell "not
+	// yet attempted" (show a pending placeholder) apart from "device
+	// doesn't report this" (show the fallback immediately) without retrying
+	// forever. See handleRDMEvent/cacheParam/noteParamNack.
+	ManufacturerLabel      string
+	ManufacturerLabelKnown bool
+	ModelDescription       string
+	ModelDescriptionKnown  bool
 }
 
 // clone returns a deep-enough copy for safe hand-out across the mutex
@@ -188,10 +211,43 @@ func (reg *Registry) handleRDMEvent(ev session.Event) {
 	case session.EventToDUpdate:
 		reg.mergeToD(ev.Node, ev.UIDs)
 	case session.EventCommandComplete:
-		if ev.Result != nil && ev.Result.Kind == session.ResultAck && len(ev.Result.Data) > 0 {
+		if ev.Result == nil {
+			return
+		}
+		switch ev.Result.Kind {
+		case session.ResultAck:
+			// Cache on every ACK, including a legitimate zero-length one
+			// (an empty MANUFACTURER_LABEL/DEVICE_MODEL_DESCRIPTION string
+			// is a valid ACK, not "nothing happened" — the previous
+			// len(data)>0 gate would have left such a device stuck looking
+			// "not yet attempted" forever).
 			reg.cacheParam(ev.Node, ev.UID, ev.Result.Request.PID, ev.Result.Data)
+		case session.ResultNack:
+			reg.noteParamNack(ev.Node, ev.UID, ev.Result.Request.PID)
 		}
 	}
+}
+
+// getOrCreateLocked returns the fixture for (node, uid), creating a fresh
+// entry (ESTA-fallback ManufacturerName pre-computed from the UID alone,
+// per ManufacturerName's own fallback chain) if this is the first time
+// anything about this UID has been observed. Callers must hold reg.mu.
+func (reg *Registry) getOrCreateLocked(node session.NodeKey, port artnet.PortAddress, uid rdm.UID, now time.Time) *Fixture {
+	key := fixtureKey{ip: node.IP, bind: node.BindIndex, port: port.RawValue(), uid: uid}
+	f, ok := reg.fixtures[key]
+	if !ok {
+		f = &Fixture{
+			UID:              uid,
+			ManufacturerID:   uid.ManufacturerID,
+			ManufacturerName: ManufacturerName(uid.ManufacturerID),
+			Node:             node,
+			Port:             port,
+			FirstSeen:        now,
+			Params:           make(map[rdm.ParameterID][]byte),
+		}
+		reg.fixtures[key] = f
+	}
+	return f
 }
 
 func (reg *Registry) mergeToD(node session.NodeRef, uids []rdm.UID) {
@@ -199,20 +255,7 @@ func (reg *Registry) mergeToD(node session.NodeRef, uids []rdm.UID) {
 	reg.mu.Lock()
 	defer reg.mu.Unlock()
 	for _, uid := range uids {
-		key := fixtureKey{ip: node.Key.IP, bind: node.Key.BindIndex, port: node.Port.RawValue(), uid: uid}
-		f, ok := reg.fixtures[key]
-		if !ok {
-			f = &Fixture{
-				UID:              uid,
-				ManufacturerID:   uid.ManufacturerID,
-				ManufacturerName: ManufacturerName(uid.ManufacturerID),
-				Node:             node.Key,
-				Port:             node.Port,
-				FirstSeen:        now,
-				Params:           make(map[rdm.ParameterID][]byte),
-			}
-			reg.fixtures[key] = f
-		}
+		f := reg.getOrCreateLocked(node.Key, node.Port, uid, now)
 		f.LastSeen = now
 	}
 }
@@ -220,23 +263,31 @@ func (reg *Registry) mergeToD(node session.NodeRef, uids []rdm.UID) {
 func (reg *Registry) cacheParam(node session.NodeRef, uid rdm.UID, pid rdm.ParameterID, data []byte) {
 	reg.mu.Lock()
 	defer reg.mu.Unlock()
-	key := fixtureKey{ip: node.Key.IP, bind: node.Key.BindIndex, port: node.Port.RawValue(), uid: uid}
-	f, ok := reg.fixtures[key]
-	if !ok {
-		f = &Fixture{
-			UID:              uid,
-			ManufacturerID:   uid.ManufacturerID,
-			ManufacturerName: ManufacturerName(uid.ManufacturerID),
-			Node:             node.Key,
-			Port:             node.Port,
-			FirstSeen:        time.Now(),
-			Params:           make(map[rdm.ParameterID][]byte),
-		}
-		reg.fixtures[key] = f
-	}
+	f := reg.getOrCreateLocked(node.Key, node.Port, uid, time.Now())
 	f.LastSeen = time.Now()
 	f.Params[pid] = append([]byte(nil), data...)
 	reclassify(f, pid, data)
+}
+
+// noteParamNack records that a GET for pid completed with a NACK, for the
+// handful of PIDs the Devices screen needs "attempted, device doesn't
+// report this" tracking for (MANUFACTURER_LABEL, DEVICE_MODEL_DESCRIPTION —
+// see Fixture's *Known field docs). Other PIDs' NACKs are intentionally not
+// tracked here; nothing downstream needs them yet.
+func (reg *Registry) noteParamNack(node session.NodeRef, uid rdm.UID, pid rdm.ParameterID) {
+	if pid != rdm.PIDManufacturerLabel && pid != rdm.PIDDeviceModelDescription {
+		return
+	}
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+	f := reg.getOrCreateLocked(node.Key, node.Port, uid, time.Now())
+	f.LastSeen = time.Now()
+	switch pid {
+	case rdm.PIDManufacturerLabel:
+		f.ManufacturerLabelKnown = true
+	case rdm.PIDDeviceModelDescription:
+		f.ModelDescriptionKnown = true
+	}
 }
 
 // reclassify updates f's DeviceClass and the raw signals it's derived from
@@ -244,14 +295,21 @@ func (reg *Registry) cacheParam(node session.NodeRef, uid rdm.UID, pid rdm.Param
 // keys classification on: DEVICE_INFO (product_category, dmx_footprint),
 // PRODUCT_DETAIL_ID_LIST (fallback fine-grained signal) and
 // PROXIED_DEVICE_COUNT (the strongest "this is a wireless proxy" signal).
-// Decode failures are ignored — a malformed cached blob simply doesn't
-// move the classification, rather than erroring the whole cache write.
+// It also opportunistically caches DEVICE_INFO's model ID and the device's
+// own MANUFACTURER_LABEL/DEVICE_MODEL_DESCRIPTION reports for the Devices
+// screen's Manufacturer/Model columns (task ask) — those two don't feed
+// ClassifyDevice, so they return early rather than falling into the
+// re-classify call at the bottom. Decode failures are ignored — a malformed
+// cached blob simply doesn't move the classification, rather than erroring
+// the whole cache write.
 func reclassify(f *Fixture, pid rdm.ParameterID, data []byte) {
 	switch pid {
 	case rdm.PIDDeviceInfo:
-		if di, err := decodeDeviceInfoCategory(data); err == nil {
+		if di, err := decodeDeviceInfoFields(data); err == nil {
 			f.ProductCategory = di.category
 			f.DMXFootprint = di.dmxFootprint
+			f.DeviceModelID = di.deviceModelID
+			f.HasDeviceInfo = true
 		}
 	case rdm.PIDProductDetailIDList:
 		if details, err := rdm.DecodeProductDetailIDList(data); err == nil {
@@ -266,6 +324,14 @@ func reclassify(f *Fixture, pid rdm.ParameterID, data []byte) {
 		if len(data) >= 2 && (data[0] != 0 || data[1] != 0) {
 			f.IsWirelessProxy = true
 		}
+	case rdm.PIDManufacturerLabel:
+		f.ManufacturerLabel = string(data)
+		f.ManufacturerLabelKnown = true
+		return
+	case rdm.PIDDeviceModelDescription:
+		f.ModelDescription = string(data)
+		f.ModelDescriptionKnown = true
+		return
 	default:
 		return
 	}
@@ -278,17 +344,19 @@ func reclassify(f *Fixture, pid rdm.ParameterID, data []byte) {
 // today, but keeping registry PID-decoding self-contained via package rdm
 // directly avoids a needless params<->registry coupling for two fields).
 type deviceInfoFields struct {
-	category     rdm.ProductCategory
-	dmxFootprint uint16
+	category      rdm.ProductCategory
+	dmxFootprint  uint16
+	deviceModelID uint16
 }
 
-func decodeDeviceInfoCategory(data []byte) (deviceInfoFields, error) {
+func decodeDeviceInfoFields(data []byte) (deviceInfoFields, error) {
 	if len(data) != 19 {
 		return deviceInfoFields{}, fmt.Errorf("registry: DEVICE_INFO wants 19 bytes, got %d", len(data))
 	}
 	return deviceInfoFields{
-		category:     rdm.ProductCategory(uint16(data[4])<<8 | uint16(data[5])),
-		dmxFootprint: uint16(data[10])<<8 | uint16(data[11]),
+		deviceModelID: uint16(data[2])<<8 | uint16(data[3]),
+		category:      rdm.ProductCategory(uint16(data[4])<<8 | uint16(data[5])),
+		dmxFootprint:  uint16(data[10])<<8 | uint16(data[11]),
 	}, nil
 }
 

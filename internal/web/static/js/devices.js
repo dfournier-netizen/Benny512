@@ -84,6 +84,17 @@ const DevicesScreen = (() => {
   // been probed) — so all three are fetched together here, once per
   // device, so the table's class badges are accurate without requiring the
   // user to open every device's Info tab first.
+  //
+  // MANUFACTURER_LABEL (0081) and DEVICE_MODEL_DESCRIPTION (0080) ride
+  // along in the same batch (task ask: "add these two PIDs to that same
+  // backfill... sequence them with the existing backfill rather than
+  // firing a separate storm") so the Devices table's Manufacturer/Model
+  // columns populate without a second wave of traffic and without the user
+  // clicking into every device's Info tab. The RDMController serializes
+  // all of one UID's commands on the wire regardless of how many are fired
+  // client-side at once, so this fan-out is safe even against a slow
+  // wireless-proxied device (ACK_TIMER path) — see f.class==='Unknown'
+  // above for why this only ever runs once per device per server session.
   function classifyUnknown() {
     const targets = fixtures.filter(f => f.class === 'Unknown' && !classifying[f.uid]);
     if (!targets.length) return;
@@ -94,6 +105,8 @@ const DevicesScreen = (() => {
       }),
       Api.getDeviceParam(f.uid, '0070'), // PRODUCT_DETAIL_ID_LIST — cached server-side by reclassify
       Api.getDeviceParam(f.uid, '0011'), // PROXIED_DEVICE_COUNT — likewise
+      Api.getDeviceParam(f.uid, '0081'), // MANUFACTURER_LABEL — Devices table's Manufacturer column
+      Api.getDeviceParam(f.uid, '0080'), // DEVICE_MODEL_DESCRIPTION — Devices table's Model/Type column
     ]))).then(async () => {
       targets.forEach(f => { classifying[f.uid] = false; });
       fixtures = await Api.getFixtures();
@@ -120,6 +133,26 @@ const DevicesScreen = (() => {
     return info.DMXFootprint > 1 ? `${start}–${end}` : `${start}`;
   }
 
+  // manufacturerCell/modelCell render the Devices table's Manufacturer/
+  // Model columns from fixtureJSON's server-resolved `manufacturer`/`model`
+  // fields (already priority-chained: device's own report -> ESTA table/
+  // numeric fallback -> "Unknown"/"—", never blank — see toFixtureJSON).
+  // The only client-side job left is the "still fetching" placeholder:
+  // while classifyUnknown's background backfill is in flight for this UID
+  // and the field hasn't resolved past its unconditional fallback yet, show
+  // "…" instead of the fallback so a slow wireless-proxied device (the
+  // ACK_TIMER path is the *normal* path there, not an edge case) doesn't
+  // read as "permanently unknown" mid-fetch.
+  function manufacturerCell(f) {
+    if (classifying[f.uid] && !f.manufacturerLabelKnown) return '…';
+    return f.manufacturer || f.manufacturerName || '—';
+  }
+
+  function modelCell(f) {
+    if (classifying[f.uid] && !f.modelDescriptionKnown && !f.hasDeviceInfo) return '…';
+    return f.model || '—';
+  }
+
   function render() {
     const tbody = document.querySelector('#fixturesTable tbody');
     const scrollTop = tbody.parentElement.scrollTop;
@@ -130,7 +163,8 @@ const DevicesScreen = (() => {
       const badgeCls = CLASS_BADGE[f.class] || 'cls-unknown';
       tr.innerHTML = `
         <td><span class="badge cls-badge ${badgeCls}">${escapeHtml(f.class)}</span>${f.isWirelessProxy ? ' <span class="badge proxy-badge">proxy</span>' : ''}</td>
-        <td>${escapeHtml(f.manufacturerName)}</td>
+        <td>${escapeHtml(manufacturerCell(f))}</td>
+        <td>${escapeHtml(modelCell(f))}</td>
         <td>${escapeHtml(f.uid)}</td>
         <td>${addressLabel(f)}</td>
         <td>${escapeHtml(f.nodeIp)} / ${f.portAddress}</td>
@@ -161,7 +195,7 @@ const DevicesScreen = (() => {
     }
     const badgeCls = CLASS_BADGE[f.class] || 'cls-unknown';
     el.innerHTML = `
-      <h3>${escapeHtml(f.manufacturerName)} — ${escapeHtml(f.uid)}
+      <h3>${escapeHtml(manufacturerCell(f))} — ${escapeHtml(f.uid)}
         <span class="badge cls-badge ${badgeCls}">${escapeHtml(f.class)}</span></h3>
       <div class="panel-toolbar">
         <strong class="hint">RDM capture export (this device):</strong>
@@ -244,10 +278,22 @@ const DevicesScreen = (() => {
       if (names.length) detailsHtml = names.map(n => `<span class="badge detail-badge">${escapeHtml(n)}</span>`).join(' ');
     }
 
+    // Manufacturer/Model prefer the device's own report (MANUFACTURER_LABEL
+    // / DEVICE_MODEL_DESCRIPTION, just fetched above) exactly like the
+    // Devices table's columns (server-resolved priority chain in
+    // toFixtureJSON); falls back to the ESTA table name / DEVICE_INFO's
+    // numeric Device Model ID hex when the device NACKs either, never
+    // blank. "Manufacturer label" below stays as the explicit raw-report
+    // row so both the resolved and raw values are visible per the task ask.
+    const mfrLabelVal = mfrLabel.status === 'fulfilled' ? mfrLabel.value.value : '';
+    const effectiveMfr = mfrLabelVal || f.manufacturerName;
+    const modelVal = model.status === 'fulfilled' ? model.value.value : '';
+    const modelText = modelVal || (di ? `0x${di.DeviceModelID.toString(16).toUpperCase().padStart(4, '0')}` : '—');
+
     body.innerHTML = `
-      <div class="field-row"><label>Manufacturer</label><span>${escapeHtml(f.manufacturerName)} (0x${f.manufacturerId.toString(16).toUpperCase().padStart(4, '0')})</span></div>
-      <div class="field-row"><label>Model</label><span>${model.status === 'fulfilled' ? escapeHtml(model.value.value) : '—'}</span></div>
-      <div class="field-row"><label>Manufacturer label</label><span>${mfrLabel.status === 'fulfilled' ? escapeHtml(mfrLabel.value.value) : '—'}</span></div>
+      <div class="field-row"><label>Manufacturer</label><span>${escapeHtml(effectiveMfr)} (0x${f.manufacturerId.toString(16).toUpperCase().padStart(4, '0')})</span></div>
+      <div class="field-row"><label>Model / fixture type</label><span>${escapeHtml(modelText)}</span></div>
+      <div class="field-row"><label>Manufacturer label (device-reported)</label><span>${mfrLabelVal ? escapeHtml(mfrLabelVal) : '<span class="hint">not reported by device</span>'}</span></div>
       <div class="field-row"><label>Software version</label><span>${swVersion.status === 'fulfilled' ? escapeHtml(swVersion.value.value) : '—'}</span></div>
       <div class="field-row"><label>Node / port</label><span>${escapeHtml(f.nodeIp)} (bind ${f.bindIndex}) / addr ${f.portAddress}</span></div>
       <div class="field-row"><label>DMX footprint</label><span>${di ? di.DMXFootprint : '—'}</span></div>

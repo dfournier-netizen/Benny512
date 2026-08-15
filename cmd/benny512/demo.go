@@ -38,6 +38,22 @@ type demoDevice struct {
 	startAdr uint16
 	proxied  bool // answers via ACK_TIMER first, like a slow wireless proxy
 
+	// mfrLabel is this device's own MANUFACTURER_LABEL (0x0081) report —
+	// deliberately independent of the ESTA-table lookup keyed off uid's
+	// manufacturer ID (registry.ManufacturerName), since real gear can (and
+	// does) report a more specific/different name than its registered ESTA
+	// entry — e.g. Obsidian Control Systems trading under an ADJ-family ID
+	// (see en4Root below). Empty means "device doesn't override" and GET
+	// MANUFACTURER_LABEL falls back to the ESTA lookup, matching the
+	// pre-existing demo behavior for devices this pass didn't touch.
+	mfrLabel string
+	// noManufacturerLabel/noModelDescription make GET MANUFACTURER_LABEL /
+	// GET DEVICE_MODEL_DESCRIPTION NACK outright — the Devices screen's
+	// fallback-path demo devices (task ask: "keep at least one device that
+	// NACKs DEVICE_MODEL_DESCRIPTION so the fallback path is visible").
+	noManufacturerLabel bool
+	noModelDescription  bool
+
 	deviceInfo        params.DeviceInfo
 	productDetails    []rdm.ProductDetail
 	supportedExtra    []rdm.ParameterID // manufacturer/optional PIDs beyond the always-answered base set
@@ -83,8 +99,17 @@ func (d *demoDevice) handle(msg rdm.Message) (data []byte, nack bool, reason rdm
 	case rdm.PIDDeviceLabel:
 		return []byte(d.label), false, 0
 	case rdm.PIDDeviceModelDescription:
+		if d.noModelDescription {
+			return nil, true, rdm.NackUnknownPID
+		}
 		return []byte(d.model), false, 0
 	case rdm.PIDManufacturerLabel:
+		if d.noManufacturerLabel {
+			return nil, true, rdm.NackUnknownPID
+		}
+		if d.mfrLabel != "" {
+			return []byte(d.mfrLabel), false, 0
+		}
 		return []byte(registry.ManufacturerName(d.uid.ManufacturerID)), false, 0
 	case rdm.PIDSoftwareVersionLabel:
 		return []byte("1.0-demo"), false, 0
@@ -263,13 +288,13 @@ func buildDemoDevices(en4IP, wirelessIP netip.Addr, port0, port1, port2 artnet.P
 
 	// --- five plain fixtures (kept from the original demo set) ---
 	wash1 := &demoDevice{
-		uid: rdm.UID{ManufacturerID: 0x2222, DeviceID: 1}, label: "Wash 1", model: "Robe Wash",
+		uid: rdm.UID{ManufacturerID: 0x2222, DeviceID: 1}, label: "Wash 1", mfrLabel: "Robe", model: "Wash",
 		nodeIP: en4IP, port: port0, startAdr: 1,
 		deviceInfo:  basePV(rdm.CategoryFixtureMovingYoke, 20, 2, 0),
 		paramValues: map[rdm.ParameterID][]byte{rdm.PIDDMXStartAddress: dmxAddr(1), rdm.PIDDMXPersonality: {1, 2}, rdm.PIDIdentifyDevice: {0}},
 	}
 	wash2 := &demoDevice{
-		uid: rdm.UID{ManufacturerID: 0x2222, DeviceID: 2}, label: "Wash 2", model: "Robe Wash",
+		uid: rdm.UID{ManufacturerID: 0x2222, DeviceID: 2}, label: "Wash 2", mfrLabel: "Robe", model: "Wash",
 		nodeIP: en4IP, port: port0, startAdr: 21,
 		deviceInfo:  basePV(rdm.CategoryFixtureMovingYoke, 20, 2, 0),
 		paramValues: map[rdm.ParameterID][]byte{rdm.PIDDMXStartAddress: dmxAddr(21), rdm.PIDDMXPersonality: {1, 2}, rdm.PIDIdentifyDevice: {0}},
@@ -278,7 +303,7 @@ func buildDemoDevices(en4IP, wirelessIP netip.Addr, port0, port1, port2 artnet.P
 	// manufacturer PID in SUPPORTED_PARAMETERS but NACKs
 	// PARAMETER_DESCRIPTION for it — the UI's raw-hex-editor fallback path.
 	spot1 := &demoDevice{
-		uid: rdm.UID{ManufacturerID: 0xAAAA, DeviceID: 3}, label: "Spot 1", model: "Ayrton Spot",
+		uid: rdm.UID{ManufacturerID: 0xAAAA, DeviceID: 3}, label: "Spot 1", mfrLabel: "Ayrton", model: "Spot",
 		nodeIP: en4IP, port: port1, startAdr: 1,
 		deviceInfo:     basePV(rdm.CategoryFixtureMovingMirr, 24, 3, 0),
 		supportedExtra: []rdm.ParameterID{0x8500},
@@ -288,20 +313,26 @@ func buildDemoDevices(en4IP, wirelessIP netip.Addr, port0, port1, port2 artnet.P
 			0x8500: {0xDE, 0xAD}, // opaque 2-byte value, only ever editable as raw hex in the UI
 		},
 	}
+	// Beam 1 is the Devices screen's DEVICE_MODEL_DESCRIPTION NACK demo
+	// (task ask): it answers MANUFACTURER_LABEL normally but NACKs the
+	// model description, so the UI must fall back to DEVICE_INFO's numeric
+	// Device Model ID (basePV's DeviceModelID: 1 -> "0x0001") rather than
+	// showing a blank Model column.
 	beam1 := &demoDevice{
-		uid: rdm.UID{ManufacturerID: 0x4D50, DeviceID: 4}, label: "Beam 1", model: "Martin Beam",
-		nodeIP: en4IP, port: port1, startAdr: 41,
+		uid: rdm.UID{ManufacturerID: 0x4D50, DeviceID: 4}, label: "Beam 1", mfrLabel: "Martin Professional",
+		noModelDescription: true,
+		nodeIP:             en4IP, port: port1, startAdr: 41,
 		deviceInfo:  basePV(rdm.CategoryFixtureMovingYoke, 16, 2, 0),
 		paramValues: map[rdm.ParameterID][]byte{rdm.PIDDMXStartAddress: dmxAddr(41), rdm.PIDDMXPersonality: {1, 2}, rdm.PIDIdentifyDevice: {0}},
 	}
 	par1 := &demoDevice{
-		uid: rdm.UID{ManufacturerID: 0x454C, DeviceID: 5}, label: "Par 1", model: "Elation Par",
+		uid: rdm.UID{ManufacturerID: 0x454C, DeviceID: 5}, label: "Par 1", mfrLabel: "Elation Professional", model: "Par",
 		nodeIP: en4IP, port: port1, startAdr: 81,
 		deviceInfo:  basePV(rdm.CategoryFixtureFixed, 8, 1, 0),
 		paramValues: map[rdm.ParameterID][]byte{rdm.PIDDMXStartAddress: dmxAddr(81), rdm.PIDDMXPersonality: {1, 1}, rdm.PIDIdentifyDevice: {0}},
 	}
 	wirelessMover := &demoDevice{
-		uid: rdm.UID{ManufacturerID: 0x6C74, DeviceID: 6}, label: "Wireless Mover", model: "via LumenRadio proxy",
+		uid: rdm.UID{ManufacturerID: 0x6C74, DeviceID: 6}, label: "Wireless Mover", model: "Wireless Mover (via Aurora proxy)",
 		nodeIP: wirelessIP, port: port0, startAdr: 1, proxied: true,
 		deviceInfo:  basePV(rdm.CategoryFixtureMovingYoke, 20, 2, 0),
 		paramValues: map[rdm.ParameterID][]byte{rdm.PIDDMXStartAddress: dmxAddr(1), rdm.PIDDMXPersonality: {1, 2}, rdm.PIDIdentifyDevice: {0}},
@@ -310,7 +341,7 @@ func buildDemoDevices(en4IP, wirelessIP netip.Addr, port0, port1, port2 artnet.P
 	// --- Chroma-Q Color Force II-ish fixture: manufacturer PIDs + sensors,
 	// one sensor reading outside its normal band (report §7.1, §1.2). ---
 	chromaQ := &demoDevice{
-		uid: rdm.UID{ManufacturerID: 0x5370, DeviceID: 1}, label: "CF2 48", model: "Chroma-Q Color Force II 48",
+		uid: rdm.UID{ManufacturerID: 0x5370, DeviceID: 1}, label: "CF2 48", mfrLabel: "Chroma-Q", model: "Color Force II 48",
 		nodeIP: en4IP, port: port2, startAdr: 1,
 		deviceInfo:     basePV(rdm.CategoryFixtureFixed, 20, 1, 2),
 		supportedExtra: []rdm.ParameterID{0x8010, 0x8011, 0x8012},
@@ -334,10 +365,16 @@ func buildDemoDevices(en4IP, wirelessIP netip.Addr, port0, port1, port2 artnet.P
 	}
 
 	// --- Splitter: DATA_DISTRIBUTION category + SPLITTER product detail,
-	// footprint 0, no sensors (report §1.3/§4.1-4.2). ---
+	// footprint 0, no sensors (report §1.3/§4.1-4.2). Also the Devices
+	// screen's MANUFACTURER_LABEL NACK demo — cheap splitters commonly
+	// don't implement the optional label PIDs at all, so this exercises the
+	// "fall back to the ESTA table" leg (0x1900 -> "ADJ Products LLC")
+	// distinctly from en4Root's "device's own report differs from ESTA"
+	// leg below. ---
 	splitter := &demoDevice{
-		uid: rdm.UID{ManufacturerID: 0x1900, DeviceID: 2}, label: "Splitter 1x4", model: "Generic 5-pin Splitter",
-		nodeIP: en4IP, port: port2, startAdr: 0,
+		uid: rdm.UID{ManufacturerID: 0x1900, DeviceID: 2}, label: "Splitter 1x4", model: "5-Pin Splitter",
+		noManufacturerLabel: true,
+		nodeIP:              en4IP, port: port2, startAdr: 0,
 		deviceInfo:     basePV(rdm.CategoryDataDistribution, 0, 1, 0),
 		productDetails: []rdm.ProductDetail{rdm.DetailSplitter},
 		paramValues:    map[rdm.ParameterID][]byte{rdm.PIDIdentifyDevice: {0}},
@@ -346,9 +383,14 @@ func buildDemoDevices(en4IP, wirelessIP netip.Addr, port0, port1, port2 artnet.P
 	// --- EN4 root: the gateway's own RDM identity (report feature C's
 	// "node view should show this node's own RDM parameters"), footprint
 	// 0, DATA_DISTRIBUTION + ETHERNET_NODE, plus a couple of E1.37-2 IP
-	// PIDs so /api/device/{uid}/param/0705 etc. have something to show. ---
+	// PIDs so /api/device/{uid}/param/0705 etc. have something to show.
+	// mfrLabel is deliberately more specific than the ESTA-table name for
+	// en4RootUID's manufacturer ID (0x1900 -> "ADJ Products LLC" — Obsidian
+	// Control Systems is part of the ADJ Group, a realistic case of a
+	// device's own report outranking its registered ESTA entry): the
+	// Devices screen's "prefer the device's own report" demo leg. ---
 	en4Root := &demoDevice{
-		uid: en4RootUID, label: "EN4-Demo", model: "Obsidian Netron EN4 (demo)",
+		uid: en4RootUID, label: "EN4-Demo", mfrLabel: "Obsidian Control Systems", model: "Netron EN4",
 		nodeIP: en4IP, port: port0, startAdr: 0,
 		deviceInfo:     basePV(rdm.CategoryDataDistribution, 0, 1, 0),
 		productDetails: []rdm.ProductDetail{rdm.DetailEthernetNode},
@@ -364,7 +406,7 @@ func buildDemoDevices(en4IP, wirelessIP netip.Addr, port0, port1, port2 artnet.P
 	// demo distinct from the Chroma-Q's) and a non-empty
 	// PROXIED_DEVICE_COUNT marking it as a proxy (report §1.3, §7.2). ---
 	auroraRoot := &demoDevice{
-		uid: auroraRootUID, label: "Aurora-Demo", model: "LumenRadio Aurora (demo)",
+		uid: auroraRootUID, label: "Aurora-Demo", mfrLabel: "LumenRadio", model: "Aurora",
 		nodeIP: wirelessIP, port: port0, startAdr: 0,
 		deviceInfo:         basePV(rdm.CategoryNotDeclared, 0, 2, 1),
 		productDetails:     []rdm.ProductDetail{rdm.DetailWirelessLink},

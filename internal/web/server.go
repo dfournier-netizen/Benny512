@@ -301,6 +301,55 @@ type fixtureJSON struct {
 	// category). See internal/registry/deviceclass.go for the full enum.
 	Class           string `json:"class"`
 	IsWirelessProxy bool   `json:"isWirelessProxy"`
+
+	// Manufacturer/Model are the Devices screen's ready-to-render column
+	// values, resolved server-side per the task's priority rule:
+	// Manufacturer prefers the device's own MANUFACTURER_LABEL report, then
+	// falls back to the static ESTA table (ManufacturerName), then
+	// "Unknown (0xXXXX)" (ManufacturerName's own fallback — never blank).
+	// Model prefers the device's own DEVICE_MODEL_DESCRIPTION report, then
+	// falls back to DEVICE_INFO's numeric Device Model ID in hex, then "—"
+	// (never blank). See effectiveManufacturer/effectiveModel below.
+	Manufacturer string `json:"manufacturer"`
+	Model        string `json:"model"`
+	// ManufacturerLabel/ModelDescription are the raw device-reported
+	// strings (may be empty — either not yet fetched or the device NACKed
+	// the GET) plus a *Known flag so the UI can tell "still pending, show a
+	// placeholder" apart from "resolved, device just doesn't report this"
+	// without polling forever. DeviceModelID/HasDeviceInfo back Model's
+	// numeric fallback.
+	ManufacturerLabel      string `json:"manufacturerLabel,omitempty"`
+	ManufacturerLabelKnown bool   `json:"manufacturerLabelKnown"`
+	ModelDescription       string `json:"modelDescription,omitempty"`
+	ModelDescriptionKnown  bool   `json:"modelDescriptionKnown"`
+	DeviceModelID          uint16 `json:"deviceModelId,omitempty"`
+	HasDeviceInfo          bool   `json:"hasDeviceInfo"`
+}
+
+// effectiveManufacturer implements the Manufacturer column's priority rule:
+// device's own MANUFACTURER_LABEL report first, then the static ESTA-table
+// lookup (registry.ManufacturerName, already computed into
+// f.ManufacturerName and itself falling back to "Unknown (0xXXXX)") — so
+// this never returns "".
+func effectiveManufacturer(f registry.Fixture) string {
+	if f.ManufacturerLabel != "" {
+		return f.ManufacturerLabel
+	}
+	return f.ManufacturerName
+}
+
+// effectiveModel implements the Model column's priority rule: device's own
+// DEVICE_MODEL_DESCRIPTION report first, then DEVICE_INFO's numeric Device
+// Model ID in hex (once DEVICE_INFO has actually been fetched), then an
+// em-dash — never "".
+func effectiveModel(f registry.Fixture) string {
+	if f.ModelDescription != "" {
+		return f.ModelDescription
+	}
+	if f.HasDeviceInfo {
+		return fmt.Sprintf("0x%04X", f.DeviceModelID)
+	}
+	return "—"
 }
 
 func toFixtureJSON(f registry.Fixture) fixtureJSON {
@@ -308,6 +357,10 @@ func toFixtureJSON(f registry.Fixture) fixtureJSON {
 		UID: f.UID.String(), ManufacturerID: f.ManufacturerID, ManufacturerName: f.ManufacturerName,
 		NodeIP: f.Node.IP.String(), BindIndex: f.Node.BindIndex, PortAddress: f.Port.RawValue(),
 		LastSeen: f.LastSeen, Class: f.Class.String(), IsWirelessProxy: f.IsWirelessProxy,
+		Manufacturer: effectiveManufacturer(f), Model: effectiveModel(f),
+		ManufacturerLabel: f.ManufacturerLabel, ManufacturerLabelKnown: f.ManufacturerLabelKnown,
+		ModelDescription: f.ModelDescription, ModelDescriptionKnown: f.ModelDescriptionKnown,
+		DeviceModelID: f.DeviceModelID, HasDeviceInfo: f.HasDeviceInfo,
 	}
 }
 
