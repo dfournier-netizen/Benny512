@@ -18,6 +18,8 @@ import (
 	"log"
 	"net/http"
 	"net/netip"
+	"net/url"
+	"strconv"
 	"sync"
 	"time"
 
@@ -36,6 +38,11 @@ var embeddedUI embed.FS
 // DefaultPort is Benny512's default HTTP port (architecture rev 5 §3, decision #12).
 const DefaultPort = 5812
 
+// AppVersion is reported in capture export headers so an exported file
+// self-identifies which build produced it (report task item 3: "Include a
+// header with app version, timestamp, NIC, and node/device context").
+const AppVersion = "benny512 phase1d"
+
 // Settings is the mutable, JSON-persisted runtime configuration exposed via
 // GET/POST /api/settings.
 type Settings struct {
@@ -43,6 +50,12 @@ type Settings struct {
 	PollIntervalMS  int               `json:"pollIntervalMs"`
 	CaptureLimit    int               `json:"captureLimit"`
 	TimeoutProfiles map[string]string `json:"timeoutProfiles"` // node key string -> "Direct"|"WirelessProxy"
+	// LogRDMPath, when non-empty, appends every RDM/ToD exchange to this
+	// file as it happens (report task item 3's optional continuous-logging
+	// ask) — a Settings-screen alternative to the `--logrdm` startup flag.
+	// Changing it via POST /api/settings opens/closes the on-disk logger
+	// immediately (see Server.applyLogRDMPathLocked).
+	LogRDMPath string `json:"logRdmPath,omitempty"`
 }
 
 // Server bundles the engines and serves REST + WS + the embedded UI.
@@ -51,20 +64,39 @@ type Server struct {
 	RDM      *session.RDMController
 	DMX      *session.DMXOutputEngine
 	Registry *registry.Registry
-	Capture  *capture.Ring
+	// Capture is the general-purpose ring: every decoded packet, all kinds,
+	// bounded at capture.DefaultCapacity so high-rate ArtDmx traffic doesn't
+	// grow memory without bound — it's what the Analyzer's live/general view
+	// and GET /api/capture/snapshot serve from.
+	Capture *capture.Ring
+	// RDMCapture is a dedicated, much larger ring holding only RDM/ToD
+	// entries (capture.IsRDMKind) — so a bench session's RDM history is
+	// never evicted by DMX chatter in the shared ring above. This is what
+	// the RDM-focused Analyzer view and GET /api/capture/export serve from.
+	RDMCapture *capture.Ring
+
+	// NIC is a human-readable label for the network interface this server
+	// is bound to (or "demo (fake transport)" in --demo mode) — surfaced in
+	// capture export headers. Set once after construction; read
+	// concurrently, so it must not be mutated after startup.
+	NIC string
 
 	settingsMu sync.Mutex
 	settings   Settings
+	rdmLogger  *capture.DiskLogger
 
 	hub *hub
 
 	mux *http.ServeMux
 }
 
-// New wires a Server over already-constructed engines.
-func New(nodes *session.ArtNetSession, rdmc *session.RDMController, dmx *session.DMXOutputEngine, reg *registry.Registry, cap *capture.Ring) *Server {
+// New wires a Server over already-constructed engines. rdmCap is the
+// dedicated RDM-only capture ring (see Server.RDMCapture); pass
+// capture.New(capture.DefaultRDMCapacity) if the caller has no reason to
+// size it differently.
+func New(nodes *session.ArtNetSession, rdmc *session.RDMController, dmx *session.DMXOutputEngine, reg *registry.Registry, cap *capture.Ring, rdmCap *capture.Ring) *Server {
 	s := &Server{
-		Nodes: nodes, RDM: rdmc, DMX: dmx, Registry: reg, Capture: cap,
+		Nodes: nodes, RDM: rdmc, DMX: dmx, Registry: reg, Capture: cap, RDMCapture: rdmCap,
 		settings: Settings{
 			PollIntervalMS:  int(session.DefaultPollInterval / time.Millisecond),
 			CaptureLimit:    capture.DefaultCapacity,
@@ -75,6 +107,57 @@ func New(nodes *session.ArtNetSession, rdmc *session.RDMController, dmx *session
 	s.mux = http.NewServeMux()
 	s.routes()
 	return s
+}
+
+// Close releases any resources the server opened directly (currently just
+// an active RDM disk logger, if one was configured via --logrdm or
+// Settings). Safe to call even if nothing was ever opened.
+func (s *Server) Close() {
+	s.settingsMu.Lock()
+	defer s.settingsMu.Unlock()
+	if s.rdmLogger != nil {
+		_ = s.rdmLogger.Close()
+		s.rdmLogger = nil
+	}
+}
+
+// LogRDMEntry appends e to the configured RDM disk logger, if one is open
+// (report task: "appends RDM exchanges to a file as they happen"). No-op
+// when no --logrdm path / Settings.LogRDMPath is configured. Safe to call
+// from the capture tap on every RDM/ToD entry regardless of direction.
+func (s *Server) LogRDMEntry(e capture.Entry) {
+	s.settingsMu.Lock()
+	l := s.rdmLogger
+	s.settingsMu.Unlock()
+	if l != nil {
+		l.Log(e)
+	}
+}
+
+// SetLogRDMPath opens (or closes, if path=="") the continuous RDM disk
+// logger. Used both by cmd/benny512's --logrdm flag at startup and by
+// POST /api/settings when Settings.LogRDMPath changes.
+func (s *Server) SetLogRDMPath(path string) error {
+	s.settingsMu.Lock()
+	defer s.settingsMu.Unlock()
+	return s.applyLogRDMPathLocked(path)
+}
+
+func (s *Server) applyLogRDMPathLocked(path string) error {
+	if s.rdmLogger != nil {
+		_ = s.rdmLogger.Close()
+		s.rdmLogger = nil
+	}
+	s.settings.LogRDMPath = path
+	if path == "" {
+		return nil
+	}
+	l, err := capture.OpenDiskLogger(path, 0, 0)
+	if err != nil {
+		return err
+	}
+	s.rdmLogger = l
+	return nil
 }
 
 // Handler returns the http.Handler to serve (routes + static UI).
@@ -110,6 +193,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/settings", s.handleGetSettings)
 	s.mux.HandleFunc("POST /api/settings", s.handlePostSettings)
 	s.mux.HandleFunc("GET /api/capture/snapshot", s.handleCaptureSnapshot)
+	s.mux.HandleFunc("GET /api/capture/rdm/snapshot", s.handleRDMCaptureSnapshot)
+	s.mux.HandleFunc("GET /api/capture/export", s.handleCaptureExport)
 
 	// --- Phase 1c+: self-describing PIDs, sensors, device status ---
 	s.mux.HandleFunc("GET /api/device/{uid}/params", s.handleGetDeviceParams)
@@ -503,8 +588,17 @@ func (s *Server) handlePostSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.settingsMu.Lock()
+	logPathChanged := req.LogRDMPath != s.settings.LogRDMPath
 	s.settings = req
+	var logErr error
+	if logPathChanged {
+		logErr = s.applyLogRDMPathLocked(req.LogRDMPath)
+	}
 	s.settingsMu.Unlock()
+	if logErr != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("logRdmPath: %w", logErr))
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -535,6 +629,59 @@ func (s *Server) handleCaptureSnapshot(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	entries := s.Capture.Snapshot(f, 1000)
+	writeJSON(w, http.StatusOK, entries)
+}
+
+// captureFilterFromQuery parses the RDM-specific filter dimensions shared by
+// the RDM snapshot and export endpoints: uid, pid (4 hex digits), cc
+// (command class mnemonic, e.g. "GET_COMMAND"), dir ("in"|"out").
+func captureFilterFromQuery(q url.Values) (capture.Filter, error) {
+	f := capture.Filter{}
+	if uid := q.Get("uid"); uid != "" {
+		if _, ok := rdm.ParseUID(uid); !ok {
+			return f, fmt.Errorf("bad uid %q", uid)
+		}
+		f.UID = uid
+	}
+	if pidStr := q.Get("pid"); pidStr != "" {
+		v, err := strconv.ParseUint(pidStr, 16, 16)
+		if err != nil {
+			return f, fmt.Errorf("bad pid %q, want 4 hex digits: %w", pidStr, err)
+		}
+		f.HasPID = true
+		f.PID = uint16(v)
+	}
+	if cc := q.Get("cc"); cc != "" {
+		f.CommandClass = cc
+	}
+	switch q.Get("dir") {
+	case "in":
+		f.HasDir, f.Dir = true, capture.DirIn
+	case "out":
+		f.HasDir, f.Dir = true, capture.DirOut
+	case "":
+	default:
+		return f, fmt.Errorf("bad dir %q, want in|out", q.Get("dir"))
+	}
+	return f, nil
+}
+
+// handleRDMCaptureSnapshot serves the Analyzer's RDM-focused view: the
+// dedicated RDM-only ring (never DMX-evicted), filterable by uid/pid/cc/dir
+// (report task item 3: "filter by UID, PID, command class, and direction").
+func (s *Server) handleRDMCaptureSnapshot(w http.ResponseWriter, r *http.Request) {
+	f, err := captureFilterFromQuery(r.URL.Query())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	limit := 2000
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	entries := s.RDMCapture.Snapshot(f, limit)
 	writeJSON(w, http.StatusOK, entries)
 }
 

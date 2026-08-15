@@ -163,6 +163,11 @@ const DevicesScreen = (() => {
     el.innerHTML = `
       <h3>${escapeHtml(f.manufacturerName)} — ${escapeHtml(f.uid)}
         <span class="badge cls-badge ${badgeCls}">${escapeHtml(f.class)}</span></h3>
+      <div class="panel-toolbar">
+        <strong class="hint">RDM capture export (this device):</strong>
+        <button id="btnExportDeviceJson">Export JSON</button>
+        <button id="btnExportDeviceTxt">Export TXT</button>
+      </div>
       <div class="detail-tabs" id="deviceTabs">
         <button class="detail-tab-btn" data-tab="info">Info</button>
         <button class="detail-tab-btn" data-tab="params">Parameters</button>
@@ -171,6 +176,12 @@ const DevicesScreen = (() => {
       </div>
       <div id="deviceTabBody"></div>
     `;
+    document.getElementById('btnExportDeviceJson').addEventListener('click', () => {
+      window.open(Api.exportUrl('json', { uid: f.uid }), '_blank');
+    });
+    document.getElementById('btnExportDeviceTxt').addEventListener('click', () => {
+      window.open(Api.exportUrl('txt', { uid: f.uid }), '_blank');
+    });
     el.querySelectorAll('.detail-tab-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.tab === activeTab);
       btn.addEventListener('click', () => {
@@ -274,19 +285,35 @@ const DevicesScreen = (() => {
     body.innerHTML = `
       <h4>Standard parameters</h4>
       <div class="field-row"><label>Device label</label>
-        <input id="fxLabel" type="text" value="${escapeHtml(lbl)}" ${di ? '' : 'disabled'}>
+        <span class="apply-field">
+          <input id="fxLabel" type="text" value="${escapeHtml(lbl)}" ${di ? '' : 'disabled'}>
+          <span id="fxLabelDirty" class="badge dirty-badge" style="display:none;">pending</span>
+          <button id="fxLabelApply" class="btn-apply" disabled>Apply</button>
+          <button id="fxLabelRevert" class="btn-revert" style="display:none;">Revert</button>
+        </span>
       </div>
       <div class="field-row"><label>Start address</label>
-        <input id="fxStartAddr" type="number" min="1" max="512" value="${di && di.DMXFootprint ? di.DMXStartAddress : ''}" ${di && di.DMXFootprint ? '' : 'disabled'}>
+        <span class="apply-field">
+          <input id="fxStartAddr" type="number" min="1" max="512" value="${di && di.DMXFootprint ? di.DMXStartAddress : ''}" ${di && di.DMXFootprint ? '' : 'disabled'}>
+          <span id="fxStartAddrDirty" class="badge dirty-badge" style="display:none;">pending</span>
+          <button id="fxStartAddrApply" class="btn-apply" disabled>Apply</button>
+          <button id="fxStartAddrRevert" class="btn-revert" style="display:none;">Revert</button>
+        </span>
       </div>
       <div class="field-row"><label>Personality</label>
-        <select id="fxPersonality" ${pers ? '' : 'disabled'}>
-          ${pers ? Array.from({ length: pers.Count }, (_, i) => i + 1).map(i =>
-            `<option value="${i}" ${i === pers.Current ? 'selected' : ''}>${i}</option>`).join('') : ''}
-        </select>
+        <span class="apply-field">
+          <select id="fxPersonality" ${pers ? '' : 'disabled'}>
+            ${pers ? Array.from({ length: pers.Count }, (_, i) => i + 1).map(i =>
+              `<option value="${i}" ${i === pers.Current ? 'selected' : ''}>${i}</option>`).join('') : ''}
+          </select>
+          <span id="fxPersonalityDirty" class="badge dirty-badge" style="display:none;">pending</span>
+          <button id="fxPersonalityApply" class="btn-apply" disabled>Apply</button>
+          <button id="fxPersonalityRevert" class="btn-revert" style="display:none;">Revert</button>
+        </span>
       </div>
       <div class="field-row"><label>Identify</label>
         <input id="fxIdentify" type="checkbox" ${identOn ? 'checked' : ''}>
+        <span class="hint">live — flashes/strobes the fixture immediately, matches walking the rig physically identifying it</span>
       </div>
       <div class="field-row"><span id="fxStatus" class="hint"></span></div>
 
@@ -298,15 +325,16 @@ const DevicesScreen = (() => {
       <div id="paramRows"></div>
     `;
 
-    document.getElementById('fxLabel').addEventListener('change', async (e) => {
-      await saveParam(uid, 'device_label', e.target.value);
-    });
-    document.getElementById('fxStartAddr').addEventListener('change', async (e) => {
-      await saveParam(uid, 'dmx_start_address', parseInt(e.target.value, 10));
-    });
-    document.getElementById('fxPersonality').addEventListener('change', async (e) => {
-      await saveParam(uid, 'dmx_personality', parseInt(e.target.value, 10));
-    });
+    // Standard fields: oninput/onchange stages the value only (never
+    // commits) — a per-field Apply button sends it, Revert discards it.
+    // fxIdentify is the one deliberate exception (see report): it's a
+    // momentary physical action (flash the fixture), not a persisted
+    // parameter, so staging it behind Apply would defeat its purpose during
+    // a bench walk.
+    wireApplyField('fxLabel', lbl, async (v) => saveParam(uid, 'device_label', v));
+    wireApplyField('fxStartAddr', di && di.DMXFootprint ? di.DMXStartAddress : '', async (v) => saveParam(uid, 'dmx_start_address', parseInt(v, 10)));
+    wireApplyField('fxPersonality', pers ? pers.Current : '', async (v) => saveParam(uid, 'dmx_personality', parseInt(v, 10)));
+
     document.getElementById('fxIdentify').addEventListener('change', async (e) => {
       try {
         await Api.identify(uid, e.target.checked);
@@ -412,22 +440,40 @@ const DevicesScreen = (() => {
     const v = valState.val; // paramValueJSON
 
     // --- pick an input widget per report §1.1 / task brief ---
+    // Every widget below stages its edit locally and requires the row's
+    // Apply button (added by wireRowApply) to actually send it — task rule:
+    // "nothing commits on change/blur; each edit stages a pending value and
+    // an Apply button commits it."
     if (desc.dataType === DS.BOOLEAN || (desc.dataType === DS.BIT_FIELD && desc.pdlSize === 1)) {
       const checked = desc.dataType === DS.BOOLEAN ? v.int !== 0 : (v.hex && parseInt(v.hex.slice(0, 2), 16) !== 0);
       const cb = document.createElement('input');
       cb.type = 'checkbox'; cb.checked = checked; cb.disabled = !editable;
-      cb.addEventListener('change', () => {
-        const value = desc.dataType === DS.BOOLEAN ? (cb.checked ? 1 : 0) : (cb.checked ? '01' : '00');
-        saveDeviceParam(uid, desc, value, row);
-      });
       field.appendChild(cb);
+      if (editable) {
+        wireRowApply(field, cb, true, checked, (checkedNow) => {
+          const value = desc.dataType === DS.BOOLEAN ? (checkedNow ? 1 : 0) : (checkedNow ? '01' : '00');
+          return saveDeviceParam(uid, desc, value, row);
+        });
+      }
     } else if (v.kind === 'string') {
       const input = document.createElement('input');
       input.type = 'text'; input.value = v.str || ''; input.maxLength = 32; input.disabled = !editable;
-      wireOnChange(input, () => saveDeviceParam(uid, desc, input.value, row));
       field.appendChild(input);
+      if (editable) {
+        wireRowApply(field, input, false, v.str || '', (val) => saveDeviceParam(uid, desc, val, row));
+      }
     } else if (v.kind === 'int') {
-      field.appendChild(numericStepper(desc, v.int, editable, (n) => saveDeviceParam(uid, desc, n, row)));
+      const { wrap, input } = numericStepper(desc, v.int, editable);
+      field.appendChild(wrap);
+      if (editable) {
+        wireRowApply(field, input, false, v.int, (val) => {
+          const n = Number(val);
+          if (!Number.isFinite(n) || (desc.min !== 0 || desc.max !== 0) && (n < desc.min || n > desc.max)) {
+            throw new Error(`must be ${desc.min}–${desc.max}`);
+          }
+          return saveDeviceParam(uid, desc, n, row);
+        });
+      }
     } else if (desc.dataType === DS.ENUMERATION || looksBoundedRaw(desc)) {
       // report §1.1 gap 2: no per-value enum labels are available from
       // PARAMETER_DESCRIPTION alone, so an enumerated/unknown-shaped field
@@ -436,19 +482,72 @@ const DevicesScreen = (() => {
       // of the typed numeric kinds), we encode/decode hex on this side.
       const width = desc.pdlSize || byteWidthFor(desc.max) || 1;
       const current = v.hex ? parseInt(v.hex, 16) || 0 : 0;
-      field.appendChild(numericStepper(desc, current, editable, (n) => {
-        saveDeviceParam(uid, desc, hexEncode(n, width), row);
-      }));
+      const { wrap, input } = numericStepper(desc, current, editable);
+      field.appendChild(wrap);
+      if (editable) {
+        wireRowApply(field, input, false, current, (val) => saveDeviceParam(uid, desc, hexEncode(Number(val), width), row));
+      }
     } else {
       // Universal fallback (report §1.1 item 4): raw hex in/out, clearly
       // marked advanced/unverified via the badge above.
       const input = document.createElement('input');
       input.type = 'text'; input.className = 'hex-input'; input.placeholder = 'hex bytes, e.g. DEAD';
       input.value = v.hex || ''; input.disabled = !editable;
-      wireOnChange(input, () => saveDeviceParam(uid, desc, input.value.replace(/\s+/g, ''), row));
       field.appendChild(input);
+      if (editable) {
+        wireRowApply(field, input, false, v.hex || '', (val) => saveDeviceParam(uid, desc, val.replace(/\s+/g, ''), row));
+      }
     }
     return row;
+  }
+
+  // wireRowApply appends Apply/Revert/dirty-badge controls to field for one
+  // manufacturer-PID row's control (checkbox or text/number input), staging
+  // edits until Apply is clicked — see renderParamRow's call sites. onApply
+  // may throw (e.g. numericStepper's range check) to reject the apply
+  // without sending anything; saveDeviceParam itself never throws (it
+  // reports errors via setFxStatus and returns), and on success it
+  // re-renders the whole row from the server's confirmed value, which is
+  // what re-baselines the dirty state — this helper doesn't need to track a
+  // post-apply baseline itself.
+  function wireRowApply(field, inputEl, isCheckbox, baselineValue, onApply) {
+    const applyBtn = document.createElement('button');
+    applyBtn.type = 'button'; applyBtn.className = 'btn-apply'; applyBtn.textContent = 'Apply'; applyBtn.disabled = true;
+    const revertBtn = document.createElement('button');
+    revertBtn.type = 'button'; revertBtn.className = 'btn-revert'; revertBtn.textContent = 'Revert'; revertBtn.style.display = 'none';
+    const dirtyBadge = document.createElement('span');
+    dirtyBadge.className = 'badge dirty-badge'; dirtyBadge.textContent = 'pending'; dirtyBadge.style.display = 'none';
+
+    const baseline = isCheckbox ? !!baselineValue : String(baselineValue);
+    const current = () => (isCheckbox ? inputEl.checked : inputEl.value);
+    const refresh = () => {
+      const dirty = current() !== baseline;
+      applyBtn.disabled = !dirty;
+      revertBtn.style.display = dirty ? '' : 'none';
+      dirtyBadge.style.display = dirty ? '' : 'none';
+    };
+    inputEl.addEventListener('input', refresh);
+    inputEl.addEventListener('change', refresh);
+
+    applyBtn.addEventListener('click', async () => {
+      applyBtn.disabled = true;
+      try {
+        await onApply(current());
+      } catch (e) {
+        setFxStatus('error: ' + e.message);
+      }
+      // On success saveDeviceParam replaces this whole row via
+      // renderParamRows(); on failure re-enable so the user can retry.
+      applyBtn.disabled = false;
+    });
+    revertBtn.addEventListener('click', () => {
+      if (isCheckbox) inputEl.checked = baseline; else inputEl.value = baseline;
+      refresh();
+    });
+
+    field.appendChild(dirtyBadge);
+    field.appendChild(applyBtn);
+    field.appendChild(revertBtn);
   }
 
   // looksBoundedRaw flags a raw-kind field (bit field, group, UID, URL, MAC,
@@ -470,7 +569,13 @@ const DevicesScreen = (() => {
     return (n >>> 0).toString(16).padStart(width * 2, '0');
   }
 
-  function numericStepper(desc, value, editable, onSave) {
+  // numericStepper builds the input widget only; it no longer saves
+  // anything itself — the caller wires Apply/Revert via wireRowApply, which
+  // reads the input's live value when Apply is clicked. Live range-error
+  // text still updates on every keystroke (pure local feedback, not a
+  // save/re-render, so it doesn't run afoul of the oninput-mutates-only
+  // rule).
+  function numericStepper(desc, value, editable) {
     const wrap = document.createElement('span');
     const input = document.createElement('input');
     input.type = 'number'; input.value = value; input.disabled = !editable;
@@ -486,9 +591,6 @@ const DevicesScreen = (() => {
     errEl.className = 'hint field-error';
     wrap.appendChild(errEl);
 
-    // oninput mutates nothing but the field's own displayed value — no
-    // save, no re-render (mandatory UI rule). Range validation runs on
-    // input for live feedback but only onchange actually saves.
     input.addEventListener('input', () => {
       const n = Number(input.value);
       if (bounded && (n < desc.min || n > desc.max)) {
@@ -497,19 +599,7 @@ const DevicesScreen = (() => {
         errEl.textContent = '';
       }
     });
-    input.addEventListener('change', () => {
-      const n = Number(input.value);
-      if (!Number.isFinite(n) || (bounded && (n < desc.min || n > desc.max))) {
-        errEl.textContent = `must be ${desc.min}–${desc.max}`;
-        return;
-      }
-      onSave(n);
-    });
-    return wrap;
-  }
-
-  function wireOnChange(input, fn) {
-    input.addEventListener('change', fn);
+    return { wrap, input };
   }
 
   async function saveDeviceParam(uid, desc, value, rowEl) {
@@ -522,6 +612,53 @@ const DevicesScreen = (() => {
       if (selectedUID === uid && activeTab === 'params') renderParamRows(uid);
     } catch (e) {
       setFxStatus('error saving 0x' + desc.pid + ': ' + e.message);
+    }
+  }
+
+  // wireApplyField wires the Apply-to-confirm pattern for one standard
+  // field: baseId + baseId+'Apply'/'Revert'/'Dirty' must already exist in
+  // the DOM. The input/select's own oninput/onchange event only toggles the
+  // Apply/Revert/dirty-badge visibility (a tiny direct DOM update, not a
+  // re-render, so focus/cursor position is never disturbed) — the value is
+  // only ever sent to the server when Apply is clicked, reading the field's
+  // live value at that moment.
+  function wireApplyField(baseId, originalValue, onApply) {
+    const input = document.getElementById(baseId);
+    const applyBtn = document.getElementById(baseId + 'Apply');
+    const revertBtn = document.getElementById(baseId + 'Revert');
+    const dirtyBadge = document.getElementById(baseId + 'Dirty');
+    if (!input || !applyBtn) return;
+    let original = String(originalValue);
+
+    const refreshDirty = () => {
+      const dirty = input.value !== original;
+      applyBtn.disabled = !dirty;
+      if (revertBtn) revertBtn.style.display = dirty ? '' : 'none';
+      if (dirtyBadge) dirtyBadge.style.display = dirty ? '' : 'none';
+    };
+    input.addEventListener('input', refreshDirty);
+    input.addEventListener('change', refreshDirty);
+
+    applyBtn.addEventListener('click', async () => {
+      applyBtn.disabled = true;
+      try {
+        await onApply(input.value);
+        setFxStatus('applied ' + baseId.replace('fx', '').toLowerCase());
+      } catch (e) {
+        setFxStatus('error: ' + e.message);
+        applyBtn.disabled = false;
+        return;
+      }
+      // Re-baseline: the just-applied value becomes the new "original", so
+      // the field goes back to clean without needing a full tab re-render.
+      original = input.value;
+      refreshDirty();
+    });
+    if (revertBtn) {
+      revertBtn.addEventListener('click', () => {
+        input.value = original;
+        refreshDirty();
+      });
     }
   }
 

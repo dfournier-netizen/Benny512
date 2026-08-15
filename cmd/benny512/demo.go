@@ -176,6 +176,7 @@ func buildDemo(ctx context.Context) *web.Server {
 	dmx := session.NewDMXOutputEngine(session.DMXConfig{Transport: tport, Clock: clock})
 	reg := registry.New(nodes, rdmc)
 	ring := capture.New(capture.DefaultCapacity)
+	rdmRing := capture.New(capture.DefaultRDMCapacity)
 
 	en4IP := netip.MustParseAddr("2.11.90.2")
 	wirelessIP := netip.MustParseAddr("2.11.90.9")
@@ -220,13 +221,32 @@ func buildDemo(ctx context.Context) *web.Server {
 		reg.NoteFixture(ref, d.uid)
 	}
 
-	installDemoResponder(tport, rdmc, devices)
+	// Tap every outbound demo RDM request and its synthetic inbound reply
+	// into the capture rings, exactly like buildReal's Demux does for real
+	// traffic — so --demo mode genuinely exercises the Analyzer's RDM view
+	// and the export endpoints, not just the synthetic ArtDmx feed below.
+	srv := web.New(nodes, rdmc, dmx, reg, ring, rdmRing)
+	srv.NIC = "demo (fake transport)"
+	tap := func(dir capture.Direction, peer netip.AddrPort, data []byte) capture.Entry {
+		e := capture.DecodeEntry(dir, peer, data)
+		// Add stamps Time/Seq on its own returned copy — use that stamped
+		// copy for the RDM ring and disk logger (see main.go's buildReal
+		// for the same fix and fuller explanation of the bug this avoids).
+		e = ring.Add(e)
+		if capture.IsRDMKind(e.Kind) {
+			e = rdmRing.Add(e)
+			srv.LogRDMEntry(e)
+		}
+		return e
+	}
+
+	installDemoResponder(tport, rdmc, devices, tap)
 	installDemoNodeConfigResponder(tport, nodes, en4IP, wirelessIP)
 
 	go reg.Run()
 	go generateDemoTraffic(ctx, ring)
 
-	return web.New(nodes, rdmc, dmx, reg, ring)
+	return srv
 }
 
 // buildDemoDevices returns the ten pre-scripted demoDevices. Each literal's
@@ -370,14 +390,25 @@ func buildDemoDevices(en4IP, wirelessIP netip.Addr, port0, port1, port2 artnet.P
 // with no hardware. The scripted "proxied" device answers its first
 // request with ACK_TIMER before ACKing, modelling a wireless RDM proxy's
 // normal path (architecture rev 5 §1.1).
-func installDemoResponder(tport *session.FakeTransport, ctrl *session.RDMController, devices []*demoDevice) {
+func installDemoResponder(tport *session.FakeTransport, ctrl *session.RDMController, devices []*demoDevice, tap func(dir capture.Direction, peer netip.AddrPort, data []byte) capture.Entry) {
 	byUID := make(map[rdm.UID]*demoDevice, len(devices))
 	for _, d := range devices {
 		byUID[d.uid] = d
 	}
 	seenOnce := make(map[rdm.UID]bool)
 
+	// replyWire encodes one RDM response as a full ArtRdm datagram addressed
+	// back from the device's own node, for the capture tap — matching what
+	// would actually be on the wire, so --demo mode's Analyzer/export show
+	// the same shape of data a real bench session would.
+	replyWire := func(resp rdm.Message, node netip.AddrPort, net, address byte) {
+		pkt := artnet.EncodeRdmPacket(resp, artnet.DefaultProtocolVersion, net, address)
+		wire := artnet.Encode(artnet.Packet{Kind: artnet.KindRdm, Rdm: pkt})
+		tap(capture.DirIn, node, wire)
+	}
+
 	tport.OnSend = func(sp session.SentPacket) {
+		tap(capture.DirOut, sp.Dst, sp.Data)
 		if sp.DecodeErr != nil || sp.Packet.Kind != artnet.KindRdm {
 			return
 		}
@@ -389,6 +420,7 @@ func installDemoResponder(tport *session.FakeTransport, ctrl *session.RDMControl
 		if !ok {
 			return
 		}
+		net, address := sp.Packet.Rdm.Net, sp.Packet.Rdm.Address
 
 		if d.proxied && !seenOnce[d.uid] {
 			seenOnce[d.uid] = true
@@ -398,7 +430,10 @@ func installDemoResponder(tport *session.FakeTransport, ctrl *session.RDMControl
 				SubDevice: msg.SubDevice, CommandClass: responseClassFor(msg.CommandClass),
 				ParameterID: msg.ParameterID, ParameterData: []byte{0x00, 0x14},
 			}
-			time.AfterFunc(5*time.Millisecond, func() { ctrl.HandleRDMResponse(resp) })
+			time.AfterFunc(5*time.Millisecond, func() {
+				replyWire(resp, sp.Dst, net, address)
+				ctrl.HandleRDMResponse(resp)
+			})
 			return
 		}
 
@@ -424,7 +459,10 @@ func installDemoResponder(tport *session.FakeTransport, ctrl *session.RDMControl
 		if d.proxied {
 			delay = 30 * time.Millisecond
 		}
-		time.AfterFunc(delay, func() { ctrl.HandleRDMResponse(resp) })
+		time.AfterFunc(delay, func() {
+			replyWire(resp, sp.Dst, net, address)
+			ctrl.HandleRDMResponse(resp)
+		})
 	}
 }
 

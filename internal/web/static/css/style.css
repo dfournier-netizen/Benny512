@@ -366,6 +366,34 @@ main { padding: 20px; }
 .caution-banner strong { color: var(--warn); display: block; margin-bottom: 4px; }
 .caution-banner button { margin-top: 8px; }
 
+/* --- Apply-to-confirm pattern (every editable field, task rule: nothing
+   commits on change/blur — stage a pending value, Apply commits it) --- */
+
+.apply-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.dirty-badge {
+  background: rgba(255, 207, 92, 0.18);
+  color: var(--warn);
+  border: 1px solid var(--warn);
+}
+
+.btn-apply-merge, .btn-revert-merge,
+.btn-apply, .btn-revert {
+  padding: 4px 10px;
+  font-size: 13px;
+}
+
+.btn-revert-merge, .btn-revert {
+  background: transparent;
+  border-color: var(--text-dim);
+  color: var(--text-dim);
+}
+
 .ip-confirm-box {
   background: rgba(255,107,107,0.1);
   border: 1px solid var(--bad);

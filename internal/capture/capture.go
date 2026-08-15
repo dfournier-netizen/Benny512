@@ -31,11 +31,23 @@ func (d Direction) String() string {
 
 // HexThreshold is the default size below which raw hex is retained in full;
 // above it, hex is omitted (Size still reports the true length) to keep
-// capture memory bounded regardless of individual packet size.
+// capture memory bounded regardless of individual packet size. RDM datagrams
+// top out around 260 bytes (24-byte header + 231-byte max PDL + checksum),
+// so every RDM/ToD entry's full hex is always retained regardless of this
+// threshold — it only ever trims the occasional oversized ArtDmx/PollReply.
 const HexThreshold = 600
 
-// DefaultCapacity is the ring buffer's default entry count.
+// DefaultCapacity is the general ring buffer's default entry count.
 const DefaultCapacity = 10000
+
+// DefaultRDMCapacity is the RDM-only ring's default entry count — sized for
+// a multi-hour bench session's worth of GET/SET/DISCOVERY/ToD exchanges.
+// ArtDmx at 40Hz would flush a shared 10k-entry ring of RDM records in
+// minutes; routing RDM/ToD traffic into a dedicated, much larger ring (each
+// entry is small — at most a few hundred bytes of hex/decoded strings) means
+// a long session's RDM history survives regardless of how much DMX chatter
+// happens alongside it. See IsRDMKind for which opcodes route here.
+const DefaultRDMCapacity = 100000
 
 // DefaultBatchInterval is the server-side throttle for Subscribe deliveries.
 const DefaultBatchInterval = 100 * time.Millisecond
@@ -52,6 +64,26 @@ type Entry struct {
 	Key      string // short human summary of key fields (e.g. "seq=3 len=512" or UID/PID for RDM)
 	HexTrunc bool
 	Hex      string // hex of raw bytes, present only when Size <= HexThreshold
+
+	// RDM carries the full decoded detail for an ArtRdm entry (Kind ==
+	// "ArtRdm"), nil for every other Kind. See rdmdetail.go.
+	RDM *RDMDetail `json:"RDM,omitempty"`
+	// Tod carries decoded detail for ArtTodRequest/ArtTodData/ArtTodControl
+	// entries, nil otherwise. See rdmdetail.go.
+	Tod *TodDetail `json:"Tod,omitempty"`
+}
+
+// IsRDMKind reports whether kind is one of the RDM-family Art-Net opcodes
+// (ArtRdm, ArtTodRequest, ArtTodData, ArtTodControl) — the set routed into a
+// dedicated RDM-only ring so high-rate ArtDmx traffic never evicts RDM
+// exchanges from a shared buffer during a long bench session.
+func IsRDMKind(kind string) bool {
+	switch kind {
+	case "ArtRdm", "ArtTodRequest", "ArtTodData", "ArtTodControl":
+		return true
+	default:
+		return false
+	}
 }
 
 // Filter narrows what Subscribe/Snapshot returns. Zero-value fields mean
@@ -62,6 +94,16 @@ type Filter struct {
 	HasUniv  bool
 	Source   netip.Addr
 	HasSrc   bool
+	HasDir   bool
+	Dir      Direction
+
+	// RDM-specific filters, matched only against entries with RDM != nil
+	// (an entry with no RDM detail never matches a non-zero RDM filter
+	// dimension) — the Analyzer's RDM-focused view (report task item 3).
+	UID          string // matches either SourceUID or DestUID, empty = any
+	PID          uint16
+	HasPID       bool
+	CommandClass string // exact match against RDMDetail.CommandClass, empty = any
 }
 
 func (f Filter) match(e Entry) bool {
@@ -73,6 +115,24 @@ func (f Filter) match(e Entry) bool {
 	}
 	if f.HasSrc && e.Peer.Addr() != f.Source {
 		return false
+	}
+	if f.HasDir && e.Dir != f.Dir {
+		return false
+	}
+	if f.UID != "" {
+		if e.RDM == nil || (e.RDM.SourceUID != f.UID && e.RDM.DestUID != f.UID) {
+			return false
+		}
+	}
+	if f.HasPID {
+		if e.RDM == nil || e.RDM.PID != f.PID {
+			return false
+		}
+	}
+	if f.CommandClass != "" {
+		if e.RDM == nil || e.RDM.CommandClass != f.CommandClass {
+			return false
+		}
 	}
 	return true
 }
@@ -145,10 +205,18 @@ func (r *Ring) Add(e Entry) Entry {
 	return e
 }
 
-// AddPacket is a convenience wrapper: decode a raw datagram's opcode kind
-// via artnet.Decode (best-effort; undecodable bytes still get an Entry with
-// Kind "unknown") and add it.
+// AddPacket is a convenience wrapper: decode a raw datagram (via
+// DecodeEntry) and add it.
 func (r *Ring) AddPacket(dir Direction, peer netip.AddrPort, raw []byte) Entry {
+	return r.Add(DecodeEntry(dir, peer, raw))
+}
+
+// DecodeEntry builds an Entry for one directional raw datagram without
+// inserting it into any ring. Exported so a caller feeding more than one
+// ring from the same datagram (a general capture ring plus the dedicated
+// RDM-only ring, see IsRDMKind) decodes it exactly once — undecodable bytes
+// still produce an Entry with Kind "unknown" rather than being dropped.
+func DecodeEntry(dir Direction, peer netip.AddrPort, raw []byte) Entry {
 	e := Entry{Dir: dir, Peer: peer, Size: len(raw), Kind: "unknown"}
 	if len(raw) <= HexThreshold {
 		e.Hex = hexEncode(raw)
@@ -157,8 +225,9 @@ func (r *Ring) AddPacket(dir Direction, peer netip.AddrPort, raw []byte) Entry {
 	if err == nil {
 		e.Kind = kindName(pkt.Kind)
 		e.Universe, e.Key = summarize(pkt)
+		attachRDMDetail(&e, pkt)
 	}
-	return r.Add(e)
+	return e
 }
 
 // Snapshot returns up to the most recent `limit` entries (0 = all

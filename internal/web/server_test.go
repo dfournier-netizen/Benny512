@@ -36,7 +36,8 @@ func newHarness(t *testing.T) *testHarness {
 	dmx := session.NewDMXOutputEngine(session.DMXConfig{Transport: tport, Clock: clock})
 	reg := registry.New(nodes, rdmc)
 	ring := capture.New(100)
-	srv := New(nodes, rdmc, dmx, reg, ring)
+	rdmRing := capture.New(100)
+	srv := New(nodes, rdmc, dmx, reg, ring, rdmRing)
 	go reg.Run()
 	return &testHarness{srv: srv, nodes: nodes, rdmc: rdmc, tport: tport, clock: clock}
 }

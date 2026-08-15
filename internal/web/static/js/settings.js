@@ -38,8 +38,12 @@ const SettingsScreen = (() => {
     nicSel.value = prevValue || current.nic || '';
     document.getElementById('pollInterval').value = current.pollIntervalMs || 3000;
     document.getElementById('captureLimit').value = current.captureLimit || 10000;
+    document.getElementById('logRdmPath').value = current.logRdmPath || '';
   }
 
+  // save() is the one and only place any setting takes effect — every field
+  // above is oninput/onchange-mutates-the-DOM-only until "Apply settings" is
+  // clicked (task rule: nothing commits without explicit confirmation).
   async function save() {
     const status = document.getElementById('settingsStatus');
     const payload = {
@@ -47,11 +51,12 @@ const SettingsScreen = (() => {
       pollIntervalMs: parseInt(document.getElementById('pollInterval').value, 10) || 3000,
       captureLimit: parseInt(document.getElementById('captureLimit').value, 10) || 10000,
       timeoutProfiles: (current && current.timeoutProfiles) || {},
+      logRdmPath: document.getElementById('logRdmPath').value.trim(),
     };
     try {
       await Api.postSettings(payload);
       current = payload;
-      status.textContent = 'saved';
+      status.textContent = 'applied';
     } catch (e) {
       status.textContent = 'error: ' + e.message;
     }

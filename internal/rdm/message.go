@@ -1,5 +1,7 @@
 package rdm
 
+import "fmt"
+
 // CommandClass is the RDM Command Class (slot 20). Closed six-value set per
 // ANSI E1.20.
 type CommandClass byte
@@ -36,6 +38,28 @@ func (cc CommandClass) IsValid() bool {
 	}
 }
 
+// String renders cc's ANSI E1.20 mnemonic (the capture/export screens'
+// human-readable command-class label), falling back to hex for anything
+// outside the six defined values.
+func (cc CommandClass) String() string {
+	switch cc {
+	case DiscoveryCommand:
+		return "DISCOVERY_COMMAND"
+	case DiscoveryCommandResponse:
+		return "DISCOVERY_COMMAND_RESPONSE"
+	case GetCommand:
+		return "GET_COMMAND"
+	case GetCommandResponse:
+		return "GET_COMMAND_RESPONSE"
+	case SetCommand:
+		return "SET_COMMAND"
+	case SetCommandResponse:
+		return "SET_COMMAND_RESPONSE"
+	default:
+		return fmt.Sprintf("UNKNOWN_0x%02X", byte(cc))
+	}
+}
+
 // ResponseType is slot 16, meaningful only when CommandClass.IsResponse().
 type ResponseType byte
 
@@ -46,6 +70,23 @@ const (
 	ResponseNackReason  ResponseType = 0x02
 	ResponseACKOverflow ResponseType = 0x03
 )
+
+// String renders rt's ANSI E1.20 mnemonic — the capture/export screens'
+// human-readable response-type label.
+func (rt ResponseType) String() string {
+	switch rt {
+	case ResponseACK:
+		return "ACK"
+	case ResponseACKTimer:
+		return "ACK_TIMER"
+	case ResponseNackReason:
+		return "NACK_REASON"
+	case ResponseACKOverflow:
+		return "ACK_OVERFLOW"
+	default:
+		return fmt.Sprintf("UNKNOWN_0x%02X", byte(rt))
+	}
+}
 
 // NackReason is the 2-byte Parameter Data payload when Response Type =
 // NACK_REASON. Modeled as an open type (not a closed enum) because E1.37/

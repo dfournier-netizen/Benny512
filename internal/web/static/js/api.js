@@ -1,6 +1,12 @@
 // api.js — thin fetch wrappers for the REST surface. No framework, no
 // build step (Rackmaster-style, per architecture rev 5 §4).
 const Api = (() => {
+  function stripEmpty(obj) {
+    const out = {};
+    Object.keys(obj).forEach(k => { if (obj[k] !== '' && obj[k] !== null && obj[k] !== undefined) out[k] = obj[k]; });
+    return out;
+  }
+
   async function req(method, path, body) {
     const opts = { method, headers: {} };
     if (body !== undefined) {
@@ -36,6 +42,17 @@ const Api = (() => {
     captureSnapshot: (params) => {
       const qs = new URLSearchParams(params || {}).toString();
       return req('GET', '/api/capture/snapshot' + (qs ? '?' + qs : ''));
+    },
+    rdmCaptureSnapshot: (params) => {
+      const qs = new URLSearchParams(stripEmpty(params || {})).toString();
+      return req('GET', '/api/capture/rdm/snapshot' + (qs ? '?' + qs : ''));
+    },
+    // exportUrl builds the download URL for GET /api/capture/export — the
+    // caller navigates/window.opens it directly so the browser handles the
+    // Content-Disposition:attachment download rather than fetching it here.
+    exportUrl: (format, params) => {
+      const qs = new URLSearchParams(Object.assign({ format }, stripEmpty(params || {}))).toString();
+      return '/api/capture/export?' + qs;
     },
 
     // --- Phase 1c+: device-centric (generic PIDs, sensors, status) ---

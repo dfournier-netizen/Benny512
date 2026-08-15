@@ -28,6 +28,7 @@ func main() {
 	iface := flag.String("iface", "", "network interface name to bind for Art-Net (default: first non-loopback IPv4 interface)")
 	demo := flag.Bool("demo", false, "run against fake pre-scripted nodes/fixtures instead of real hardware")
 	logLevel := flag.String("loglevel", "info", "log verbosity: debug|info|warn|error")
+	logRDM := flag.String("logrdm", "", "optional: continuously append every RDM/ToD exchange to this file as it happens (rotates by size)")
 	flag.Parse()
 
 	logger := log.New(os.Stdout, "", log.LstdFlags)
@@ -63,6 +64,14 @@ func main() {
 	}
 	if closeTransport != nil {
 		defer closeTransport()
+	}
+	defer srv.Close()
+
+	if *logRDM != "" {
+		if err := srv.SetLogRDMPath(*logRDM); err != nil {
+			logger.Fatalf("--logrdm: %v", err)
+		}
+		logf("info", "logging RDM/ToD traffic to %s", *logRDM)
 	}
 
 	go srv.Run(ctx)
@@ -118,12 +127,42 @@ func buildReal(ifaceName string, logf func(level, format string, args ...any)) (
 		return nil, nil, fmt.Errorf("bind UDP: %w", err)
 	}
 
+	// Demux fixes a real bug that only shows up with more than one real-mode
+	// consumer of udp.Inbound(): a plain Go channel delivers each datagram
+	// to exactly one reader, so handing `udp` directly to three engines
+	// (as this function used to) silently split inbound traffic between
+	// ArtNetSession and RDMController at random. Demux fans every inbound
+	// datagram out to all three, and is also the single choke point that
+	// feeds both capture rings with real traffic in both directions — see
+	// internal/session/demux.go's doc comment for the full story.
+	demux := session.NewDemux(udp)
+
 	clock := session.RealClock{}
-	nodes := session.NewArtNetSession(session.ArtNetConfig{Transport: udp, Clock: clock})
-	rdmc := session.NewRDMController(session.RDMConfig{Transport: udp, Clock: clock})
-	dmx := session.NewDMXOutputEngine(session.DMXConfig{Transport: udp, Clock: clock})
+	nodes := session.NewArtNetSession(session.ArtNetConfig{Transport: demux.Subscriber(), Clock: clock})
+	rdmc := session.NewRDMController(session.RDMConfig{Transport: demux.Subscriber(), Clock: clock})
+	dmx := session.NewDMXOutputEngine(session.DMXConfig{Transport: demux.Subscriber(), Clock: clock})
 	reg := registry.New(nodes, rdmc)
 	ring := capture.New(capture.DefaultCapacity)
+	rdmRing := capture.New(capture.DefaultRDMCapacity)
+
+	srv := web.New(nodes, rdmc, dmx, reg, ring, rdmRing)
+	srv.NIC = fmt.Sprintf("%s (%v)", chosen.Name, chosen.IPv4)
+
+	tap := func(dir capture.Direction, peer netip.AddrPort, data []byte) {
+		e := capture.DecodeEntry(dir, peer, data)
+		// Add stamps Time/Seq on its own returned copy (the zero-value Time
+		// from DecodeEntry only gets set inside Add) — use that stamped
+		// copy for the RDM ring and disk logger, not the pre-Add value,
+		// or every disk-logged/second-ring entry gets a zero timestamp.
+		e = ring.Add(e)
+		if capture.IsRDMKind(e.Kind) {
+			e = rdmRing.Add(e)
+			srv.LogRDMEntry(e)
+		}
+	}
+	demux.OnSend = func(data []byte, dst netip.AddrPort) { tap(capture.DirOut, dst, data) }
+	demux.OnReceive = func(data []byte, from netip.AddrPort) { tap(capture.DirIn, from, data) }
+	demux.Start()
 
 	go reg.Run()
 	go nodes.Run(context.Background())
@@ -134,7 +173,6 @@ func buildReal(ifaceName string, logf func(level, format string, args ...any)) (
 	}
 	dmx.Start()
 
-	srv := web.New(nodes, rdmc, dmx, reg, ring)
 	return srv, func() { udp.Close() }, nil
 }
 
