@@ -359,7 +359,6 @@ const DevicesScreen = (() => {
       </div>
       <div class="field-row"><label>Identify</label>
         <input id="fxIdentify" type="checkbox" ${identOn ? 'checked' : ''}>
-        <span class="hint">live — flashes/strobes the fixture immediately, matches walking the rig physically identifying it</span>
       </div>
       <div class="field-row"><span id="fxStatus" class="hint"></span></div>
 

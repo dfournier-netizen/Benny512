@@ -13,6 +13,7 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -66,6 +67,13 @@ func main() {
 		defer closeTransport()
 	}
 	defer srv.Close()
+
+	// Rig Walk mode persists its session as a JSON file next to the exe
+	// (task ask: "a simple in-memory session plus JSON file next to the exe
+	// is fine, matching existing persistence conventions") so a dropped
+	// phone connection, accidental refresh, or even a server restart mid-walk
+	// doesn't lose progress.
+	srv.SetWalkStorePath(walkSessionPath())
 
 	if *logRDM != "" {
 		if err := srv.SetLogRDMPath(*logRDM); err != nil {
@@ -206,6 +214,18 @@ func firstDisplayIP(ifaceName string) (string, bool) {
 		return "", false
 	}
 	return chosen.IPv4[0], true
+}
+
+// walkSessionPath resolves Rig Walk mode's persisted-session file to a path
+// next to the running exe (falls back to the current working directory if
+// os.Executable fails, e.g. some sandboxed test environments) — mirrors the
+// "delivery model is the point: a single self-contained exe" convention the
+// rest of the app follows for anything written to disk.
+func walkSessionPath() string {
+	if exe, err := os.Executable(); err == nil {
+		return filepath.Join(filepath.Dir(exe), "benny512-rigwalk.json")
+	}
+	return "benny512-rigwalk.json"
 }
 
 func shouldLog(configured, level string) bool {

@@ -402,3 +402,229 @@ main { padding: 20px; }
   margin-top: 8px;
   font-size: 14px;
 }
+
+/* --- Rig Walk mode: phone-optimized, huge touch targets, high contrast.
+   Nothing critical sits in the top corners; Next/Previous own the bottom
+   of the screen. Status is never color-only — every state pairs a color
+   with text/a glyph (accessibility standing constraint). Works in portrait
+   on a phone-sized viewport without horizontal scroll: everything here is
+   block-stacked, no fixed widths past 100%. --- */
+
+.walk-root {
+  max-width: 520px;
+  margin: 0 auto;
+  padding-bottom: 100px; /* clears the fixed bottom nav bar */
+}
+
+.walk-setup h2 { margin-top: 0; }
+
+.walk-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.walk-field label { color: var(--text-dim); font-size: 15px; }
+.walk-field select, .walk-field input {
+  font-size: 18px;
+  padding: 12px;
+  width: 100%;
+}
+
+.walk-checkbox { flex-direction: row; align-items: center; gap: 10px; }
+.walk-checkbox label { display: flex; align-items: center; gap: 10px; color: var(--text); font-size: 16px; }
+.walk-checkbox input[type=checkbox] { width: 24px; height: 24px; }
+
+.walk-btn-primary {
+  width: 100%;
+  font-size: 20px;
+  padding: 18px;
+  background: var(--accent);
+  color: #06202f;
+  border-color: var(--accent);
+  margin-top: 6px;
+}
+.walk-btn-primary:hover { border-color: var(--accent-strong); }
+
+.walk-topbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.walk-btn-danger {
+  background: rgba(255,107,107,0.15);
+  border-color: var(--bad);
+  color: var(--bad);
+  font-size: 14px;
+  padding: 10px 12px;
+}
+.walk-btn-ghost {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text-dim);
+  font-size: 14px;
+  padding: 10px 12px;
+}
+
+.walk-progress {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 14px;
+  text-align: center;
+}
+
+.walk-card {
+  background: var(--bg-panel);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  text-align: center;
+  margin-bottom: 16px;
+}
+.walk-card.walk-status-confirmed { border-color: var(--good); }
+.walk-card.walk-status-problem { border-color: var(--bad); }
+
+.walk-counter {
+  font-size: 22px;
+  color: var(--text-dim);
+  font-weight: 700;
+}
+
+.walk-status-pill {
+  display: inline-block;
+  margin: 6px 0 14px;
+  padding: 4px 14px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.walk-status-confirmed .walk-status-pill { color: var(--good); border-color: var(--good); background: rgba(94,217,140,0.12); }
+.walk-status-problem .walk-status-pill { color: var(--bad); border-color: var(--bad); background: rgba(255,107,107,0.12); }
+
+/* Address and model are the two things a tech reads most — biggest after
+   the counter, per task spec. */
+.walk-address {
+  font-size: 44px;
+  font-weight: 800;
+  color: var(--accent-strong);
+  line-height: 1.1;
+  margin-bottom: 8px;
+}
+.walk-model {
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1.15;
+}
+.walk-mfr {
+  font-size: 20px;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+}
+.walk-meta {
+  font-size: 15px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+.walk-identify-ok {
+  margin-top: 12px;
+  color: var(--good);
+  font-weight: 700;
+  font-size: 16px;
+}
+.walk-identify-error {
+  margin-top: 12px;
+  background: rgba(255,107,107,0.12);
+  border: 1px solid var(--bad);
+  color: var(--text);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-size: 15px;
+}
+.walk-identify-error button { margin-top: 8px; }
+
+.walk-note-display {
+  margin-top: 10px;
+  font-size: 15px;
+  color: var(--warn);
+  text-align: left;
+}
+
+.walk-address-fix {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  text-align: left;
+}
+.walk-address-fix label { color: var(--text-dim); font-size: 14px; display: block; margin-bottom: 6px; }
+.walk-address-fix input[type=number] { font-size: 20px; padding: 10px; width: 110px; }
+
+.walk-checklist {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.walk-btn-confirm, .walk-btn-problem {
+  font-size: 20px;
+  font-weight: 800;
+  padding: 20px 10px;
+  border-width: 2px;
+}
+.walk-btn-confirm { background: rgba(94,217,140,0.15); border-color: var(--good); color: var(--good); }
+.walk-btn-problem { background: rgba(255,207,92,0.15); border-color: var(--warn); color: var(--warn); }
+
+.walk-note-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.walk-note-wrap input[type=text] { flex: 1 1 100%; font-size: 16px; padding: 12px; }
+.walk-btn-secondary { padding: 10px 14px; font-size: 15px; }
+
+.walk-export {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 16px 0 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+/* Primary Next/Previous: fixed to the bottom of the viewport, full-width
+   split, thumb-reachable, well over the 72px minimum touch-target height
+   (task spec) so they work reliably while the tech is mid-stride. */
+.walk-navbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  gap: 2px;
+  z-index: 20;
+  box-shadow: 0 -2px 10px rgba(0,0,0,0.4);
+}
+.walk-nav-btn {
+  flex: 1 1 50%;
+  min-height: 84px;
+  font-size: 22px;
+  font-weight: 800;
+  border-radius: 0;
+  border: none;
+  border-top: 2px solid var(--accent);
+  background: var(--bg-panel-alt);
+  color: var(--text);
+}
+.walk-nav-btn:disabled { opacity: 0.35; }
+.walk-nav-btn:last-child { background: var(--accent); color: #06202f; }
+
+@media (max-width: 560px) {
+  .walk-address { font-size: 36px; }
+  .walk-model { font-size: 24px; }
+}

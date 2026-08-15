@@ -14,6 +14,7 @@
     <button class="tab-btn" data-tab="devices">Devices</button>
     <button class="tab-btn" data-tab="analyzer">Analyzer</button>
     <button class="tab-btn" data-tab="send">Send</button>
+    <button class="tab-btn" data-tab="walk">Rig Walk</button>
     <button class="tab-btn" data-tab="settings">Settings</button>
   </nav>
   <div class="conn-status" id="connStatus">connecting…</div>
@@ -152,6 +153,10 @@
     <div class="dmx-grid" id="dmxGrid"></div>
   </section>
 
+  <section id="screen-walk" class="screen">
+    <div id="walkRoot" class="walk-root"></div>
+  </section>
+
   <section id="screen-settings" class="screen">
     <div class="settings-form">
       <label>Network interface (NIC):
@@ -187,6 +192,7 @@
 <script src="/js/analyzer.js"></script>
 <script src="/js/send.js"></script>
 <script src="/js/settings.js"></script>
+<script src="/js/walk.js"></script>
 <script src="/js/app.js"></script>
 </body>
 </html>

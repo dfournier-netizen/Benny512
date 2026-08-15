@@ -29,6 +29,7 @@ import (
 	"benny512/internal/rdm"
 	"benny512/internal/registry"
 	"benny512/internal/session"
+	"benny512/internal/walk"
 	"benny512/internal/web/ws"
 )
 
@@ -85,6 +86,13 @@ type Server struct {
 	settings   Settings
 	rdmLogger  *capture.DiskLogger
 
+	// walkStore holds Rig Walk mode's session state (see internal/walk and
+	// walk.go in this package). Defaults to an in-memory-only store
+	// (persistence off) so existing tests/callers of New don't need to know
+	// about it; cmd/benny512 upgrades it to a persisted file next to the
+	// exe via SetWalkStorePath, mirroring SetLogRDMPath's pattern.
+	walkStore *walk.Store
+
 	hub *hub
 
 	mux *http.ServeMux
@@ -102,7 +110,8 @@ func New(nodes *session.ArtNetSession, rdmc *session.RDMController, dmx *session
 			CaptureLimit:    capture.DefaultCapacity,
 			TimeoutProfiles: map[string]string{},
 		},
-		hub: newHub(),
+		walkStore: walk.NewStore(""),
+		hub:       newHub(),
 	}
 	s.mux = http.NewServeMux()
 	s.routes()
@@ -132,6 +141,17 @@ func (s *Server) LogRDMEntry(e capture.Entry) {
 	if l != nil {
 		l.Log(e)
 	}
+}
+
+// SetWalkStorePath switches Rig Walk mode's session store to persist at
+// path (a JSON file next to the exe, task ask: "a simple in-memory session
+// plus JSON file next to the exe is fine"). Any existing session at path is
+// loaded immediately. Called once at startup by cmd/benny512, mirroring
+// SetLogRDMPath's "configurable path, sensible default" pattern; not
+// exposed as a runtime Settings toggle since there's no scenario where Dom
+// would want to change it mid-session.
+func (s *Server) SetWalkStorePath(path string) {
+	s.walkStore = walk.NewStore(path)
 }
 
 // SetLogRDMPath opens (or closes, if path=="") the continuous RDM disk
@@ -211,6 +231,19 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/node/{ip}/ipconfig", s.handleNodeIPConfig)
 	s.mux.HandleFunc("POST /api/node/{ip}/input", s.handleNodeInput)
 	s.mux.HandleFunc("GET /api/nics", s.handleGetNICs)
+
+	// --- Rig Walk mode (phone-optimized device walkthrough) ---
+	s.mux.HandleFunc("GET /api/walk/session", s.handleGetWalkSession)
+	s.mux.HandleFunc("POST /api/walk/session", s.handleStartWalkSession)
+	s.mux.HandleFunc("POST /api/walk/end", s.handleWalkEnd)
+	s.mux.HandleFunc("POST /api/walk/goto", s.handleWalkGoto)
+	s.mux.HandleFunc("POST /api/walk/autoadvance", s.handleWalkAutoAdvance)
+	s.mux.HandleFunc("POST /api/walk/{uid}/status", s.handleWalkStatus)
+	s.mux.HandleFunc("POST /api/walk/{uid}/address", s.handleWalkAddress)
+	s.mux.HandleFunc("POST /api/walk/identify/retry", s.handleWalkIdentifyRetry)
+	s.mux.HandleFunc("POST /api/walk/identify/off", s.handleWalkIdentifyOffCurrent)
+	s.mux.HandleFunc("POST /api/walk/identify/all-off", s.handleWalkIdentifyAllOff)
+	s.mux.HandleFunc("GET /api/walk/export", s.handleWalkExport)
 
 	s.mux.HandleFunc("GET /ws", s.handleWS)
 }

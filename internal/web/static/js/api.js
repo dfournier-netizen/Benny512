@@ -70,5 +70,26 @@ const Api = (() => {
     setNodeIPConfig: (ip, body) => req('POST', `/api/node/${encodeURIComponent(ip)}/ipconfig`, body),
     setNodeInput: (ip, body) => req('POST', `/api/node/${encodeURIComponent(ip)}/input`, body),
     getNICs: () => req('GET', '/api/nics'),
+
+    // --- Rig Walk mode (phone-optimized device walkthrough) ---
+    getWalkSession: () => req('GET', '/api/walk/session'),
+    startWalk: (body) => req('POST', '/api/walk/session', body),
+    endWalk: () => req('POST', '/api/walk/end'),
+    walkGoto: (index) => req('POST', '/api/walk/goto', { index }),
+    walkAutoAdvance: (on) => req('POST', '/api/walk/autoadvance', { on }),
+    walkSetStatus: (uid, status, note) => req('POST', `/api/walk/${encodeURIComponent(uid)}/status`, { status, note }),
+    walkSetAddress: (uid, value) => req('POST', `/api/walk/${encodeURIComponent(uid)}/address`, { value }),
+    walkIdentifyRetry: () => req('POST', '/api/walk/identify/retry'),
+    walkIdentifyAllOff: () => req('POST', '/api/walk/identify/all-off'),
+    // walkIdentifyOffBeacon fires the lightweight "turn off the current
+    // device" call directly via fetch(keepalive:true), bypassing req()'s
+    // JSON-response parsing — used from pagehide/visibilitychange handlers
+    // where the page may already be gone before a normal response arrives
+    // (task ask: "never leave a fixture flashing" when the tech navigates
+    // away or the browser tab dies mid-walk).
+    walkIdentifyOffBeacon: () => {
+      try { fetch('/api/walk/identify/off', { method: 'POST', keepalive: true }); } catch (e) { /* best-effort */ }
+    },
+    walkExportUrl: (format) => '/api/walk/export?format=' + format,
   };
 })();
