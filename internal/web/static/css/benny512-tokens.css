@@ -1,0 +1,207 @@
+/*
+  Benny512 design tokens
+  Dark theme is the default (:root). Light theme overrides live in [data-theme="light"].
+  Every component style must reference these variables — never a hardcoded hex or px value.
+*/
+
+:root {
+  /* ---- Neutral ramp (near-black family from the logo, 950 darkest -> 050 lightest) ---- */
+  --b5-color-neutral-950: #100e0b;
+  --b5-color-neutral-900: #1c1815;
+  --b5-color-neutral-800: #241f1a;
+  --b5-color-neutral-700: #2c261f;
+  --b5-color-neutral-600: #3a332b;
+  --b5-color-neutral-500: #4c443a;
+  --b5-color-neutral-400: #6b6255;
+  --b5-color-neutral-300: #8f8778;
+  --b5-color-neutral-200: #c7c0b6;
+  --b5-color-neutral-100: #ececea;
+  --b5-color-neutral-050: #fefefe;
+
+  /* ---- Accent teal — functional accent: selection, focus, active state ---- */
+  --b5-color-accent-900: #04302c;
+  --b5-color-accent-800: #065852;
+  --b5-color-accent-700: #06958b;
+  --b5-color-accent-600: #1a938a;
+  --b5-color-accent-500: #26a39a;
+  --b5-color-accent-400: #52b7b1;
+  --b5-color-accent-300: #7fd0c9;
+  --b5-color-accent-200: #b1dfdf;
+  --b5-color-accent-100: #dcf0ee;
+  --b5-color-accent-500-a15: rgba(38, 163, 154, 0.15);
+  --b5-color-accent-500-a30: rgba(38, 163, 154, 0.30);
+
+  /* ---- Info navy — secondary / informational tone ---- */
+  --b5-color-info-900: #14213a;
+  --b5-color-info-800: #1c3357;
+  --b5-color-info-700: #23406e;
+  --b5-color-info-600: #274678;
+  --b5-color-info-500: #2a4d85;
+  --b5-color-info-400: #4a6ba8;
+  --b5-color-info-300: #6f8fc4;
+  --b5-color-info-200: #a9c0e0;
+  --b5-color-info-100: #dbe6f5;
+
+  /* ---- Danger red — reserved strictly for errors / destructive actions ---- */
+  --b5-color-danger-900: #4d0300;
+  --b5-color-danger-800: #7a0400;
+  --b5-color-danger-700: #a10500;
+  --b5-color-danger-600: #b80300;
+  --b5-color-danger-500: #c80100;
+  --b5-color-danger-400: #e2382f;
+  --b5-color-danger-300: #ff6b63;
+  --b5-color-danger-200: #ffaca6;
+  --b5-color-danger-100: #ffe0dd;
+
+  /* ---- Success green — distinct hue from accent teal ---- */
+  --b5-color-success-900: #123018;
+  --b5-color-success-700: #1f5c33;
+  --b5-color-success-500: #2f8a4e;
+  --b5-color-success-400: #56b568;
+  --b5-color-success-300: #8fd39c;
+  --b5-color-success-100: #d8f2dd;
+
+  /* ---- Warning amber ---- */
+  --b5-color-warning-900: #3d2a06;
+  --b5-color-warning-700: #7a5410;
+  --b5-color-warning-500: #b8790f;
+  --b5-color-warning-400: #d99a2b;
+  --b5-color-warning-300: #f0c163;
+  --b5-color-warning-100: #fbe8c4;
+
+  /* ---- Semantic surface / text / border roles (dark theme) ---- */
+  --b5-color-bg-canvas: var(--b5-color-neutral-950);
+  --b5-color-bg-surface: var(--b5-color-neutral-900);
+  --b5-color-bg-surface-raised: var(--b5-color-neutral-800);
+  --b5-color-bg-surface-overlay: var(--b5-color-neutral-700);
+  --b5-color-bg-inset: #0b0a08;
+  --b5-color-bg-hover: var(--b5-color-neutral-700);
+  --b5-color-bg-selected: var(--b5-color-accent-500-a15);
+  --b5-color-bg-stale: repeating-linear-gradient(135deg, var(--b5-color-neutral-800) 0 6px, var(--b5-color-neutral-700) 6px 12px);
+
+  --b5-color-text-primary: var(--b5-color-neutral-050);
+  --b5-color-text-secondary: var(--b5-color-neutral-200);
+  --b5-color-text-muted: var(--b5-color-neutral-300);
+  --b5-color-text-disabled: var(--b5-color-neutral-500);
+  --b5-color-text-accent: var(--b5-color-accent-300);
+  --b5-color-text-info: var(--b5-color-info-300);
+  --b5-color-text-danger: var(--b5-color-danger-300);
+  --b5-color-text-success: var(--b5-color-success-400);
+  --b5-color-text-warning: var(--b5-color-warning-400);
+  --b5-color-text-on-accent: var(--b5-color-neutral-950);
+  --b5-color-text-on-danger: var(--b5-color-neutral-050);
+
+  --b5-color-border-subtle: var(--b5-color-neutral-700);
+  --b5-color-border-default: var(--b5-color-neutral-600);
+  --b5-color-border-strong: var(--b5-color-neutral-400);
+  --b5-color-border-accent: var(--b5-color-accent-500);
+  --b5-color-border-danger: var(--b5-color-danger-500);
+  --b5-color-border-focus: var(--b5-color-accent-400);
+
+  /* ---- Typography ---- */
+  /* Segoe UI / system-ui distinguish 1 / l / I clearly (serif foot on capital I, distinct lowercase l);
+     the monospace stack below adds a slashed zero, important for hex/DMX data at a glance. */
+  --b5-font-body: -apple-system, "Segoe UI", "Noto Sans", Roboto, Helvetica, Arial, sans-serif;
+  --b5-font-mono: "Cascadia Mono", Consolas, "SF Mono", "Segoe UI Mono", "Liberation Mono", monospace;
+
+  --b5-font-size-xs: 0.8125rem;   /* 13px */
+  --b5-font-size-sm: 0.9375rem;   /* 15px */
+  --b5-font-size-md: 1rem;        /* 16px */
+  --b5-font-size-lg: 1.125rem;    /* 18px */
+  --b5-font-size-xl: 1.375rem;    /* 22px */
+  --b5-font-size-2xl: 1.75rem;    /* 28px */
+  --b5-font-size-3xl: 2.5rem;     /* 40px — Rig Walk counter */
+
+  --b5-font-weight-regular: 400;
+  --b5-font-weight-medium: 500;
+  --b5-font-weight-bold: 700;
+
+  --b5-line-height-body: 1.55;
+  --b5-line-height-tight: 1.3;
+  --b5-letter-spacing-sm: 0.01em; /* slight increase for small text, dyslexia-friendly */
+
+  /* ---- Spacing ---- */
+  --b5-space-1: 0.25rem;
+  --b5-space-2: 0.5rem;
+  --b5-space-3: 0.75rem;
+  --b5-space-4: 1rem;
+  --b5-space-5: 1.25rem;
+  --b5-space-6: 1.5rem;
+  --b5-space-8: 2rem;
+  --b5-space-10: 2.5rem;
+  --b5-space-12: 3rem;
+  --b5-space-16: 4rem;
+
+  /* ---- Radius (crisp, minimal — console gear, not bubbly) ---- */
+  --b5-radius-none: 0;
+  --b5-radius-sm: 3px;
+  --b5-radius-md: 5px;
+  --b5-radius-lg: 8px;
+  --b5-radius-full: 999px;
+
+  /* ---- Borders ---- */
+  --b5-border-width-thin: 1px;
+  --b5-border-width-thick: 2px;
+
+  /* ---- Shadow (ambient darkness, dark ground) ---- */
+  --b5-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --b5-shadow-md: 0 4px 14px rgba(0, 0, 0, 0.5);
+  --b5-shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.6);
+  --b5-shadow-focus: 0 0 0 3px var(--b5-color-accent-500-a30);
+
+  /* ---- Z-index ---- */
+  --b5-z-base: 0;
+  --b5-z-sticky: 10;
+  --b5-z-dropdown: 20;
+  --b5-z-overlay: 30;
+  --b5-z-modal: 40;
+  --b5-z-toast: 50;
+
+  /* ---- Touch targets ---- */
+  --b5-size-touch-min: 44px;
+  --b5-size-touch-walk: 76px;
+
+  /* ---- Motion ---- */
+  --b5-motion-fast: 120ms;
+  --b5-motion-base: 180ms;
+  --b5-motion-ease: ease;
+}
+
+/*
+  Light theme — daylight / outdoor override. Dark theme stays the default and primary target;
+  this block only reassigns the semantic roles, so every component keeps working unmodified.
+*/
+[data-theme="light"] {
+  --b5-color-bg-canvas: #eeece6;
+  --b5-color-bg-surface: #fefefe;
+  --b5-color-bg-surface-raised: #f7f5f0;
+  --b5-color-bg-surface-overlay: #ffffff;
+  --b5-color-bg-inset: #e7e4dc;
+  --b5-color-bg-hover: #e7e4dc;
+  --b5-color-bg-selected: rgba(6, 149, 139, 0.12);
+  --b5-color-bg-stale: repeating-linear-gradient(135deg, #efece4 0 6px, #e5e1d7 6px 12px);
+
+  --b5-color-text-primary: #1c1815;
+  --b5-color-text-secondary: #423c33;
+  --b5-color-text-muted: #6b6255;
+  --b5-color-text-disabled: #a29a8c;
+  --b5-color-text-accent: #06958b;
+  --b5-color-text-info: #2a4d85;
+  --b5-color-text-danger: #a10500;
+  --b5-color-text-success: #1f5c33;
+  --b5-color-text-warning: #7a5410;
+  --b5-color-text-on-accent: #fefefe;
+  --b5-color-text-on-danger: #fefefe;
+
+  --b5-color-border-subtle: #ddd8cc;
+  --b5-color-border-default: #c7c0b0;
+  --b5-color-border-strong: #948a76;
+  --b5-color-border-accent: #06958b;
+  --b5-color-border-danger: #a10500;
+  --b5-color-border-focus: #06958b;
+
+  --b5-shadow-sm: 0 1px 2px rgba(28, 24, 21, 0.12);
+  --b5-shadow-md: 0 4px 14px rgba(28, 24, 21, 0.16);
+  --b5-shadow-lg: 0 16px 40px rgba(28, 24, 21, 0.22);
+  --b5-shadow-focus: 0 0 0 3px rgba(6, 149, 139, 0.28);
+}

@@ -1,61 +1,86 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Benny512</title>
-<link rel="stylesheet" href="/css/style.css">
+<link rel="icon" href="/logo/favicon.svg">
+<link rel="stylesheet" href="/css/benny512-tokens.css">
+<link rel="stylesheet" href="/css/benny512-layout.css">
+<link rel="stylesheet" href="/css/benny512-components.css">
+<link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
-<header class="app-header">
-  <div class="brand">Benny512</div>
-  <nav class="tabs" id="tabs">
-    <button class="tab-btn" data-tab="nodes">Nodes</button>
-    <button class="tab-btn" data-tab="devices">Devices</button>
-    <button class="tab-btn" data-tab="patch">Patch</button>
-    <button class="tab-btn" data-tab="analyzer">Analyzer</button>
-    <button class="tab-btn" data-tab="send">Send</button>
-    <button class="tab-btn" data-tab="walk">Rig Walk</button>
-    <button class="tab-btn" data-tab="settings">Settings</button>
+<div class="b5-app">
+  <header class="b5-header">
+    <span class="b5-header__brand"><img class="b5-header__logo" src="/logo/benny512-logo.svg" alt="">Benny512</span>
+    <span class="b5-header__spacer"></span>
+    <span class="b5-connection" id="connStatus"><span class="b5-connection__dot"></span>connecting&hellip;</span>
+  </header>
+
+  <nav class="b5-nav" id="tabs">
+    <button class="b5-nav__item" data-tab="nodes"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-nodes"/></svg>Nodes</button>
+    <button class="b5-nav__item" data-tab="devices"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-devices"/></svg>Devices</button>
+    <button class="b5-nav__item" data-tab="patch"><svg><use href="/icons/benny512-icons.svg#b5-icon-network-node"/></svg>Patch</button>
+    <button class="b5-nav__item" data-tab="analyzer"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-analyzer"/></svg>Analyzer</button>
+    <button class="b5-nav__item" data-tab="send"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-send"/></svg>Send</button>
+    <button class="b5-nav__item" data-tab="walk"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-rig-walk"/></svg>Rig Walk</button>
+    <button class="b5-nav__item" data-tab="settings"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-settings"/></svg>Settings</button>
   </nav>
-  <div class="conn-status" id="connStatus">connecting…</div>
-</header>
+  <nav class="b5-nav--mobile" id="tabsMobile">
+    <button class="b5-nav__item" data-tab="nodes"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-nodes"/></svg>Nodes</button>
+    <button class="b5-nav__item" data-tab="devices"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-devices"/></svg>Devices</button>
+    <button class="b5-nav__item" data-tab="patch"><svg><use href="/icons/benny512-icons.svg#b5-icon-network-node"/></svg>Patch</button>
+    <button class="b5-nav__item" data-tab="walk"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-rig-walk"/></svg>Walk</button>
+    <button class="b5-nav__item" data-tab="analyzer"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-analyzer"/></svg>Analyzer</button>
+    <button class="b5-nav__item" data-tab="send"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-send"/></svg>Send</button>
+    <button class="b5-nav__item" data-tab="settings"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-settings"/></svg>Settings</button>
+  </nav>
 
-<main id="main">
+  <main id="main" class="b5-app__body">
 
-  <section id="screen-nodes" class="screen">
-    <div class="panel-split">
-      <div class="panel-list">
-        <div class="panel-toolbar">
-          <button id="btnRefreshNodes">Refresh</button>
-          <span class="hint">Art-Net nodes on this network. RDM capability shown per node.</span>
-        </div>
-        <table class="data-table" id="nodesTable">
-          <thead><tr>
-            <th>Name</th><th>IP</th><th>Ports</th><th>RDM</th><th>Last seen</th>
-          </tr></thead>
-          <tbody></tbody>
-        </table>
+    <section id="screen-nodes" class="screen">
+      <div class="b5-page-header">
+        <h1 class="b5-page-header__title">Nodes</h1>
+        <span class="b5-page-header__meta"><button id="btnRefreshNodes" class="b5-btn b5-btn--sm"><svg><use href="/icons/benny512-icons.svg#b5-icon-refresh"/></svg>Refresh</button></span>
       </div>
-      <div class="panel-detail" id="nodeDetail">
-        <p class="empty-hint">Select a node to see its ports and universes.</p>
-      </div>
-    </div>
-  </section>
-
-  <section id="screen-devices" class="screen">
-    <div class="panel-split">
-      <div class="panel-list">
-        <div class="panel-toolbar">
-          <label>Node/port (discover target):
-            <select id="fixtureNodeSelect"></select>
-          </label>
-          <button id="btnDiscover">Discover</button>
-          <span class="hint" id="discoverStatus"></span>
+      <p class="b5-text-muted b5-text-sm">Art-Net nodes on this network. RDM capability shown per node.</p>
+      <div class="b5-split">
+        <div class="b5-panel">
+          <div class="b5-panel__body--flush">
+            <table class="b5-table b5-table--responsive" id="nodesTable">
+              <thead><tr>
+                <th>Name</th><th class="b5-table__mono">IP</th><th>Ports / Universes</th><th>Status</th><th>Last seen</th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
-        <div class="panel-toolbar">
-          <label>Class: <select id="deviceClassFilter">
-            <option value="">all</option>
+        <div class="b5-panel" id="nodeDetail">
+          <div class="b5-panel__body">
+            <div class="b5-empty"><svg><use href="/icons/benny512-icons.svg#b5-icon-network-node"/></svg><span class="b5-empty__title">No node selected</span><span class="b5-empty__body">Select a node to see its ports and universes.</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="screen-devices" class="screen">
+      <div class="b5-page-header">
+        <h1 class="b5-page-header__title">Devices</h1>
+      </div>
+      <div class="b5-filterbar">
+        <div class="b5-filterbar__group">
+          <label class="b5-visually-hidden" for="fixtureNodeSelect">Node/port (discover target)</label>
+          <select id="fixtureNodeSelect" class="b5-select" style="width:auto"></select>
+          <button id="btnDiscover" class="b5-btn b5-btn--sm b5-btn--primary"><svg><use href="/icons/benny512-icons.svg#b5-icon-signal"/></svg>Discover</button>
+          <span class="b5-inline-wait" id="discoverStatus"></span>
+        </div>
+      </div>
+      <div class="b5-filterbar">
+        <div class="b5-filterbar__group">
+          <label class="b5-visually-hidden" for="deviceClassFilter">Class</label>
+          <select id="deviceClassFilter" class="b5-select" style="width:auto">
+            <option value="">Class: all</option>
             <option value="Fixture">Fixture</option>
             <option value="Gateway/Node">Gateway/Node</option>
             <option value="Splitter">Splitter</option>
@@ -64,146 +89,218 @@
             <option value="Controller">Controller</option>
             <option value="Other">Other</option>
             <option value="Unknown">Unknown</option>
-          </select></label>
-          <label>Node: <select id="deviceNodeFilter"><option value="">all</option></select></label>
-          <label>Universe: <select id="deviceUniverseFilter"><option value="">all</option></select></label>
-          <label>Sort: <select id="deviceSort">
-            <option value="address">DMX address (low&rarr;high)</option>
-            <option value="address_desc">DMX address (high&rarr;low)</option>
-            <option value="model">Model / fixture type</option>
-            <option value="uid">UID</option>
-          </select></label>
-          <button id="btnClearDeviceFilters" style="display:none;">Clear filters</button>
+          </select>
+          <label class="b5-visually-hidden" for="deviceNodeFilter">Node</label>
+          <select id="deviceNodeFilter" class="b5-select" style="width:auto"><option value="">Node: all</option></select>
+          <label class="b5-visually-hidden" for="deviceUniverseFilter">Universe</label>
+          <select id="deviceUniverseFilter" class="b5-select" style="width:auto"><option value="">Universe: all</option></select>
+          <label class="b5-visually-hidden" for="deviceSort">Sort</label>
+          <select id="deviceSort" class="b5-select" style="width:auto">
+            <option value="address">Sort: DMX address (low&rarr;high)</option>
+            <option value="address_desc">Sort: DMX address (high&rarr;low)</option>
+            <option value="model">Sort: Model / fixture type</option>
+            <option value="uid">Sort: UID</option>
+          </select>
         </div>
-        <div class="hint" id="deviceFilterSummary"></div>
-        <table class="data-table" id="fixturesTable">
-          <thead><tr>
-            <th>Class</th><th>Manufacturer</th><th>Model/Type</th><th>UID</th><th>Address</th><th>Node/Port</th>
-          </tr></thead>
-          <tbody></tbody>
-        </table>
+        <span class="b5-filterbar__summary">
+          <span id="deviceFilterSummary" class="b5-text-muted b5-text-xs"></span>
+          <button id="btnClearDeviceFilters" class="b5-btn b5-btn--ghost b5-btn--sm" style="display:none;">Clear filters</button>
+        </span>
       </div>
-      <div class="panel-detail" id="fixtureDetail">
-        <p class="empty-hint">Select a device to view/edit its RDM parameters, sensors and status.</p>
+      <div class="b5-panel">
+        <div class="b5-panel__body--flush">
+          <table class="b5-table b5-table--responsive" id="fixturesTable">
+            <thead><tr>
+              <th>Class</th><th>Manufacturer</th><th>Model/Type</th><th>UID</th><th>Address</th><th>Node/Port</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </div>
-    </div>
-  </section>
-
-  <section id="screen-patch" class="screen">
-    <div id="patchRoot" class="patch-root"></div>
-  </section>
-
-  <section id="screen-analyzer" class="screen">
-    <div class="detail-tabs" id="analyzerViewTabs">
-      <button class="detail-tab-btn" data-view="all">All traffic</button>
-      <button class="detail-tab-btn" data-view="rdm">RDM</button>
-    </div>
-
-    <div id="analyzerAllView">
-      <div class="panel-toolbar">
-        <button id="btnPause">Pause</button>
-        <label>Kind: <select id="filterKind">
-          <option value="">any</option>
-          <option value="ArtDmx">ArtDmx</option>
-          <option value="ArtPoll">ArtPoll</option>
-          <option value="ArtPollReply">ArtPollReply</option>
-          <option value="ArtRdm">ArtRdm</option>
-          <option value="ArtTodData">ArtTodData</option>
-          <option value="ArtTodControl">ArtTodControl</option>
-        </select></label>
-        <label>Universe: <input type="number" id="filterUniverse" min="0" max="32767" placeholder="any"></label>
-        <button id="btnClearAnalyzer">Clear</button>
+      <div class="b5-panel" id="fixtureDetail" style="margin-top:var(--b5-space-5)">
+        <div class="b5-panel__body">
+          <div class="b5-empty"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-devices"/></svg><span class="b5-empty__title">No device selected</span><span class="b5-empty__body">Select a device to view/edit its RDM parameters, sensors and status.</span></div>
+        </div>
       </div>
-      <table class="data-table analyzer-table" id="analyzerTable">
-        <thead><tr>
-          <th>Time</th><th>Dir</th><th>Kind</th><th>Src</th><th>Univ</th><th>Size</th><th>Key fields</th>
-        </tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
+    </section>
 
-    <div id="analyzerRDMView" style="display:none;">
-      <div class="panel-toolbar">
-        <label>UID: <input type="text" id="rdmFilterUid" placeholder="e.g. 2222:00000001"></label>
-        <label>PID: <input type="text" id="rdmFilterPid" placeholder="hex, e.g. 0060" maxlength="4"></label>
-        <label>Command class: <select id="rdmFilterCC">
-          <option value="">any</option>
-          <option value="GET_COMMAND">GET_COMMAND</option>
-          <option value="GET_COMMAND_RESPONSE">GET_COMMAND_RESPONSE</option>
-          <option value="SET_COMMAND">SET_COMMAND</option>
-          <option value="SET_COMMAND_RESPONSE">SET_COMMAND_RESPONSE</option>
-          <option value="DISCOVERY_COMMAND">DISCOVERY_COMMAND</option>
-          <option value="DISCOVERY_COMMAND_RESPONSE">DISCOVERY_COMMAND_RESPONSE</option>
-        </select></label>
-        <label>Direction: <select id="rdmFilterDir">
-          <option value="">any</option>
-          <option value="out">out</option>
-          <option value="in">in</option>
-        </select></label>
-        <label><input type="checkbox" id="rdmPairedView" checked> Paired request/response</label>
-        <button id="btnRDMRefresh">Refresh</button>
-        <span class="hint" id="rdmAnalyzerStatus"></span>
+    <section id="screen-patch" class="screen">
+      <div class="b5-page-header">
+        <h1 class="b5-page-header__title">Patch</h1>
       </div>
-      <div class="panel-toolbar">
-        <strong class="hint">Export:</strong>
-        <button id="btnExportRDMJson">Export JSON</button>
-        <button id="btnExportRDMTxt">Export TXT</button>
-        <span class="hint">Exports the RDM-only buffer (never evicted by DMX traffic), scoped by the filters above.</span>
+      <div id="patchRoot"></div>
+    </section>
+
+    <section id="screen-analyzer" class="screen">
+      <div class="b5-page-header">
+        <h1 class="b5-page-header__title">Analyzer</h1>
       </div>
-      <table class="data-table analyzer-table" id="rdmAnalyzerTable">
-        <thead><tr>
-          <th>Time</th><th>Dir</th><th>UID (src → dst)</th><th>TN</th><th>CC</th><th>PID</th><th>Response</th><th>RTT</th><th>Decoded</th>
-        </tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  </section>
+      <div class="b5-tabs">
+        <div class="b5-tabs__list" id="analyzerViewTabs">
+          <button class="b5-tabs__tab detail-tab-btn" data-view="all">All traffic</button>
+          <button class="b5-tabs__tab detail-tab-btn" data-view="rdm">RDM</button>
+        </div>
+      </div>
 
-  <section id="screen-send" class="screen">
-    <div class="panel-toolbar">
-      <label>Universe (Port-Address): <input type="number" id="sendUniverse" min="0" max="32767" value="0"></label>
-      <button id="btnDmxStart">Start</button>
-      <button id="btnDmxStop">Stop</button>
-      <button id="btnDmxAllOff">All off</button>
-      <span class="hint">Circuit values 0-255. Changes apply on blur/change, not while dragging.</span>
-    </div>
-    <div class="dmx-grid" id="dmxGrid"></div>
-  </section>
+      <div id="analyzerAllView">
+        <div class="b5-filterbar">
+          <div class="b5-filterbar__group">
+            <button id="btnPause" class="b5-btn b5-btn--sm">Pause</button>
+            <label class="b5-visually-hidden" for="filterKind">Kind</label>
+            <select id="filterKind" class="b5-select" style="width:auto">
+              <option value="">Kind: any</option>
+              <option value="ArtDmx">ArtDmx</option>
+              <option value="ArtPoll">ArtPoll</option>
+              <option value="ArtPollReply">ArtPollReply</option>
+              <option value="ArtRdm">ArtRdm</option>
+              <option value="ArtTodData">ArtTodData</option>
+              <option value="ArtTodControl">ArtTodControl</option>
+            </select>
+            <label class="b5-visually-hidden" for="filterUniverse">Universe</label>
+            <input type="number" id="filterUniverse" class="b5-input" style="width:9em" min="0" max="32767" placeholder="Universe: any">
+            <button id="btnClearAnalyzer" class="b5-btn b5-btn--ghost b5-btn--sm">Clear</button>
+          </div>
+        </div>
+        <div class="b5-panel">
+          <div class="b5-panel__body--flush" style="max-height:60vh;overflow-y:auto">
+            <table class="b5-table b5-table--responsive" id="analyzerTable">
+              <thead><tr>
+                <th>Time</th><th>Dir</th><th>Kind</th><th>Src</th><th>Univ</th><th>Size</th><th>Key fields</th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
 
-  <section id="screen-walk" class="screen">
-    <div id="walkRoot" class="walk-root"></div>
-  </section>
+      <div id="analyzerRDMView" style="display:none;">
+        <div class="b5-filterbar">
+          <div class="b5-filterbar__group">
+            <label class="b5-visually-hidden" for="rdmFilterUid">UID</label>
+            <input type="text" id="rdmFilterUid" class="b5-input b5-input--mono" style="width:14em" placeholder="UID e.g. 2222:00000001">
+            <label class="b5-visually-hidden" for="rdmFilterPid">PID</label>
+            <input type="text" id="rdmFilterPid" class="b5-input b5-input--mono" style="width:8em" placeholder="PID hex e.g. 0060" maxlength="4">
+            <label class="b5-visually-hidden" for="rdmFilterCC">Command class</label>
+            <select id="rdmFilterCC" class="b5-select" style="width:auto">
+              <option value="">CC: any</option>
+              <option value="GET_COMMAND">GET_COMMAND</option>
+              <option value="GET_COMMAND_RESPONSE">GET_COMMAND_RESPONSE</option>
+              <option value="SET_COMMAND">SET_COMMAND</option>
+              <option value="SET_COMMAND_RESPONSE">SET_COMMAND_RESPONSE</option>
+              <option value="DISCOVERY_COMMAND">DISCOVERY_COMMAND</option>
+              <option value="DISCOVERY_COMMAND_RESPONSE">DISCOVERY_COMMAND_RESPONSE</option>
+            </select>
+            <label class="b5-visually-hidden" for="rdmFilterDir">Direction</label>
+            <select id="rdmFilterDir" class="b5-select" style="width:auto">
+              <option value="">Direction: any</option>
+              <option value="out">out</option>
+              <option value="in">in</option>
+            </select>
+            <label class="b5-checkbox"><input type="checkbox" id="rdmPairedView" checked>Paired request/response</label>
+            <button id="btnRDMRefresh" class="b5-btn b5-btn--sm"><svg><use href="/icons/benny512-icons.svg#b5-icon-refresh"/></svg>Refresh</button>
+          </div>
+          <span class="b5-filterbar__summary" id="rdmAnalyzerStatus"></span>
+        </div>
+        <div class="b5-row" style="margin-bottom:var(--b5-space-4)">
+          <strong class="b5-text-sm">Export:</strong>
+          <button id="btnExportRDMJson" class="b5-btn b5-btn--sm"><svg><use href="/icons/benny512-icons.svg#b5-icon-export"/></svg>Export JSON</button>
+          <button id="btnExportRDMTxt" class="b5-btn b5-btn--sm"><svg><use href="/icons/benny512-icons.svg#b5-icon-export"/></svg>Export TXT</button>
+          <span class="b5-text-muted b5-text-sm">Exports the RDM-only buffer (never evicted by DMX traffic), scoped by the filters above.</span>
+        </div>
+        <div class="b5-panel">
+          <div class="b5-panel__body--flush">
+            <table class="b5-table b5-table--responsive" id="rdmAnalyzerTable">
+              <thead><tr>
+                <th>Time</th><th>Dir</th><th>UID (src &rarr; dst)</th><th>TN</th><th>CC</th><th>PID</th><th>Response</th><th>RTT</th><th>Decoded</th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
 
-  <section id="screen-settings" class="screen">
-    <div class="settings-form">
-      <label>Network interface (NIC):
-        <select id="nicSelect"></select>
-      </label>
-      <label>Poll interval (ms):
-        <input type="number" id="pollInterval" min="500" step="500">
-      </label>
-      <label>Capture limit (entries):
-        <input type="number" id="captureLimit" min="100" step="100">
-      </label>
-      <label>Default timeout profile:
-        <select id="timeoutProfile">
-          <option value="Direct">Direct</option>
-          <option value="WirelessProxy">Wireless (BiDi proxy)</option>
-        </select>
-      </label>
-      <label>Continuous RDM log file (optional):
-        <input type="text" id="logRdmPath" placeholder="e.g. C:\Benny512\rdm-log.txt">
-      </label>
-      <span class="hint">Appends every RDM/ToD exchange to this file as it happens, so a long bench session isn't limited by the in-memory buffer. Blank = disabled. Rotates automatically by size.</span>
-      <button id="btnSaveSettings">Apply settings</button>
-      <span class="hint" id="settingsStatus"></span>
-    </div>
-  </section>
+    <section id="screen-send" class="screen">
+      <div class="b5-page-header">
+        <h1 class="b5-page-header__title">Send</h1>
+        <span class="b5-page-header__meta">Manual DMX control</span>
+      </div>
+      <div class="b5-filterbar">
+        <div class="b5-filterbar__group">
+          <label class="b5-visually-hidden" for="sendUniverse">Universe (Port-Address)</label>
+          <input type="number" id="sendUniverse" class="b5-input" style="width:10em" min="0" max="32767" value="0" placeholder="Universe">
+        </div>
+        <div class="b5-row" style="margin-left:auto">
+          <button id="btnDmxStart" class="b5-btn b5-btn--primary"><svg><use href="/icons/benny512-icons.svg#b5-icon-status-ok"/></svg>Start</button>
+          <button id="btnDmxStop" class="b5-btn b5-btn--danger">Stop</button>
+          <button id="btnDmxAllOff" class="b5-btn">All off</button>
+        </div>
+      </div>
+      <div class="b5-alert b5-alert--caution" style="margin-bottom:var(--b5-space-4)">
+        <svg><use href="/icons/benny512-icons.svg#b5-icon-status-warning"/></svg>
+        <div><p class="b5-alert__title">Manual send overrides live console output</p><p class="b5-alert__body">Circuit values 0&ndash;255. Changes apply on blur/change, not while dragging. Confirm no board is patched to this universe before sending.</p></div>
+      </div>
+      <div class="b5-panel">
+        <div class="b5-panel__body">
+          <div class="b5-dmx-grid" id="dmxGrid"></div>
+        </div>
+      </div>
+    </section>
 
-</main>
+    <section id="screen-walk" class="screen">
+      <div id="walkRoot"></div>
+    </section>
+
+    <section id="screen-settings" class="screen">
+      <div class="b5-page-header"><h1 class="b5-page-header__title">Settings</h1></div>
+      <div class="b5-stack" style="max-width:640px">
+        <div class="b5-panel">
+          <div class="b5-panel__header"><h2 class="b5-panel__title">Network</h2></div>
+          <div class="b5-panel__body b5-stack">
+            <div class="b5-field">
+              <label class="b5-field__label" for="nicSelect">Network interface (NIC)</label>
+              <select id="nicSelect" class="b5-select"></select>
+            </div>
+            <div class="b5-field">
+              <label class="b5-field__label" for="pollInterval">Poll interval (ms)</label>
+              <input type="number" id="pollInterval" class="b5-input" min="500" step="500">
+            </div>
+            <div class="b5-field">
+              <label class="b5-field__label" for="timeoutProfile">Default timeout profile</label>
+              <select id="timeoutProfile" class="b5-select">
+                <option value="Direct">Direct</option>
+                <option value="WirelessProxy">Wireless (BiDi proxy)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="b5-panel">
+          <div class="b5-panel__header"><h2 class="b5-panel__title">Capture &amp; logging</h2></div>
+          <div class="b5-panel__body b5-stack">
+            <div class="b5-field">
+              <label class="b5-field__label" for="captureLimit">Capture limit (entries)</label>
+              <input type="number" id="captureLimit" class="b5-input" min="100" step="100">
+            </div>
+            <div class="b5-field">
+              <label class="b5-field__label" for="logRdmPath">Continuous RDM log file (optional)</label>
+              <input type="text" id="logRdmPath" class="b5-input b5-input--mono" placeholder="e.g. C:\Benny512\rdm-log.txt">
+              <span class="b5-field__hint">Appends every RDM/ToD exchange to this file as it happens, so a long bench session isn't limited by the in-memory buffer. Blank = disabled. Rotates automatically by size.</span>
+            </div>
+          </div>
+        </div>
+        <div class="b5-row">
+          <button id="btnSaveSettings" class="b5-btn b5-btn--primary"><svg><use href="/icons/benny512-icons.svg#b5-icon-apply"/></svg>Apply settings</button>
+          <span class="b5-text-muted b5-text-sm" id="settingsStatus"></span>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
 
 <script src="/js/api.js"></script>
 <script src="/js/ws.js"></script>
+<script src="/js/ui.js"></script>
 <script src="/js/nodes.js"></script>
 <script src="/js/devicedetail.js"></script>
 <script src="/js/devices.js"></script>

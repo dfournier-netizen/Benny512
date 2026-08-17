@@ -1,5 +1,5 @@
 // send.js — Send screen: universe picker, 512-channel grid with numeric
-// entry + faders, start/stop, all-off.
+// entry + trim fader, start/stop, all-off.
 //
 // Rule (architecture rev 5 §4): number/range inputs mutate local state only
 // on 'input'; the value is committed to the server on 'change' (blur or
@@ -14,11 +14,11 @@ const SendScreen = (() => {
     grid.innerHTML = '';
     for (let ch = 1; ch <= 512; ch++) {
       const cell = document.createElement('div');
-      cell.className = 'dmx-cell';
+      cell.className = 'b5-dmx-cell';
       cell.innerHTML = `
-        <div class="ch-num">${ch}</div>
+        <span class="b5-dmx-cell__ch">${String(ch).padStart(3, '0')}</span>
         <input type="number" min="0" max="255" value="0" data-ch="${ch}" class="dmx-num">
-        <input type="range" min="0" max="255" value="0" data-ch="${ch}" class="dmx-fader">
+        <input type="range" min="0" max="255" value="0" data-ch="${ch}" class="dmx-fader b5-dmx-cell__range">
       `;
       grid.appendChild(cell);
     }
@@ -33,11 +33,12 @@ const SendScreen = (() => {
     channels[ch] = val;
     // Mirror the paired control's displayed value without a full re-render
     // (state mutation only, per the oninput rule) so num+fader stay in sync
-    // while dragging.
-    const grid = document.getElementById('dmxGrid');
-    const cell = e.target.closest('.dmx-cell');
+    // while dragging, and flag the cell as active (non-zero) same as the
+    // design system's .is-active cell state.
+    const cell = e.target.closest('.b5-dmx-cell');
     cell.querySelector('.dmx-num').value = val;
     cell.querySelector('.dmx-fader').value = val;
+    cell.classList.toggle('is-active', val > 0);
   }
 
   function onChange(e) {
@@ -69,6 +70,7 @@ const SendScreen = (() => {
     for (let ch = 1; ch <= 512; ch++) channels[ch] = 0;
     document.querySelectorAll('.dmx-num').forEach(el => el.value = 0);
     document.querySelectorAll('.dmx-fader').forEach(el => el.value = 0);
+    document.querySelectorAll('.b5-dmx-cell').forEach(el => el.classList.remove('is-active'));
     commit();
   }
 

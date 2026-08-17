@@ -34,19 +34,45 @@ const NodesScreen = (() => {
     render();
   }
 
+  // portsUniverseSummary is a purely presentational rollup ("N ports · U1–U4")
+  // of the same n.ports data the old table already had (no new node state).
+  function portsUniverseSummary(n) {
+    const ports = n.ports || [];
+    if (!ports.length) return '0 ports';
+    const universes = [];
+    ports.forEach(p => {
+      if (p.output) universes.push(p.outputAddress & 0x0F);
+      else if (p.input) universes.push(p.inputAddress & 0x0F);
+    });
+    const countLabel = `${ports.length} port${ports.length === 1 ? '' : 's'}`;
+    if (!universes.length) return countLabel;
+    const lo = Math.min(...universes), hi = Math.max(...universes);
+    return `${countLabel} · ${lo === hi ? 'U' + lo : 'U' + lo + '–U' + hi}`;
+  }
+
+  // nodeStatusBadge combines the two facts the app already tracked
+  // (rdmCapable, stale) into one status column with an explicit text label
+  // (never color alone) instead of two separate badge columns.
+  function nodeStatusBadge(n) {
+    if (n.stale) return UI.badge('stale', 'Stale');
+    if (n.rdmCapable) return UI.badge('ok', 'RDM');
+    return UI.badge('unknown', 'No RDM');
+  }
+
   function render() {
     const tbody = document.querySelector('#nodesTable tbody');
     const scrollTop = tbody.parentElement.scrollTop;
     tbody.innerHTML = '';
     nodes.forEach(n => {
       const tr = document.createElement('tr');
-      if (keyOf(n) === selectedKey) tr.classList.add('selected');
+      if (keyOf(n) === selectedKey) tr.classList.add('is-selected');
+      if (n.stale) tr.classList.add('is-stale');
       tr.innerHTML = `
-        <td>${escapeHtml(n.shortName || n.longName || '(unnamed)')}</td>
-        <td>${escapeHtml(n.ip)}</td>
-        <td>${n.ports ? n.ports.length : 0}</td>
-        <td>${n.rdmCapable ? '<span class="badge yes">RDM</span>' : '<span class="badge no">—</span>'}</td>
-        <td>${n.stale ? '<span class="badge stale">stale</span>' : new Date(n.lastSeen).toLocaleTimeString()}</td>
+        <td data-label="Name">${escapeHtml(n.shortName || n.longName || '(unnamed)')}</td>
+        <td data-label="IP" class="b5-table__mono">${escapeHtml(n.ip)}</td>
+        <td data-label="Ports / Universes">${escapeHtml(portsUniverseSummary(n))}</td>
+        <td data-label="Status">${nodeStatusBadge(n)}</td>
+        <td data-label="Last seen">${n.lastSeen ? new Date(n.lastSeen).toLocaleTimeString() : '—'}</td>
       `;
       tr.addEventListener('click', () => { selectedKey = keyOf(n); render(); });
       tbody.appendChild(tr);
@@ -57,7 +83,7 @@ const NodesScreen = (() => {
     const n = nodes.find(x => keyOf(x) === selectedKey);
     if (!n) {
       detailBuiltFor = null;
-      el.innerHTML = '<p class="empty-hint">Select a node to see its ports and universes.</p>';
+      el.innerHTML = `<div class="b5-panel__body"><div class="b5-empty">${UI.icon('network-node')}<span class="b5-empty__title">No node selected</span><span class="b5-empty__body">Select a node to see its ports and universes.</span></div></div>`;
       return;
     }
     if (detailBuiltFor !== selectedKey) {
@@ -74,9 +100,14 @@ const NodesScreen = (() => {
   function buildDetailShell(n) {
     const el = document.getElementById('nodeDetail');
     el.innerHTML = `
-      <h3>${escapeHtml(n.longName || n.shortName)}</h3>
-      <div id="nodeInfoStatic"></div>
-      <div id="nodeConfigSection"></div>
+      <div class="b5-panel__header">
+        <h2 class="b5-panel__title">${escapeHtml(n.longName || n.shortName)}</h2>
+        ${nodeStatusBadge(n)}
+      </div>
+      <div class="b5-panel__body b5-stack">
+        <div id="nodeInfoStatic"></div>
+        <div id="nodeConfigSection"></div>
+      </div>
     `;
     renderInfoStatic(n);
     renderConfigSection(n);
@@ -108,16 +139,18 @@ const NodesScreen = (() => {
     if (!target) return;
     const portRows = (n.ports || []).map(p => `
       <tr>
-        <td>${p.index}</td>
-        <td>${escapeHtml(portDirectionLabel(p))}</td>
-        <td>${escapeHtml(portUniverseLabel(p))}</td>
-        <td>${p.rdmEnabled ? 'yes' : 'no'}</td>
+        <td data-label="Port">${p.index}</td>
+        <td data-label="Direction">${escapeHtml(portDirectionLabel(p))}</td>
+        <td data-label="Universe">${escapeHtml(portUniverseLabel(p))}</td>
+        <td data-label="RDM">${p.rdmEnabled ? UI.badge('ok', 'Yes') : UI.badge('unknown', 'No')}</td>
       </tr>`).join('');
     target.innerHTML = `
-      <div class="field-row"><label>IP</label><span>${escapeHtml(n.ip)} (bind ${n.bindIndex})</span></div>
-      <div class="field-row"><label>Style</label><span>${escapeHtml(n.style)}</span></div>
-      <div class="field-row"><label>Fixtures seen</label><span>${n.fixtureCount}</span></div>
-      <table class="data-table">
+      <div class="b5-grid-2">
+        <div><span class="b5-text-muted b5-text-sm">IP</span><br>${escapeHtml(n.ip)} (bind ${n.bindIndex})</div>
+        <div><span class="b5-text-muted b5-text-sm">Style</span><br>${escapeHtml(n.style)}</div>
+        <div><span class="b5-text-muted b5-text-sm">Fixtures seen</span><br>${n.fixtureCount}</div>
+      </div>
+      <table class="b5-table b5-table--responsive">
         <thead><tr><th>Port</th><th>Direction</th><th>Universe</th><th>RDM</th></tr></thead>
         <tbody>${portRows}</tbody>
       </table>
@@ -181,86 +214,97 @@ const NodesScreen = (() => {
     if (!target) return;
 
     target.innerHTML = `
-      <div class="caution-banner">
-        <strong>Node configuration — unverified against real hardware.</strong>
-        ArtAddress/ArtInput/ArtIpProg wire formats here have not been confirmed
-        against a real node's own capture. Verify results on the node's own
-        display/web UI before relying on any change made here.
-        <button id="btnReloadConfig" type="button">Reload current values</button>
+      <div class="b5-alert b5-alert--caution">
+        ${UI.icon('status-warning')}
+        <div>
+          <p class="b5-alert__title">Node configuration — unverified against real hardware</p>
+          <p class="b5-alert__body">ArtAddress/ArtInput/ArtIpProg wire formats here have not been confirmed against a real node's own capture. Verify results on the node's own display/web UI before relying on any change made here.</p>
+          <button id="btnReloadConfig" type="button" class="b5-btn b5-btn--sm" style="margin-top:var(--b5-space-2)">${UI.icon('refresh')}Reload current values</button>
+        </div>
       </div>
 
-      <h4>Names &amp; addressing</h4>
-      <div class="field-row"><label>Short name</label>
-        <input id="cfgShortName" type="text" maxlength="18" value="${escapeHtml(st.shortName)}">
+      <h3 class="b5-panel__title">Names &amp; addressing</h3>
+      <div class="b5-field">
+        <label class="b5-field__label" for="cfgShortName">Short name</label>
+        <input id="cfgShortName" class="b5-input" type="text" maxlength="18" value="${escapeHtml(st.shortName)}">
       </div>
-      <div class="field-row"><label>Long name</label>
-        <input id="cfgLongName" type="text" maxlength="64" value="${escapeHtml(st.longName)}">
+      <div class="b5-field">
+        <label class="b5-field__label" for="cfgLongName">Long name</label>
+        <input id="cfgLongName" class="b5-input" type="text" maxlength="64" value="${escapeHtml(st.longName)}">
       </div>
-      <div class="field-row"><label>Net (0-127)</label>
-        <input id="cfgNet" type="number" min="0" max="127" value="${st.netSwitch}">
+      <div class="b5-grid-2">
+        <div class="b5-field">
+          <label class="b5-field__label" for="cfgNet">Net (0-127)</label>
+          <input id="cfgNet" class="b5-input" type="number" min="0" max="127" value="${st.netSwitch}">
+        </div>
+        <div class="b5-field">
+          <label class="b5-field__label" for="cfgSub">Sub-Net (0-15)</label>
+          <input id="cfgSub" class="b5-input" type="number" min="0" max="15" value="${st.subSwitch}">
+        </div>
       </div>
-      <div class="field-row"><label>Sub-Net (0-15)</label>
-        <input id="cfgSub" type="number" min="0" max="15" value="${st.subSwitch}">
-      </div>
-      <table class="data-table">
+      <table class="b5-table b5-table--responsive">
         <thead><tr><th>Port</th><th>Direction</th><th>Universe</th><th>Merge mode</th><th>Input enabled</th></tr></thead>
         <tbody>
           ${st.ports.map((p, i) => {
             const both = p.input && p.output;
             const dirCell = both
-              ? `<select class="cfg-dir" data-i="${i}">
+              ? `<select class="b5-select cfg-dir" data-i="${i}" style="min-height:32px">
                    <option value="output" ${p.direction === 'output' ? 'selected' : ''}>Output</option>
                    <option value="input" ${p.direction === 'input' ? 'selected' : ''}>Input</option>
                  </select>`
-              : `<span class="badge ${p.output ? 'yes' : p.input ? 'yes' : 'no'}">${p.output ? 'OUTPUT' : p.input ? 'INPUT' : 'n/a'}</span>`;
+              : UI.tag(p.output ? 'OUTPUT' : p.input ? 'INPUT' : 'n/a');
             const uniValue = p.direction === 'output' ? p.universeOut : p.universeIn;
             const uniCell = (p.input || p.output)
-              ? `<input class="cfg-universe" data-i="${i}" type="number" min="0" max="15" value="${uniValue}">`
-              : '<span class="hint">n/a</span>';
+              ? `<input class="b5-input b5-input--mono cfg-universe" data-i="${i}" type="number" min="0" max="15" value="${uniValue}" style="max-width:6em">`
+              : '<span class="b5-text-muted b5-text-sm">n/a</span>';
             const mergeDirty = p.mergeMode !== p.mergeModeApplied;
             const mergeCell = p.output
-              ? `<span class="apply-field">
-                   <select class="cfg-merge" data-i="${i}"><option value="htp" ${p.mergeMode === 'htp' ? 'selected' : ''}>HTP</option><option value="ltp" ${p.mergeMode === 'ltp' ? 'selected' : ''}>LTP</option></select>
-                   ${mergeDirty ? '<span class="badge dirty-badge">pending</span>' : ''}
-                   <button class="btn-apply-merge" data-i="${i}" ${mergeDirty ? '' : 'disabled'}>Apply</button>
-                   ${mergeDirty ? `<button class="btn-revert-merge" data-i="${i}">Revert</button>` : ''}
-                 </span>`
-              : '<span class="hint">n/a</span>';
+              ? `<div class="b5-field__row">
+                   <select class="b5-select cfg-merge" data-i="${i}" style="min-height:32px"><option value="htp" ${p.mergeMode === 'htp' ? 'selected' : ''}>HTP</option><option value="ltp" ${p.mergeMode === 'ltp' ? 'selected' : ''}>LTP</option></select>
+                   <span class="b5-field__actions">
+                     <button class="b5-btn b5-btn--sm b5-btn--primary btn-apply-merge" data-i="${i}" ${mergeDirty ? '' : 'disabled'}>${UI.icon('apply')}Apply</button>
+                     ${mergeDirty ? `<button class="b5-btn b5-btn--sm b5-btn--ghost btn-revert-merge" data-i="${i}">${UI.icon('revert')}Revert</button>` : ''}
+                   </span>
+                 </div>
+                 ${mergeDirty ? '<span class="b5-field__status">Unsaved change</span>' : ''}`
+              : '<span class="b5-text-muted b5-text-sm">n/a</span>';
             return `
             <tr>
-              <td>${p.index}</td>
-              <td>${dirCell}</td>
-              <td>${uniCell}</td>
-              <td>${mergeCell}</td>
-              <td>${p.input ? `<input class="cfg-input-en" data-i="${i}" type="checkbox" ${p.inputEnabled ? 'checked' : ''}>` : '<span class="hint">n/a</span>'}</td>
+              <td data-label="Port">${p.index}</td>
+              <td data-label="Direction">${dirCell}</td>
+              <td data-label="Universe">${uniCell}</td>
+              <td data-label="Merge mode">${mergeCell}</td>
+              <td data-label="Input enabled">${p.input ? `<label class="b5-checkbox"><input class="cfg-input-en" data-i="${i}" type="checkbox" ${p.inputEnabled ? 'checked' : ''}></label>` : '<span class="b5-text-muted b5-text-sm">n/a</span>'}</td>
             </tr>`;
           }).join('')}
         </tbody>
       </table>
-      <span class="hint">Merge mode and input-enable have no read-back from ArtPollReply — the values shown are editable defaults, not confirmed current state. Universe edits above are staged; use "Save names &amp; addressing" below to commit them.</span>
-      <div class="field-row">
-        <button id="btnSaveAddressing">Save names &amp; addressing</button>
-        <button id="btnSaveInput">Save input enable</button>
-        <span class="hint" id="status-addressing"></span>
+      <span class="b5-field__hint">Merge mode and input-enable have no read-back from ArtPollReply — the values shown are editable defaults, not confirmed current state. Universe edits above are staged; use "Save names &amp; addressing" below to commit them.</span>
+      <div class="b5-row">
+        <button id="btnSaveAddressing" class="b5-btn b5-btn--primary">${UI.icon('apply')}Save names &amp; addressing</button>
+        <button id="btnSaveInput" class="b5-btn">Save input enable</button>
+        <span class="b5-text-muted b5-text-sm" id="status-addressing"></span>
       </div>
-      <div class="field-row"><span class="hint" id="status-merge"></span></div>
-      <div class="field-row"><span class="hint" id="status-input"></span></div>
+      <div class="b5-row"><span class="b5-text-muted b5-text-sm" id="status-merge"></span></div>
+      <div class="b5-row"><span class="b5-text-muted b5-text-sm" id="status-input"></span></div>
 
-      <h4>IP configuration</h4>
-      <div class="field-row"><label>DHCP</label>
-        <input id="cfgDhcp" type="checkbox" ${st.dhcp ? 'checked' : ''}>
+      <hr class="b5-hr">
+      <h3 class="b5-panel__title">IP configuration</h3>
+      <label class="b5-toggle"><input id="cfgDhcp" type="checkbox" ${st.dhcp ? 'checked' : ''}><span class="b5-toggle__track"></span>DHCP</label>
+      <div class="b5-field">
+        <label class="b5-field__label" for="cfgIp">Static IP</label>
+        <input id="cfgIp" class="b5-input b5-input--mono" type="text" placeholder="e.g. 2.11.90.5" value="${escapeHtml(st.ip)}" ${st.dhcp ? 'disabled' : ''}>
       </div>
-      <div class="field-row"><label>Static IP</label>
-        <input id="cfgIp" type="text" placeholder="e.g. 2.11.90.5" value="${escapeHtml(st.ip)}" ${st.dhcp ? 'disabled' : ''}>
+      <div class="b5-field">
+        <label class="b5-field__label" for="cfgMask">Subnet mask</label>
+        <input id="cfgMask" class="b5-input b5-input--mono" type="text" placeholder="e.g. 255.0.0.0" value="${escapeHtml(st.mask)}" ${st.dhcp ? 'disabled' : ''}>
       </div>
-      <div class="field-row"><label>Subnet mask</label>
-        <input id="cfgMask" type="text" placeholder="e.g. 255.0.0.0" value="${escapeHtml(st.mask)}" ${st.dhcp ? 'disabled' : ''}>
-      </div>
-      <div class="field-row"><label>Gateway</label>
-        <input id="cfgGateway" type="text" placeholder="optional" value="${escapeHtml(st.gateway)}" ${st.dhcp ? 'disabled' : ''}>
+      <div class="b5-field">
+        <label class="b5-field__label" for="cfgGateway">Gateway</label>
+        <input id="cfgGateway" class="b5-input b5-input--mono" type="text" placeholder="optional" value="${escapeHtml(st.gateway)}" ${st.dhcp ? 'disabled' : ''}>
       </div>
       <div id="ipConfirmArea"></div>
-      <div class="field-row"><span class="hint" id="status-ip"></span></div>
+      <div class="b5-row"><span class="b5-text-muted b5-text-sm" id="status-ip"></span></div>
     `;
 
     // --- names & addressing: oninput mutates state only ---
@@ -305,7 +349,7 @@ const NodesScreen = (() => {
     });
     target.querySelectorAll('.btn-apply-merge').forEach(btn => {
       btn.addEventListener('click', async e => {
-        const i = +e.target.dataset.i;
+        const i = +e.target.closest('button').dataset.i;
         await setMergeMode(n, st.ports[i].index, st.ports[i].mergeMode);
         st.ports[i].mergeModeApplied = st.ports[i].mergeMode;
         renderConfigSection(n);
@@ -313,7 +357,7 @@ const NodesScreen = (() => {
     });
     target.querySelectorAll('.btn-revert-merge').forEach(btn => {
       btn.addEventListener('click', e => {
-        const i = +e.target.dataset.i;
+        const i = +e.target.closest('button').dataset.i;
         st.ports[i].mergeMode = st.ports[i].mergeModeApplied;
         renderConfigSection(n);
       });
@@ -358,20 +402,32 @@ const NodesScreen = (() => {
     const area = document.getElementById('ipConfirmArea');
     if (!area) return;
     if (!st.ipApplied) {
-      area.innerHTML = `<button id="btnApplyIP" class="btn-apply">Apply</button> <span class="hint">stages the IP fields above; sending still requires arming + confirming below.</span>`;
+      area.innerHTML = `
+        <div class="b5-row" style="margin-top:var(--b5-space-2)">
+          <button id="btnApplyIP" class="b5-btn b5-btn--sm b5-btn--primary">${UI.icon('apply')}Apply</button>
+          <span class="b5-field__hint">stages the IP fields above; sending still requires arming + confirming below.</span>
+        </div>`;
       byId('btnApplyIP').addEventListener('click', () => { st.ipApplied = true; renderIPConfirmArea(n); });
     } else if (!st.ipArmed) {
-      area.innerHTML = `<span class="badge yes">applied</span> <button id="btnArmIP">Arm send…</button> <button id="btnRevertIP" class="btn-revert">Revert</button>`;
+      area.innerHTML = `
+        <div class="b5-row" style="margin-top:var(--b5-space-2)">
+          ${UI.badge('ok', 'Applied')}
+          <button id="btnArmIP" class="b5-btn b5-btn--sm b5-btn--danger">Arm send…</button>
+          <button id="btnRevertIP" class="b5-btn b5-btn--sm b5-btn--ghost">${UI.icon('revert')}Revert</button>
+        </div>`;
       byId('btnArmIP').addEventListener('click', () => { st.ipArmed = true; renderIPConfirmArea(n); });
       byId('btnRevertIP').addEventListener('click', () => { initConfigState(n); renderConfigSection(n); });
     } else {
       area.innerHTML = `
-        <div class="ip-confirm-box">
-          A mis-set IP can strand this node off the show network. Confirm:
-          ${st.dhcp ? 'switch to DHCP' : `static ${escapeHtml(st.ip || '(unchanged)')} / ${escapeHtml(st.mask || '(unchanged)')}${st.gateway ? ' / gw ' + escapeHtml(st.gateway) : ''}`}
-          <div class="field-row">
-            <button id="btnConfirmIP">Yes, send now</button>
-            <button id="btnCancelIP">Cancel</button>
+        <div class="b5-alert b5-alert--warning" style="margin-top:var(--b5-space-2)">
+          ${UI.icon('status-warning')}
+          <div>
+            <p class="b5-alert__title">Confirm IP change</p>
+            <p class="b5-alert__body">A mis-set IP can strand this node off the show network. Confirm: ${st.dhcp ? 'switch to DHCP' : `static ${escapeHtml(st.ip || '(unchanged)')} / ${escapeHtml(st.mask || '(unchanged)')}${st.gateway ? ' / gw ' + escapeHtml(st.gateway) : ''}`}</p>
+            <div class="b5-row" style="margin-top:var(--b5-space-2)">
+              <button id="btnConfirmIP" class="b5-btn b5-btn--sm b5-btn--danger">Yes, send now</button>
+              <button id="btnCancelIP" class="b5-btn b5-btn--sm b5-btn--ghost">Cancel</button>
+            </div>
           </div>
         </div>
       `;

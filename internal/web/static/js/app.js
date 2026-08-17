@@ -1,6 +1,10 @@
 // app.js — tab switching + module bootstrap.
 (function () {
-  const tabs = document.querySelectorAll('.tab-btn');
+  // Desktop (#tabs) and mobile bottom-bar (#tabsMobile) are two separate
+  // <nav> elements carrying duplicate [data-tab] buttons (design-system
+  // pattern: render both, only one is visible per breakpoint via CSS) — both
+  // sets must reflect the active tab together.
+  const tabs = document.querySelectorAll('[data-tab]');
   const screens = document.querySelectorAll('.screen');
   let currentTab = null;
 
@@ -39,8 +43,13 @@
     if (currentTab === 'patch' && name !== 'patch') {
       PatchScreen.onLeaveScreen();
     }
-    tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+    tabs.forEach(t => t.classList.toggle('is-active', t.dataset.tab === name));
     screens.forEach(s => s.classList.toggle('active', s.id === 'screen-' + name));
+    // Rig Walk's own fixed b5-walk-bar and the phone bottom tab bar both
+    // sit at the screen's bottom edge (design-system components, not a bug
+    // introduced here) — hide the tab bar while walk mode owns that band,
+    // matching the immersive/one-handed intent of Rig Walk. See app.css.
+    document.body.classList.toggle('b5-walk-mode', name === 'walk');
     localStorage.setItem('benny512.tab', name);
     currentTab = name;
     if (name === 'walk') {

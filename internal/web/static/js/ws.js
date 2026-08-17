@@ -28,11 +28,15 @@ const Live = (() => {
     };
   }
 
+  // setStatus renders the b5-connection pill (dot + text) — status is never
+  // color-alone: the dot's color is paired with the text label, and the
+  // element's own class carries the state name too (design-spec "Do":
+  // never rely on color alone).
   function setStatus(ok) {
     const el = document.getElementById('connStatus');
     if (!el) return;
-    el.textContent = ok ? 'live' : 'reconnecting…';
-    el.className = 'conn-status ' + (ok ? 'ok' : 'bad');
+    el.className = 'b5-connection' + (ok ? '' : ' b5-connection--offline');
+    el.innerHTML = '<span class="b5-connection__dot"></span>' + (ok ? 'Connected' : 'Reconnecting…');
   }
 
   function on(type, fn) {

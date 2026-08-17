@@ -11,14 +11,16 @@
 // Rules (architecture rev 5 §4 / task brief "UI rules (MANDATORY)"):
 //  - oninput mutates state only; full re-render happens on onchange.
 //  - re-render preserves the selected row, scroll position and focus.
-//  - dark high-contrast, system fonts, generous sizing (inherited from
-//    style.css) — no new inline styling assumptions here.
+//  - dark high-contrast, system fonts, generous sizing — b5- design-system
+//    tokens/components throughout (2026-08-16 retheme).
 const DevicesScreen = (() => {
-  const CLASS_BADGE = {
-    'Fixture': 'cls-fixture', 'Gateway/Node': 'cls-gateway', 'Splitter': 'cls-splitter',
-    'Dimmer/Power': 'cls-dimmer', 'Wireless': 'cls-wireless', 'Controller': 'cls-controller',
-    'Other': 'cls-other', 'Unknown': 'cls-unknown',
-  };
+  // Fixture is the "notable" device class (tag--info); infrastructure
+  // classes (gateways, splitters, dimmers, wireless, controllers, other,
+  // unknown) render as the neutral tag — same two-tier vocabulary the
+  // design system's .b5-tag/.b5-tag--info define (was 8 hardcoded colors
+  // before the retheme; the class name itself, always shown as text, still
+  // carries the full distinction).
+  function classTagVariant(cls) { return cls === 'Fixture' ? 'info' : undefined; }
 
   let nodes = [];
   let fixtures = [];
@@ -71,7 +73,7 @@ const DevicesScreen = (() => {
   function refreshFilterOptions() {
     const nodeSel = document.getElementById('deviceNodeFilter');
     if (nodeSel) {
-      nodeSel.innerHTML = '<option value="">all</option>';
+      nodeSel.innerHTML = '<option value="">Node: all</option>';
       nodes.forEach(n => {
         const opt = document.createElement('option');
         opt.value = nodeFilterKey(n);
@@ -84,7 +86,7 @@ const DevicesScreen = (() => {
     const uniSel = document.getElementById('deviceUniverseFilter');
     if (uniSel) {
       const universes = Array.from(new Set(fixtures.map(f => f.portAddress))).sort((a, b) => a - b);
-      uniSel.innerHTML = '<option value="">all</option>';
+      uniSel.innerHTML = '<option value="">Universe: all</option>';
       universes.forEach(u => {
         const opt = document.createElement('option');
         opt.value = String(u);
@@ -193,17 +195,21 @@ const DevicesScreen = (() => {
     const tbody = document.querySelector('#fixturesTable tbody');
     const scrollTop = tbody.parentElement.scrollTop;
     tbody.innerHTML = '';
-    visibleFixtures().forEach(f => {
+    const list = visibleFixtures();
+    if (!list.length) {
+      tbody.innerHTML = `<tr><td colspan="6"><div class="b5-empty">${UI.icon('nav-devices')}<span class="b5-empty__title">No devices found</span><span class="b5-empty__body">Check that nodes are discovered and universes are assigned, or clear active filters.</span></div></td></tr>`;
+      return;
+    }
+    list.forEach(f => {
       const tr = document.createElement('tr');
-      if (f.uid === selectedUID) tr.classList.add('selected');
-      const badgeCls = CLASS_BADGE[f.class] || 'cls-unknown';
+      if (f.uid === selectedUID) tr.classList.add('is-selected');
       tr.innerHTML = `
-        <td><span class="badge cls-badge ${badgeCls}">${escapeHtml(f.class)}</span></td>
-        <td>${escapeHtml(manufacturerCell(f))}</td>
-        <td>${escapeHtml(modelCell(f))}</td>
-        <td>${escapeHtml(f.uid)}</td>
-        <td>${addressLabel(f)}</td>
-        <td>${escapeHtml(f.nodeIp)} / ${f.portAddress}</td>
+        <td data-label="Class">${UI.tag(f.class, classTagVariant(f.class))}</td>
+        <td data-label="Manufacturer">${escapeHtml(manufacturerCell(f))}</td>
+        <td data-label="Model/Type">${escapeHtml(modelCell(f))}</td>
+        <td data-label="UID" class="b5-table__mono">${escapeHtml(f.uid)}</td>
+        <td data-label="Address" class="b5-table__mono">${addressLabel(f)}</td>
+        <td data-label="Node/Port">${escapeHtml(f.nodeIp)} / ${f.portAddress}</td>
       `;
       tr.addEventListener('click', () => { selectDevice(f.uid); });
       tbody.appendChild(tr);
@@ -235,26 +241,31 @@ const DevicesScreen = (() => {
     const el = document.getElementById('fixtureDetail');
     const f = fixtures.find(x => x.uid === selectedUID);
     if (!f) {
-      el.innerHTML = '<p class="empty-hint">Select a device to view its RDM parameters, sensors and status.</p>';
+      el.innerHTML = `<div class="b5-panel__body"><div class="b5-empty">${UI.icon('nav-devices')}<span class="b5-empty__title">No device selected</span><span class="b5-empty__body">Select a device to view/edit its RDM parameters, sensors and status.</span></div></div>`;
       return;
     }
-    const badgeCls = CLASS_BADGE[f.class] || 'cls-unknown';
     el.innerHTML = `
-      <h3>${escapeHtml(manufacturerCell(f))} — ${escapeHtml(f.uid)}
-        <span class="badge cls-badge ${badgeCls}">${escapeHtml(f.class)}</span></h3>
-      <div class="panel-toolbar">
-        <strong class="hint">RDM capture export (this device):</strong>
-        <button id="btnExportDeviceJson">Export JSON</button>
-        <button id="btnExportDeviceTxt">Export TXT</button>
+      <div class="b5-panel__header">
+        <h2 class="b5-panel__title">${escapeHtml(manufacturerCell(f))} — <span class="b5-text-mono">${escapeHtml(f.uid)}</span></h2>
+        ${UI.tag(f.class, classTagVariant(f.class))}
       </div>
-      <div class="detail-tabs" id="deviceTabs">
-        <button class="detail-tab-btn" data-tab="info">Info</button>
-        <button class="detail-tab-btn" data-tab="params">Parameters</button>
-        <button class="detail-tab-btn" data-tab="sensors">Sensors</button>
-        <button class="detail-tab-btn" data-tab="status">Status</button>
+      <div class="b5-panel__body">
+        <div class="b5-row" style="margin-bottom:var(--b5-space-4)">
+          <strong class="b5-text-sm">RDM capture export (this device):</strong>
+          <button id="btnExportDeviceJson" class="b5-btn b5-btn--sm">${UI.icon('export')}Export JSON</button>
+          <button id="btnExportDeviceTxt" class="b5-btn b5-btn--sm">${UI.icon('export')}Export TXT</button>
+        </div>
+        <div class="b5-tabs">
+          <div class="b5-tabs__list" id="deviceTabs">
+            <button class="b5-tabs__tab detail-tab-btn" data-tab="info">Info</button>
+            <button class="b5-tabs__tab detail-tab-btn" data-tab="params">Parameters</button>
+            <button class="b5-tabs__tab detail-tab-btn" data-tab="sensors">Sensors</button>
+            <button class="b5-tabs__tab detail-tab-btn" data-tab="status">Status</button>
+          </div>
+          <div class="b5-tabs__panel" id="deviceTabBody"></div>
+        </div>
+        <span class="b5-text-muted b5-text-sm" id="fxStatus"></span>
       </div>
-      <div id="deviceTabBody"></div>
-      <div class="hint" id="fxStatus"></div>
     `;
     document.getElementById('btnExportDeviceJson').addEventListener('click', () => {
       window.open(Api.exportUrl('json', { uid: f.uid }), '_blank');
@@ -263,7 +274,7 @@ const DevicesScreen = (() => {
       window.open(Api.exportUrl('txt', { uid: f.uid }), '_blank');
     });
     el.querySelectorAll('.detail-tab-btn').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.tab === activeTab);
+      btn.classList.toggle('is-active', btn.dataset.tab === activeTab);
       btn.addEventListener('click', () => {
         if (activeTab === btn.dataset.tab) return;
         activeTab = btn.dataset.tab;
@@ -344,7 +355,7 @@ const DevicesScreen = (() => {
     const status = document.getElementById('discoverStatus');
     if (!sel.value) { status.textContent = 'no node/port selected'; return; }
     const { ip, bindIndex, portAddress } = JSON.parse(sel.value);
-    status.textContent = 'discovering…';
+    status.innerHTML = UI.spinner() + 'discovering…';
     try {
       const res = await Api.discover(ip, bindIndex, portAddress);
       status.textContent = `found ${res.uids.length} device(s)${res.complete ? '' : ' (incomplete)'}`;

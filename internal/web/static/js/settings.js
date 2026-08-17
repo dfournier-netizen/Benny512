@@ -56,9 +56,9 @@ const SettingsScreen = (() => {
     try {
       await Api.postSettings(payload);
       current = payload;
-      status.textContent = 'applied';
+      status.innerHTML = UI.icon('status-ok') + 'applied';
     } catch (e) {
-      status.textContent = 'error: ' + e.message;
+      status.innerHTML = UI.icon('status-error') + ('error: ' + e.message);
     }
   }
 

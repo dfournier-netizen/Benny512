@@ -15,6 +15,11 @@
 // documented exception — a momentary physical action, not a persisted
 // parameter). Vocabulary: "ports" not "jacks".
 //
+// Markup (2026-08-16 retheme): every field below is built via
+// UI.buildApplyField/UI.wireApplyField (ui.js) so the b5-field state
+// modifiers (--dirty/--applying/--success/--error) are consistent with
+// every other screen — same Apply-to-confirm contract, new shared builder.
+//
 // --- Probe fan-out / debounce policy (task ask: "a tech tapping Next
 // rapidly must not queue dozens of RDM round-trips") ---
 // select(uid, sections) is the single entry point both callers use to say
@@ -145,15 +150,19 @@ const DeviceDetail = (() => {
     st.deviceInfo = deviceInfo;
   }
 
+  function infoRow(label, valueHtml) {
+    return `<div><span class="b5-text-muted b5-text-sm">${escapeHtml(label)}</span><br>${valueHtml}</div>`;
+  }
+
   function renderInfoSection(container, f) {
     const uid = f.uid;
     const st = infoCache[uid];
     if (!st || (st.loading && st.deviceInfo === undefined)) {
-      container.innerHTML = '<p class="hint">Loading…</p>';
+      container.innerHTML = `<span class="b5-inline-wait">${UI.spinner()}Loading…</span>`;
       return;
     }
     const di = st.deviceInfo;
-    let detailsHtml = '<span class="hint">none reported</span>';
+    let detailsHtml = '<span class="b5-text-muted b5-text-sm">none reported</span>';
     if (st.prodDetailHex) {
       const hex = st.prodDetailHex;
       const names = [];
@@ -161,22 +170,26 @@ const DeviceDetail = (() => {
         const code = parseInt(hex.slice(i, i + 4), 16);
         names.push(PRODUCT_DETAIL_NAMES[code] || `0x${code.toString(16).toUpperCase().padStart(4, '0')}`);
       }
-      if (names.length) detailsHtml = names.map(n => `<span class="badge detail-badge">${escapeHtml(n)}</span>`).join(' ');
+      if (names.length) detailsHtml = names.map(n => UI.tag(n)).join(' ');
     }
     const effectiveMfr = st.mfrLabelVal || f.manufacturerName;
     const modelText = st.modelVal || (di ? `0x${di.DeviceModelID.toString(16).toUpperCase().padStart(4, '0')}` : '—');
     container.innerHTML = `
-      <div class="field-row"><label>Manufacturer</label><span>${escapeHtml(effectiveMfr)} (0x${f.manufacturerId.toString(16).toUpperCase().padStart(4, '0')})</span></div>
-      <div class="field-row"><label>Model / fixture type</label><span>${escapeHtml(modelText)}</span></div>
-      <div class="field-row"><label>Manufacturer label (device-reported)</label><span>${st.mfrLabelVal ? escapeHtml(st.mfrLabelVal) : '<span class="hint">not reported by device</span>'}</span></div>
-      <div class="field-row"><label>Software version</label><span>${st.swVersion ? escapeHtml(st.swVersion) : '—'}</span></div>
-      <div class="field-row"><label>Node / port</label><span>${escapeHtml(f.nodeIp)} (bind ${f.bindIndex}) / addr ${f.portAddress}</span></div>
-      <div class="field-row"><label>DMX footprint</label><span>${di ? di.DMXFootprint : '—'}</span></div>
-      <div class="field-row"><label>DMX start address</label><span>${di ? Api.formatAddressRange(di.DMXStartAddress, di.DMXFootprint, true) : '—'}</span></div>
-      <div class="field-row"><label>Personality</label><span>${di ? `${di.CurrentPersonality} of ${di.PersonalityCount}` : '—'}</span></div>
-      <div class="field-row"><label>Sub-devices</label><span>${di ? di.SubDeviceCount : '—'}</span></div>
-      <div class="field-row"><label>Sensors</label><span>${di ? di.SensorCount : '—'}</span></div>
-      <div class="field-row"><label>Product details</label><span>${detailsHtml}</span></div>
+      <div class="b5-grid-2">
+        ${infoRow('Manufacturer', `${escapeHtml(effectiveMfr)} (0x${f.manufacturerId.toString(16).toUpperCase().padStart(4, '0')})`)}
+        ${infoRow('Model / fixture type', escapeHtml(modelText))}
+        ${infoRow('Manufacturer label (device-reported)', st.mfrLabelVal ? escapeHtml(st.mfrLabelVal) : '<span class="b5-text-muted b5-text-sm">not reported by device</span>')}
+        ${infoRow('Software version', st.swVersion ? escapeHtml(st.swVersion) : '—')}
+        ${infoRow('Node / port', `${escapeHtml(f.nodeIp)} (bind ${f.bindIndex}) / addr ${f.portAddress}`)}
+        ${infoRow('DMX footprint', di ? String(di.DMXFootprint) : '—')}
+        ${infoRow('DMX start address', di ? escapeHtml(Api.formatAddressRange(di.DMXStartAddress, di.DMXFootprint, true)) : '—')}
+        ${infoRow('Personality', di ? `${di.CurrentPersonality} of ${di.PersonalityCount}` : '—')}
+        ${infoRow('Sub-devices', di ? String(di.SubDeviceCount) : '—')}
+        ${infoRow('Sensors', di ? String(di.SensorCount) : '—')}
+      </div>
+      <div style="margin-top:var(--b5-space-4)">
+        <span class="b5-text-muted b5-text-sm">Product details</span><br>${detailsHtml}
+      </div>
     `;
   }
 
@@ -304,11 +317,6 @@ const DeviceDetail = (() => {
   // `statusSetter(msg)` lets the caller show Apply/error feedback in its
   // own chrome (Devices: a dedicated status line; Rig Walk: the walk
   // screen's shared status line) without this module owning any global DOM
-  // id.
-  // renderParamsSection is the Parameters section shared by both consumers.
-  // `statusSetter(msg)` lets the caller show Apply/error feedback in its
-  // own chrome (Devices: a dedicated status line; Rig Walk: the walk
-  // screen's shared status line) without this module owning any global DOM
   // id. `opts.hideAddressField` (Rig Walk only) suppresses this section's
   // own Start-address editor when the caller already renders a dedicated,
   // walk-session-aware address quick-fix elsewhere on screen (walk.js's
@@ -320,56 +328,60 @@ const DeviceDetail = (() => {
     const uid = f.uid;
     const st = paramsCache[uid];
     if (!st || (st.loading && st.di === undefined)) {
-      container.innerHTML = '<p class="hint">Loading…</p>';
+      container.innerHTML = `<span class="b5-inline-wait">${UI.spinner()}Loading…</span>`;
       return;
     }
     const di = st.di, lbl = st.lbl || '', pers = st.pers, identOn = !!st.identOn;
 
     container.innerHTML = '';
     const standard = document.createElement('div');
-    standard.className = 'device-detail-standard';
+    standard.className = 'b5-stack';
     container.appendChild(standard);
 
-    standard.innerHTML = `
-      <h4>Standard parameters</h4>
-      <div class="field-row" data-field="label"><label>Device label</label></div>
-      ${opts.hideAddressField ? '' : `<div class="field-row" data-field="address"><label>Start address${di ? ` <span class="hint">(${Api.formatAddressRange(di.DMXStartAddress, di.DMXFootprint, true)})</span>` : ''}</label></div>`}
-      <div class="field-row" data-field="personality"><label>Personality</label></div>
-      <div class="field-row" data-field="identify"><label>Identify</label></div>
-    `;
-
-    const labelField = buildTextApplyField(lbl, !!di, 32);
-    standard.querySelector('[data-field="label"]').appendChild(labelField.wrap);
-    wireApplyField(labelField, lbl, async (v) => { await saveParam(uid, 'device_label', v, statusSetter); }, statusSetter);
+    const labelField = UI.buildApplyField({ label: 'Device label', value: lbl, enabled: !!di, maxLength: 32 });
+    standard.appendChild(labelField.wrap);
+    UI.wireApplyField(labelField, lbl, async (v) => { await saveParam(uid, 'device_label', v, statusSetter); }, statusSetter);
 
     if (!opts.hideAddressField) {
-      const addrField = buildNumberApplyField(di && di.DMXFootprint ? di.DMXStartAddress : '', !!(di && di.DMXFootprint), 1, 512);
-      standard.querySelector('[data-field="address"]').appendChild(addrField.wrap);
-      wireApplyField(addrField, di && di.DMXFootprint ? String(di.DMXStartAddress) : '', async (v) => {
+      const addrHint = di ? `Currently ${Api.formatAddressRange(di.DMXStartAddress, di.DMXFootprint, true)}` : undefined;
+      const addrField = UI.buildApplyField({
+        label: 'Start address', kind: 'number', mono: true, min: 1, max: 512,
+        value: di && di.DMXFootprint ? di.DMXStartAddress : '', enabled: !!(di && di.DMXFootprint), hint: addrHint,
+      });
+      standard.appendChild(addrField.wrap);
+      UI.wireApplyField(addrField, di && di.DMXFootprint ? String(di.DMXStartAddress) : '', async (v) => {
         await saveParam(uid, 'dmx_start_address', parseInt(v, 10), statusSetter);
       }, statusSetter);
     }
 
     const personalityLabels = st.personality || {};
-    const persField = buildSelectApplyField(
-      pers ? Array.from({ length: pers.Count }, (_, i) => i + 1).map(i => ({ value: i, label: personalityLabels[i] ? `${i} — ${personalityLabels[i]}` : String(i) })) : [],
-      pers ? pers.Current : null, !!pers);
-    standard.querySelector('[data-field="personality"]').appendChild(persField.wrap);
-    wireApplyField(persField, pers ? String(pers.Current) : '', async (v) => {
+    const persField = UI.buildApplyField({
+      label: 'Personality', kind: 'select', enabled: !!pers,
+      value: pers ? pers.Current : null,
+      options: pers ? Array.from({ length: pers.Count }, (_, i) => i + 1).map(i => ({ value: i, label: personalityLabels[i] ? `${i} — ${personalityLabels[i]}` : String(i) })) : [],
+    });
+    standard.appendChild(persField.wrap);
+    UI.wireApplyField(persField, pers ? String(pers.Current) : '', async (v) => {
       await saveParam(uid, 'dmx_personality', parseInt(v, 10), statusSetter);
     }, statusSetter);
 
-    const identRow = standard.querySelector('[data-field="identify"]');
-    const identCb = document.createElement('input');
-    identCb.type = 'checkbox'; identCb.checked = identOn;
-    identRow.appendChild(identCb);
     // fxIdentify is the one deliberate Apply-to-confirm exception (a
-    // momentary physical action, not a persisted parameter) — same
-    // sign-off as the pre-existing Devices screen.
-    identCb.addEventListener('change', async () => {
+    // momentary physical action, not a persisted parameter) — a plain
+    // b5-toggle that commits on change, same sign-off as before the retheme.
+    const identWrap = document.createElement('div');
+    identWrap.className = 'b5-field';
+    identWrap.innerHTML = `
+      <label class="b5-toggle">
+        <input type="checkbox" ${identOn ? 'checked' : ''}>
+        <span class="b5-toggle__track"></span>
+        Identify (flashes/highlights the physical fixture)
+      </label>
+    `;
+    standard.appendChild(identWrap);
+    identWrap.querySelector('input').addEventListener('change', async (e) => {
       try {
-        await Api.identify(uid, identCb.checked);
-        statusSetter('identify ' + (identCb.checked ? 'on' : 'off'));
+        await Api.identify(uid, e.target.checked);
+        statusSetter('identify ' + (e.target.checked ? 'on' : 'off'));
       } catch (err) {
         statusSetter('error: ' + err.message);
       }
@@ -378,21 +390,24 @@ const DeviceDetail = (() => {
     renderDimmerFields(standard, uid, st, statusSetter);
 
     const mfrSection = document.createElement('div');
-    mfrSection.className = 'device-detail-mfr';
+    mfrSection.className = 'b5-panel';
+    mfrSection.style.marginTop = 'var(--b5-space-5)';
     mfrSection.innerHTML = `
-      <h4>Manufacturer &amp; unrecognized parameters</h4>
-      <div class="panel-toolbar">
-        <button class="btn-introspect" ${st.introspecting ? 'disabled' : ''}>${st.introspecting ? 'Introspecting…' : 'Introspect'}</button>
-        <span class="hint introspect-status">${introspectStatusText(st)}</span>
+      <div class="b5-panel__header">
+        <h3 class="b5-panel__title">Manufacturer &amp; unrecognized parameters</h3>
+        <button class="b5-btn b5-btn--sm btn-introspect" ${st.introspecting ? 'disabled' : ''}>${st.introspecting ? UI.spinner() + 'Introspecting…' : 'Introspect'}</button>
       </div>
-      <div class="param-rows"></div>
+      <div class="b5-panel__body b5-stack">
+        <span class="b5-text-muted b5-text-sm introspect-status">${escapeHtml(introspectStatusText(st))}</span>
+        <div class="param-rows b5-stack"></div>
+      </div>
     `;
     container.appendChild(mfrSection);
     mfrSection.querySelector('.btn-introspect').addEventListener('click', () => startIntrospect(uid));
 
     const rowsEl = mfrSection.querySelector('.param-rows');
     if (!st.descriptors.length) {
-      rowsEl.innerHTML = '<p class="hint">Click Introspect to walk SUPPORTED_PARAMETERS + PARAMETER_DESCRIPTION (also surfaces any standard ESTA PID this app has no typed decoder for, via the same raw-hex fallback).</p>';
+      rowsEl.innerHTML = '<p class="b5-text-muted b5-text-sm">Click Introspect to walk SUPPORTED_PARAMETERS + PARAMETER_DESCRIPTION (also surfaces any standard ESTA PID this app has no typed decoder for, via the same raw-hex fallback).</p>';
     } else {
       st.descriptors.slice().sort((a, b) => a.pid.localeCompare(b.pid)).forEach(desc => {
         rowsEl.appendChild(renderParamRow(uid, desc, st.values[desc.pid], statusSetter));
@@ -409,33 +424,18 @@ const DeviceDetail = (() => {
   // of a bare number"), else a bare numeric dropdown of 1..Count.
   function renderDimmerFields(outerContainer, uid, st, statusSetter) {
     const wrap = document.createElement('div');
-    wrap.className = 'device-detail-dimmer';
-    const container = wrap; // rows below append into wrap; wrap is only
-    // attached to outerContainer at the end, and only if at least one
-    // dimmer field actually resolved (a device that implements none of
-    // E1.37-1 gets no empty "Dimmer" heading).
+    wrap.className = 'b5-stack';
     let any = false;
 
-    function indexedRow(title, choice, labels, pidGet, cacheNote) {
+    function indexedRow(title, choice, labels, pidGet) {
       if (!choice) return;
       any = true;
-      const row = document.createElement('div');
-      row.className = 'field-row';
-      const label = document.createElement('label');
-      label.textContent = title;
-      row.appendChild(label);
       const opts = Array.from({ length: choice.Count }, (_, i) => i + 1)
         .map(i => ({ value: i, label: (labels && labels[i]) ? `${i} — ${labels[i]}` : String(i) }));
-      const field = buildSelectApplyField(opts, choice.Current, true);
-      row.appendChild(field.wrap);
-      if (!labels || Object.keys(labels).length < choice.Count) {
-        const note = document.createElement('span');
-        note.className = 'hint';
-        note.textContent = ' (fetching labels…)';
-        row.appendChild(note);
-      }
-      wireApplyField(field, String(choice.Current), pidGet, statusSetter);
-      container.appendChild(row);
+      const hint = (!labels || Object.keys(labels).length < choice.Count) ? 'fetching labels…' : undefined;
+      const field = UI.buildApplyField({ label: title, kind: 'select', enabled: true, value: choice.Current, options: opts, hint });
+      UI.wireApplyField(field, String(choice.Current), pidGet, statusSetter);
+      wrap.appendChild(field.wrap);
     }
 
     indexedRow('Dimmer curve', st.curve, st.curveLabels, async (v) => saveParam(uid, 'curve', parseInt(v, 10), statusSetter));
@@ -444,23 +444,19 @@ const DeviceDetail = (() => {
 
     if (st.minLevel) {
       any = true;
-      const row = document.createElement('div');
-      row.className = 'field-row';
-      row.innerHTML = '<label>Minimum level (rise / fall)</label>';
-      const wrapField = document.createElement('span');
-      wrapField.className = 'apply-field';
-      const riseInput = document.createElement('input');
-      riseInput.type = 'number'; riseInput.min = 0; riseInput.max = 65535; riseInput.value = st.minLevel.Increasing;
-      riseInput.style.width = '6em';
-      const fallInput = document.createElement('input');
-      fallInput.type = 'number'; fallInput.min = 0; fallInput.max = 65535; fallInput.value = st.minLevel.Decreasing;
-      fallInput.style.width = '6em';
-      wrapField.appendChild(riseInput);
-      wrapField.appendChild(document.createTextNode(' / '));
-      wrapField.appendChild(fallInput);
-      row.appendChild(wrapField);
-      const applyBtn = document.createElement('button');
-      applyBtn.className = 'btn-apply'; applyBtn.textContent = 'Apply'; applyBtn.disabled = true;
+      const field = document.createElement('div');
+      field.className = 'b5-field';
+      field.innerHTML = `
+        <label class="b5-field__label">Minimum level (rise / fall)</label>
+        <div class="b5-field__row">
+          <input class="b5-input" type="number" min="0" max="65535" value="${st.minLevel.Increasing}" style="max-width:8em">
+          <span class="b5-text-muted">/</span>
+          <input class="b5-input" type="number" min="0" max="65535" value="${st.minLevel.Decreasing}" style="max-width:8em">
+          <span class="b5-field__actions"><button class="b5-btn b5-btn--sm b5-btn--primary" disabled>${UI.icon('apply')}Apply</button></span>
+        </div>
+      `;
+      const [riseInput, fallInput] = field.querySelectorAll('input');
+      const applyBtn = field.querySelector('button');
       const refresh = () => { applyBtn.disabled = (Number(riseInput.value) === st.minLevel.Increasing && Number(fallInput.value) === st.minLevel.Decreasing); };
       riseInput.addEventListener('input', refresh);
       fallInput.addEventListener('input', refresh);
@@ -472,118 +468,31 @@ const DeviceDetail = (() => {
           notify();
         } catch (e) { statusSetter('error: ' + e.message); }
       });
-      row.appendChild(applyBtn);
-      container.appendChild(row);
+      wrap.appendChild(field);
     }
 
     if (st.maxLevel !== null && st.maxLevel !== undefined) {
       any = true;
-      const row = document.createElement('div');
-      row.className = 'field-row';
-      row.innerHTML = '<label>Maximum level</label>';
-      const field = buildNumberApplyField(st.maxLevel, true, 0, 65535);
-      row.appendChild(field.wrap);
-      wireApplyField(field, String(st.maxLevel), async (v) => saveParam(uid, 'maximum_level', parseInt(v, 10), statusSetter), statusSetter);
-      container.appendChild(row);
+      const field = UI.buildApplyField({ label: 'Maximum level', kind: 'number', enabled: true, value: st.maxLevel, min: 0, max: 65535 });
+      UI.wireApplyField(field, String(st.maxLevel), async (v) => saveParam(uid, 'maximum_level', parseInt(v, 10), statusSetter), statusSetter);
+      wrap.appendChild(field.wrap);
     }
 
     if (st.identMode !== null && st.identMode !== undefined) {
       any = true;
-      const row = document.createElement('div');
-      row.className = 'field-row';
-      row.innerHTML = '<label>Identify mode</label>';
-      const field = buildSelectApplyField([{ value: 0, label: 'Quiet' }, { value: 1, label: 'Loud' }], st.identMode, true);
-      row.appendChild(field.wrap);
-      wireApplyField(field, String(st.identMode), async (v) => saveParam(uid, 'identify_mode', v === '1', statusSetter), statusSetter);
-      container.appendChild(row);
+      const field = UI.buildApplyField({ label: 'Identify mode', kind: 'select', enabled: true, value: st.identMode, options: [{ value: 0, label: 'Quiet' }, { value: 1, label: 'Loud' }] });
+      UI.wireApplyField(field, String(st.identMode), async (v) => saveParam(uid, 'identify_mode', v === '1', statusSetter), statusSetter);
+      wrap.appendChild(field.wrap);
     }
 
     if (any) {
-      const h = document.createElement('h4');
+      const h = document.createElement('h3');
+      h.className = 'b5-panel__title';
+      h.style.marginTop = 'var(--b5-space-5)';
       h.textContent = 'Dimmer (E1.37-1)';
-      wrap.insertBefore(h, wrap.firstChild);
+      outerContainer.appendChild(h);
       outerContainer.appendChild(wrap);
     }
-  }
-
-  // --- apply-to-confirm field builders ------------------------------------
-  // These build a self-contained {wrap, input, applyBtn, revertBtn,
-  // dirtyBadge} bundle via createElement (never document.getElementById),
-  // so the SAME shared component can be mounted twice in the document at
-  // once (Devices tab + Rig Walk) with zero id collisions.
-
-  function buildTextApplyField(value, enabled, maxLength) {
-    const wrap = document.createElement('span');
-    wrap.className = 'apply-field';
-    const input = document.createElement('input');
-    input.type = 'text'; input.value = value; input.disabled = !enabled;
-    if (maxLength) input.maxLength = maxLength;
-    wrap.appendChild(input);
-    return finishApplyField(wrap, input);
-  }
-  function buildNumberApplyField(value, enabled, min, max) {
-    const wrap = document.createElement('span');
-    wrap.className = 'apply-field';
-    const input = document.createElement('input');
-    input.type = 'number'; input.value = value; input.disabled = !enabled;
-    if (min !== undefined) input.min = min;
-    if (max !== undefined) input.max = max;
-    wrap.appendChild(input);
-    return finishApplyField(wrap, input);
-  }
-  function buildSelectApplyField(options, current, enabled) {
-    const wrap = document.createElement('span');
-    wrap.className = 'apply-field';
-    const input = document.createElement('select');
-    input.disabled = !enabled;
-    options.forEach(o => {
-      const opt = document.createElement('option');
-      opt.value = o.value; opt.textContent = o.label;
-      if (o.value === current) opt.selected = true;
-      input.appendChild(opt);
-    });
-    wrap.appendChild(input);
-    return finishApplyField(wrap, input);
-  }
-  function finishApplyField(wrap, input) {
-    const dirtyBadge = document.createElement('span');
-    dirtyBadge.className = 'badge dirty-badge'; dirtyBadge.textContent = 'pending'; dirtyBadge.style.display = 'none';
-    const applyBtn = document.createElement('button');
-    applyBtn.type = 'button'; applyBtn.className = 'btn-apply'; applyBtn.textContent = 'Apply'; applyBtn.disabled = true;
-    const revertBtn = document.createElement('button');
-    revertBtn.type = 'button'; revertBtn.className = 'btn-revert'; revertBtn.textContent = 'Revert'; revertBtn.style.display = 'none';
-    wrap.appendChild(dirtyBadge);
-    wrap.appendChild(applyBtn);
-    wrap.appendChild(revertBtn);
-    return { wrap, input, applyBtn, revertBtn, dirtyBadge };
-  }
-
-  // wireApplyField: oninput/onchange only toggles Apply/Revert/dirty
-  // visibility (never sends anything); Apply reads the live value at click
-  // time and calls onApply(value). This is the project-wide Apply-to-
-  // confirm pattern (task ask: "Apply-to-confirm on every editable field").
-  function wireApplyField(field, baseline, onApply, statusSetter) {
-    const { input, applyBtn, revertBtn, dirtyBadge } = field;
-    const refresh = () => {
-      const dirty = input.value !== baseline;
-      applyBtn.disabled = !dirty;
-      revertBtn.style.display = dirty ? '' : 'none';
-      dirtyBadge.style.display = dirty ? '' : 'none';
-    };
-    input.addEventListener('input', refresh);
-    input.addEventListener('change', refresh);
-    revertBtn.addEventListener('click', () => { input.value = baseline; refresh(); });
-    applyBtn.addEventListener('click', async () => {
-      applyBtn.disabled = true;
-      try {
-        await onApply(input.value);
-        baseline = input.value;
-        refresh();
-      } catch (e) {
-        if (statusSetter) statusSetter('error: ' + e.message);
-        applyBtn.disabled = false;
-      }
-    });
   }
 
   async function saveParam(uid, pid, value, statusSetter) {
@@ -609,7 +518,7 @@ const DeviceDetail = (() => {
 
   function renderParamRow(uid, desc, valState, statusSetter) {
     const row = document.createElement('div');
-    row.className = 'param-row';
+    row.className = 'b5-card';
     const label = desc.label || `PID 0x${desc.pid}`;
     // A self-describing PID's editability follows its PARAMETER_
     // DESCRIPTION-reported command_class. A PID that isn't self-describing
@@ -625,35 +534,34 @@ const DeviceDetail = (() => {
     const rangeHint = (desc.min !== 0 || desc.max !== 0) ? `[${desc.min}, ${desc.max}]${unitHint}` : '';
 
     const meta = document.createElement('div');
-    meta.className = 'param-row-meta';
+    meta.className = 'b5-row';
+    meta.style.marginBottom = 'var(--b5-space-2)';
     meta.innerHTML = `
-      <span class="pid-hex">0x${desc.pid}</span>
-      <span class="param-label">${escapeHtml(label)}</span>
-      <span class="hint">${escapeHtml(desc.dataTypeName)}${rangeHint ? ' · ' + escapeHtml(rangeHint) : ''}</span>
-      ${!editable ? '<span class="badge ro-badge">read-only</span>' : ''}
-      ${!desc.selfDescribing ? '<span class="badge adv-badge">raw / unverified</span>' : ''}
+      <span class="b5-text-mono b5-text-xs b5-text-muted">0x${desc.pid}</span>
+      <strong class="b5-text-sm">${escapeHtml(label)}</strong>
+      <span class="b5-text-muted b5-text-xs">${escapeHtml(desc.dataTypeName)}${rangeHint ? ' · ' + escapeHtml(rangeHint) : ''}</span>
+      ${!editable ? UI.tag('read-only') : ''}
+      ${!desc.selfDescribing ? UI.tag('raw / unverified', 'warn') : ''}
     `;
     row.appendChild(meta);
 
     const field = document.createElement('div');
-    field.className = 'param-row-field';
     row.appendChild(field);
 
     if (!valState) {
-      field.innerHTML = '<span class="hint">loading…</span>';
+      field.innerHTML = `<span class="b5-inline-wait">${UI.spinner()}loading…</span>`;
       return row;
     }
     if (!valState.ok) {
-      field.innerHTML = `<span class="hint">error: ${escapeHtml(valState.err)}</span>`;
+      field.innerHTML = `<span class="b5-field__error">${UI.icon('status-error')}error: ${escapeHtml(valState.err)}</span>`;
       return row;
     }
     const v = valState.val;
 
     if (desc.dataType === DS.BOOLEAN || (desc.dataType === DS.BIT_FIELD && desc.pdlSize === 1)) {
       const checked = desc.dataType === DS.BOOLEAN ? v.int !== 0 : (v.hex && parseInt(v.hex.slice(0, 2), 16) !== 0);
-      const cb = document.createElement('input');
-      cb.type = 'checkbox'; cb.checked = checked; cb.disabled = !editable;
-      field.appendChild(cb);
+      field.innerHTML = `<label class="b5-toggle"><input type="checkbox" ${checked ? 'checked' : ''} ${editable ? '' : 'disabled'}><span class="b5-toggle__track"></span></label>`;
+      const cb = field.querySelector('input');
       if (editable) {
         wireRowApply(field, cb, true, checked, (checkedNow) => {
           const value = desc.dataType === DS.BOOLEAN ? (checkedNow ? 1 : 0) : (checkedNow ? '01' : '00');
@@ -661,9 +569,8 @@ const DeviceDetail = (() => {
         }, statusSetter);
       }
     } else if (v.kind === 'string') {
-      const input = document.createElement('input');
-      input.type = 'text'; input.value = v.str || ''; input.maxLength = 32; input.disabled = !editable;
-      field.appendChild(input);
+      field.innerHTML = `<input class="b5-input" type="text" maxlength="32" value="${escapeHtml(v.str || '')}" ${editable ? '' : 'disabled'}>`;
+      const input = field.querySelector('input');
       if (editable) {
         wireRowApply(field, input, false, v.str || '', (val) => saveDeviceParam(uid, desc, val, row, statusSetter), statusSetter);
       }
@@ -688,10 +595,8 @@ const DeviceDetail = (() => {
         wireRowApply(field, input, false, current, (val) => saveDeviceParam(uid, desc, hexEncode(Number(val), width), row, statusSetter), statusSetter);
       }
     } else {
-      const input = document.createElement('input');
-      input.type = 'text'; input.className = 'hex-input'; input.placeholder = 'hex bytes, e.g. DEAD';
-      input.value = v.hex || ''; input.disabled = !editable;
-      field.appendChild(input);
+      field.innerHTML = `<input class="b5-input b5-input--mono" type="text" placeholder="hex bytes, e.g. DEAD" value="${escapeHtml(v.hex || '')}" ${editable ? '' : 'disabled'}>`;
+      const input = field.querySelector('input');
       if (editable) {
         wireRowApply(field, input, false, v.hex || '', (val) => saveDeviceParam(uid, desc, val.replace(/\s+/g, ''), row, statusSetter), statusSetter);
       }
@@ -700,12 +605,24 @@ const DeviceDetail = (() => {
   }
 
   function wireRowApply(field, inputEl, isCheckbox, baselineValue, onApply, statusSetter) {
+    const actions = document.createElement('span');
+    actions.className = 'b5-field__actions';
+    actions.style.marginLeft = 'var(--b5-space-2)';
     const applyBtn = document.createElement('button');
-    applyBtn.type = 'button'; applyBtn.className = 'btn-apply'; applyBtn.textContent = 'Apply'; applyBtn.disabled = true;
+    applyBtn.type = 'button'; applyBtn.className = 'b5-btn b5-btn--sm b5-btn--primary'; applyBtn.disabled = true;
+    applyBtn.innerHTML = UI.icon('apply') + 'Apply';
     const revertBtn = document.createElement('button');
-    revertBtn.type = 'button'; revertBtn.className = 'btn-revert'; revertBtn.textContent = 'Revert'; revertBtn.style.display = 'none';
-    const dirtyBadge = document.createElement('span');
-    dirtyBadge.className = 'badge dirty-badge'; dirtyBadge.textContent = 'pending'; dirtyBadge.style.display = 'none';
+    revertBtn.type = 'button'; revertBtn.className = 'b5-btn b5-btn--sm b5-btn--ghost';
+    revertBtn.innerHTML = UI.icon('revert') + 'Revert';
+    revertBtn.style.display = 'none';
+    actions.appendChild(applyBtn);
+    actions.appendChild(revertBtn);
+    field.appendChild(actions);
+
+    const status = document.createElement('span');
+    status.className = 'b5-field__status';
+    status.style.display = 'block';
+    field.appendChild(status);
 
     const baseline = isCheckbox ? !!baselineValue : String(baselineValue);
     const current = () => (isCheckbox ? inputEl.checked : inputEl.value);
@@ -713,16 +630,20 @@ const DeviceDetail = (() => {
       const dirty = current() !== baseline;
       applyBtn.disabled = !dirty;
       revertBtn.style.display = dirty ? '' : 'none';
-      dirtyBadge.style.display = dirty ? '' : 'none';
+      status.textContent = dirty ? 'Unsaved change' : '';
     };
     inputEl.addEventListener('input', refresh);
     inputEl.addEventListener('change', refresh);
 
     applyBtn.addEventListener('click', async () => {
       applyBtn.disabled = true;
+      status.innerHTML = UI.spinner() + 'Applying…';
       try {
         await onApply(current());
+        status.innerHTML = UI.icon('status-ok') + 'Applied';
+        setTimeout(() => { status.textContent = ''; }, 1500);
       } catch (e) {
+        status.innerHTML = UI.icon('status-error') + ('Error: ' + e.message);
         if (statusSetter) statusSetter('error: ' + e.message);
       }
       applyBtn.disabled = false;
@@ -731,10 +652,6 @@ const DeviceDetail = (() => {
       if (isCheckbox) inputEl.checked = baseline; else inputEl.value = baseline;
       refresh();
     });
-
-    field.appendChild(dirtyBadge);
-    field.appendChild(applyBtn);
-    field.appendChild(revertBtn);
   }
 
   function looksBoundedRaw(desc) {
@@ -751,26 +668,28 @@ const DeviceDetail = (() => {
 
   function numericStepper(desc, value, editable) {
     const wrap = document.createElement('span');
+    wrap.className = 'b5-row';
+    wrap.style.gap = 'var(--b5-space-2)';
     const input = document.createElement('input');
-    input.type = 'number'; input.value = value; input.disabled = !editable;
+    input.type = 'number'; input.className = 'b5-input'; input.style.maxWidth = '10em'; input.value = value; input.disabled = !editable;
     const bounded = desc.min !== 0 || desc.max !== 0;
     if (bounded) { input.min = desc.min; input.max = desc.max; }
     wrap.appendChild(input);
     if (desc.unitSuffix) {
       const suf = document.createElement('span');
-      suf.className = 'hint'; suf.textContent = ' ' + desc.unitSuffix;
+      suf.className = 'b5-text-muted b5-text-xs'; suf.textContent = desc.unitSuffix;
       wrap.appendChild(suf);
     }
     const errEl = document.createElement('span');
-    errEl.className = 'hint field-error';
+    errEl.className = 'b5-field__error';
     wrap.appendChild(errEl);
 
     input.addEventListener('input', () => {
       const n = Number(input.value);
       if (bounded && (n < desc.min || n > desc.max)) {
-        errEl.textContent = `must be ${desc.min}–${desc.max}`;
+        errEl.innerHTML = UI.icon('status-error') + `must be ${desc.min}–${desc.max}`;
       } else {
-        errEl.textContent = '';
+        errEl.innerHTML = '';
       }
     });
     return { wrap, input };
@@ -811,72 +730,81 @@ const DeviceDetail = (() => {
     const uid = f.uid;
     const st = sensorsCache[uid];
     if (!st || st.loading) {
-      container.innerHTML = '<p class="hint">Loading sensors…</p>';
+      container.innerHTML = `<span class="b5-inline-wait">${UI.spinner()}Loading sensors…</span>`;
       return;
     }
     if (st.error) {
-      container.innerHTML = `<p class="hint">error: ${escapeHtml(st.error)}</p>`;
+      container.innerHTML = `<span class="b5-field__error">${UI.icon('status-error')}error: ${escapeHtml(st.error)}</span>`;
       return;
     }
     if (!st.readings.length) {
-      container.innerHTML = '<p class="empty-hint">This device reports no sensors.</p>';
+      container.innerHTML = `<div class="b5-empty">${UI.icon('status-pending')}<span class="b5-empty__title">No sensors reported</span><span class="b5-empty__body">This device did not declare any sensor parameters.</span></div>`;
       return;
     }
     container.innerHTML = '';
-    st.readings.forEach(r => container.appendChild(renderGauge(uid, r)));
+    const stack = document.createElement('div');
+    stack.className = 'b5-stack';
+    container.appendChild(stack);
+    st.readings.forEach(r => stack.appendChild(renderGauge(uid, r)));
   }
 
   function renderGauge(uid, r) {
+    const outOfRange = r.hasRange && r.hasNormalBand && !r.inNormalBand;
     const wrap = document.createElement('div');
-    wrap.className = 'gauge-card' + (r.hasRange && !r.inNormalBand ? ' out-of-band' : '');
+    wrap.className = 'b5-card' + (outOfRange ? ' b5-panel--out-of-range' : '');
 
-    const header = document.createElement('div');
-    header.className = 'gauge-header';
-    header.innerHTML = `
-      <span class="gauge-title">${escapeHtml(r.description || r.typeName)}</span>
-      <span class="gauge-value">${escapeHtml(r.presentFormatted)}</span>
-      ${(r.hasRange && !r.inNormalBand) ? '<span class="badge warn-badge">⚠ outside normal range</span>' : ''}
+    const gauge = document.createElement('div');
+    gauge.className = 'b5-gauge' + (outOfRange ? ' b5-gauge--out-of-range' : '') + (r.hasRange ? '' : ' b5-gauge--no-range');
+
+    let trackHtml = '';
+    if (r.hasRange) trackHtml = buildGaugeTrackHtml(r);
+
+    gauge.innerHTML = `
+      <div class="b5-gauge__head">
+        <span class="b5-gauge__label">${escapeHtml(r.description || r.typeName)}</span>
+        <span class="b5-gauge__reading">${escapeHtml(r.presentFormatted)}</span>
+      </div>
+      ${trackHtml}
+      ${outOfRange ? `<span class="b5-gauge__flag">${UI.icon('status-warning')}Out of normal range</span>` : ''}
+      ${!r.hasRange ? '<span class="b5-text-muted b5-text-sm">Range undeclared by device — showing raw value only.</span>' : ''}
     `;
-    wrap.appendChild(header);
+    wrap.appendChild(gauge);
 
-    if (r.hasRange) {
-      wrap.appendChild(buildGaugeSVG(r));
-    } else {
-      const plain = document.createElement('div');
-      plain.className = 'hint';
-      plain.textContent = 'range undeclared by device — showing raw value only.';
-      wrap.appendChild(plain);
+    const metaParts = [];
+    if (r.recordsRange) metaParts.push(`lowest ${formatSensorRaw(r, r.lowest)} · highest ${formatSensorRaw(r, r.highest)}`);
+    if (r.recordsValue) metaParts.push(`recorded ${formatSensorRaw(r, r.recorded)}`);
+    if (metaParts.length) {
+      const meta = document.createElement('div');
+      meta.className = 'b5-text-muted b5-text-xs';
+      meta.style.marginTop = 'var(--b5-space-2)';
+      meta.textContent = metaParts.join(' · ');
+      wrap.appendChild(meta);
     }
 
-    const meta = document.createElement('div');
-    meta.className = 'gauge-meta hint';
-    const parts = [];
-    if (r.recordsRange) parts.push(`lowest ${formatSensorRaw(r, r.lowest)} · highest ${formatSensorRaw(r, r.highest)}`);
-    if (r.recordsValue) parts.push(`recorded ${formatSensorRaw(r, r.recorded)}`);
-    meta.textContent = parts.join(' · ');
-    wrap.appendChild(meta);
-
-    const actions = document.createElement('div');
-    actions.className = 'gauge-actions';
-    if (r.recordsValue) {
-      const btn = document.createElement('button');
-      btn.textContent = 'Record';
-      btn.addEventListener('click', async () => {
-        try { await Api.recordDeviceSensors(uid, r.number); await refreshSensorsNow(uid); }
-        catch (e) { /* best-effort */ }
-      });
-      actions.appendChild(btn);
-    }
     if (r.recordsValue || r.recordsRange) {
-      const btn = document.createElement('button');
-      btn.textContent = 'Reset';
-      btn.addEventListener('click', async () => {
+      const actions = document.createElement('div');
+      actions.className = 'b5-row';
+      actions.style.marginTop = 'var(--b5-space-2)';
+      if (r.recordsValue) {
+        const btn = document.createElement('button');
+        btn.className = 'b5-btn b5-btn--sm';
+        btn.textContent = 'Record';
+        btn.addEventListener('click', async () => {
+          try { await Api.recordDeviceSensors(uid, r.number); await refreshSensorsNow(uid); }
+          catch (e) { /* best-effort */ }
+        });
+        actions.appendChild(btn);
+      }
+      const resetBtn = document.createElement('button');
+      resetBtn.className = 'b5-btn b5-btn--sm b5-btn--ghost';
+      resetBtn.textContent = 'Reset';
+      resetBtn.addEventListener('click', async () => {
         try { await Api.resetDeviceSensors(uid, r.number); await refreshSensorsNow(uid); }
         catch (e) { /* best-effort */ }
       });
-      actions.appendChild(btn);
+      actions.appendChild(resetBtn);
+      wrap.appendChild(actions);
     }
-    wrap.appendChild(actions);
 
     return wrap;
   }
@@ -889,56 +817,36 @@ const DeviceDetail = (() => {
 
   function formatSensorRaw(r, raw) { return formatValue(raw, r.unit, r.prefix); }
 
-  function buildGaugeSVG(r) {
-    const div = document.createElement('div');
+  // buildGaugeTrackHtml builds the b5-gauge__track markup (band + ticks +
+  // present marker, all positioned by inline left/width percentages, per
+  // design-spec's gauge component) — a straight port of the previous SVG
+  // gauge's math onto the design system's div-based gauge.
+  function buildGaugeTrackHtml(r) {
     const min = r.rangeMin || 0, max = r.rangeMax || 0;
     const span = Math.max(1, max - min);
     const pct = (v) => Math.min(100, Math.max(0, ((v - min) / span) * 100));
 
-    const trackX = 4, trackW = 92;
-    const toX = (v) => trackX + (pct(v) / 100) * trackW;
-
-    let normalBand = '';
+    let band = '';
     if (r.hasNormalBand) {
-      const x1 = toX(r.normalMin || 0), x2 = toX(r.normalMax || 0);
-      normalBand = `<rect x="${x1}" y="18" width="${Math.max(0, x2 - x1)}" height="14" class="gauge-normal-band" />`;
+      const x1 = pct(r.normalMin || 0), x2 = pct(r.normalMax || 0);
+      band = `<div class="b5-gauge__band" style="left:${x1}%;width:${Math.max(0, x2 - x1)}%"></div>`;
     }
 
     let ticks = '';
     if (r.recordsRange) {
-      ticks += `<line x1="${toX(r.lowest)}" x2="${toX(r.lowest)}" y1="14" y2="36" class="gauge-tick gauge-tick-low" />`;
-      ticks += `<line x1="${toX(r.highest)}" x2="${toX(r.highest)}" y1="14" y2="36" class="gauge-tick gauge-tick-high" />`;
+      ticks += `<div class="b5-gauge__tick" style="left:${pct(r.lowest)}%"></div>`;
+      ticks += `<div class="b5-gauge__tick" style="left:${pct(r.highest)}%"></div>`;
     }
     if (r.recordsValue) {
-      const rx = toX(r.recorded);
-      ticks += `<rect x="${rx - 1.2}" y="15" width="2.4" height="20" transform="rotate(45 ${rx} 25)" class="gauge-tick-recorded" />`;
+      ticks += `<div class="b5-gauge__tick b5-gauge__tick--recorded" style="left:${pct(r.recorded)}%"></div>`;
     }
 
-    const px = toX(r.present);
-    const outOfBand = r.hasNormalBand ? !r.inNormalBand : false;
-    const patternId = `hatch-${r.number}-${Math.random().toString(36).slice(2, 8)}`;
-    const marker = outOfBand
-      ? `<rect x="${px - 3}" y="12" width="6" height="26" class="gauge-marker gauge-marker-warn" fill="url(#${patternId})" />`
-      : `<polygon points="${px},12 ${px - 4},22 ${px + 4},22" class="gauge-marker" /><line x1="${px}" y1="18" x2="${px}" y2="36" class="gauge-marker-line" />`;
+    const marker = `<div class="b5-gauge__marker" style="left:${pct(r.present)}%"></div>`;
 
-    div.innerHTML = `
-      <svg viewBox="0 0 100 40" class="gauge-svg" role="img" aria-label="${escapeHtml(r.description)} gauge, present value ${escapeHtml(r.presentFormatted)}">
-        <defs>
-          <pattern id="${patternId}" width="3" height="3" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
-            <rect width="3" height="3" class="gauge-hatch-bg" />
-            <line x1="0" y1="0" x2="0" y2="3" class="gauge-hatch-line" />
-          </pattern>
-        </defs>
-        <rect x="${trackX}" y="18" width="${trackW}" height="14" class="gauge-track" />
-        ${normalBand}
-        ${ticks}
-        ${marker}
-      </svg>
-      <div class="gauge-range-labels hint">
-        <span>${min}</span><span>${max}${r.unitSuffix ? ' ' + r.unitSuffix : ''}</span>
-      </div>
+    return `
+      <div class="b5-gauge__track">${band}${ticks}${marker}</div>
+      <div class="b5-gauge__scale"><span>${min}${r.unitSuffix ? ' ' + r.unitSuffix : ''}</span><span>${max}${r.unitSuffix ? ' ' + r.unitSuffix : ''}</span></div>
     `;
-    return div;
   }
 
   // --- Status section --------------------------------------------------------
@@ -962,28 +870,35 @@ const DeviceDetail = (() => {
   function renderStatusSection(container, f) {
     const uid = f.uid;
     const st = statusCache[uid] || (statusCache[uid] = { filter: 'advisory', messages: [], loading: true, error: null });
+    const statusText = st.loading
+      ? `<span class="b5-inline-wait">${UI.spinner()}loading…</span>`
+      : (st.error ? `<span class="b5-field__error">${UI.icon('status-error')}error: ${escapeHtml(st.error)}</span>` : `<span class="b5-text-muted b5-text-sm">${st.messages.length} message(s)</span>`);
     container.innerHTML = `
-      <div class="panel-toolbar">
-        <label>Severity: <select class="status-filter">
-          <option value="advisory" ${st.filter === 'advisory' ? 'selected' : ''}>Advisory</option>
-          <option value="warning" ${st.filter === 'warning' ? 'selected' : ''}>Warning</option>
-          <option value="error" ${st.filter === 'error' ? 'selected' : ''}>Error</option>
-        </select></label>
-        <button class="btn-refresh-status">Refresh</button>
-        <span class="hint status-hint">${st.loading ? 'loading…' : (st.error ? ('error: ' + escapeHtml(st.error)) : `${st.messages.length} message(s)`)}</span>
+      <div class="b5-filterbar">
+        <div class="b5-filterbar__group">
+          <label class="b5-visually-hidden">Severity</label>
+          <select class="b5-select status-filter" style="width:auto">
+            <option value="advisory" ${st.filter === 'advisory' ? 'selected' : ''}>Severity: Advisory</option>
+            <option value="warning" ${st.filter === 'warning' ? 'selected' : ''}>Severity: Warning</option>
+            <option value="error" ${st.filter === 'error' ? 'selected' : ''}>Severity: Error</option>
+          </select>
+          <button class="b5-btn b5-btn--sm btn-refresh-status">${UI.icon('refresh')}Refresh</button>
+        </div>
+        <span class="b5-filterbar__summary">${statusText}</span>
       </div>
-      <table class="data-table">
+      ${st.messages.length ? `
+      <table class="b5-table b5-table--responsive">
         <thead><tr><th>Sub-device</th><th>Type</th><th>Message ID</th><th>Value 1</th><th>Value 2</th></tr></thead>
         <tbody>${st.messages.map(m => `
           <tr>
-            <td>${m.subDevice}</td>
-            <td>${escapeHtml(m.typeName)}</td>
-            <td>0x${m.messageId.toString(16).toUpperCase().padStart(4, '0')}</td>
-            <td>${m.value1}</td>
-            <td>${m.value2}</td>
-          </tr>`).join('') || '<tr><td colspan="5" class="hint">no messages at this severity</td></tr>'}
+            <td data-label="Sub-device">${m.subDevice}</td>
+            <td data-label="Type">${escapeHtml(m.typeName)}</td>
+            <td data-label="Message ID" class="b5-table__mono">0x${m.messageId.toString(16).toUpperCase().padStart(4, '0')}</td>
+            <td data-label="Value 1">${m.value1}</td>
+            <td data-label="Value 2">${m.value2}</td>
+          </tr>`).join('')}
         </tbody>
-      </table>
+      </table>` : (st.loading ? '' : `<div class="b5-empty">${UI.icon('status-ok')}<span class="b5-empty__title">No messages at this severity</span></div>`)}
     `;
     container.querySelector('.status-filter').addEventListener('change', (e) => {
       ensureStatus(uid, selectGen, e.target.value);

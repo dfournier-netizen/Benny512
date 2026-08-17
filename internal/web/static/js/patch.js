@@ -109,22 +109,32 @@ const PatchScreen = (() => {
     if (el) el.textContent = msg;
   }
 
+  // severityBadge maps a collision/finding severity string onto the
+  // status-badge vocabulary — text is always shown too (never color alone).
+  function severityBadge(sev) {
+    const s = (sev || '').toLowerCase();
+    const kind = ['ok', 'warning', 'error', 'pending', 'stale', 'unknown'].includes(s) ? s : 'warning';
+    return UI.badge(kind, (sev || '').toUpperCase());
+  }
+
   // --- root render --------------------------------------------------------
 
   function render() {
     const el = document.getElementById('patchRoot');
     if (!el) return;
     el.innerHTML = `
-      <div class="detail-tabs" id="patchViewTabs">
-        <button class="detail-tab-btn" data-view="entries">Entries</button>
-        <button class="detail-tab-btn" data-view="reconcile">Reconcile</button>
-        <button class="detail-tab-btn" data-view="rigcheck">Rig Check</button>
+      <div class="b5-tabs">
+        <div class="b5-tabs__list" id="patchViewTabs">
+          <button class="b5-tabs__tab detail-tab-btn" data-view="entries">Entries</button>
+          <button class="b5-tabs__tab detail-tab-btn" data-view="reconcile">Reconcile</button>
+          <button class="b5-tabs__tab detail-tab-btn" data-view="rigcheck">Rig Check</button>
+        </div>
       </div>
-      <div class="hint" id="patchStatusMsg">${escapeHtml(statusMsg)}</div>
-      <div id="patchViewBody"></div>
+      <span class="b5-text-muted b5-text-sm" id="patchStatusMsg">${escapeHtml(statusMsg)}</span>
+      <div id="patchViewBody" style="margin-top:var(--b5-space-4)"></div>
     `;
     document.querySelectorAll('#patchViewTabs .detail-tab-btn').forEach(b => {
-      b.classList.toggle('active', b.dataset.view === view);
+      b.classList.toggle('is-active', b.dataset.view === view);
       b.addEventListener('click', () => setView(b.dataset.view));
     });
     const body = document.getElementById('patchViewBody');
@@ -141,32 +151,42 @@ const PatchScreen = (() => {
     const p = patchData.active ? patchData.patch : null;
     const entries = (p && p.entries) || [];
     body.innerHTML = `
-      <div class="panel-toolbar">
-        <button id="btnNewPatch">New patch…</button>
-        <button id="btnAddEntry">Add entry</button>
-        <button id="btnAdoptMerge">Adopt discovered (merge)</button>
-        <button id="btnAdoptFresh">Adopt discovered (replace patch)</button>
-        <span class="hint">${p ? escapeHtml(p.name || '(unnamed)') + ' — ' + entries.length + ' entr' + (entries.length === 1 ? 'y' : 'ies') : 'No patch yet — add an entry or adopt the discovered rig to start one.'}</span>
+      <div class="b5-filterbar">
+        <div class="b5-filterbar__group">
+          <button id="btnNewPatch" class="b5-btn b5-btn--sm">New patch…</button>
+          <button id="btnAddEntry" class="b5-btn b5-btn--sm b5-btn--primary">Add entry</button>
+          <button id="btnAdoptMerge" class="b5-btn b5-btn--sm">Adopt discovered (merge)</button>
+          <button id="btnAdoptFresh" class="b5-btn b5-btn--sm">Adopt discovered (replace patch)</button>
+        </div>
+        <span class="b5-filterbar__summary">${p ? escapeHtml(p.name || '(unnamed)') + ' — ' + entries.length + ' entr' + (entries.length === 1 ? 'y' : 'ies') : 'No patch yet — add an entry or adopt the discovered rig to start one.'}</span>
       </div>
-      <div class="panel-toolbar">
-        <label>Filter: <input type="text" id="patchFilter" placeholder="name, type, fixture #…" value="${escapeHtml(filterText)}"></label>
-        <label>Sort: <select id="patchSort">
-          <option value="address">Universe + address</option>
-          <option value="name">Name</option>
-          <option value="type">Fixture type</option>
-          <option value="fixtureNumber">Fixture number</option>
-        </select></label>
-        <button id="btnExportPatchJson">Export JSON</button>
-        <button id="btnExportPatchTxt">Export TXT</button>
+      <div class="b5-filterbar">
+        <div class="b5-filterbar__group">
+          <label class="b5-visually-hidden" for="patchFilter">Filter</label>
+          <input type="text" id="patchFilter" class="b5-input" style="width:16em" placeholder="Filter: name, type, fixture #…" value="${escapeHtml(filterText)}">
+          <label class="b5-visually-hidden" for="patchSort">Sort</label>
+          <select id="patchSort" class="b5-select" style="width:auto">
+            <option value="address">Sort: Universe + address</option>
+            <option value="name">Sort: Name</option>
+            <option value="type">Sort: Fixture type</option>
+            <option value="fixtureNumber">Sort: Fixture number</option>
+          </select>
+          <button id="btnExportPatchJson" class="b5-btn b5-btn--sm">${UI.icon('export')}Export JSON</button>
+          <button id="btnExportPatchTxt" class="b5-btn b5-btn--sm">${UI.icon('export')}Export TXT</button>
+        </div>
       </div>
       ${renderCollisionBanner(collisions)}
-      <table class="data-table" id="patchEntriesTable">
-        <thead><tr>
-          <th>Universe</th><th>Address</th><th>Name</th><th>Fixture type</th><th>Fixture #</th><th>RDM match</th><th></th>
-        </tr></thead>
-        <tbody></tbody>
-      </table>
-      <div id="patchEntryEditor"></div>
+      <div class="b5-panel">
+        <div class="b5-panel__body--flush">
+          <table class="b5-table b5-table--responsive" id="patchEntriesTable">
+            <thead><tr>
+              <th>Universe</th><th>Address</th><th>Name</th><th>Fixture type</th><th>Fixture #</th><th>RDM match</th><th>Actions</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="patchEntryEditor" style="margin-top:var(--b5-space-4)"></div>
     `;
     document.getElementById('patchSort').value = sortMode;
 
@@ -210,11 +230,14 @@ const PatchScreen = (() => {
   function renderCollisionBanner(findings) {
     if (!findings.length) return '';
     return `
-      <div class="caution-banner">
-        <strong>&#9888; ${findings.length} patch issue${findings.length === 1 ? '' : 's'} found</strong>
-        <ul class="patch-finding-list">
-          ${findings.map(f => `<li>[${escapeHtml(f.severity.toUpperCase())}] ${escapeHtml(f.message)}</li>`).join('')}
-        </ul>
+      <div class="b5-alert b5-alert--caution" style="margin-bottom:var(--b5-space-4)">
+        ${UI.icon('status-warning')}
+        <div>
+          <p class="b5-alert__title">${findings.length} patch issue${findings.length === 1 ? '' : 's'} found</p>
+          <ul style="margin:var(--b5-space-2) 0 0; padding-left:1.2em">
+            ${findings.map(f => `<li class="b5-text-sm">${severityBadge(f.severity)} ${escapeHtml(f.message)}</li>`).join('')}
+          </ul>
+        </div>
       </div>
     `;
   }
@@ -259,7 +282,7 @@ const PatchScreen = (() => {
     const filtered = filterEntries(entries, filterText);
     const sorted = sortEntries(filtered, sortMode);
     if (!sorted.length) {
-      tbody.innerHTML = `<tr><td colspan="7" class="empty-hint">${entries.length ? 'No entries match the filter.' : 'No entries yet — Add entry, or Adopt the discovered rig.'}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7"><div class="b5-empty">${UI.icon('nav-devices')}<span class="b5-empty__title">${entries.length ? 'No entries match the filter' : 'No entries yet'}</span><span class="b5-empty__body">${entries.length ? 'Try a different filter.' : 'Add entry, or Adopt the discovered rig.'}</span></div></td></tr>`;
       return;
     }
     tbody.innerHTML = sorted.map(e => renderEntryRow(e, findingsByEntry[e.id] || [])).join('');
@@ -270,23 +293,23 @@ const PatchScreen = (() => {
   }
 
   function renderEntryRow(e, findings) {
-    const issue = findings.length ? `<div class="hint field-error">&#9888; ${findings.map(f => escapeHtml(f.kind)).join(', ')}</div>` : '';
+    const issue = findings.length ? `<div class="b5-field__error">${UI.icon('status-warning')}${findings.map(f => escapeHtml(f.kind)).join(', ')}</div>` : '';
     const match = e.confirmedUid
-      ? `<span class="badge yes">confirmed</span>`
-      : (e.matchState === 'rejected' ? '<span class="badge no">rejected candidates</span>' : '<span class="hint">unresolved</span>');
+      ? UI.badge('ok', 'Confirmed')
+      : (e.matchState === 'rejected' ? UI.badge('warning', 'Rejected candidates') : '<span class="b5-text-muted b5-text-sm">Unresolved</span>');
     return `
       <tr data-entry-id="${escapeHtml(e.id)}">
-        <td>${e.universe}</td>
-        <td>${escapeHtml(Api.formatAddressRange(e.startAddress, e.footprint, true))}${issue}</td>
-        <td>${escapeHtml(e.name || '—')}</td>
-        <td>${escapeHtml(e.fixtureType || '—')}</td>
-        <td>${escapeHtml(e.fixtureNumber || '—')}</td>
-        <td>${match}</td>
-        <td>
-          <button data-edit="${escapeHtml(e.id)}">Edit</button>
-          <button data-move-up="${escapeHtml(e.id)}" title="Move up">&uarr;</button>
-          <button data-move-down="${escapeHtml(e.id)}" title="Move down">&darr;</button>
-          <button data-delete="${escapeHtml(e.id)}" class="walk-btn-danger">Delete</button>
+        <td data-label="Universe">${e.universe}</td>
+        <td data-label="Address" class="b5-table__mono">${escapeHtml(Api.formatAddressRange(e.startAddress, e.footprint, true))}${issue}</td>
+        <td data-label="Name">${escapeHtml(e.name || '—')}</td>
+        <td data-label="Fixture type">${escapeHtml(e.fixtureType || '—')}</td>
+        <td data-label="Fixture #">${escapeHtml(e.fixtureNumber || '—')}</td>
+        <td data-label="RDM match">${match}</td>
+        <td data-label="Actions">
+          <button class="b5-btn b5-btn--sm" data-edit="${escapeHtml(e.id)}">Edit</button>
+          <button class="b5-btn b5-btn--sm b5-btn--icon" data-move-up="${escapeHtml(e.id)}" aria-label="Move up">&uarr;</button>
+          <button class="b5-btn b5-btn--sm b5-btn--icon" data-move-down="${escapeHtml(e.id)}" aria-label="Move down">&darr;</button>
+          <button class="b5-btn b5-btn--sm b5-btn--danger" data-delete="${escapeHtml(e.id)}">Delete</button>
         </td>
       </tr>
     `;
@@ -350,22 +373,26 @@ const PatchScreen = (() => {
     }
     const d = entryDraft;
     container.innerHTML = `
-      <div class="settings-form patch-entry-form">
-        <h4>${editingEntry === 'new' ? 'Add entry' : 'Edit entry'}</h4>
-        <label>Name <input id="peName" type="text" maxlength="64"></label>
-        <label>Fixture type <input id="peType" type="text" maxlength="80" placeholder="e.g. Chauvet Rogue Outcast 2X Wash"></label>
-        <label>Mode / personality <input id="peMode" type="text" maxlength="40"></label>
-        <label>Footprint (DMX channels) <input id="peFootprint" type="number" min="0" max="512"></label>
-        <label>Universe (Port-Address) <input id="peUniverse" type="number" min="0" max="32767"></label>
-        <label>Start address <input id="peAddress" type="number" min="1" max="512"></label>
-        <label>Position <input id="pePosition" type="text" maxlength="60" placeholder="e.g. US Truss 3"></label>
-        <label>Fixture number <input id="peFixtureNumber" type="text" maxlength="20" placeholder="console channel/FixtureID"></label>
-        <label>Notes <input id="peNotes" type="text" maxlength="200"></label>
-        <div class="panel-toolbar">
-          <button id="peSave">${editingEntry === 'new' ? 'Add entry' : 'Save changes'}</button>
-          <button id="peCancel" class="walk-btn-ghost">Cancel</button>
+      <div class="b5-panel">
+        <div class="b5-panel__header"><h3 class="b5-panel__title">${editingEntry === 'new' ? 'Add entry' : 'Edit entry'}</h3></div>
+        <div class="b5-panel__body b5-grid-2">
+          <div class="b5-field"><label class="b5-field__label" for="peName">Name</label><input id="peName" class="b5-input" type="text" maxlength="64"></div>
+          <div class="b5-field"><label class="b5-field__label" for="peType">Fixture type</label><input id="peType" class="b5-input" type="text" maxlength="80" placeholder="e.g. Chauvet Rogue Outcast 2X Wash"></div>
+          <div class="b5-field"><label class="b5-field__label" for="peMode">Mode / personality</label><input id="peMode" class="b5-input" type="text" maxlength="40"></div>
+          <div class="b5-field"><label class="b5-field__label" for="peFootprint">Footprint (DMX channels)</label><input id="peFootprint" class="b5-input" type="number" min="0" max="512"></div>
+          <div class="b5-field"><label class="b5-field__label" for="peUniverse">Universe (Port-Address)</label><input id="peUniverse" class="b5-input" type="number" min="0" max="32767"></div>
+          <div class="b5-field"><label class="b5-field__label" for="peAddress">Start address</label><input id="peAddress" class="b5-input" type="number" min="1" max="512"></div>
+          <div class="b5-field"><label class="b5-field__label" for="pePosition">Position</label><input id="pePosition" class="b5-input" type="text" maxlength="60" placeholder="e.g. US Truss 3"></div>
+          <div class="b5-field"><label class="b5-field__label" for="peFixtureNumber">Fixture number</label><input id="peFixtureNumber" class="b5-input" type="text" maxlength="20" placeholder="console channel/FixtureID"></div>
+          <div class="b5-field" style="grid-column:1/-1"><label class="b5-field__label" for="peNotes">Notes</label><input id="peNotes" class="b5-input" type="text" maxlength="200"></div>
         </div>
-        <span class="hint" id="peError"></span>
+        <div class="b5-panel__body" style="padding-top:0">
+          <div class="b5-row">
+            <button id="peSave" class="b5-btn b5-btn--primary">${UI.icon('apply')}${editingEntry === 'new' ? 'Add entry' : 'Save changes'}</button>
+            <button id="peCancel" class="b5-btn b5-btn--ghost">Cancel</button>
+          </div>
+          <span class="b5-field__error" id="peError"></span>
+        </div>
       </div>
     `;
     const bind = (id, key, isNum) => {
@@ -387,7 +414,7 @@ const PatchScreen = (() => {
     document.getElementById('peSave').addEventListener('click', async () => {
       const errEl = document.getElementById('peError');
       if (!d.startAddress || d.startAddress < 1 || d.startAddress > 512) {
-        errEl.textContent = 'start address must be 1-512'; return;
+        errEl.innerHTML = UI.icon('status-error') + 'start address must be 1-512'; return;
       }
       try {
         if (editingEntry === 'new') {
@@ -401,7 +428,7 @@ const PatchScreen = (() => {
         collisions = patchData.active ? await Api.getPatchCollisions() : [];
         render();
       } catch (e) {
-        errEl.textContent = 'error: ' + e.message;
+        errEl.innerHTML = UI.icon('status-error') + ('error: ' + escapeHtml(e.message));
       }
     });
   }
@@ -420,7 +447,7 @@ const PatchScreen = (() => {
 
   function renderReconcile(body) {
     if (!reconcile) {
-      body.innerHTML = '<p class="hint">Loading reconcile report… (this resolves every device\'s live DMX address, may take a moment on a large rig)</p>';
+      body.innerHTML = `<span class="b5-inline-wait">${UI.spinner()}Loading reconcile report… (this resolves every device's live DMX address, may take a moment on a large rig)</span>`;
       return;
     }
     const byStatus = {};
@@ -429,14 +456,18 @@ const PatchScreen = (() => {
     if (patchData.active) (patchData.patch.entries || []).forEach(e => { entriesById[e.id] = e; });
 
     body.innerHTML = `
-      <div class="panel-toolbar">
-        <button id="btnReconcileRefresh">Refresh</button>
-        <button id="btnFixAll">Fix all address mismatches…</button>
-        <button id="btnExportReconcileJson">Export JSON</button>
-        <button id="btnExportReconcileTxt">Export TXT</button>
-        <span class="hint">Generated ${new Date(reconcile.generatedAt).toLocaleTimeString()}</span>
+      <div class="b5-filterbar">
+        <div class="b5-filterbar__group">
+          <button id="btnReconcileRefresh" class="b5-btn b5-btn--sm">${UI.icon('refresh')}Refresh</button>
+          <button id="btnFixAll" class="b5-btn b5-btn--sm b5-btn--primary">Fix all address mismatches…</button>
+          <button id="btnExportReconcileJson" class="b5-btn b5-btn--sm">${UI.icon('export')}Export JSON</button>
+          <button id="btnExportReconcileTxt" class="b5-btn b5-btn--sm">${UI.icon('export')}Export TXT</button>
+        </div>
+        <span class="b5-filterbar__summary">Generated ${new Date(reconcile.generatedAt).toLocaleTimeString()}</span>
       </div>
-      ${RECONCILE_GROUPS.map(g => renderReconcileGroup(g, byStatus[g.status] || [], entriesById)).join('')}
+      <div class="b5-accordion">
+        ${RECONCILE_GROUPS.map(g => renderReconcileGroup(g, byStatus[g.status] || [], entriesById)).join('')}
+      </div>
     `;
     document.getElementById('btnReconcileRefresh').addEventListener('click', async () => { reconcile = null; render(); await refreshReconcile(); render(); });
     document.getElementById('btnFixAll').addEventListener('click', onFixAll);
@@ -456,14 +487,21 @@ const PatchScreen = (() => {
 
   function renderEvidence(evidence) {
     if (!evidence || !evidence.length) return '';
-    return `<ul class="reconcile-evidence">${evidence.map(ev => `<li>${escapeHtml(ev.kind)}: ${escapeHtml(ev.detail)}</li>`).join('')}</ul>`;
+    return `<ul class="b5-text-muted b5-text-xs" style="margin:var(--b5-space-1) 0 0; padding-left:1.2em">${evidence.map(ev => `<li>${escapeHtml(ev.kind)}: ${escapeHtml(ev.detail)}</li>`).join('')}</ul>`;
   }
 
+  // Reconcile groups use native <details>/<summary> — free open/closed
+  // state with built-in keyboard + AT support — styled as a
+  // .b5-accordion__item via app.css's marker-suppression rule; group
+  // open-by-default logic (findings needing attention default open,
+  // "matched" stays collapsed) is unchanged from before the retheme.
   function renderReconcileGroup(g, rows, entriesById) {
     return `
-      <details class="reconcile-group" ${rows.length && g.status !== 'matched' ? 'open' : ''}>
-        <summary>${escapeHtml(g.title)} (${rows.length})</summary>
-        ${rows.length ? rows.map(r => renderReconcileRow(r, entriesById)).join('') : '<p class="empty-hint">none</p>'}
+      <details class="b5-accordion__item" ${rows.length && g.status !== 'matched' ? 'open' : ''}>
+        <summary class="b5-accordion__trigger"><span>${escapeHtml(g.title)} (${rows.length})</span>${UI.icon('chevron-expand')}</summary>
+        <div class="b5-accordion__panel b5-stack">
+          ${rows.length ? rows.map(r => renderReconcileRow(r, entriesById)).join('') : '<p class="b5-text-muted b5-text-sm">none</p>'}
+        </div>
       </details>
     `;
   }
@@ -474,27 +512,31 @@ const PatchScreen = (() => {
     let actions = '';
     if (row.status === 'address_mismatch' && row.entryId && row.deviceUid) {
       actions = `
-        <button data-fix-entry="${escapeHtml(row.entryId)}" data-fix-device="${escapeHtml(row.deviceUid)}">Fix device address</button>
-        <button data-reject-entry="${escapeHtml(row.entryId)}" class="walk-btn-ghost">Not this device</button>
+        <button class="b5-btn b5-btn--sm b5-btn--primary" data-fix-entry="${escapeHtml(row.entryId)}" data-fix-device="${escapeHtml(row.deviceUid)}">Fix device address</button>
+        <button class="b5-btn b5-btn--sm b5-btn--ghost" data-reject-entry="${escapeHtml(row.entryId)}">Not this device</button>
       `;
     } else if (row.status === 'ambiguous' && row.entryId) {
       actions = (row.candidates || []).map(c => `
-        <div class="reconcile-candidate">
-          <span>${escapeHtml(c.deviceUid)} — ${(c.confidence * 100).toFixed(0)}%</span>
-          <button data-confirm-entry="${escapeHtml(row.entryId)}" data-confirm-device="${escapeHtml(c.deviceUid)}">This one</button>
-          <button data-identify-device="${escapeHtml(c.deviceUid)}">Identify</button>
+        <div class="b5-card" style="margin-top:var(--b5-space-2)">
+          <div class="b5-row" style="justify-content:space-between">
+            <span class="b5-text-mono b5-text-sm">${escapeHtml(c.deviceUid)} — ${(c.confidence * 100).toFixed(0)}%</span>
+            <span class="b5-row">
+              <button class="b5-btn b5-btn--sm b5-btn--primary" data-confirm-entry="${escapeHtml(row.entryId)}" data-confirm-device="${escapeHtml(c.deviceUid)}">This one</button>
+              <button class="b5-btn b5-btn--sm" data-identify-device="${escapeHtml(c.deviceUid)}">${UI.icon('identify')}Identify</button>
+            </span>
+          </div>
           ${renderEvidence(c.evidence)}
         </div>
-      `).join('') + `<button data-reject-entry="${escapeHtml(row.entryId)}" class="walk-btn-ghost">None of these</button>`;
+      `).join('') + `<button class="b5-btn b5-btn--sm b5-btn--ghost" style="margin-top:var(--b5-space-2)" data-reject-entry="${escapeHtml(row.entryId)}">None of these</button>`;
     }
     return `
-      <div class="reconcile-row">
-        <div class="reconcile-row-head">
-          <strong>${escapeHtml(label)}</strong>
-          <span class="hint">${row.deviceUid ? 'device ' + escapeHtml(row.deviceUid) : ''} ${row.confidence ? '· confidence ' + conf + '%' : ''}</span>
+      <div class="b5-card">
+        <div class="b5-row" style="justify-content:space-between">
+          <strong class="b5-text-sm">${escapeHtml(label)}</strong>
+          <span class="b5-text-muted b5-text-xs">${row.deviceUid ? 'device ' + escapeHtml(row.deviceUid) : ''} ${row.confidence ? '· confidence ' + conf + '%' : ''}</span>
         </div>
         ${renderEvidence(row.evidence)}
-        <div class="reconcile-row-actions">${actions}</div>
+        <div class="b5-row" style="margin-top:var(--b5-space-2)">${actions}</div>
       </div>
     `;
   }
@@ -563,28 +605,40 @@ const PatchScreen = (() => {
     const st = rigCheckState || { running: false, mode: rcMode, level: rcLevel };
 
     body.innerHTML = `
-      <div class="panel-toolbar">
-        <label>Scope: <select id="rcScopeKind">
-          <option value="all">Whole patch</option>
-          <option value="universe">One universe</option>
-          <option value="selection">Selection</option>
-        </select></label>
-        <div id="rcScopeValueWrap"></div>
+      <div class="b5-filterbar">
+        <div class="b5-filterbar__group">
+          <label class="b5-visually-hidden" for="rcScopeKind">Scope</label>
+          <select id="rcScopeKind" class="b5-select" style="width:auto">
+            <option value="all">Scope: Whole patch</option>
+            <option value="universe">Scope: One universe</option>
+            <option value="selection">Scope: Selection</option>
+          </select>
+          <div id="rcScopeValueWrap"></div>
+        </div>
       </div>
-      <div class="panel-toolbar">
-        <label>Mode: <select id="rcMode">
-          <option value="highlight">Highlight (this fixture up, rest dark)</option>
-          <option value="all_channels">All channels to level</option>
-          <option value="step_channel">Step one channel</option>
-        </select></label>
-        <label>Level: <input type="range" id="rcLevel" min="0" max="255" value="${st.level || rcLevel}"> <span id="rcLevelVal">${st.level || rcLevel}</span></label>
-        ${st.running
-        ? '<button id="rcStop" class="walk-btn-danger">Stop</button>'
-        : `<button id="rcStart" class="walk-btn-primary" ${rcStarting ? 'disabled' : ''}>${rcStarting ? 'Starting…' : 'Start'}</button>`}
-        <button id="rcBlackout" class="walk-btn-danger">Blackout</button>
+      <div class="b5-filterbar">
+        <div class="b5-filterbar__group">
+          <label class="b5-visually-hidden" for="rcMode">Mode</label>
+          <select id="rcMode" class="b5-select" style="width:auto">
+            <option value="highlight">Mode: Highlight (this fixture up, rest dark)</option>
+            <option value="all_channels">Mode: All channels to level</option>
+            <option value="step_channel">Mode: Step one channel</option>
+          </select>
+          <label class="b5-text-sm" style="display:flex;align-items:center;gap:8px">Level
+            <input type="range" id="rcLevel" min="0" max="255" value="${st.level || rcLevel}">
+            <span class="b5-text-mono" id="rcLevelVal">${st.level || rcLevel}</span>
+          </label>
+          ${st.running
+        ? '<button id="rcStop" class="b5-btn b5-btn--sm b5-btn--danger">Stop</button>'
+        : `<button id="rcStart" class="b5-btn b5-btn--sm b5-btn--primary" ${rcStarting ? 'disabled' : ''}>${rcStarting ? UI.spinner() + 'Starting…' : 'Start'}</button>`}
+          <button id="rcBlackout" class="b5-btn b5-btn--sm b5-btn--danger">Blackout</button>
+        </div>
       </div>
-      <p class="hint">Safety: stopping, leaving this screen, or closing the tab always blacks out and stops output.</p>
-      <div id="rcActiveWrap">${st.running ? renderRigCheckActive(st) : '<p class="hint">Not running. Choose a scope and mode, then Start.</p>'}</div>
+      <div class="b5-alert b5-alert--info" style="margin-bottom:var(--b5-space-4)">
+        ${UI.icon('status-pending')}
+        <div><p class="b5-alert__body">Safety: stopping, leaving this screen, or closing the tab always blacks out and stops output.</p></div>
+      </div>
+      <div id="rcActiveWrap">${st.running ? renderRigCheckActive(st) : `<div class="b5-empty">${UI.icon('status-pending')}<span class="b5-empty__title">Not running</span><span class="b5-empty__body">Choose a scope and mode, then Start.</span></div>`}</div>
     `;
 
     const scopeKindSel = document.getElementById('rcScopeKind');
@@ -632,12 +686,12 @@ const PatchScreen = (() => {
     const wrap = document.getElementById('rcScopeValueWrap');
     if (!wrap) return;
     if (rcScopeKind === 'universe') {
-      wrap.innerHTML = `<label>Universe (Port-Address) <input type="number" id="rcScopeUniverse" min="0" max="32767" value="${rcScopeUniverse}"></label>`;
+      wrap.innerHTML = `<label class="b5-visually-hidden" for="rcScopeUniverse">Universe</label><input type="number" id="rcScopeUniverse" class="b5-input" style="width:10em" min="0" max="32767" value="${rcScopeUniverse}" placeholder="Universe">`;
       document.getElementById('rcScopeUniverse').addEventListener('input', (e) => { rcScopeUniverse = Number(e.target.value); });
     } else if (rcScopeKind === 'selection') {
-      wrap.innerHTML = `<div class="rc-selection-list">${entries.map(e => `
-        <label class="rc-selection-item"><input type="checkbox" data-rc-select="${escapeHtml(e.id)}" ${rcSelection[e.id] ? 'checked' : ''}> ${escapeHtml(e.name || e.fixtureType || e.id)} (U${e.universe}/${e.startAddress})</label>
-      `).join('') || '<span class="hint">no entries</span>'}</div>`;
+      wrap.innerHTML = `<div class="b5-stack" style="margin-top:var(--b5-space-2)">${entries.map(e => `
+        <label class="b5-checkbox"><input type="checkbox" data-rc-select="${escapeHtml(e.id)}" ${rcSelection[e.id] ? 'checked' : ''}>${escapeHtml(e.name || e.fixtureType || e.id)} (U${e.universe}/${e.startAddress})</label>
+      `).join('') || '<span class="b5-text-muted b5-text-sm">no entries</span>'}</div>`;
       wrap.querySelectorAll('[data-rc-select]').forEach(cb => cb.addEventListener('change', (e) => {
         rcSelection[cb.dataset.rcSelect] = e.target.checked;
       }));
@@ -668,19 +722,21 @@ const PatchScreen = (() => {
       ? ` &middot; channel ${st.currentChannel} (offset ${st.channelOffset})`
       : '';
     return `
-      <div class="walk-card">
-        <div class="walk-counter">${st.entryIndex + 1} of ${st.entryCount}</div>
-        <div class="walk-model">${escapeHtml(st.currentEntryName || '—')}</div>
-        <div class="hint">mode: ${escapeHtml(st.mode)} &middot; level: ${st.level}${chInfo}</div>
+      <div class="b5-card" style="text-align:center">
+        <div class="b5-counter">
+          <div class="b5-counter__value">${st.entryIndex + 1} of ${st.entryCount}</div>
+          <div class="b5-counter__label">${escapeHtml(st.currentEntryName || '—')}</div>
+        </div>
+        <span class="b5-text-muted b5-text-sm">mode: ${escapeHtml(st.mode)} &middot; level: ${st.level}${chInfo}</span>
       </div>
-      <div class="walk-navbar">
-        <button id="rcPrev" ${st.entryIndex <= 0 ? 'disabled' : ''}>&larr; Previous</button>
-        <button id="rcNext" ${st.entryIndex >= st.entryCount - 1 ? 'disabled' : ''}>Next &rarr;</button>
+      <div class="b5-row" style="margin-top:var(--b5-space-4);justify-content:center">
+        <button id="rcPrev" class="b5-btn b5-btn--walk b5-btn--secondary" ${st.entryIndex <= 0 ? 'disabled' : ''}>&larr; Previous</button>
+        <button id="rcNext" class="b5-btn b5-btn--walk b5-btn--primary" ${st.entryIndex >= st.entryCount - 1 ? 'disabled' : ''}>Next &rarr;</button>
       </div>
       ${st.mode === 'step_channel' ? `
-      <div class="panel-toolbar">
-        <button id="rcChPrev">&larr; Prev channel</button>
-        <button id="rcChNext">Next channel &rarr;</button>
+      <div class="b5-row" style="margin-top:var(--b5-space-3);justify-content:center">
+        <button id="rcChPrev" class="b5-btn b5-btn--sm">&larr; Prev channel</button>
+        <button id="rcChNext" class="b5-btn b5-btn--sm">Next channel &rarr;</button>
       </div>` : ''}
     `;
   }

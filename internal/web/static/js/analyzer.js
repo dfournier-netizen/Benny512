@@ -56,17 +56,21 @@ const AnalyzerScreen = (() => {
     const tbody = document.querySelector('#analyzerTable tbody');
     const nearBottom = tbody.parentElement.scrollTop + tbody.parentElement.clientHeight >= tbody.parentElement.scrollHeight - 10;
     tbody.innerHTML = '';
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="7"><div class="b5-empty">${UI.icon('nav-analyzer')}<span class="b5-empty__title">No traffic captured</span><span class="b5-empty__body">Start a capture on an active universe to see packets here.</span></div></td></tr>`;
+      return;
+    }
     rows.forEach(e => {
       const tr = document.createElement('tr');
       const t = e.Time ? new Date(e.Time).toLocaleTimeString() : '';
       tr.innerHTML = `
-        <td>${t}</td>
-        <td>${e.Dir === 1 ? 'out' : 'in'}</td>
-        <td>${escapeHtml(e.Kind)}</td>
-        <td>${e.Peer ? escapeHtml(String(e.Peer).split(':')[0]) : ''}</td>
-        <td>${e.Universe || ''}</td>
-        <td>${e.Size}</td>
-        <td class="hexcell" title="click to expand hex">${escapeHtml(e.Key)}</td>
+        <td data-label="Time" class="b5-table__mono">${t}</td>
+        <td data-label="Dir">${e.Dir === 1 ? 'out' : 'in'}</td>
+        <td data-label="Kind">${UI.tag(e.Kind)}</td>
+        <td data-label="Src" class="b5-table__mono">${e.Peer ? escapeHtml(String(e.Peer).split(':')[0]) : ''}</td>
+        <td data-label="Univ">${e.Universe || ''}</td>
+        <td data-label="Size">${e.Size}</td>
+        <td data-label="Key fields" class="b5-text-mono hexcell" title="click to expand hex">${escapeHtml(e.Key)}</td>
       `;
       if (e.Hex) {
         tr.querySelector('.hexcell').addEventListener('click', () => {
@@ -82,14 +86,14 @@ const AnalyzerScreen = (() => {
 
   async function refreshRDM() {
     const status = document.getElementById('rdmAnalyzerStatus');
-    status.textContent = 'loading…';
+    status.innerHTML = UI.spinner() + 'loading…';
     try {
       const params = { uid: rdmFilters.uid, pid: rdmFilters.pid, cc: rdmFilters.cc, dir: rdmFilters.dir };
       rdmRows = await Api.rdmCaptureSnapshot(params);
       status.textContent = `${rdmRows.length} entr${rdmRows.length === 1 ? 'y' : 'ies'}`;
       renderRDM();
     } catch (e) {
-      status.textContent = 'error: ' + e.message;
+      status.innerHTML = `${UI.icon('status-error')}error: ${escapeHtml(e.message)}`;
     }
   }
 
@@ -126,6 +130,10 @@ const AnalyzerScreen = (() => {
     const filtered = rdmMatchesFilters(rdmRows);
     const items = rdmPaired ? pairEntries(filtered) : filtered.map(e => ({ request: e.RDM && !e.RDM.isResponse ? e : null, response: e.RDM && e.RDM.isResponse ? e : e }));
 
+    if (!items.length) {
+      tbody.innerHTML = `<tr><td colspan="9"><div class="b5-empty">${UI.icon('nav-analyzer')}<span class="b5-empty__title">No RDM traffic captured</span><span class="b5-empty__body">Adjust filters, or start a capture with RDM activity on the network.</span></div></td></tr>`;
+      return;
+    }
     items.forEach(item => {
       const primary = item.request || item.response;
       if (!primary) return;
@@ -141,7 +149,7 @@ const AnalyzerScreen = (() => {
     if (!d) {
       // ToD or decode-error entry.
       const t = e.Time ? new Date(e.Time).toLocaleTimeString() : '';
-      tr.innerHTML = `<td>${t}</td><td>${e.Dir === 1 ? 'out' : 'in'}</td><td colspan="7">${escapeHtml(e.Kind)} ${e.Tod ? escapeHtml(JSON.stringify(e.Tod).slice(0, 120)) : (e.Key || '')}</td>`;
+      tr.innerHTML = `<td data-label="Time" class="b5-table__mono">${t}</td><td data-label="Dir">${e.Dir === 1 ? 'out' : 'in'}</td><td data-label="Decoded" colspan="7">${escapeHtml(e.Kind)} ${e.Tod ? escapeHtml(JSON.stringify(e.Tod).slice(0, 120)) : (e.Key || '')}</td>`;
       wireExpand(tr, e, null);
       tbody.appendChild(tr);
       return;
@@ -152,15 +160,15 @@ const AnalyzerScreen = (() => {
     const respLabel = resp ? escapeHtml(resp.RDM.responseType || '') + (resp.RDM.responseType === 'NACK_REASON' ? ` (${escapeHtml(resp.RDM.nackReasonName || '')})` : '') : (req ? '(no response captured)' : '');
     const decoded = (resp && resp.RDM.decoded) || (req && req.RDM.decoded) || '';
     tr.innerHTML = `
-      <td>${t}</td>
-      <td>${req ? 'out' : 'in'}${resp && req ? '/in' : ''}</td>
-      <td>${uidPair}</td>
-      <td>${d.transactionNumber}</td>
-      <td>${escapeHtml(d.commandClass)}</td>
-      <td>0x${(d.pid || 0).toString(16).toUpperCase().padStart(4, '0')} ${escapeHtml(d.pidName || '')}</td>
-      <td>${respLabel}</td>
-      <td>${rtt}</td>
-      <td class="rdm-decoded">${escapeHtml(decoded)}</td>
+      <td data-label="Time" class="b5-table__mono">${t}</td>
+      <td data-label="Dir">${req ? 'out' : 'in'}${resp && req ? '/in' : ''}</td>
+      <td data-label="UID (src → dst)" class="b5-table__mono">${uidPair}</td>
+      <td data-label="TN">${d.transactionNumber}</td>
+      <td data-label="CC">${escapeHtml(d.commandClass)}</td>
+      <td data-label="PID" class="b5-table__mono">0x${(d.pid || 0).toString(16).toUpperCase().padStart(4, '0')} ${escapeHtml(d.pidName || '')}</td>
+      <td data-label="Response">${respLabel}</td>
+      <td data-label="RTT">${rtt}</td>
+      <td data-label="Decoded" class="b5-text-mono b5-text-xs">${escapeHtml(decoded)}</td>
     `;
     wireExpand(tr, req, resp);
     tbody.appendChild(tr);
@@ -205,7 +213,7 @@ const AnalyzerScreen = (() => {
   function switchView(view) {
     activeView = view;
     document.querySelectorAll('#analyzerViewTabs .detail-tab-btn').forEach(b => {
-      b.classList.toggle('active', b.dataset.view === view);
+      b.classList.toggle('is-active', b.dataset.view === view);
     });
     document.getElementById('analyzerAllView').style.display = view === 'all' ? '' : 'none';
     document.getElementById('analyzerRDMView').style.display = view === 'rdm' ? '' : 'none';
@@ -233,6 +241,7 @@ const AnalyzerScreen = (() => {
       btn.addEventListener('click', () => switchView(btn.dataset.view));
     });
     switchView('all');
+    renderAll();
 
     document.getElementById('rdmFilterUid').addEventListener('change', e => { rdmFilters.uid = e.target.value.trim(); refreshRDM(); });
     document.getElementById('rdmFilterPid').addEventListener('change', e => { rdmFilters.pid = e.target.value.trim(); refreshRDM(); });

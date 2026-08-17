@@ -156,39 +156,39 @@ const WalkScreen = (() => {
 
   function renderSetup(el) {
     el.innerHTML = `
-      <div class="walk-setup">
-        <h2>Rig Walk</h2>
-        <p class="hint">Pick what to walk. Landing on a device flashes it (Identify ON); moving on turns it off and flashes the next one — exactly one fixture at a time. The full device panel — sensors, address, personality, standard and manufacturer parameters, status — is available below each device as expandable sections.</p>
+      <div class="b5-page-header"><h1 class="b5-page-header__title">Rig Walk</h1></div>
+      <p class="b5-text-muted b5-text-sm">Pick what to walk. Landing on a device flashes it (Identify ON); moving on turns it off and flashes the next one — exactly one fixture at a time. The full device panel — sensors, address, personality, standard and manufacturer parameters, status — is available below each device as expandable sections.</p>
 
-        <div class="walk-field">
-          <label>Scope</label>
-          <select id="walkScopeKind">
-            <option value="all">All devices</option>
-            <option value="node">One node</option>
-            <option value="port">One port</option>
-            <option value="universe">One universe (Port-Address)</option>
-            <option value="class">One device class</option>
-          </select>
+      <div class="b5-panel b5-shell--centered">
+        <div class="b5-panel__body b5-stack">
+          <div class="b5-field">
+            <label class="b5-field__label" for="walkScopeKind">Scope</label>
+            <select id="walkScopeKind" class="b5-select">
+              <option value="all">All devices</option>
+              <option value="node">One node</option>
+              <option value="port">One port</option>
+              <option value="universe">One universe (Port-Address)</option>
+              <option value="class">One device class</option>
+            </select>
+          </div>
+          <div id="walkScopeValueWrap"></div>
+
+          <div class="b5-field">
+            <label class="b5-field__label" for="walkOrder">Order</label>
+            <select id="walkOrder" class="b5-select">
+              <option value="address">Universe + DMX address (low&rarr;high)</option>
+              <option value="address_desc">Universe + DMX address (high&rarr;low)</option>
+              <option value="model">Model / fixture type</option>
+              <option value="uid">UID</option>
+              <option value="discovery">Discovery order</option>
+            </select>
+          </div>
+
+          <label class="b5-checkbox"><input type="checkbox" id="walkFixturesOnly" ${fixturesOnly ? 'checked' : ''}>Fixtures only (uncheck for all RDM devices)</label>
+
+          <button id="walkStartBtn" class="b5-btn b5-btn--primary b5-btn--block" ${starting ? 'disabled' : ''}>${starting ? UI.spinner() + 'Starting…' : 'Start Walk'}</button>
+          <span class="b5-text-muted b5-text-sm" id="walkSetupStatus">${escapeHtml(statusMsg)}</span>
         </div>
-        <div id="walkScopeValueWrap"></div>
-
-        <div class="walk-field">
-          <label>Order</label>
-          <select id="walkOrder">
-            <option value="address">Universe + DMX address (low&rarr;high)</option>
-            <option value="address_desc">Universe + DMX address (high&rarr;low)</option>
-            <option value="model">Model / fixture type</option>
-            <option value="uid">UID</option>
-            <option value="discovery">Discovery order</option>
-          </select>
-        </div>
-
-        <div class="walk-field walk-checkbox">
-          <label><input type="checkbox" id="walkFixturesOnly" ${fixturesOnly ? 'checked' : ''}> Fixtures only (uncheck for all RDM devices)</label>
-        </div>
-
-        <button id="walkStartBtn" class="walk-btn-primary" ${starting ? 'disabled' : ''}>${starting ? 'Starting…' : 'Start Walk'}</button>
-        <div class="hint" id="walkSetupStatus">${escapeHtml(statusMsg)}</div>
       </div>
     `;
     renderScopeValue();
@@ -216,7 +216,7 @@ const WalkScreen = (() => {
     if (!wrap) return;
     switch (scopeKind) {
       case 'node': {
-        wrap.innerHTML = `<div class="walk-field"><label>Node</label><select id="walkScopeNode">
+        wrap.innerHTML = `<div class="b5-field"><label class="b5-field__label" for="walkScopeNode">Node</label><select id="walkScopeNode" class="b5-select">
           ${nodesCache.map(n => `<option value="${escapeHtml(n.ip)}">${escapeHtml(n.shortName || n.longName || n.ip)} (${escapeHtml(n.ip)})</option>`).join('')}
         </select></div>`;
         break;
@@ -226,14 +226,14 @@ const WalkScreen = (() => {
         nodesCache.forEach(n => (n.ports || []).forEach(p => {
           opts.push(`<option value='${JSON.stringify({ ip: n.ip, bindIndex: n.bindIndex, portAddress: p.outputAddress })}'>${escapeHtml(n.shortName || n.ip)} — port ${p.index} (addr ${p.outputAddress})</option>`);
         }));
-        wrap.innerHTML = `<div class="walk-field"><label>Port</label><select id="walkScopePort">${opts.join('')}</select></div>`;
+        wrap.innerHTML = `<div class="b5-field"><label class="b5-field__label" for="walkScopePort">Port</label><select id="walkScopePort" class="b5-select">${opts.join('')}</select></div>`;
         break;
       }
       case 'universe':
-        wrap.innerHTML = `<div class="walk-field"><label>Universe (Port-Address)</label><input type="number" id="walkScopeUniverse" min="0" max="32767" value="0"></div>`;
+        wrap.innerHTML = `<div class="b5-field"><label class="b5-field__label" for="walkScopeUniverse">Universe (Port-Address)</label><input type="number" id="walkScopeUniverse" class="b5-input" min="0" max="32767" value="0"></div>`;
         break;
       case 'class':
-        wrap.innerHTML = `<div class="walk-field"><label>Class</label><select id="walkScopeClass">
+        wrap.innerHTML = `<div class="b5-field"><label class="b5-field__label" for="walkScopeClass">Class</label><select id="walkScopeClass" class="b5-select">
           <option value="Fixture">Fixture</option>
           <option value="Gateway/Node">Gateway/Node</option>
           <option value="Splitter">Splitter</option>
@@ -278,43 +278,57 @@ const WalkScreen = (() => {
     const idx = session.current;
     const dev = idx >= 0 && idx < devices.length ? devices[idx] : null;
     const sum = summary || { total: devices.length, confirmed: 0, problems: 0, remaining: devices.length };
+    const doneCount = sum.confirmed + sum.problems;
+    const pct = sum.total ? Math.round((doneCount / sum.total) * 100) : 0;
 
     el.innerHTML = `
-      <div class="walk-topbar">
-        <button id="walkAllOffBtn" class="walk-btn-danger">Identify off / all off</button>
-        <button id="walkEndBtn" class="walk-btn-ghost">End walk</button>
+      <div class="b5-row" style="justify-content:space-between;margin-bottom:var(--b5-space-4)">
+        <button id="walkAllOffBtn" class="b5-btn b5-btn--danger b5-btn--sm">Identify off / all off</button>
+        <button id="walkEndBtn" class="b5-btn b5-btn--ghost b5-btn--sm">End walk</button>
       </div>
-      <div class="walk-progress">${sum.confirmed} confirmed &middot; ${sum.problems} problem${sum.problems === 1 ? '' : 's'} &middot; ${sum.remaining} remaining <span class="hint">(of ${sum.total})</span></div>
 
-      ${dev ? renderDeviceCard(dev, idx, devices.length) : '<p class="empty-hint">Walk complete — every device has been visited. Export below, or End walk to start a new one.</p>'}
+      <div class="b5-shell--centered">
+        <div class="b5-counter">
+          <div class="b5-counter__value">${dev ? (idx + 1) + ' of ' + devices.length : devices.length + ' of ' + devices.length}</div>
+          <div class="b5-counter__label">${dev ? escapeHtml(dev.model || dev.uid) : 'Walk complete'}</div>
+        </div>
+        <div class="b5-progress" style="margin-top:10px"><div class="b5-progress__fill" style="width:${pct}%"></div></div>
+        <div class="b5-tally">
+          <div class="b5-tally__item b5-tally__item--confirmed"><span class="b5-tally__value">${sum.confirmed}</span><span class="b5-tally__label">Confirmed</span></div>
+          <div class="b5-tally__item b5-tally__item--problem"><span class="b5-tally__value">${sum.problems}</span><span class="b5-tally__label">Problem</span></div>
+          <div class="b5-tally__item"><span class="b5-tally__value">${sum.remaining}</span><span class="b5-tally__label">Remaining</span></div>
+        </div>
 
-      ${dev ? `
-      <div class="walk-checklist">
-        <button id="walkConfirmBtn" class="walk-btn-confirm">&#10003; Confirmed</button>
-        <button id="walkProblemBtn" class="walk-btn-problem">&#9888; Problem</button>
+        ${dev ? renderDeviceCard(dev, idx, devices.length) : `<div class="b5-empty">${UI.icon('status-ok')}<span class="b5-empty__title">Walk complete</span><span class="b5-empty__body">Every device has been visited. Export below, or End walk to start a new one.</span></div>`}
+
+        ${dev ? `
+        <div class="b5-row" style="margin-top:var(--b5-space-4);gap:12px">
+          <button id="walkConfirmBtn" class="b5-btn b5-btn--walk b5-btn--confirm">${UI.icon('status-ok')}Confirmed</button>
+          <button id="walkProblemBtn" class="b5-btn b5-btn--walk b5-btn--danger">${UI.icon('status-warning')}Problem</button>
+        </div>
+        <div id="walkProblemNoteWrap" class="b5-field__row" style="display:${showProblemNote ? 'flex' : 'none'};margin-top:var(--b5-space-3)">
+          <input id="walkProblemNote" class="b5-input" type="text" placeholder="what's wrong? (optional)" maxlength="120">
+          <span class="b5-field__actions">
+            <button id="walkProblemSubmit" class="b5-btn b5-btn--sm b5-btn--primary">Save problem</button>
+            <button id="walkProblemCancel" class="b5-btn b5-btn--sm b5-btn--ghost">Cancel</button>
+          </span>
+        </div>
+        <label class="b5-checkbox" style="margin-top:var(--b5-space-3)"><input type="checkbox" id="walkAutoAdvanceToggle" ${session.autoAdvance ? 'checked' : ''}>Auto-advance to next device after Confirmed</label>
+        ` : ''}
+
+        ${dev ? renderDeviceAccordion(dev) : ''}
+
+        <div class="b5-row" style="margin-top:var(--b5-space-5)">
+          <span class="b5-text-sm">Export for the architect:</span>
+          <button id="walkExportJsonBtn" class="b5-btn b5-btn--sm">${UI.icon('export')}Export JSON</button>
+          <button id="walkExportTxtBtn" class="b5-btn b5-btn--sm">${UI.icon('export')}Export TXT</button>
+        </div>
+        <span class="b5-text-muted b5-text-sm" id="walkStatusMsg">${escapeHtml(statusMsg)}</span>
       </div>
-      <div id="walkProblemNoteWrap" class="walk-note-wrap" style="display:${showProblemNote ? 'flex' : 'none'};">
-        <input id="walkProblemNote" type="text" placeholder="what's wrong? (optional)" maxlength="120">
-        <button id="walkProblemSubmit" class="walk-btn-secondary">Save problem</button>
-        <button id="walkProblemCancel" class="walk-btn-ghost">Cancel</button>
-      </div>
-      <div class="walk-field walk-checkbox">
-        <label><input type="checkbox" id="walkAutoAdvanceToggle" ${session.autoAdvance ? 'checked' : ''}> Auto-advance to next device after Confirmed</label>
-      </div>
-      ` : ''}
 
-      ${dev ? renderDeviceAccordion(dev) : ''}
-
-      <div class="walk-export">
-        <span class="hint">Export for the architect:</span>
-        <button id="walkExportJsonBtn">Export JSON</button>
-        <button id="walkExportTxtBtn">Export TXT</button>
-      </div>
-      <div class="hint" id="walkStatusMsg">${escapeHtml(statusMsg)}</div>
-
-      <div class="walk-navbar">
-        <button id="walkPrevBtn" class="walk-nav-btn" ${idx <= 0 ? 'disabled' : ''}>&larr; Previous</button>
-        <button id="walkNextBtn" class="walk-nav-btn" ${(idx < 0 || idx >= devices.length - 1) ? 'disabled' : ''}>Next &rarr;</button>
+      <div class="b5-walk-bar">
+        <button id="walkPrevBtn" class="b5-btn b5-btn--walk b5-btn--secondary" ${idx <= 0 ? 'disabled' : ''}>&larr; Previous</button>
+        <button id="walkNextBtn" class="b5-btn b5-btn--walk b5-btn--primary" ${(idx < 0 || idx >= devices.length - 1) ? 'disabled' : ''}>Next &rarr;</button>
       </div>
     `;
     wireActiveHandlers(dev, idx, devices);
@@ -327,40 +341,29 @@ const WalkScreen = (() => {
     }
   }
 
-  // renderDeviceCard is the core "walk one fixture" view: huge counter,
-  // then identity in descending size — model/type, manufacturer, DMX
-  // universe/address (the two things a tech reads most, biggest after the
-  // counter — task ask), UID, node+port smallest. Status is never
-  // color-only: every state pairs a color with text/a glyph. The full
-  // device panel (accordion) renders separately, below — see
-  // renderDeviceAccordion.
+  // renderDeviceCard is the core "walk one fixture" view: identity in
+  // descending size — model/type, manufacturer, DMX universe/address (the
+  // two things a tech reads most), UID, node+port smallest. Status is never
+  // color-only: every state pairs a b5-badge color with its own text. The
+  // full device panel (accordion) renders separately, below.
   function renderDeviceCard(dev, idx, total) {
     const addr = Api.formatAddressRange(dev.dmxStartAddress, dev.dmxFootprint, dev.addressKnown);
-    const statusClass = dev.status === 'confirmed' ? 'walk-status-confirmed' : dev.status === 'problem' ? 'walk-status-problem' : 'walk-status-unvisited';
-    const statusGlyph = dev.status === 'confirmed' ? '✓ CONFIRMED' : dev.status === 'problem' ? '⚠ PROBLEM' : 'UNVISITED';
+    const statusKind = dev.status === 'confirmed' ? 'ok' : dev.status === 'problem' ? 'error' : 'pending';
+    const statusText = dev.status === 'confirmed' ? 'Confirmed' : dev.status === 'problem' ? 'Problem' : 'Unvisited';
     const identifyBlock = dev.identifyErr
-      ? `<div class="walk-identify-error">&#9888; identify failed: ${escapeHtml(dev.identifyErr)}<br><button id="walkRetryIdentifyBtn" class="walk-btn-secondary">Retry identify</button></div>`
-      : (dev.identifyOn ? '<div class="walk-identify-ok">&#9679; identifying</div>' : '');
+      ? `<div class="b5-alert b5-alert--danger" style="margin-top:var(--b5-space-3);text-align:left">${UI.icon('status-error')}<div><p class="b5-alert__title">Identify failed</p><p class="b5-alert__body">${escapeHtml(dev.identifyErr)}</p><button id="walkRetryIdentifyBtn" class="b5-btn b5-btn--sm" style="margin-top:var(--b5-space-2)">Retry identify</button></div></div>`
+      : (dev.identifyOn ? `<div style="margin-top:var(--b5-space-2)">${UI.badge('ok', 'Identifying')}</div>` : '');
     return `
-      <div class="walk-card ${statusClass}">
-        <div class="walk-counter">${idx + 1} of ${total}</div>
-        <div class="walk-status-pill">${statusGlyph}</div>
-        <div class="walk-address">U${dev.portAddress} / ${addr}</div>
-        <div class="walk-model">${escapeHtml(dev.model || '—')}</div>
-        <div class="walk-mfr">${escapeHtml(dev.manufacturer || '—')}</div>
-        <div class="walk-meta">UID ${escapeHtml(dev.uid)}</div>
-        <div class="walk-meta">${escapeHtml(dev.nodeIp)} bind ${dev.bindIndex} &middot; port-addr ${dev.portAddress}</div>
+      <div class="b5-card" style="margin-top:var(--b5-space-4);text-align:center">
+        <div class="b5-card__kicker">U${dev.portAddress} / ${escapeHtml(addr)}</div>
+        <div class="b5-card__title" style="font-size:var(--b5-font-size-xl)">${escapeHtml(dev.model || '—')}</div>
+        <span class="b5-text-muted b5-text-sm">${escapeHtml(dev.manufacturer || '—')}</span>
+        <div style="margin-top:var(--b5-space-2)">${UI.badge(statusKind, statusText)}</div>
+        <div class="b5-text-muted b5-text-xs" style="margin-top:var(--b5-space-2)">UID ${escapeHtml(dev.uid)}</div>
+        <div class="b5-text-muted b5-text-xs">${escapeHtml(dev.nodeIp)} bind ${dev.bindIndex} &middot; port-addr ${dev.portAddress}</div>
         ${identifyBlock}
-        ${dev.note ? `<div class="walk-note-display">note: ${escapeHtml(dev.note)}</div>` : ''}
-        <div class="walk-address-fix">
-          <label>DMX start address</label>
-          <span class="apply-field">
-            <input id="walkAddrInput" type="number" min="1" max="512" value="${dev.addressKnown ? dev.dmxStartAddress : ''}">
-            <span id="walkAddrDirty" class="badge dirty-badge" style="display:none;">pending</span>
-            <button id="walkAddrApply" class="btn-apply" disabled>Apply</button>
-            <button id="walkAddrRevert" class="btn-revert" style="display:none;">Revert</button>
-          </span>
-        </div>
+        ${dev.note ? `<div class="b5-text-sm" style="margin-top:var(--b5-space-2)">note: ${escapeHtml(dev.note)}</div>` : ''}
+        <div id="walkAddrFieldWrap" style="margin-top:var(--b5-space-4);text-align:left"></div>
       </div>
     `;
   }
@@ -380,13 +383,13 @@ const WalkScreen = (() => {
 
   function renderDeviceAccordion(dev) {
     return `
-      <div class="walk-accordion" id="walkAccordion">
+      <div class="b5-accordion" id="walkAccordion" style="margin-top:var(--b5-space-4)">
         ${SECTIONS.map(s => `
-          <div class="walk-accordion-item">
-            <button class="walk-accordion-header" data-section="${s.key}" aria-expanded="${expandedSections[s.key] ? 'true' : 'false'}">
-              <span class="walk-accordion-chevron">${expandedSections[s.key] ? '▾' : '▸'}</span> ${s.label}
+          <div class="b5-accordion__item">
+            <button class="b5-accordion__trigger${expandedSections[s.key] ? ' is-open' : ''}" data-section="${s.key}" aria-expanded="${expandedSections[s.key] ? 'true' : 'false'}">
+              <span>${escapeHtml(s.label)}</span>${UI.icon('chevron-expand')}
             </button>
-            <div class="walk-accordion-body" data-section-body="${s.key}" style="display:${expandedSections[s.key] ? '' : 'none'};"></div>
+            <div class="b5-accordion__panel" data-section-body="${s.key}" style="display:${expandedSections[s.key] ? '' : 'none'};"></div>
           </div>
         `).join('')}
       </div>
@@ -398,7 +401,7 @@ const WalkScreen = (() => {
     if (!root) return;
     const f = toDetailFixture(dev);
 
-    root.querySelectorAll('.walk-accordion-header').forEach(btn => {
+    root.querySelectorAll('.b5-accordion__trigger').forEach(btn => {
       btn.addEventListener('click', () => {
         const key = btn.dataset.section;
         expandedSections[key] = !expandedSections[key];
@@ -481,39 +484,24 @@ const WalkScreen = (() => {
     // see renderDeviceAccordion/hideAddressField) since this one is
     // walk-session-aware: applying here also updates the walk card's
     // header address immediately via the normal refresh() below, which a
-    // generic params-endpoint apply wouldn't do on its own. Apply-to-
-    // confirm rule unchanged: oninput only toggles dirty/Apply state.
-    const addrInput = document.getElementById('walkAddrInput');
-    const applyBtn = document.getElementById('walkAddrApply');
-    const revertBtn = document.getElementById('walkAddrRevert');
-    const dirtyBadge = document.getElementById('walkAddrDirty');
-    if (addrInput && applyBtn) {
+    // generic params-endpoint apply wouldn't do on its own. Built with the
+    // shared UI.buildApplyField/UI.wireApplyField (ui.js) — same
+    // oninput-stages/Apply-commits contract every field in the app uses.
+    const addrWrap = document.getElementById('walkAddrFieldWrap');
+    if (addrWrap) {
       const baseline = dev.addressKnown ? String(dev.dmxStartAddress) : '';
-      const refreshDirty = () => {
-        const dirty = addrInput.value !== baseline;
-        applyBtn.disabled = !dirty;
-        revertBtn.style.display = dirty ? '' : 'none';
-        dirtyBadge.style.display = dirty ? '' : 'none';
-      };
-      addrInput.addEventListener('input', refreshDirty);
-      revertBtn.addEventListener('click', () => { addrInput.value = baseline; refreshDirty(); });
-      applyBtn.addEventListener('click', async () => {
-        const n = Number(addrInput.value);
-        if (!Number.isFinite(n) || n < 1 || n > 512) {
-          statusMsg = 'address must be 1-512';
-          render();
-          return;
-        }
-        applyBtn.disabled = true;
-        try {
-          await Api.walkSetAddress(dev.uid, n);
-          statusMsg = 'address applied';
-          await refresh();
-        } catch (e) {
-          statusMsg = 'error: ' + e.message;
-          applyBtn.disabled = false;
-        }
+      const field = UI.buildApplyField({
+        label: 'DMX start address', kind: 'number', mono: true, min: 1, max: 512,
+        value: dev.addressKnown ? dev.dmxStartAddress : '', enabled: true,
       });
+      addrWrap.appendChild(field.wrap);
+      UI.wireApplyField(field, baseline, async (v) => {
+        const n = Number(v);
+        if (!Number.isFinite(n) || n < 1 || n > 512) throw new Error('address must be 1-512');
+        await Api.walkSetAddress(dev.uid, n);
+        statusMsg = 'address applied';
+        await refresh();
+      }, setWalkStatus);
     }
   }
 

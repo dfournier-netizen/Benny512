@@ -1,0 +1,82 @@
+/*
+  Benny512 app.css — presentation-layer glue the base design system doesn't
+  cover, written in the same idiom (references --b5-* tokens only, b5-
+  prefixed class names, BEM-ish modifiers). Load after the three
+  benny512-*.css files. Every rule here is documented in the retheme report
+  as a design-system extension.
+*/
+
+/* ---- SPA panel visibility -------------------------------------------------
+   The delivered mockups model one screen per static HTML page; this app is
+   a single page with app.js toggling which <section class="screen"> is
+   visible. Not a component the design system needs to define, but the app
+   needs it to exist somewhere. */
+.screen { display: none; }
+.screen.active { display: block; }
+
+/* ---- Tag variant for "needs a second look" identity labels ---------------
+   .b5-tag / .b5-tag--info cover the two device-class tiers used across
+   Nodes/Devices/Patch/Rig Walk. A few labels (manufacturer-PID rows marked
+   "raw / unverified", the generic-ESTA-PID fallback) want a neutral tag with
+   a warning tint rather than a full status badge — reuses the existing
+   warning ramp, same construction as .b5-tag--info. */
+.b5-tag--warn { color: var(--b5-color-text-warning); border-color: var(--b5-color-warning-700); background: rgba(184, 121, 15, 0.14); }
+
+/* ---- Sensor gauge: recorded-value tick ------------------------------------
+   design-spec's gauge covers track/normal-band/present-marker/min-max ticks.
+   RDM sensors additionally report a separately-latched "recorded" value
+   (distinct from the live lowest/highest range ticks) — same tick
+   vocabulary, accent-400 so it reads as "a value", not a range edge. */
+.b5-gauge__tick--recorded { background: var(--b5-color-accent-400); top: -1px; height: 16px; }
+
+/* ---- Confirm-style walk/rig-check button ----------------------------------
+   .b5-btn--walk covers size; Rig Walk and Rig Check both need a walk-sized
+   button whose outline reads "affirmative" the same way --danger reads
+   "destructive" — same construction, success ramp. */
+.b5-btn--confirm { border-color: var(--b5-color-success-500); color: var(--b5-color-text-success); }
+.b5-btn--confirm:hover { background: rgba(47, 138, 78, 0.12); border-color: var(--b5-color-success-400); }
+.b5-btn--confirm:active { background: rgba(47, 138, 78, 0.22); }
+
+/* ---- Native <details>/<summary> as an accordion trigger -------------------
+   Patch's Reconcile groups use native <details> (free open/closed state,
+   keyboard/AT support) rather than a hand-rolled JS accordion — restyled to
+   read as .b5-accordion__trigger by suppressing the native marker and
+   letting the component's own flex/padding/hover rules apply to <summary>. */
+.b5-accordion__item > summary.b5-accordion__trigger { list-style: none; cursor: pointer; }
+.b5-accordion__item > summary.b5-accordion__trigger::-webkit-details-marker { display: none; }
+.b5-accordion__item > summary.b5-accordion__trigger::marker { content: ""; }
+
+/* ---- DMX grid cell: inline trim fader --------------------------------------
+   Send's 512-channel grid pairs a numeric field with a compact range input
+   in the same cell (the mockup's separate 8-fader strip is folded into the
+   grid itself here — every channel gets both controls, not just the first
+   8, to preserve the existing feature set exactly). */
+.b5-dmx-cell__range {
+  width: 100%;
+  margin-top: var(--b5-space-1);
+  accent-color: var(--b5-color-accent-500);
+  height: 18px;
+}
+
+/* ---- Rig Walk owns the bottom edge on a phone --------------------------
+   .b5-walk-bar and .b5-nav--mobile are both position:fixed / bottom:0 in
+   the base system (they're never on screen together in the mockups, one
+   page per screen); this is a single-page app, so app.js toggles this body
+   class and the tab bar steps aside while an active walk session's own
+   Previous/Next bar owns that band. */
+@media (max-width: 767px) {
+  body.b5-walk-mode .b5-nav--mobile { display: none; }
+}
+
+/* ---- Analyzer expand-on-click affordance ----------------------------------
+   .hexcell/tr.hexcell carry no styling of their own — they're JS query
+   hooks (click to expand full hex/decoded detail) layered onto real
+   b5-text-mono/b5-table cells; this just restores the pointer-cursor
+   affordance the old stylesheet gave them. */
+.hexcell { cursor: pointer; }
+
+/* ---- Panel-level out-of-range echo -----------------------------------------
+   Sensor cards render the gauge inside a .b5-panel; out-of-range state
+   should be visible even when the gauge itself scrolls out of view at the
+   top of a long sensor list, so the panel border also gets the danger tint. */
+.b5-panel--out-of-range { border-color: var(--b5-color-danger-700); }
