@@ -72,8 +72,19 @@ func main() {
 	// (task ask: "a simple in-memory session plus JSON file next to the exe
 	// is fine, matching existing persistence conventions") so a dropped
 	// phone connection, accidental refresh, or even a server restart mid-walk
-	// doesn't lose progress.
+	// doesn't lose progress. Demo mode has no on-disk session to resume (its
+	// walk always starts empty either way) but --demo's patch is different:
+	// buildDemo pre-loads a sample patch directly into srv.PatchStore so the
+	// whole reconcile/rig-check flow is exercisable with no hardware (task
+	// ask, item 5) — switching PatchStore to a fresh on-disk-backed Store
+	// here would silently discard that in-memory sample (there's normally no
+	// benny512-patch.json next to a freshly-unzipped demo build, so the new
+	// Store would just come up empty). Only real mode gets file persistence;
+	// --demo keeps its preloaded in-memory patch for the life of the process.
 	srv.SetWalkStorePath(walkSessionPath())
+	if !*demo {
+		srv.SetPatchStorePath(patchStorePath())
+	}
 
 	if *logRDM != "" {
 		if err := srv.SetLogRDMPath(*logRDM); err != nil {
@@ -226,6 +237,17 @@ func walkSessionPath() string {
 		return filepath.Join(filepath.Dir(exe), "benny512-rigwalk.json")
 	}
 	return "benny512-rigwalk.json"
+}
+
+// patchStorePath resolves the patch model's persisted file to a path next
+// to the running exe — mirrors walkSessionPath exactly (task ask, item 1:
+// "JSON file beside the exe (benny512-patch.json), same pattern as the
+// existing rig-walk store").
+func patchStorePath() string {
+	if exe, err := os.Executable(); err == nil {
+		return filepath.Join(filepath.Dir(exe), "benny512-patch.json")
+	}
+	return "benny512-patch.json"
 }
 
 func shouldLog(configured, level string) bool {

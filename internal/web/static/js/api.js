@@ -179,5 +179,41 @@ const Api = (() => {
       try { fetch('/api/walk/identify/off', { method: 'POST', keepalive: true }); } catch (e) { /* best-effort */ }
     },
     walkExportUrl: (format) => '/api/walk/export?format=' + format,
+
+    // --- Phase 2a: patch model, patch<->RDM reconcile, rig check ---
+    getPatch: () => req('GET', '/api/patch'),
+    newPatch: (name) => req('POST', '/api/patch/new', { name }),
+    createPatchEntry: (entry) => req('POST', '/api/patch/entries', entry),
+    updatePatchEntry: (id, entry) => req('PUT', `/api/patch/entries/${encodeURIComponent(id)}`, entry),
+    deletePatchEntry: (id) => req('DELETE', `/api/patch/entries/${encodeURIComponent(id)}`),
+    reorderPatch: (order) => req('POST', '/api/patch/reorder', { order }),
+    getPatchCollisions: () => req('GET', '/api/patch/collisions'),
+    getPatchReconcile: () => req('GET', '/api/patch/reconcile'),
+    reconcileConfirm: (id, deviceUid) => req('POST', `/api/patch/reconcile/${encodeURIComponent(id)}/confirm`, { deviceUid }),
+    reconcileReject: (id) => req('POST', `/api/patch/reconcile/${encodeURIComponent(id)}/reject`),
+    reconcileFix: (id, deviceUid) => req('POST', `/api/patch/reconcile/${encodeURIComponent(id)}/fix`, { deviceUid }),
+    reconcileFixAll: (confirm) => req('POST', '/api/patch/reconcile/fix-all', { confirm }),
+    patchAdopt: (mode) => req('POST', '/api/patch/adopt', { mode }),
+    patchExportUrl: (format) => '/api/patch/export?format=' + format,
+    patchReconcileExportUrl: (format) => '/api/patch/reconcile/export?format=' + format,
+
+    getRigCheckState: () => req('GET', '/api/patch/rigcheck'),
+    rigCheckStart: (body) => req('POST', '/api/patch/rigcheck/start', body),
+    rigCheckStop: () => req('POST', '/api/patch/rigcheck/stop'),
+    rigCheckBlackout: () => req('POST', '/api/patch/rigcheck/blackout'),
+    rigCheckNext: () => req('POST', '/api/patch/rigcheck/next'),
+    rigCheckPrevious: () => req('POST', '/api/patch/rigcheck/previous'),
+    rigCheckJump: (index) => req('POST', '/api/patch/rigcheck/jump', { index }),
+    rigCheckMode: (mode) => req('POST', '/api/patch/rigcheck/mode', { mode }),
+    rigCheckLevel: (level) => req('POST', '/api/patch/rigcheck/level', { level }),
+    rigCheckChannel: (delta) => req('POST', '/api/patch/rigcheck/channel', { delta }),
+    // rigCheckStopBeacon fires the "stop and blackout" call via
+    // fetch(keepalive:true), bypassing req()'s JSON-response parsing — used
+    // from pagehide/visibilitychange handlers where the page may already be
+    // gone before a normal response arrives (mirrors walkIdentifyOffBeacon's
+    // "never leave the rig lit" safety net, task ask item 4).
+    rigCheckStopBeacon: () => {
+      try { fetch('/api/patch/rigcheck/stop', { method: 'POST', keepalive: true }); } catch (e) { /* best-effort */ }
+    },
   };
 })();

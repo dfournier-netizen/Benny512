@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/binary"
 	"net/netip"
+	"sync"
 	"time"
 
 	"benny512/internal/artnet"
 	"benny512/internal/capture"
 	"benny512/internal/params"
+	"benny512/internal/patch"
 	"benny512/internal/rdm"
 	"benny512/internal/registry"
 	"benny512/internal/session"
@@ -291,9 +293,118 @@ func buildDemo(ctx context.Context) *web.Server {
 	installDemoNodeConfigResponder(tport, nodes, en4IP, wirelessIP)
 
 	go reg.Run()
+
+	// Phase 2a: warm every demo device's manufacturer/model/footprint cache
+	// before installing the sample patch, so the reconcile matcher's type-
+	// corroboration tiers (manufacturer/model/footprint — internal/patch's
+	// scorePair) have real evidence to work with immediately, matching what
+	// Dom would actually see: he always opens the Devices tab and browses
+	// the rig before touching Patch. Without this, every demo device would
+	// start with an unfetched DEVICE_INFO/label (registry.Fixture's zero
+	// state), and corroboration alone could never clear the match
+	// threshold — see buildDemoPatch's doc comment on why manufacturer text
+	// alone isn't enough. Best-effort and blocking (RealClock — this is
+	// --demo, not a test — real responses land in 3-30ms per device, run
+	// concurrently below, so this adds well under 100ms to startup).
+	warmDemoDeviceCaches(ctx, rdmc, devices)
+
+	// Phase 2a: pre-load a sample patch (task ask, item 5: "the whole flow
+	// is exercisable") deliberately covering every reconcile classification
+	// plus a channel-overlap collision — see buildDemoPatch's doc comment.
+	srv.PatchStore.Replace(buildDemoPatch(port1, port2))
+
 	go generateDemoTraffic(ctx, ring)
 
 	return srv
+}
+
+// warmDemoDeviceCaches issues GET DEVICE_INFO / MANUFACTURER_LABEL /
+// DEVICE_MODEL_DESCRIPTION for every demo device concurrently, populating
+// registry.Fixture's classification/label cache exactly as if the Devices
+// screen had already been opened for each — see buildDemo's call site for
+// why Phase 2a's reconcile demo needs this warmed. Errors are ignored (a
+// device that NACKs one of these, like beam1's DEVICE_MODEL_DESCRIPTION or
+// splitter's MANUFACTURER_LABEL by design — see buildDemoDevices — simply
+// keeps that one field at its documented fallback).
+func warmDemoDeviceCaches(ctx context.Context, rdmc *session.RDMController, devices []*demoDevice) {
+	var wg sync.WaitGroup
+	for _, d := range devices {
+		ref := session.NodeRef{
+			Key:  session.NodeKey{IP: d.nodeIP, BindIndex: 1},
+			Addr: netip.AddrPortFrom(d.nodeIP, session.ArtNetUDPPort),
+			Port: d.port,
+		}
+		client := params.New(rdmc, ref, d.uid)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			defer cancel()
+			_, _ = client.DeviceInfo(cctx)
+			_, _ = client.ManufacturerLabel(cctx)
+			_, _ = client.DeviceModelDescription(cctx)
+		}()
+	}
+	wg.Wait()
+}
+
+// buildDemoPatch returns a sample patch pre-loaded for --demo mode (task
+// ask, item 5), deliberately covering every reconcile classification:
+//
+//   - correct match: chromaQ (port2/addr1) — address, footprint,
+//     manufacturer AND model all agree (warmDemoDeviceCaches has already
+//     populated its DEVICE_INFO/labels, mirroring a tech who's browsed the
+//     Devices tab before opening Patch — the realistic order of operations).
+//   - planted address mismatch: par1 is really at port1/addr81, but the
+//     patch says addr90 — the matcher must find it via manufacturer+model
+//     text corroboration alone (its live-reported label "Elation
+//     Professional"/model "Par" both present in the patched fixture type,
+//     scoring well above the propose threshold with no address help).
+//   - fuzzy-name near-match: spot1, patched with extra descriptive words and
+//     punctuation ("SR Truss - Ayrton, Spot!! (silver)") the device itself
+//     doesn't report, at its correct address — Matched, with fuzzy evidence
+//     attached.
+//   - missing fixture: "High End Systems SolaFrame 750" shares no
+//     meaningful tokens with any demo device (its one weak accidental
+//     overlap, "Systems" against en4Root's "Obsidian Control Systems"
+//     label, scores well under the match threshold), so it resolves
+//     cleanly as Missing.
+//   - channel-overlap collision: two invented "Practical" entries on an
+//     otherwise-unused universe (both also read as Missing in the reconcile
+//     view, which is correct — nothing on the demo rig answers on universe
+//     5 — the point here is purely DetectCollisions' overlap finding).
+//
+// Every other demo device (wash1, wash2, beam1, wirelessMover, splitter,
+// en4Root, auroraRoot — see buildDemoDevices) is deliberately left out of
+// this patch entirely, so each shows up as an Unpatched reconcile row.
+// wash1/wash2 in particular are BOTH left out on purpose: they're
+// identically typed ("Robe"/"Wash", footprint 20) demo siblings, and
+// referencing only one of them from the sample patch while its identical
+// twin sits nearby would manufacture a confusing false ambiguity that has
+// nothing to do with the scenario being demonstrated.
+func buildDemoPatch(port1, port2 artnet.PortAddress) patch.Patch {
+	entry := func(name, fixtureType, position, fixtureNumber string, universe artnet.PortAddress, addr, footprint uint16) patch.Entry {
+		return patch.Entry{
+			ID: patch.NewEntryID(), Name: name, FixtureType: fixtureType,
+			Position: position, FixtureNumber: fixtureNumber,
+			Universe: universe.RawValue(), StartAddress: addr, Footprint: footprint,
+		}
+	}
+	practicalsUniverse, err := artnet.PortAddressFromRaw(5)
+	if err != nil {
+		practicalsUniverse = port1 // demo-only fallback; 5 is always a valid raw Port-Address
+	}
+	return patch.Patch{
+		Name: "Demo Show",
+		Entries: []patch.Entry{
+			entry("CF2 48", "Chroma-Q Color Force II 48", "US Truss 1", "101", port2, 1, 20),
+			entry("Par 1", "Elation Professional Par", "US Truss 2", "102", port1, 90, 8),
+			entry("Spot 1", "SR Truss - Ayrton, Spot!! (silver)", "SR Truss", "103", port1, 1, 24),
+			entry("Missing Fixture", "High End Systems SolaFrame 750", "Rear Truss", "104", port1, 200, 20),
+			entry("Practical 1", "Practical LED", "", "201", practicalsUniverse, 100, 10),
+			entry("Practical 2", "Practical LED", "", "202", practicalsUniverse, 105, 10),
+		},
+	}
 }
 
 // buildDemoDevices returns the ten pre-scripted demoDevices. Each literal's

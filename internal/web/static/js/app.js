@@ -31,12 +31,23 @@
     if (currentTab === 'walk' && name !== 'walk') {
       WalkScreen.onLeaveScreen();
     }
+    // Patch screen's Rig Check sub-view drives live DMX output — leaving
+    // the tab must always stop it (task ask, item 4: "never leave the rig
+    // lit"), same discipline and same top-level-const-not-on-window
+    // gotcha noted above for WalkScreen: reference PatchScreen by its bare
+    // identifier, never window.PatchScreen.
+    if (currentTab === 'patch' && name !== 'patch') {
+      PatchScreen.onLeaveScreen();
+    }
     tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === name));
     screens.forEach(s => s.classList.toggle('active', s.id === 'screen-' + name));
     localStorage.setItem('benny512.tab', name);
     currentTab = name;
     if (name === 'walk') {
       WalkScreen.onEnterScreen();
+    }
+    if (name === 'patch') {
+      PatchScreen.onEnterScreen();
     }
   }
 
@@ -50,6 +61,7 @@
 
   NodesScreen.init();
   DevicesScreen.init();
+  PatchScreen.init();
   AnalyzerScreen.init();
   SendScreen.init();
   WalkScreen.init();

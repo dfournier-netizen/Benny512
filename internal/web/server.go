@@ -26,6 +26,7 @@ import (
 	"benny512/internal/artnet"
 	"benny512/internal/capture"
 	"benny512/internal/params"
+	"benny512/internal/patch"
 	"benny512/internal/rdm"
 	"benny512/internal/registry"
 	"benny512/internal/session"
@@ -93,6 +94,18 @@ type Server struct {
 	// exe via SetWalkStorePath, mirroring SetLogRDMPath's pattern.
 	walkStore *walk.Store
 
+	// PatchStore holds the Phase 2a patch model (see internal/patch and
+	// patch.go in this package) — exported (unlike walkStore) since
+	// cmd/benny512's --demo driver needs to install a sample patch directly
+	// via PatchStore.Replace. Defaults to in-memory-only persistence;
+	// cmd/benny512 upgrades it via SetPatchStorePath, mirroring
+	// SetWalkStorePath.
+	PatchStore *patch.Store
+	// RigCheck drives DMXOutputEngine for the Patch screen's channel-level
+	// rig check (internal/patch/rigcheck.go) — one instance for the life of
+	// the server, same "one active run at a time" model as walkStore.
+	RigCheck *patch.RigCheck
+
 	hub *hub
 
 	mux *http.ServeMux
@@ -110,8 +123,10 @@ func New(nodes *session.ArtNetSession, rdmc *session.RDMController, dmx *session
 			CaptureLimit:    capture.DefaultCapacity,
 			TimeoutProfiles: map[string]string{},
 		},
-		walkStore: walk.NewStore(""),
-		hub:       newHub(),
+		walkStore:  walk.NewStore(""),
+		PatchStore: patch.NewStore(""),
+		RigCheck:   patch.NewRigCheck(dmx),
+		hub:        newHub(),
 	}
 	s.mux = http.NewServeMux()
 	s.routes()
@@ -122,6 +137,12 @@ func New(nodes *session.ArtNetSession, rdmc *session.RDMController, dmx *session
 // an active RDM disk logger, if one was configured via --logrdm or
 // Settings). Safe to call even if nothing was ever opened.
 func (s *Server) Close() {
+	// Blackout-and-stop the rig check on server shutdown, same discipline
+	// as leaving the Patch screen or a page unload — never leave the rig
+	// lit (task ask, item 4's safety rule) even across a process restart.
+	if s.RigCheck != nil {
+		s.RigCheck.Stop()
+	}
 	s.settingsMu.Lock()
 	defer s.settingsMu.Unlock()
 	if s.rdmLogger != nil {
@@ -152,6 +173,15 @@ func (s *Server) LogRDMEntry(e capture.Entry) {
 // would want to change it mid-session.
 func (s *Server) SetWalkStorePath(path string) {
 	s.walkStore = walk.NewStore(path)
+}
+
+// SetPatchStorePath switches the patch model's persistence to path (a JSON
+// file next to the exe, task ask: "same pattern as the existing rig-walk
+// store") — mirrors SetWalkStorePath exactly. Any existing patch at path is
+// loaded immediately (tolerant reader + migrate-on-load, see
+// internal/patch.NewStore).
+func (s *Server) SetPatchStorePath(path string) {
+	s.PatchStore = patch.NewStore(path)
 }
 
 // SetLogRDMPath opens (or closes, if path=="") the continuous RDM disk
@@ -244,6 +274,33 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/walk/identify/off", s.handleWalkIdentifyOffCurrent)
 	s.mux.HandleFunc("POST /api/walk/identify/all-off", s.handleWalkIdentifyAllOff)
 	s.mux.HandleFunc("GET /api/walk/export", s.handleWalkExport)
+
+	// --- Phase 2a: patch model, patch<->RDM reconcile, rig check ---
+	s.mux.HandleFunc("GET /api/patch", s.handleGetPatch)
+	s.mux.HandleFunc("POST /api/patch/new", s.handleNewPatch)
+	s.mux.HandleFunc("POST /api/patch/entries", s.handleCreatePatchEntry)
+	s.mux.HandleFunc("PUT /api/patch/entries/{id}", s.handleUpdatePatchEntry)
+	s.mux.HandleFunc("DELETE /api/patch/entries/{id}", s.handleDeletePatchEntry)
+	s.mux.HandleFunc("POST /api/patch/reorder", s.handleReorderPatch)
+	s.mux.HandleFunc("GET /api/patch/collisions", s.handlePatchCollisions)
+	s.mux.HandleFunc("GET /api/patch/reconcile", s.handlePatchReconcile)
+	s.mux.HandleFunc("POST /api/patch/reconcile/{id}/confirm", s.handlePatchReconcileConfirm)
+	s.mux.HandleFunc("POST /api/patch/reconcile/{id}/reject", s.handlePatchReconcileReject)
+	s.mux.HandleFunc("POST /api/patch/reconcile/{id}/fix", s.handlePatchReconcileFix)
+	s.mux.HandleFunc("POST /api/patch/reconcile/fix-all", s.handlePatchReconcileFixAll)
+	s.mux.HandleFunc("POST /api/patch/adopt", s.handlePatchAdopt)
+	s.mux.HandleFunc("GET /api/patch/export", s.handlePatchExport)
+	s.mux.HandleFunc("GET /api/patch/reconcile/export", s.handlePatchReconcileExport)
+	s.mux.HandleFunc("GET /api/patch/rigcheck", s.handleGetRigCheckState)
+	s.mux.HandleFunc("POST /api/patch/rigcheck/start", s.handleRigCheckStart)
+	s.mux.HandleFunc("POST /api/patch/rigcheck/stop", s.handleRigCheckStop)
+	s.mux.HandleFunc("POST /api/patch/rigcheck/blackout", s.handleRigCheckBlackout)
+	s.mux.HandleFunc("POST /api/patch/rigcheck/next", s.handleRigCheckNext)
+	s.mux.HandleFunc("POST /api/patch/rigcheck/previous", s.handleRigCheckPrevious)
+	s.mux.HandleFunc("POST /api/patch/rigcheck/jump", s.handleRigCheckJump)
+	s.mux.HandleFunc("POST /api/patch/rigcheck/mode", s.handleRigCheckMode)
+	s.mux.HandleFunc("POST /api/patch/rigcheck/level", s.handleRigCheckLevel)
+	s.mux.HandleFunc("POST /api/patch/rigcheck/channel", s.handleRigCheckChannel)
 
 	s.mux.HandleFunc("GET /ws", s.handleWS)
 }

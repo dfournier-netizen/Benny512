@@ -12,6 +12,7 @@
   <nav class="tabs" id="tabs">
     <button class="tab-btn" data-tab="nodes">Nodes</button>
     <button class="tab-btn" data-tab="devices">Devices</button>
+    <button class="tab-btn" data-tab="patch">Patch</button>
     <button class="tab-btn" data-tab="analyzer">Analyzer</button>
     <button class="tab-btn" data-tab="send">Send</button>
     <button class="tab-btn" data-tab="walk">Rig Walk</button>
@@ -86,6 +87,10 @@
         <p class="empty-hint">Select a device to view/edit its RDM parameters, sensors and status.</p>
       </div>
     </div>
+  </section>
+
+  <section id="screen-patch" class="screen">
+    <div id="patchRoot" class="patch-root"></div>
   </section>
 
   <section id="screen-analyzer" class="screen">
@@ -202,6 +207,7 @@
 <script src="/js/nodes.js"></script>
 <script src="/js/devicedetail.js"></script>
 <script src="/js/devices.js"></script>
+<script src="/js/patch.js"></script>
 <script src="/js/analyzer.js"></script>
 <script src="/js/send.js"></script>
 <script src="/js/settings.js"></script>
