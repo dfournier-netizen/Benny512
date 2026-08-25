@@ -593,6 +593,17 @@ func (s *Server) handleGetParam(w http.ResponseWriter, r *http.Request) {
 		val, err = client.DMXStartAddress(ctx)
 	case "dmx_personality":
 		val, err = client.DMXPersonality(ctx)
+	case "dmx_personality_description":
+		// Was never wired up despite devicedetail.js already calling it and
+		// the comment two cases below referencing it as the established
+		// pattern the dimmer *_DESCRIPTION endpoints copied — every such
+		// request 404'd via the switch's default case until now.
+		idx, perr := parseIndexQuery(r)
+		if perr != nil {
+			writeError(w, http.StatusBadRequest, perr)
+			return
+		}
+		val, err = client.DMXPersonalityDescription(ctx, idx)
 	case "device_label":
 		val, err = client.DeviceLabel(ctx)
 	case "manufacturer_label":

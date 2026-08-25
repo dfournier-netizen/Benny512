@@ -73,8 +73,8 @@ func writeRDMDetailText(b *strings.Builder, d *RDMDetail) {
 			fmt.Fprintf(b, "  NACK reason: 0x%04X (%s)\n", d.NackReasonCode, d.NackReasonName)
 		}
 		if d.ResponseType == "ACK_TIMER" {
-			fmt.Fprintf(b, "  ACK_TIMER: raw=%d units -> %dms per E1.20 (10ms/unit), or %dms if raw is already ms\n",
-				d.AckTimerRawUnits, d.AckTimerMsPerE120, d.AckTimerMsIfRawIsMs)
+			fmt.Fprintf(b, "  ACK_TIMER: raw=%d units -> %dms (10ms/unit per E1.20 §6.3.3)\n",
+				d.AckTimerRawUnits, d.AckTimerMs)
 		}
 	} else {
 		fmt.Fprintf(b, "  portId=%d\n", d.PortID)

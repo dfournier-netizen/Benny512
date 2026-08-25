@@ -69,16 +69,24 @@ type RDMDetail struct {
 	NackReasonCode uint16 `json:"nackReasonCode,omitempty"`
 	NackReasonName string `json:"nackReasonName,omitempty"`
 
-	// ACK_TIMER's 2-byte estimate, reported under both candidate unit
-	// interpretations (report task: "capture ACK_TIMER values explicitly —
-	// those matter for wireless-proxy debugging"; see
-	// session.RDMConfig.AckTimerUnit's doc comment for the spec-ambiguity
-	// this is deliberately not resolving on the capture side — the raw
-	// units plus both readings are recorded so the architect can judge from
-	// real hardware timing which one applies).
-	AckTimerRawUnits    uint16 `json:"ackTimerRawUnits,omitempty"`
-	AckTimerMsPerE120   int64  `json:"ackTimerMsPerE120,omitempty"`   // units * 10ms (ANSI E1.20 §6.3.3)
-	AckTimerMsIfRawIsMs int64  `json:"ackTimerMsIfRawIsMs,omitempty"` // units taken literally as ms
+	// ACK_TIMER's 2-byte estimate (report task: "capture ACK_TIMER values
+	// explicitly — those matter for wireless-proxy debugging").
+	//
+	// Phase 1a carried this as an open question: ANSI E1.20 §6.3.3 specifies
+	// 10 ms units, but the project's own protocol reference (§2.4) described
+	// the field as a plain millisecond count, a 10x discrepancy that mattered
+	// most on exactly the wireless-proxy rigs this tool targets. That is now
+	// settled: E1.20's text is unambiguous, and a bench log corroborates it
+	// — a controller that received raw=30 on this path waited and re-issued
+	// 313 ms later, consistent with the 10 ms/unit reading (and not with the
+	// literal-ms reading, which would predict a ~30 ms re-issue). One
+	// observation corroborates rather than proves it, but combined with the
+	// spec text there is no remaining reason to hedge here. See
+	// session.RDMConfig.AckTimerUnit's doc comment — internal/session (owned
+	// by another workstream) still carries this as an open, configurable
+	// question and was not changed here.
+	AckTimerRawUnits uint16 `json:"ackTimerRawUnits,omitempty"`
+	AckTimerMs       int64  `json:"ackTimerMs,omitempty"` // units * 10ms (ANSI E1.20 §6.3.3)
 }
 
 // TodDetail is the decoded view of one ArtTodRequest/ArtTodData/
@@ -141,30 +149,50 @@ func buildRDMDetail(p artnet.Rdm) *RDMDetail {
 	d.ParamDataHex = hexEncode(msg.ParameterData)
 	d.IsResponse = msg.CommandClass.IsResponse()
 
+	// pidDataApplies tracks whether msg.ParameterData is actually the
+	// requested PID's parameter data — true for every request, and for an
+	// ACK or ACK_OVERFLOW response, but false for ACK_TIMER (whose payload
+	// is a timer estimate, decoded separately below) and NACK_REASON (whose
+	// payload is a 2-byte status code, decoded separately below). This is
+	// the single decision point for whether a PID-specific decoder may run
+	// at all — see decodeParamDataString's call below, and its doc comment.
+	pidDataApplies := true
+
 	if d.IsResponse {
 		rt, _ := msg.ResponseType()
 		d.ResponseType = rt.String()
 		d.MessageCount = msg.MessageCount
 		switch rt {
 		case rdm.ResponseNackReason:
+			pidDataApplies = false
 			if len(msg.ParameterData) >= 2 {
 				code := uint16(msg.ParameterData[0])<<8 | uint16(msg.ParameterData[1])
 				d.NackReasonCode = code
 				d.NackReasonName = session.NackReasonName(rdm.NackReason(code))
 			}
 		case rdm.ResponseACKTimer:
+			pidDataApplies = false
 			if len(msg.ParameterData) >= 2 {
 				units := uint16(msg.ParameterData[0])<<8 | uint16(msg.ParameterData[1])
 				d.AckTimerRawUnits = units
-				d.AckTimerMsPerE120 = int64(units) * 10
-				d.AckTimerMsIfRawIsMs = int64(units)
+				d.AckTimerMs = int64(units) * 10
 			}
 		}
 	} else {
 		d.PortID = msg.PortIDOrResponseType
 	}
 
-	d.Decoded = decodeParamDataString(msg.ParameterID, d.IsResponse, msg.ParameterData)
+	// Only run the PID-specific decoder when the parameter data actually
+	// belongs to the requested PID (see pidDataApplies above). An ACK_TIMER
+	// response's 2-byte timer estimate, for instance, is not DMX_PERSONALITY
+	// data just because it happens to be 2 bytes long — running the
+	// PID-specific decoder over it regardless of responseType previously
+	// produced exactly that nonsense (raw=30 ACK_TIMER units rendered as
+	// "personality 0 of 30"). Fixed at this single decision point rather
+	// than by teaching decodeParamDataString to special-case each PID.
+	if pidDataApplies {
+		d.Decoded = decodeParamDataString(msg.ParameterID, d.IsResponse, msg.ParameterData)
+	}
 	return d
 }
 

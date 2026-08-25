@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"errors"
 	"net/netip"
 	"testing"
 	"time"
@@ -52,6 +53,58 @@ func TestDecodeDeviceInfoBadLength(t *testing.T) {
 	_, err := DecodeDeviceInfo([]byte{1, 2, 3})
 	if err == nil {
 		t.Fatal("expected error for short data")
+	}
+}
+
+// TestDecodeEncodePersonalityDescription round-trips DMX_PERSONALITY_
+// DESCRIPTION (0x00E1) against the exact bytes the owner's KL Core IP
+// reported (index=5, footprint=13, per the DEVICE_INFO payload in this
+// fix's bench log), plus a description at the max 32-byte label length and
+// a zero-length ("truncated") description.
+func TestDecodeEncodePersonalityDescription(t *testing.T) {
+	cases := []struct {
+		name string
+		pd   PersonalityDescription
+	}{
+		{"typical", PersonalityDescription{Index: 5, DMXFootprint: 13, Description: "13ch Extended"}},
+		{"empty description", PersonalityDescription{Index: 1, DMXFootprint: 4, Description: ""}},
+		{"max length description (32 chars)", PersonalityDescription{
+			Index: 9, DMXFootprint: 30,
+			Description: "12345678901234567890123456789012", // 34 chars, encoder truncates to 32
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded := EncodePersonalityDescription(tc.pd)
+			want := tc.pd
+			if len(want.Description) > 32 {
+				want.Description = want.Description[:32]
+			}
+			if len(encoded) != 3+len(want.Description) {
+				t.Fatalf("encoded length = %d, want %d", len(encoded), 3+len(want.Description))
+			}
+			got, err := DecodePersonalityDescription(encoded)
+			if err != nil {
+				t.Fatalf("DecodePersonalityDescription: %v", err)
+			}
+			if got != want {
+				t.Errorf("round-trip mismatch: got %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
+// TestDecodePersonalityDescriptionTruncatedOnWire covers a response that is
+// truncated below even the 3-byte fixed portion (a short/garbled PDL on the
+// wire, distinct from a legitimately empty description string) — must error
+// rather than panic or silently misread.
+func TestDecodePersonalityDescriptionTruncatedOnWire(t *testing.T) {
+	for _, data := range [][]byte{nil, {}, {0x05}, {0x05, 0x00}} {
+		if _, err := DecodePersonalityDescription(data); err == nil {
+			t.Errorf("DecodePersonalityDescription(%x) = nil error, want ErrBadLength", data)
+		} else if !errors.Is(err, ErrBadLength) {
+			t.Errorf("DecodePersonalityDescription(%x) error = %v, want it to wrap ErrBadLength", data, err)
+		}
 	}
 }
 
@@ -288,4 +341,68 @@ func TestClientDimmerPIDs(t *testing.T) {
 		}
 	}
 	t.Fatal("timed out waiting for dimmer-PID client calls to complete")
+}
+
+// TestClientDMXPersonalityAndDescription exercises DMXPersonality/
+// SetDMXPersonality/DMXPersonalityDescription end to end through a scripted
+// FakeTransport responder, mirroring TestClientDimmerPIDs' pattern — the
+// owner-facing "personality 5/9" scenario from the KL Core IP bench log,
+// wired through the real controller instead of calling the codec directly.
+func TestClientDMXPersonalityAndDescription(t *testing.T) {
+	clock := session.NewFakeClock(time.Time{})
+	uid := rdm.UID{ManufacturerID: 0x454C, DeviceID: 1} // "EL" for Elation, arbitrary
+	ctrlRef := make([]*session.RDMController, 1)
+	tport := scriptedResponder(t, clock, &ctrlRef, uid, map[rdm.ParameterID][]byte{
+		rdm.PIDDMXPersonality: {5, 9}, // current=5 of 9, matches the bench log
+		rdm.PIDDMXPersonalityDescription: EncodePersonalityDescription(PersonalityDescription{
+			Index: 5, DMXFootprint: 13, Description: "13ch Extended",
+		}),
+	})
+	ctrl := session.NewRDMController(session.RDMConfig{Transport: tport, Clock: clock})
+	ctrlRef[0] = ctrl
+
+	port, _ := artnet.NewPortAddress(0, 0, 1)
+	node := session.NodeRef{
+		Key:  session.NodeKey{IP: netip.MustParseAddr("10.0.0.7"), BindIndex: 1},
+		Addr: netip.MustParseAddrPort("10.0.0.7:6454"),
+		Port: port,
+	}
+	client := New(ctrl, node, uid)
+
+	type result struct {
+		pers Personality
+		desc PersonalityDescription
+		err  error
+	}
+	resCh := make(chan result, 1)
+	go func() {
+		var r result
+		if r.pers, r.err = client.DMXPersonality(context.Background()); r.err != nil {
+			resCh <- r
+			return
+		}
+		r.desc, r.err = client.DMXPersonalityDescription(context.Background(), r.pers.Current)
+		resCh <- r
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		clock.Advance(2 * time.Millisecond)
+		select {
+		case r := <-resCh:
+			if r.err != nil {
+				t.Fatalf("client call failed: %v", r.err)
+			}
+			if r.pers != (Personality{Current: 5, Count: 9}) {
+				t.Errorf("DMXPersonality = %+v, want {5 9}", r.pers)
+			}
+			want := PersonalityDescription{Index: 5, DMXFootprint: 13, Description: "13ch Extended"}
+			if r.desc != want {
+				t.Errorf("DMXPersonalityDescription = %+v, want %+v", r.desc, want)
+			}
+			return
+		case <-time.After(time.Millisecond):
+		}
+	}
+	t.Fatal("timed out waiting for personality client calls to complete")
 }

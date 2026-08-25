@@ -11,6 +11,7 @@ import (
 
 	"benny512/internal/artnet"
 	"benny512/internal/capture"
+	"benny512/internal/params"
 	"benny512/internal/rdm"
 	"benny512/internal/registry"
 	"benny512/internal/session"
@@ -194,6 +195,53 @@ func TestGetParamUnknownFixture404(t *testing.T) {
 	h.srv.Handler().ServeHTTP(rr, req)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestGetFixtureParamDMXPersonalityDescription is the regression test for
+// this fix's server-side gap: devicedetail.js already called
+// dmx_personality_description (see loadIndexedLabels' call site), but
+// handleGetParam had no case for it, so the request always fell through to
+// the switch's default "unknown param" 404 and every personality label in
+// the UI silently stayed a bare number. Mirrors device_test.go's
+// wireDeviceResponder/runHTTPAsync pattern for a real RDM round trip.
+func TestGetFixtureParamDMXPersonalityDescription(t *testing.T) {
+	h := newHarness(t)
+	node := h.seedNode(t)
+	uid := rdm.UID{ManufacturerID: 0x454C, DeviceID: 1}
+	ref := session.NodeRef{Key: session.NodeKey{IP: node.Key.IP, BindIndex: node.Key.BindIndex}, Addr: node.Addr, Port: mustPort(t)}
+	h.srv.Registry.NoteFixture(ref, uid)
+
+	descBytes := params.EncodePersonalityDescription(params.PersonalityDescription{
+		Index: 5, DMXFootprint: 13, Description: "13ch Extended",
+	})
+	h.wireDeviceResponder(uid, func(msg rdm.Message) ([]byte, bool, rdm.NackReason, byte) {
+		if msg.ParameterID == rdm.PIDDMXPersonalityDescription {
+			return descBytes, false, 0, 0
+		}
+		return nil, true, rdm.NackUnknownPID, 0
+	})
+
+	uidStr := uid.String()
+	rr := h.runHTTPAsync(t, "GET", "/api/fixture/"+uidStr+"/param/dmx_personality_description?index=5", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var got struct {
+		Value params.PersonalityDescription `json:"value"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	want := params.PersonalityDescription{Index: 5, DMXFootprint: 13, Description: "13ch Extended"}
+	if got.Value != want {
+		t.Fatalf("got %+v, want %+v", got.Value, want)
+	}
+
+	// Missing ?index= must 400, not reach the device at all.
+	rr2 := doJSON(t, h.srv.Handler(), "GET", "/api/fixture/"+uidStr+"/param/dmx_personality_description", nil)
+	if rr2.Code != http.StatusBadRequest {
+		t.Fatalf("missing-index status = %d, want 400: %s", rr2.Code, rr2.Body.String())
 	}
 }
 

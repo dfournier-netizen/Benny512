@@ -73,6 +73,13 @@ type demoDevice struct {
 	// paramValues[rdm.PIDCurve] carries the current+count bytes; this map
 	// is what handle() consults for CURVE_DESCRIPTION's per-index GET.
 	curveLabels map[byte]string
+	// personalityDescs maps a DMX_PERSONALITY index (1-based) to its
+	// DMX_PERSONALITY_DESCRIPTION (report brief: "surface personality name +
+	// slot count" fix — exercises the newly-wired PID end to end in
+	// --demo). paramValues[rdm.PIDDMXPersonality] carries the current+count
+	// bytes; this map is what handle() consults for the per-index GET, same
+	// pattern as curveLabels above.
+	personalityDescs map[byte]params.PersonalityDescription
 	// proxiedDeviceCount > 0 marks this device as acting as an RDM proxy
 	// (report §1.3's PROXIED_DEVICES/PROXIED_DEVICE_COUNT signal).
 	proxiedDeviceCount uint16
@@ -196,6 +203,20 @@ func (d *demoDevice) handle(msg rdm.Message) (data []byte, nack bool, reason rdm
 			return nil, true, rdm.NackDataOutOfRange
 		}
 		return append([]byte{idx}, []byte(label)...), false, 0
+	case rdm.PIDDMXPersonalityDescription:
+		// Same per-index special-casing as CURVE_DESCRIPTION above, plus the
+		// DMX-footprint field this PID (uniquely among the *_DESCRIPTION
+		// family) carries — see params.PersonalityDescription's doc comment.
+		if len(msg.ParameterData) < 1 {
+			return nil, true, rdm.NackFormatError
+		}
+		idx := msg.ParameterData[0]
+		pd, ok := d.personalityDescs[idx]
+		if !ok {
+			return nil, true, rdm.NackDataOutOfRange
+		}
+		pd.Index = idx
+		return params.EncodePersonalityDescription(pd), false, 0
 	default:
 		v, ok := d.paramValues[msg.ParameterID]
 		if !ok {
@@ -448,12 +469,22 @@ func buildDemoDevices(en4IP, wirelessIP netip.Addr, port0, port1, port2 artnet.P
 	spot1 := &demoDevice{
 		uid: rdm.UID{ManufacturerID: 0xAAAA, DeviceID: 3}, label: "Spot 1", mfrLabel: "Ayrton", model: "Spot",
 		nodeIP: en4IP, port: port1, startAdr: 1,
-		deviceInfo:     basePV(rdm.CategoryFixtureMovingMirr, 24, 3, 0),
-		supportedExtra: []rdm.ParameterID{0x8500},
+		deviceInfo: basePV(rdm.CategoryFixtureMovingMirr, 24, 3, 0),
+		// rdm.PIDDMXPersonalityDescription (report brief: "surface which
+		// personality that is") exercises the newly-wired PID with a
+		// multi-personality device so both the Info section's readable
+		// "Personality 1/3 — ..." line and the Parameters section's labeled
+		// dropdown / "Show all personality names" action are demonstrable.
+		supportedExtra: []rdm.ParameterID{0x8500, rdm.PIDDMXPersonalityDescription},
 		noDescribe:     map[rdm.ParameterID]bool{0x8500: true},
 		paramValues: map[rdm.ParameterID][]byte{
 			rdm.PIDDMXStartAddress: dmxAddr(1), rdm.PIDDMXPersonality: {1, 3}, rdm.PIDIdentifyDevice: {0},
 			0x8500: {0xDE, 0xAD}, // opaque 2-byte value, only ever editable as raw hex in the UI
+		},
+		personalityDescs: map[byte]params.PersonalityDescription{
+			1: {DMXFootprint: 24, Description: "24ch Extended"},
+			2: {DMXFootprint: 16, Description: "16ch Standard"},
+			3: {DMXFootprint: 8, Description: "8ch Basic"},
 		},
 	}
 	// Beam 1 is the Devices screen's DEVICE_MODEL_DESCRIPTION NACK demo

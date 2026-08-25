@@ -150,7 +150,11 @@ type rdmHarness struct {
 	scripts  []reply
 	next     int
 	requests []rdm.Message
-	latency  time.Duration
+	// sentAt is the simulated time each request went out, so pacing and
+	// backoff tests can assert on the gaps between transmissions without
+	// touching the wall clock.
+	sentAt  []time.Time
+	latency time.Duration
 }
 
 func newRDMHarness(t *testing.T, cfg RDMConfig) *rdmHarness {
@@ -199,6 +203,17 @@ func (h *rdmHarness) requestAt(i int) rdm.Message {
 	return h.requests[i]
 }
 
+// sendGaps returns the simulated interval between consecutive requests.
+func (h *rdmHarness) sendGaps() []time.Duration {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var out []time.Duration
+	for i := 1; i < len(h.sentAt); i++ {
+		out = append(out, h.sentAt[i].Sub(h.sentAt[i-1]))
+	}
+	return out
+}
+
 func (h *rdmHarness) allRequests() []rdm.Message {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -221,6 +236,7 @@ func (h *rdmHarness) onSend(sp SentPacket) {
 
 	h.mu.Lock()
 	h.requests = append(h.requests, msg)
+	h.sentAt = append(h.sentAt, h.clock.Now())
 	var r reply
 	have := false
 	if h.next < len(h.scripts) {

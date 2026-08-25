@@ -29,6 +29,14 @@ type NodeRef struct {
 // answers with ACK_TIMER first (architecture rev 5 §1.1). Applying direct
 // timings to a proxied rig produces spurious timeouts and hammers the link
 // with retries.
+//
+// A profile is chosen up front (per controller, per node or per request) and
+// copied into each command by value, so it is the wrong home for anything
+// learned at run time. Proxy-saturation pacing therefore lives beside the
+// profiles rather than inside them: it is mutable, shared by every command
+// crossing one node port, must outlive any single command, and — critically —
+// must not depend on an operator having picked ProfileWirelessProxy by hand.
+// See rdmproxy.go.
 type TimeoutProfile struct {
 	Name string
 	// ResponseTimeout is how long to wait for any response to one issued
@@ -186,6 +194,17 @@ const (
 	// ResultBroadcast: the request targeted a broadcast UID, which by spec
 	// is never acknowledged; the command completes as soon as it is sent.
 	ResultBroadcast
+	// ResultProxyBufferFull: every attempt drew NACK PROXY_BUFFER_FULL, so
+	// the command never reached the device at all.
+	//
+	// This is deliberately not ResultNack. A NACK is a statement by the
+	// responder about the request ("I do not support this PID"), and callers
+	// cache it as a settled answer; PROXY_BUFFER_FULL is a statement about
+	// the path, and the device may support the PID perfectly well. Folding
+	// the two together is what made a saturated CRMX link look like a rig
+	// full of featureless devices. Result.Err is a *ProxyBufferFullError and
+	// Result.NackReason is rdm.NackProxyBufferFull.
+	ResultProxyBufferFull
 )
 
 // String renders the result kind.
@@ -203,6 +222,8 @@ func (k ResultKind) String() string {
 		return "aborted"
 	case ResultBroadcast:
 		return "broadcast"
+	case ResultProxyBufferFull:
+		return "proxy-buffer-full"
 	default:
 		return "unknown"
 	}
@@ -227,7 +248,12 @@ type Result struct {
 	AckTimers int
 	// Retransmissions counts response-timeout retries across all issuances.
 	Retransmissions int
-	Elapsed         time.Duration
+	// ProxyRefusals counts NACK PROXY_BUFFER_FULL responses received for
+	// this command. Non-zero on a ResultAck means the command got through
+	// only after the proxy was given room to drain — the signal that a link
+	// is running near saturation.
+	ProxyRefusals int
+	Elapsed       time.Duration
 	// Response is the final RDM response message, when there was one.
 	Response *rdm.Message
 	Err      error
@@ -240,25 +266,27 @@ type Command struct {
 	done chan Result
 
 	// --- controller-owned state, guarded by RDMController.mu ---
-	profile      TimeoutProfile
-	qkey         queueKey
-	tn           byte
-	attempt      int
-	ackTimers    int
-	blocks       [][]byte
-	blockCount   int
-	overflow     bool
-	retransmits  int
-	startedAt    time.Time
-	deadlineAt   time.Time
-	issued       bool
-	wireBytes    []byte
-	timer        Timer
-	deadline     Timer
-	gen          uint64
-	finished     bool
-	finalResult  Result
-	messageCount byte
+	profile       TimeoutProfile
+	qkey          queueKey
+	tn            byte
+	attempt       int
+	ackTimers     int
+	blocks        [][]byte
+	blockCount    int
+	overflow      bool
+	retransmits   int
+	proxyRefusals int
+	proxyWaited   time.Duration
+	startedAt     time.Time
+	deadlineAt    time.Time
+	issued        bool
+	wireBytes     []byte
+	timer         Timer
+	deadline      Timer
+	gen           uint64
+	finished      bool
+	finalResult   Result
+	messageCount  byte
 }
 
 // Done delivers the Result exactly once, then closes.
@@ -403,6 +431,10 @@ type RDMStats struct {
 	Retransmissions uint64
 	Timeouts        uint64
 	Nacks           uint64
+	// ProxyBufferFull counts NACK PROXY_BUFFER_FULL responses (a subset of
+	// Nacks). It is the diagnostic for "the rig is saturating its proxies",
+	// which reads very differently from a rig that NACKs unsupported PIDs.
+	ProxyBufferFull uint64
 	DroppedEvents   uint64
 }
 
@@ -422,6 +454,9 @@ type RDMController struct {
 	// different queue, which is possible when the same responder is
 	// reachable through two node ports.
 	overflowUID map[rdm.UID]*Command
+	// links carries the pacing learned per node port from PROXY_BUFFER_FULL
+	// refusals (rdmproxy.go). An absent or zero-gap entry means "not paced".
+	links       map[linkKey]*linkState
 	profiles    map[NodeKey]TimeoutProfile
 	tod         map[todKey]*todEntry
 	discoveries map[todKey]*Discovery
@@ -464,6 +499,7 @@ func NewRDMController(cfg RDMConfig) *RDMController {
 		queues:       make(map[queueKey]*cmdQueue),
 		inflightByTN: make(map[byte]*Command),
 		overflowUID:  make(map[rdm.UID]*Command),
+		links:        make(map[linkKey]*linkState),
 		profiles:     make(map[NodeKey]TimeoutProfile),
 		tod:          make(map[todKey]*todEntry),
 		discoveries:  make(map[todKey]*Discovery),
@@ -509,6 +545,12 @@ func (c *RDMController) Stop() {
 	}
 	for _, d := range c.discoveries {
 		c.finishDiscoveryLocked(d, ErrControllerStopped)
+	}
+	for _, ls := range c.links {
+		if ls.timer != nil {
+			ls.timer.Stop()
+			ls.timer = nil
+		}
 	}
 }
 
@@ -601,6 +643,7 @@ func (c *RDMController) pumpLocked() {
 	if c.stopped {
 		return
 	}
+	now := c.cfg.Clock.Now()
 	for _, q := range c.queues {
 		if q.inflight != nil || len(q.pending) == 0 {
 			continue
@@ -608,6 +651,14 @@ func (c *RDMController) pumpLocked() {
 		next := q.pending[0]
 		if owner, busy := c.overflowUID[next.req.UID]; busy && owner != next {
 			// This UID is mid-ACK_OVERFLOW; the whole queue holds behind it.
+			continue
+		}
+		if wait := c.paceWaitLocked(next.req.Node, now); wait > 0 {
+			// This command's node port has refused with PROXY_BUFFER_FULL
+			// recently. The buffer is shared by everything behind that port,
+			// so the whole link waits — not just the command that was
+			// refused, and regardless of which queue this one sits in.
+			c.armLinkTimerLocked(next.req.Node, wait, now)
 			continue
 		}
 		q.pending = q.pending[1:]
@@ -685,8 +736,12 @@ func (c *RDMController) issueLocked(cmd *Command, newTN bool) {
 
 func (c *RDMController) transmitLocked(cmd *Command) {
 	c.stats.Sent++
+	now := c.cfg.Clock.Now()
+	// Every request the proxy sees counts against the pacing gap, including
+	// retransmissions and ACK_TIMER re-issues.
+	c.stampLinkSendLocked(cmd.req.Node, now)
 	_ = c.cfg.Transport.Send(cmd.wireBytes, cmd.req.Node.Addr)
-	c.emitLocked(Event{Kind: EventCommandSent, Node: cmd.req.Node, UID: cmd.req.UID, At: c.cfg.Clock.Now()})
+	c.emitLocked(Event{Kind: EventCommandSent, Node: cmd.req.Node, UID: cmd.req.UID, At: now})
 }
 
 func (c *RDMController) armResponseTimerLocked(cmd *Command) {
@@ -823,6 +878,12 @@ func (c *RDMController) HandleRDMResponse(msg rdm.Message) {
 			reason = rdm.NackReason(uint16(msg.ParameterData[0])<<8 | uint16(msg.ParameterData[1]))
 		}
 		c.stats.Nacks++
+		if reason == rdm.NackProxyBufferFull {
+			// E1.20: the proxy has nowhere to put a response right now. That
+			// is "ask again later", not an answer — see rdmproxy.go.
+			c.onProxyBufferFullLocked(cmd, &msg)
+			return
+		}
 		cmd.finalResult.NackReason = reason
 		c.finishResponseLocked(cmd, ResultNack, &NackError{Reason: reason}, &msg)
 
@@ -908,6 +969,11 @@ func (c *RDMController) finishLocked(cmd *Command, kind ResultKind, err error) {
 		return
 	}
 	c.releaseTNLocked(cmd)
+	if kind == ResultAck || kind == ResultNack {
+		// The link carried a whole transaction, response included, so it had
+		// buffer room: evidence that any pacing on it can be relaxed.
+		c.noteLinkTransactionLocked(cmd.req.Node)
+	}
 	if owner, ok := c.overflowUID[cmd.req.UID]; ok && owner == cmd {
 		delete(c.overflowUID, cmd.req.UID)
 	}
@@ -942,6 +1008,7 @@ func (c *RDMController) completeLocked(cmd *Command, kind ResultKind, err error)
 	res.Blocks = cmd.blockCount
 	res.AckTimers = cmd.ackTimers
 	res.Retransmissions = cmd.retransmits
+	res.ProxyRefusals = cmd.proxyRefusals
 	res.MessageCount = cmd.messageCount
 	if cmd.issued {
 		res.Elapsed = c.cfg.Clock.Now().Sub(cmd.startedAt)

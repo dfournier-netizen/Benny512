@@ -181,30 +181,67 @@ func (c *Client) SetDMXPersonality(ctx context.Context, index byte) error {
 	return c.setRaw(ctx, rdm.PIDDMXPersonality, []byte{index})
 }
 
-// PersonalityDescription is GET DMX_PERSONALITY_DESCRIPTION's response for
-// one personality index (request data is the 1-byte index).
+// PersonalityDescription is DMX_PERSONALITY_DESCRIPTION's (0x00E1) GET
+// response for one personality index (report brief: verified against E1.20
+// §6.5.5's request/response shape, plus internal/rdm/dimmer.go's
+// IndexedDescription doc comment, which already documents CURVE_DESCRIPTION
+// et al. as "DMX_PERSONALITY_DESCRIPTION's shape minus the footprint field"
+// — i.e. this layout was already the established sibling pattern in this
+// codebase before this type had its own codec). Wire layout:
+//
+//	0    personality (echoed)  UINT8
+//	1-2  DMX slots required    UINT16 BE
+//	3-.. description           ASCII, no NUL terminator, length = PDL-3, max 32
 type PersonalityDescription struct {
 	Index        byte
 	DMXFootprint uint16
 	Description  string
 }
 
-// DMXPersonalityDescription issues GET DMX_PERSONALITY_DESCRIPTION for one
-// index. Wire layout: 1 byte index (echoed), 2 bytes footprint, then a
-// variable-length ASCII description (no NUL, per RDM label convention).
-func (c *Client) DMXPersonalityDescription(ctx context.Context, index byte) (PersonalityDescription, error) {
-	data, err := c.getRaw(ctx, rdm.PIDDMXPersonalityDescription, []byte{index})
-	if err != nil {
-		return PersonalityDescription{}, err
-	}
+// ErrBadPersonalityDescription is returned when DMX_PERSONALITY_DESCRIPTION
+// parameter data is shorter than its 3-byte fixed portion.
+var ErrBadPersonalityDescription = fmt.Errorf("%w: DMX_PERSONALITY_DESCRIPTION", ErrBadLength)
+
+// DecodePersonalityDescription parses a DMX_PERSONALITY_DESCRIPTION GET
+// response. The GET request itself is just the 1-byte personality number
+// being asked about (rdm.EncodeSensorNumberRequest-shaped — a bare index —
+// so no dedicated encoder is needed; callers pass []byte{index} directly,
+// as DMXPersonalityDescription below does).
+func DecodePersonalityDescription(data []byte) (PersonalityDescription, error) {
 	if len(data) < 3 {
-		return PersonalityDescription{}, fmt.Errorf("%w: DMX_PERSONALITY_DESCRIPTION wants >=3 bytes, got %d", ErrBadLength, len(data))
+		return PersonalityDescription{}, fmt.Errorf("%w: wants >=3 bytes, got %d", ErrBadPersonalityDescription, len(data))
 	}
 	return PersonalityDescription{
 		Index:        data[0],
 		DMXFootprint: binary.BigEndian.Uint16(data[1:3]),
 		Description:  string(data[3:]),
 	}, nil
+}
+
+// EncodePersonalityDescription is the inverse of DecodePersonalityDescription,
+// mostly useful for tests and the demo-mode fake responder. Description
+// longer than 32 bytes is truncated (RDM label convention, matching
+// EncodeParameterDescription/EncodeSensorDefinition in package rdm).
+func EncodePersonalityDescription(d PersonalityDescription) []byte {
+	desc := d.Description
+	if len(desc) > 32 {
+		desc = desc[:32]
+	}
+	b := make([]byte, 3+len(desc))
+	b[0] = d.Index
+	binary.BigEndian.PutUint16(b[1:3], d.DMXFootprint)
+	copy(b[3:], desc)
+	return b
+}
+
+// DMXPersonalityDescription issues GET DMX_PERSONALITY_DESCRIPTION for one
+// index.
+func (c *Client) DMXPersonalityDescription(ctx context.Context, index byte) (PersonalityDescription, error) {
+	data, err := c.getRaw(ctx, rdm.PIDDMXPersonalityDescription, []byte{index})
+	if err != nil {
+		return PersonalityDescription{}, err
+	}
+	return DecodePersonalityDescription(data)
 }
 
 // label helpers -------------------------------------------------------------

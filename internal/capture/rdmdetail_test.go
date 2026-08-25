@@ -111,11 +111,71 @@ func TestDecodeEntry_AckTimer(t *testing.T) {
 	if e.RDM.AckTimerRawUnits != 20 {
 		t.Fatalf("AckTimerRawUnits = %d, want 20", e.RDM.AckTimerRawUnits)
 	}
-	if e.RDM.AckTimerMsPerE120 != 200 {
-		t.Errorf("AckTimerMsPerE120 = %d, want 200 (20 units * 10ms)", e.RDM.AckTimerMsPerE120)
+	if e.RDM.AckTimerMs != 200 {
+		t.Errorf("AckTimerMs = %d, want 200 (20 units * 10ms)", e.RDM.AckTimerMs)
 	}
-	if e.RDM.AckTimerMsIfRawIsMs != 20 {
-		t.Errorf("AckTimerMsIfRawIsMs = %d, want 20", e.RDM.AckTimerMsIfRawIsMs)
+}
+
+// TestDecodeEntry_AckTimerNeverRunsPIDDecoder is the regression case for the
+// bench-log bug: an ACK_TIMER response's 2-byte timer estimate must never be
+// run through the PID-specific decoder, however well it happens to fit that
+// decoder's expected shape. Covers the three real lines from the bench log
+// that motivated this fix.
+func TestDecodeEntry_AckTimerNeverRunsPIDDecoder(t *testing.T) {
+	tests := []struct {
+		name string
+		pid  rdm.ParameterID
+	}{
+		// raw=30 units against DMX_PERSONALITY previously rendered as
+		// "personality 0 of 30" — nonsense, since 30 is a timer count, not a
+		// personality total.
+		{"DMX_PERSONALITY", rdm.PIDDMXPersonality},
+		// raw=30 units (0x00, 0x1E) against DEVICE_MODEL_DESCRIPTION
+		// previously rendered as the literal text `"\x00\x1e"`.
+		{"DEVICE_MODEL_DESCRIPTION", rdm.PIDDeviceModelDescription},
+		// DEVICE_INFO's decoder correctly refuses 2 bytes as too short and
+		// already produced no Decoded string, but it must still render as a
+		// timer, not silently drop the ACK_TIMER data.
+		{"DEVICE_INFO", rdm.PIDDeviceInfo},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg := rdm.Message{
+				DestinationUID:    rdm.UID{ManufacturerID: 0x7FF0, DeviceID: 1},
+				SourceUID:         rdm.UID{ManufacturerID: 0x4C55, DeviceID: 1},
+				TransactionNumber: 2, PortIDOrResponseType: byte(rdm.ResponseACKTimer),
+				CommandClass: rdm.GetCommandResponse, ParameterID: tt.pid,
+				ParameterData: []byte{0x00, 0x1E}, // raw=30 units, per the bench log
+			}
+			raw := encodeRDMPacket(t, msg)
+			e := DecodeEntry(DirIn, testPeer, raw)
+			if e.RDM == nil {
+				t.Fatal("RDM detail is nil")
+			}
+			d := e.RDM
+			if d.ResponseType != "ACK_TIMER" {
+				t.Fatalf("ResponseType = %q, want ACK_TIMER", d.ResponseType)
+			}
+			if d.AckTimerRawUnits != 30 {
+				t.Errorf("AckTimerRawUnits = %d, want 30", d.AckTimerRawUnits)
+			}
+			if d.AckTimerMs != 300 {
+				t.Errorf("AckTimerMs = %d, want 300 (30 units * 10ms)", d.AckTimerMs)
+			}
+			if d.Decoded != "" {
+				t.Errorf("Decoded = %q, want empty — ACK_TIMER payload must never run the PID-specific decoder", d.Decoded)
+			}
+			text := FormatEntryText(e)
+			if !strings.Contains(text, "ACK_TIMER: raw=30 units -> 300ms") {
+				t.Errorf("FormatEntryText missing plain ACK_TIMER line:\n%s", text)
+			}
+			if strings.Contains(text, "if raw is already ms") {
+				t.Errorf("FormatEntryText still contains the retired units hedge:\n%s", text)
+			}
+			if strings.Contains(text, "decoded:") {
+				t.Errorf("FormatEntryText should not print a 'decoded:' line for an ACK_TIMER response:\n%s", text)
+			}
+		})
 	}
 }
 
