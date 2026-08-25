@@ -303,6 +303,19 @@ func (st *Store) Mutate(fn func(*Patch) error) (Patch, error) {
 	return clonePatch(*st.patch), nil
 }
 
+// Clear discards the active patch (if any) and removes the on-disk file —
+// mirrors internal/walk.Store.Clear exactly, for the same reason: the
+// full-reset flow's "everything, including the patch" (task ask) must not
+// leave a stale file for the next server start to accidentally resurrect.
+func (st *Store) Clear() {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.patch = nil
+	if st.path != "" {
+		_ = os.Remove(st.path)
+	}
+}
+
 func (st *Store) persistLocked() {
 	if st.path == "" || st.patch == nil {
 		return

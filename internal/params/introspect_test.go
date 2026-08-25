@@ -204,6 +204,44 @@ func TestIntrospectNackFallback(t *testing.T) {
 // excluded from introspection (isIntrospectionTarget returned false) —
 // that exclusion had to be lifted for this test to pass, matching what
 // TestIntrospectSelfDescribing already asserts DEVICE_LABEL should NOT do.
+// TestClearAllDeviceStateWipesPerUIDIntrospectionState checks
+// ClearAllDeviceState (the full-reset flow's "everything" companion to
+// ForgetDevice's single-UID scope) empties Descriptors() for a UID that had
+// already resolved one, without needing to know that UID up front.
+func TestClearAllDeviceStateWipesPerUIDIntrospectionState(t *testing.T) {
+	uid := rdm.UID{ManufacturerID: 0x5372, DeviceID: 1}
+	pd := rdm.ParameterDescription{
+		PID: 0x8020, PDLSize: 1, DataType: rdm.DSUnsignedByte, CommandClass: rdm.PDCommandClassGetSet,
+		Unit: rdm.UnitNone, Prefix: rdm.PrefixNone, MinValue: 0, MaxValue: 255, DefaultValue: 0,
+		Description: "TEST PID",
+	}
+	pdBytes := rdm.EncodeParameterDescription(pd)
+
+	client, clock := newTestClient(t, uid, func(msg rdm.Message) ([]byte, bool, rdm.NackReason) {
+		if msg.ParameterID == rdm.PIDParameterDescription {
+			return pdBytes, false, 0
+		}
+		return nil, true, rdm.NackUnknownPID
+	})
+
+	var desc ParamDescriptor
+	runAsync(t, clock, func() {
+		desc = client.DescribeParam(context.Background(), 0x8020)
+	})
+	if !desc.SelfDescribing || desc.Label != "TEST PID" {
+		t.Fatalf("DescribeParam = %+v", desc)
+	}
+	if got := client.Descriptors(); len(got) != 1 {
+		t.Fatalf("Descriptors before ClearAllDeviceState = %+v, want 1", got)
+	}
+
+	ClearAllDeviceState()
+
+	if got := client.Descriptors(); len(got) != 0 {
+		t.Fatalf("Descriptors after ClearAllDeviceState = %+v, want 0", got)
+	}
+}
+
 func TestIntrospectReachesProxiedDevicePIDs(t *testing.T) {
 	uid := rdm.UID{ManufacturerID: 0x6C74, DeviceID: 1}
 	supported := rdm.EncodeSupportedParameters([]rdm.ParameterID{rdm.PIDProxiedDevices, rdm.PIDProxiedDeviceCount})

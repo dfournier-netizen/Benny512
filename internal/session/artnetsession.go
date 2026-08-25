@@ -640,6 +640,21 @@ func (s *ArtNetSession) LiveNodes() []Node {
 	return out
 }
 
+// ClearNodes wipes the entire Art-Net node table (full-reset flow, task
+// ask: "everything" — NOT the discovered-RDM-device cache clear, which
+// deliberately leaves the node table alone; see registry.Registry.
+// ClearDevices' doc comment for that distinction). The poll cycle/liveness
+// timer, if running, keeps ticking and will simply repopulate the table
+// from scratch as fresh ArtPollReply packets arrive — nothing here touches
+// started/stopped. Returns the number of nodes removed.
+func (s *ArtNetSession) ClearNodes() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := len(s.nodes)
+	s.nodes = make(map[NodeKey]*Node)
+	return n
+}
+
 // Node looks up a single node by key.
 func (s *ArtNetSession) Node(key NodeKey) (Node, bool) {
 	s.mu.Lock()

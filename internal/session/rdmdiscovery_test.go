@@ -342,6 +342,65 @@ func TestToDLookupMissIsReported(t *testing.T) {
 	}
 }
 
+// --- ClearToD / ClearToDPort (discovered-RDM-device cache clear) -------
+
+func TestClearToDDropsEveryPortsCache(t *testing.T) {
+	h := newHarness(t)
+	portA := mustPortAddress(t, 0, 0, 0)
+	portB := mustPortAddress(t, 0, 0, 1)
+	from := addrPort("2.11.90.2", ArtNetUDPPort)
+
+	h.ctrl.HandleInbound(todDataInbound(portA, 1, 0, []rdm.UID{uidA}, from))
+	h.ctrl.HandleInbound(todDataInbound(portB, 1, 0, []rdm.UID{uidB}, from))
+
+	n := h.ctrl.ClearToD()
+	if n != 2 {
+		t.Fatalf("ClearToD returned %d, want 2", n)
+	}
+	if _, ok := h.ctrl.ToD(nodeIP, portA); ok {
+		t.Error("portA's ToD cache should be gone")
+	}
+	if _, ok := h.ctrl.ToD(nodeIP, portB); ok {
+		t.Error("portB's ToD cache should be gone")
+	}
+}
+
+func TestClearToDOnEmptyControllerReturnsZero(t *testing.T) {
+	h := newHarness(t)
+	if n := h.ctrl.ClearToD(); n != 0 {
+		t.Fatalf("ClearToD on an empty controller = %d, want 0", n)
+	}
+}
+
+func TestClearToDPortLeavesOtherPortsIntact(t *testing.T) {
+	h := newHarness(t)
+	portA := mustPortAddress(t, 0, 0, 0)
+	portB := mustPortAddress(t, 0, 0, 1)
+	from := addrPort("2.11.90.2", ArtNetUDPPort)
+
+	h.ctrl.HandleInbound(todDataInbound(portA, 1, 0, []rdm.UID{uidA}, from))
+	h.ctrl.HandleInbound(todDataInbound(portB, 1, 0, []rdm.UID{uidB}, from))
+
+	n := h.ctrl.ClearToDPort(nodeIP, portA)
+	if n != 1 {
+		t.Fatalf("ClearToDPort returned %d, want 1", n)
+	}
+	if _, ok := h.ctrl.ToD(nodeIP, portA); ok {
+		t.Error("portA's ToD cache should be gone")
+	}
+	cached, ok := h.ctrl.ToD(nodeIP, portB)
+	if !ok || !sameUIDSet(cached, []rdm.UID{uidB}) {
+		t.Fatalf("portB's ToD cache should survive untouched, got %v ok=%v", uidStrings(cached), ok)
+	}
+}
+
+func TestClearToDPortMissReturnsZero(t *testing.T) {
+	h := newHarness(t)
+	if n := h.ctrl.ClearToDPort(nodeIP, mustPortAddress(t, 0, 0, 9)); n != 0 {
+		t.Fatalf("ClearToDPort for a never-discovered port = %d, want 0", n)
+	}
+}
+
 func tryDiscovery(d *Discovery) (DiscoveryResult, bool) {
 	select {
 	case r := <-d.Done():

@@ -68,6 +68,102 @@
   body.b5-walk-mode .b5-nav--mobile { display: none; }
 }
 
+/* ---- Rig Walk content must clear its own fixed Previous/Next bar --------
+   ROOT CAUSE (2026-08-25, "Rig Walk is unusable on PC"): .b5-walk-bar
+   (components.css) is position:fixed/bottom:0 at every breakpoint, but the
+   kit's only bottom-space reservation is .b5-app__body's mobile-only
+   padding-bottom, and even that was sized for the MOBILE NAV bar
+   (--b5-size-touch-min + space-6 = 68px), not for the walk bar, which is
+   --b5-size-touch-walk (76px) buttons plus space-3 padding top/bottom plus
+   a hairline border plus the iOS home-indicator safe area — ~101px+. On
+   desktop there was no reservation at all, so the bar permanently covered
+   the auto-advance checkbox, the device-detail accordion and the Export
+   buttons, and since the document was never taller than the viewport there
+   was nothing to scroll to reach them; on a phone the (undersized)
+   reservation meant the same content was clipped at the bottom of an
+   otherwise-scrollable page.
+   Fix: derive one shared "how tall is the bar" custom property from the
+   same tokens .b5-walk-bar's own padding/min-height use (never a guessed
+   px number), and reserve exactly that much bottom padding on the content
+   column whenever walk mode is active — at EVERY breakpoint, replacing
+   (not stacking with) the mobile nav reservation via a higher-specificity
+   selector, since the mobile nav bar is hidden in walk mode anyway. */
+:root {
+  --b5-walk-bar-reserve: calc(var(--b5-size-touch-walk) + (var(--b5-space-3) * 2) + var(--b5-border-width-thin) + var(--b5-space-3) + env(safe-area-inset-bottom, 0px));
+}
+body.b5-walk-mode .b5-app__body {
+  padding-bottom: var(--b5-walk-bar-reserve);
+}
+
+/* ---- Icon sprite: every icon in the app rendered as a solid black blob --
+   ROOT CAUSE found while auditing Task A (a second, distinct instance of
+   "the intended style never actually reaches the element" — not a UA
+   default this time, but the exact same effect: an invisible/wrong-colored
+   interactive glyph). benny512-icons.svg's root <svg style="display:none"
+   fill="none" stroke="currentColor" stroke-width="1.75" ...> declares its
+   intended outline style as presentation ATTRIBUTES on the sprite sheet's
+   own root element. Every icon in the app is instanced via
+   <svg><use href="/icons/benny512-icons.svg#b5-icon-NAME"/></svg> — but a
+   <use> only clones the referenced <symbol> subtree, never the sprite
+   sheet's own <svg> root, so those fill/stroke attributes are never part
+   of what gets cloned. The result, confirmed via getComputedStyle on live
+   icons app-wide: fill:rgb(0,0,0) / stroke:none on literally every icon in
+   the app (nav, buttons, badges, alerts, the accordion chevron, the new
+   Task C/reset-dialog icon) — a solid near-black shape on a near-black
+   background, i.e. functionally invisible, which is a strictly worse
+   contrast problem than the nav-button background bug this same task was
+   sweeping for. Confirmed via direct pixel crop of the nav bar: icons
+   render as solid dark blobs, not outline glyphs, at every call site.
+   Fix: fill/stroke ARE ordinary inheritable CSS properties, and a <use>
+   instance's shadow content inherits from the <use> element's OWN
+   ancestor chain in the real document (not from the sprite's original,
+   unrelated position) — so setting them on every <svg> that wraps a <use>
+   fixes every call site in one rule. Safe as a blanket `svg` selector:
+   grepped the whole static/ tree — literally every <svg> in this app wraps
+   exactly one <use href=".../benny512-icons.svg#...">; there is no other
+   inline SVG usage to collide with (the logo is a rasterized <img>, not
+   inline markup). Values mirror the sprite's own declared intent exactly. */
+svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---- Nav buttons: reset UA <button> defaults ----------------------------
+   ROOT CAUSE (2026-08-25, "nav buttons too bright, text too low-contrast"):
+   .b5-nav__item (layout.css) was authored for <a> elements — it sets
+   text-decoration/color but never resets background/border/font — while
+   index.html uses real <button> elements for every tab (desktop .b5-nav
+   AND the phone .b5-nav--mobile bar). Absent a reset, every tab kept the
+   UA's default button chrome (ButtonFace background, an inset 3D border,
+   a non-body font) underneath the kit's --b5-color-text-secondary — a pale
+   warm grey authored for a near-black ground — producing a bright grey
+   button with barely-legible text. Same construction .b5-tabs__tab
+   (components.css) already uses correctly for the identical <button>
+   element, mirrored here; loading order (app.css last) plus this rule's
+   explicit border-bottom/border-top re-declarations let the more-specific
+   .b5-nav--mobile media-query rules in layout.css keep choosing their own
+   side (top on phone, bottom on desktop) and their own font-size, so only
+   the actually-broken properties (background, the other 3 border sides,
+   font-family) are touched. Active tab keeps a background tint in ADDITION
+   to its text-color change and underline/top-border — never identifiable
+   by the accent line alone. Covers both .b5-nav and .b5-nav--mobile, both
+   themes (token-driven, no hardcoded color). */
+.b5-nav__item {
+  background: none;
+  border: none;
+  border-bottom: var(--b5-border-width-thick) solid transparent;
+  font: inherit;
+  font-size: var(--b5-font-size-sm);
+  font-weight: var(--b5-font-weight-medium);
+  cursor: pointer;
+}
+.b5-nav__item.is-active {
+  background: var(--b5-color-bg-selected);
+}
+
 /* ---- Analyzer expand-on-click affordance ----------------------------------
    .hexcell/tr.hexcell carry no styling of their own — they're JS query
    hooks (click to expand full hex/decoded detail) layered onto real
@@ -80,3 +176,111 @@
    should be visible even when the gauge itself scrolls out of view at the
    top of a long sensor list, so the panel border also gets the danger tint. */
 .b5-panel--out-of-range { border-color: var(--b5-color-danger-700); }
+
+/* ---- Touch-safe range thumb (Send's trim fader, Rig Check's level) -------
+   Standing accessibility gap: native <input type="range"> thumbs are a few
+   px in every engine's default styling — far under the kit's own
+   --b5-size-touch-min (44px) — and the delivered kit ships no touch-safe
+   range variant. Dom bench-tests on real gear with a phone in hand. Applied
+   to Send's per-channel trim fader (.b5-dmx-cell__range) and Rig Check's
+   level slider (#rcLevel) via this added class; value/step/oninput
+   behavior is untouched — purely a hit-target restyle, so the faders'
+   immediate-effect behavior (one of the two signed-off Apply-to-confirm
+   exceptions) is unchanged.
+   Gated to (hover:none)+(pointer:coarse) — real touchscreens only — so a
+   mouse/trackpad user (in particular, Send's 512-cell desktop grid) never
+   sees a giant 44px thumb crammed into an 18px grid cell; a laptop
+   touchscreen with a mouse also present correctly stays at the compact
+   desktop sizing via the (hover:none) half of the query. */
+@media (hover: none) and (pointer: coarse) {
+  .b5-range-touch {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    height: var(--b5-size-touch-min);
+    cursor: pointer;
+  }
+  .b5-range-touch::-webkit-slider-runnable-track {
+    height: 6px;
+    background: var(--b5-color-bg-inset);
+    border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
+    border-radius: var(--b5-radius-full);
+  }
+  .b5-range-touch::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: var(--b5-size-touch-min);
+    height: var(--b5-size-touch-min);
+    margin-top: calc((6px - var(--b5-size-touch-min)) / 2);
+    border-radius: var(--b5-radius-full);
+    background: var(--b5-color-accent-500);
+    border: var(--b5-border-width-thin) solid var(--b5-color-accent-700);
+  }
+  .b5-range-touch::-moz-range-track {
+    height: 6px;
+    background: var(--b5-color-bg-inset);
+    border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
+    border-radius: var(--b5-radius-full);
+  }
+  .b5-range-touch::-moz-range-thumb {
+    width: var(--b5-size-touch-min);
+    height: var(--b5-size-touch-min);
+    border-radius: var(--b5-radius-full);
+    background: var(--b5-color-accent-500);
+    border: var(--b5-border-width-thin) solid var(--b5-color-accent-700);
+  }
+}
+
+/* ---- Rig Walk's device-detail accordion is desktop-visible too ----------
+   ROOT CAUSE found while verifying Task B (not in the original bug
+   report): the kit's generic .b5-tabs/.b5-accordion pattern
+   (components.css) assumes a desktop TABS view is always paired with a
+   mobile ACCORDION view of the same content — ".b5-accordion{display:none}"
+   at >=768px, ".b5-tabs{display:none}" at <768px. walk.js never built a
+   tabs variant: per its own file doc comment it deliberately uses "large
+   collapsible accordions rather than small tabs" for the device-detail
+   panel on EVERY viewport, because the whole Rig Walk screen is presented
+   as a centered phone-width shell (.b5-shell--centered) even on desktop.
+   So on any screen >=768px wide the entire Info/Parameters/Sensors/Status
+   panel was `display:none` outright — nobody had reached it to notice,
+   because Task B's own bug (the walk bar permanently covering the bottom
+   of the page) hid the fact that this kit rule ALSO hid it; fixing the
+   occlusion alone would have just revealed an empty band where the panel
+   should be. Scoped to #walkAccordion specifically, not every .b5-accordion
+   in the app — the Devices tab's own detail shell elsewhere still wants
+   the kit's default desktop-tabs/mobile-accordion split; it isn't used by
+   Rig Walk. */
+#walkAccordion.b5-accordion { display: block; }
+
+/* ---- Devices screen: clear-devices controls ------------------------------
+   Scope buttons sit in the same filter bar as #fixtureNodeSelect so the
+   "which port" choice driving Discover is visually the same choice driving
+   a scoped Clear (task ask). Danger-ghost by default; the arm-then-confirm
+   step (js) swaps the armed button to solid .b5-btn--danger so "one more
+   click deletes data" reads as a distinct, more alarming state than the
+   resting button — never color alone, the label text changes too. */
+.b5-clear-armed { animation: b5-clear-pulse 1.4s ease-in-out infinite; }
+@keyframes b5-clear-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(200, 1, 0, 0.35); }
+  50% { box-shadow: 0 0 0 4px rgba(200, 1, 0, 0.12); }
+}
+
+/* ---- Settings screen: full-reset panel -----------------------------------
+   Deliberately separated from the rest of Settings (its own .b5-panel,
+   danger border) and NOT wired into the page's Apply-to-confirm field
+   component — the RESET-typed confirmation text IS the deliberate
+   confirmation step for this one irreversible action, on top of (not
+   instead of) the disabled-until-armed button. */
+.b5-panel--danger-zone { border-color: var(--b5-color-danger-700); }
+.b5-panel--danger-zone .b5-panel__header { border-bottom-color: var(--b5-color-danger-700); }
+
+/* ---- Reset terminal dialog: title icon sizing -----------------------------
+   .b5-dialog__title (components.css) is plain text in every existing kit
+   usage — nothing paired it with an icon before, so it never got an
+   `svg` sizing rule the way every other icon call site did
+   (.b5-alert svg, .b5-badge svg, .b5-btn svg, .b5-nav__item svg, ...).
+   Without one, the reset terminal state's checkmark rendered at the
+   browser's unstyled default SVG size (a large solid-looking blob) instead
+   of a small glyph — this is the "never color alone" pairing (status
+   confirmed by icon+text, not text alone) applied to the one new usage
+   site, sized the same way every other icon site already is. */
+.b5-dialog__title svg { width: 22px; height: 22px; margin-right: var(--b5-space-2); vertical-align: -4px; flex: none; }

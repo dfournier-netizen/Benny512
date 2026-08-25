@@ -85,6 +85,110 @@ func TestRegistryMergeToDAndParams(t *testing.T) {
 	}
 }
 
+// --- ClearDevices / ClearDevicesOnPort (discovered-RDM-device cache clear) --
+
+func newTestRegistry() *Registry {
+	clock := session.NewFakeClock(time.Time{})
+	tport := session.NewFakeTransport()
+	a := session.NewArtNetSession(session.ArtNetConfig{Transport: tport, Clock: clock})
+	r := session.NewRDMController(session.RDMConfig{Transport: tport, Clock: clock})
+	return New(a, r)
+}
+
+func TestClearDevicesWipesEveryPortAndReturnsCount(t *testing.T) {
+	reg := newTestRegistry()
+	go reg.Run()
+
+	portA, _ := artnet.NewPortAddress(0, 0, 0)
+	portB, _ := artnet.NewPortAddress(0, 0, 1)
+	nodeKey := session.NodeKey{IP: netip.MustParseAddr("10.0.0.5"), BindIndex: 1}
+	refA := session.NodeRef{Key: nodeKey, Addr: netip.MustParseAddrPort("10.0.0.5:6454"), Port: portA}
+	refB := session.NodeRef{Key: nodeKey, Addr: netip.MustParseAddrPort("10.0.0.5:6454"), Port: portB}
+	uid1 := rdm.UID{ManufacturerID: 0x6C74, DeviceID: 1}
+	uid2 := rdm.UID{ManufacturerID: 0x2222, DeviceID: 2}
+
+	reg.NoteFixture(refA, uid1)
+	reg.NoteFixture(refB, uid2)
+	waitForFixtureCount(t, reg, 2)
+
+	n := reg.ClearDevices()
+	if n != 2 {
+		t.Fatalf("ClearDevices returned %d, want 2", n)
+	}
+	if fx := reg.Fixtures(session.NodeKey{}, artnet.PortAddress{}, false); len(fx) != 0 {
+		t.Fatalf("fixtures after ClearDevices = %d, want 0: %+v", len(fx), fx)
+	}
+}
+
+func TestClearDevicesOnEmptyRegistryReturnsZero(t *testing.T) {
+	reg := newTestRegistry()
+	if n := reg.ClearDevices(); n != 0 {
+		t.Fatalf("ClearDevices on an empty registry = %d, want 0", n)
+	}
+}
+
+func TestClearDevicesOnPortLeavesOtherPortsIntact(t *testing.T) {
+	reg := newTestRegistry()
+	go reg.Run()
+
+	portA, _ := artnet.NewPortAddress(0, 0, 0)
+	portB, _ := artnet.NewPortAddress(0, 0, 1)
+	nodeKey := session.NodeKey{IP: netip.MustParseAddr("10.0.0.5"), BindIndex: 1}
+	addr := netip.MustParseAddrPort("10.0.0.5:6454")
+	refA := session.NodeRef{Key: nodeKey, Addr: addr, Port: portA}
+	refB := session.NodeRef{Key: nodeKey, Addr: addr, Port: portB}
+	uid1 := rdm.UID{ManufacturerID: 0x6C74, DeviceID: 1}
+	uid2 := rdm.UID{ManufacturerID: 0x2222, DeviceID: 2}
+	uid3 := rdm.UID{ManufacturerID: 0x2222, DeviceID: 3}
+
+	reg.NoteFixture(refA, uid1)
+	reg.NoteFixture(refB, uid2)
+	reg.NoteFixture(refB, uid3)
+	waitForFixtureCount(t, reg, 3)
+
+	n := reg.ClearDevicesOnPort(nodeKey.IP, portB)
+	if n != 2 {
+		t.Fatalf("ClearDevicesOnPort returned %d, want 2", n)
+	}
+	fx := reg.Fixtures(session.NodeKey{}, artnet.PortAddress{}, false)
+	if len(fx) != 1 || fx[0].UID != uid1 {
+		t.Fatalf("fixtures after ClearDevicesOnPort = %+v, want just uid1 on portA", fx)
+	}
+}
+
+func TestClearDevicesOnPortMissReturnsZero(t *testing.T) {
+	reg := newTestRegistry()
+	go reg.Run()
+
+	port, _ := artnet.NewPortAddress(0, 0, 0)
+	nodeKey := session.NodeKey{IP: netip.MustParseAddr("10.0.0.5"), BindIndex: 1}
+	ref := session.NodeRef{Key: nodeKey, Addr: netip.MustParseAddrPort("10.0.0.5:6454"), Port: port}
+	reg.NoteFixture(ref, rdm.UID{ManufacturerID: 0x6C74, DeviceID: 1})
+	waitForFixtureCount(t, reg, 1)
+
+	otherPort, _ := artnet.NewPortAddress(0, 0, 5)
+	if n := reg.ClearDevicesOnPort(nodeKey.IP, otherPort); n != 0 {
+		t.Fatalf("ClearDevicesOnPort for a port with nothing on it = %d, want 0", n)
+	}
+	if fx := reg.Fixtures(session.NodeKey{}, artnet.PortAddress{}, false); len(fx) != 1 {
+		t.Fatalf("the untouched port's fixture should survive, got %+v", fx)
+	}
+}
+
+func waitForFixtureCount(t *testing.T, reg *Registry, want int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if got := len(reg.Fixtures(session.NodeKey{}, artnet.PortAddress{}, false)); got == want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %d fixtures", want)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 // TestManufacturerLabelAndModelDescriptionCaching drives real GET round-trips
 // for MANUFACTURER_LABEL/DEVICE_MODEL_DESCRIPTION/DEVICE_INFO through
 // RDMController exactly like the Devices screen's background backfill does,

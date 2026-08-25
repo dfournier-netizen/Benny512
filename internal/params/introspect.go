@@ -167,6 +167,18 @@ func ForgetDevice(uid rdm.UID) {
 	uidStatesMu.Unlock()
 }
 
+// ClearAllDeviceState empties the process-wide per-UID introspection state
+// for every device at once — ForgetDevice's whole-table counterpart,
+// mirroring ClearDescriptorCache's relationship to descCache. Used by the
+// full-reset flow (task ask: "everything"), which has no single UID to
+// target; ForgetDevice remains the right call for a single device's
+// "rescan" action.
+func ClearAllDeviceState() {
+	uidStatesMu.Lock()
+	uidStates = map[rdm.UID]*uidState{}
+	uidStatesMu.Unlock()
+}
+
 // --- Introspect -----------------------------------------------------------
 
 // IntrospectProgress reports incremental progress during Introspect, meant

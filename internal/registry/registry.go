@@ -367,6 +367,44 @@ func (reg *Registry) NoteFixture(node session.NodeRef, uid rdm.UID) {
 	reg.mergeToD(node, []rdm.UID{uid})
 }
 
+// ClearDevices wipes every discovered device (fixture/RDM responder) entry
+// from the registry — the "wipe all ports" granularity of the
+// discovered-RDM-device cache clear (task ask: "keep your logging +
+// responses for now" — meaning this touches only the fixture table, never
+// the capture rings, the RDM disk logger, or params' process-wide
+// PARAMETER_DESCRIPTION cache/per-UID introspection state, all of which
+// outlive this call by design). Does NOT touch the Art-Net node table
+// either (session.ArtNetSession owns that separately; see its own
+// ClearNodes, used only by the destructive full-reset flow, never by this
+// cache clear). Returns the number of entries removed.
+func (reg *Registry) ClearDevices() int {
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+	n := len(reg.fixtures)
+	reg.fixtures = make(map[fixtureKey]*Fixture)
+	return n
+}
+
+// ClearDevicesOnPort wipes every discovered device entry on one node port —
+// the "wipe one port" granularity (task ask). Matched on (ip, Port-Address)
+// alone, NOT BindIndex, mirroring session.RDMController's todKey (see its
+// doc comment in internal/session/rdmdiscovery.go): a Port-Address is
+// globally unambiguous on its own, and the /api/devices/clear request shape
+// carries only ip+portAddress, no bind index. Returns the number of entries
+// removed.
+func (reg *Registry) ClearDevicesOnPort(ip netip.Addr, port artnet.PortAddress) int {
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+	n := 0
+	for k := range reg.fixtures {
+		if k.ip == ip && k.port == port.RawValue() {
+			delete(reg.fixtures, k)
+			n++
+		}
+	}
+	return n
+}
+
 // Nodes returns every known Art-Net node with its fixture count.
 func (reg *Registry) Nodes() []NodeView {
 	nodes := reg.artnet.Nodes()

@@ -107,6 +107,48 @@ func TestRingUnsubscribeStopsDelivery(t *testing.T) {
 	}
 }
 
+// TestRingClearEmptiesButKeepsCapacityAndSeqMonotonic covers the full-reset
+// flow's use of Clear (task ask: "everything") — capacity/subscribers must
+// survive, and Seq must not rewind (see Clear's doc comment for why: a
+// rewound Seq would make an existing subscriber's high-water mark look like
+// it already covers whatever gets Added next).
+func TestRingClearEmptiesButKeepsCapacityAndSeqMonotonic(t *testing.T) {
+	r := New(5)
+	r.Add(Entry{Kind: "ArtDmx"})
+	r.Add(Entry{Kind: "ArtDmx"})
+	before := r.Snapshot(Filter{}, 0)
+	if len(before) != 2 {
+		t.Fatalf("seeded %d entries, want 2", len(before))
+	}
+	lastSeqBefore := before[len(before)-1].Seq
+
+	r.Clear()
+
+	if got := r.Snapshot(Filter{}, 0); len(got) != 0 {
+		t.Fatalf("Snapshot after Clear = %+v, want empty", got)
+	}
+	if got := r.Capacity(); got != 5 {
+		t.Fatalf("Capacity after Clear = %d, want 5 (unchanged)", got)
+	}
+
+	next := r.Add(Entry{Kind: "ArtRdm"})
+	if next.Seq <= lastSeqBefore {
+		t.Fatalf("Seq after Clear = %d, want > %d (monotonic, not reset to 0)", next.Seq, lastSeqBefore)
+	}
+	got := r.Snapshot(Filter{}, 0)
+	if len(got) != 1 || got[0].Kind != "ArtRdm" {
+		t.Fatalf("Snapshot after post-Clear Add = %+v", got)
+	}
+}
+
+func TestRingClearOnEmptyRingIsANoOp(t *testing.T) {
+	r := New(5)
+	r.Clear() // must not panic
+	if got := r.Snapshot(Filter{}, 0); len(got) != 0 {
+		t.Fatalf("Snapshot = %+v, want empty", got)
+	}
+}
+
 func TestAddPacketDecodesArtDmx(t *testing.T) {
 	r := New(10)
 	// Minimal valid-ish raw bytes aren't constructed here (that's artnet's

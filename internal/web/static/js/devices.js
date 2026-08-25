@@ -42,6 +42,115 @@ const DevicesScreen = (() => {
   // classification sweep below — unrelated to DeviceDetail's own caches.
   let classifying = {};
 
+  // --- Clear discovered devices (POST /api/devices/clear) -----------------
+  // Arm-then-confirm, same shape as the node-config IP editor's Apply →
+  // Arm → Confirm gate (nodes.js) minus the separate Apply step (there's no
+  // field to stage here — the "port" scope IS #fixtureNodeSelect's current
+  // value, so arming just freezes which port that confirm click will act
+  // on). Auto-disarms after a few seconds of inactivity so a stale armed
+  // button left on screen can't be mis-clicked later.
+  let clearArmed = null; // null | 'all' | 'port'
+  let clearArmedScope = null; // the {ip,bindIndex,portAddress} frozen at arm time, for 'port'
+  let clearBusy = false;
+  let clearMsg = '';
+  let clearArmTimer = null;
+  const CLEAR_ARM_TIMEOUT_MS = 8000;
+
+  function selectedNodePort() {
+    const sel = document.getElementById('fixtureNodeSelect');
+    if (!sel || !sel.value) return null;
+    try { return JSON.parse(sel.value); } catch (e) { return null; }
+  }
+
+  function nodePortLabel(scope) {
+    if (!scope) return '(no port selected)';
+    const n = nodes.find(x => x.ip === scope.ip && x.bindIndex === scope.bindIndex);
+    const name = n ? (n.shortName || n.longName || n.ip) : scope.ip;
+    return `${escapeHtml(name)} (${escapeHtml(scope.ip)}) port ${scope.portAddress}`;
+  }
+
+  function armClear(kind) {
+    if (kind === 'port') {
+      clearArmedScope = selectedNodePort();
+      if (!clearArmedScope) return;
+    }
+    clearArmed = kind;
+    clearMsg = '';
+    renderClearGroup();
+    clearTimeout(clearArmTimer);
+    clearArmTimer = setTimeout(disarmClear, CLEAR_ARM_TIMEOUT_MS);
+  }
+
+  function disarmClear() {
+    clearArmed = null;
+    clearArmedScope = null;
+    clearTimeout(clearArmTimer);
+    renderClearGroup();
+  }
+
+  async function confirmClear() {
+    const kind = clearArmed;
+    const scope = clearArmedScope;
+    clearTimeout(clearArmTimer);
+    clearBusy = true;
+    renderClearGroup();
+    try {
+      let res;
+      if (kind === 'all') {
+        res = await Api.clearDevicesAll();
+        clearMsg = `Cleared ${res.cleared} device${res.cleared === 1 ? '' : 's'} across all ports (${res.todCleared} discovery table${res.todCleared === 1 ? '' : 's'} reset).`;
+      } else {
+        res = await Api.clearDevicesPort(scope.ip, scope.portAddress);
+        clearMsg = `Cleared ${res.cleared} device${res.cleared === 1 ? '' : 's'} on ${nodePortLabel(scope)}.`;
+      }
+      await refreshFixtures();
+    } catch (e) {
+      clearMsg = 'error: ' + e.message;
+    }
+    clearBusy = false;
+    clearArmed = null;
+    clearArmedScope = null;
+    renderClearGroup();
+  }
+
+  function renderClearGroup() {
+    const group = document.getElementById('clearDevicesGroup');
+    const statusRow = document.getElementById('clearDevicesStatusRow');
+    if (!group) return;
+    const sel = selectedNodePort();
+    if (clearBusy) {
+      group.innerHTML = `<span class="b5-inline-wait">${UI.spinner()}Clearing…</span>`;
+    } else if (clearArmed === 'port') {
+      group.innerHTML = `
+        <span class="b5-badge b5-badge--warning">${UI.icon('status-warning')}Confirm</span>
+        <button id="btnClearConfirm" class="b5-btn b5-btn--sm b5-btn--danger b5-clear-armed">Yes, clear devices on ${nodePortLabel(clearArmedScope)}</button>
+        <button id="btnClearCancel" class="b5-btn b5-btn--sm b5-btn--ghost">${UI.icon('revert')}Cancel</button>`;
+    } else if (clearArmed === 'all') {
+      group.innerHTML = `
+        <span class="b5-badge b5-badge--warning">${UI.icon('status-warning')}Confirm</span>
+        <button id="btnClearConfirm" class="b5-btn b5-btn--sm b5-btn--danger b5-clear-armed">Yes, clear ALL discovered devices (every port)</button>
+        <button id="btnClearCancel" class="b5-btn b5-btn--sm b5-btn--ghost">${UI.icon('revert')}Cancel</button>`;
+    } else {
+      group.innerHTML = `
+        <span class="b5-text-muted b5-text-sm">Clear discovered devices:</span>
+        <button id="btnClearPort" class="b5-btn b5-btn--sm b5-btn--danger" ${sel ? '' : 'disabled'} title="Clear only the devices discovered on the port selected above">Clear this port</button>
+        <button id="btnClearAll" class="b5-btn b5-btn--sm b5-btn--danger" title="Clear every discovered device on every port">Clear ALL ports</button>`;
+    }
+    if (statusRow) {
+      statusRow.innerHTML = clearMsg
+        ? `<p class="b5-text-sm b5-text-muted" style="margin:var(--b5-space-2) 0 0" id="clearDevicesMsg">${escapeHtml(clearMsg)}</p>`
+        : '';
+    }
+    const btnPort = document.getElementById('btnClearPort');
+    if (btnPort) btnPort.addEventListener('click', () => armClear('port'));
+    const btnAll = document.getElementById('btnClearAll');
+    if (btnAll) btnAll.addEventListener('click', () => armClear('all'));
+    const btnConfirm = document.getElementById('btnClearConfirm');
+    if (btnConfirm) btnConfirm.addEventListener('click', confirmClear);
+    const btnCancel = document.getElementById('btnClearCancel');
+    if (btnCancel) btnCancel.addEventListener('click', disarmClear);
+  }
+
   async function refreshNodes() {
     nodes = await Api.getNodes();
     const sel = document.getElementById('fixtureNodeSelect');
@@ -57,6 +166,7 @@ const DevicesScreen = (() => {
     });
     if (prevValue) sel.value = prevValue;
     refreshFilterOptions();
+    renderClearGroup();
   }
 
   async function refreshFixtures() {
@@ -303,6 +413,17 @@ const DevicesScreen = (() => {
 
   function init() {
     document.getElementById('btnDiscover').addEventListener('click', discover);
+    // Changing the node/port selection while a 'port'-scope clear is armed
+    // would let a confirm click fire against a port the tech isn't looking
+    // at any more — disarm rather than silently retarget.
+    const nodePortSel = document.getElementById('fixtureNodeSelect');
+    if (nodePortSel) nodePortSel.addEventListener('change', () => { if (clearArmed === 'port') disarmClear(); else renderClearGroup(); });
+    renderClearGroup();
+    // A clear can be triggered from any open browser (task ask) — refresh
+    // this one's table either way; our own confirmClear() already awaits
+    // refreshFixtures() itself, so this is a harmless extra refresh when
+    // it's our own action, and the only refresh when it's someone else's.
+    Live.on('devices_cleared', () => { refreshFixtures(); });
 
     const classSel = document.getElementById('deviceClassFilter');
     if (classSel) {

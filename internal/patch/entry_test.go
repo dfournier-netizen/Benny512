@@ -147,6 +147,49 @@ func TestStore_EnsureActiveLazyInit(t *testing.T) {
 	}
 }
 
+// TestStore_ClearDiscardsInMemoryPatch mirrors internal/walk's
+// TestStoreClear — Clear is the full-reset flow's "everything including
+// the patch" (task ask).
+func TestStore_ClearDiscardsInMemoryPatch(t *testing.T) {
+	st := NewStore("")
+	st.Replace(Patch{Entries: []Entry{{ID: "a"}}})
+	st.Clear()
+	if _, ok := st.Get(); ok {
+		t.Fatal("Clear should discard the active patch")
+	}
+}
+
+// TestStore_ClearRemovesFile mirrors internal/walk's
+// TestStoreClearRemovesFile: a cleared patch must not be resurrected by a
+// fresh Store pointed at the same path (e.g. a server restart right after
+// a full reset).
+func TestStore_ClearRemovesFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "patch.json")
+	st := NewStore(path)
+	st.Replace(Patch{Entries: []Entry{{ID: "a"}}})
+	st.Clear()
+
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("os.Stat(path) err = %v, want IsNotExist", err)
+	}
+	st2 := NewStore(path)
+	if _, ok := st2.Get(); ok {
+		t.Fatal("a cleared patch should not be resurrected by a fresh Store")
+	}
+}
+
+// TestStore_ClearOnNoPatchNoPathIsANoOp ensures Clear tolerates being
+// called with persistence disabled and nothing ever created (--demo mode's
+// PatchStore, or any test-built Server that never calls SetPatchStorePath —
+// see internal/web's handleReset, which calls Clear unconditionally).
+func TestStore_ClearOnNoPatchNoPathIsANoOp(t *testing.T) {
+	st := NewStore("")
+	st.Clear() // must not panic
+	if _, ok := st.Get(); ok {
+		t.Fatal("expected no patch")
+	}
+}
+
 func TestPatch_IndexOf(t *testing.T) {
 	p := Patch{Entries: []Entry{{ID: "a"}, {ID: "b"}}}
 	if p.IndexOf("b") != 1 {

@@ -215,5 +215,20 @@ const Api = (() => {
     rigCheckStopBeacon: () => {
       try { fetch('/api/patch/rigcheck/stop', { method: 'POST', keepalive: true }); } catch (e) { /* best-effort */ }
     },
+
+    // --- Devices screen: clear discovered devices (internal/web/devicesclear.go) ---
+    // Deliberately narrow (server-side doc comment): clears only the
+    // registry's discovered-device entries + RDM Table-of-Devices for the
+    // chosen scope. Capture/logs/learned-PID cache all survive — this is
+    // NOT the destructive full reset below.
+    clearDevicesAll: () => req('POST', '/api/devices/clear', { scope: 'all' }),
+    clearDevicesPort: (ip, portAddress) => req('POST', '/api/devices/clear', { scope: 'port', ip, portAddress }),
+
+    // --- Settings screen: destructive full reset (internal/web/reset.go) ---
+    // Deletes the patch and the Rig Walk session (on disk and in memory),
+    // then the exe exits — see settings.js for the terminal-state UI this
+    // drives. confirm must be the exact string "RESET" or the server
+    // 400s with "confirmation required".
+    fullReset: () => req('POST', '/api/reset', { confirm: 'RESET' }),
   };
 })();

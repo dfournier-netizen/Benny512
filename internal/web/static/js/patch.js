@@ -625,7 +625,7 @@ const PatchScreen = (() => {
             <option value="step_channel">Mode: Step one channel</option>
           </select>
           <label class="b5-text-sm" style="display:flex;align-items:center;gap:8px">Level
-            <input type="range" id="rcLevel" min="0" max="255" value="${st.level || rcLevel}">
+            <input type="range" id="rcLevel" class="b5-range-touch" min="0" max="255" value="${st.level || rcLevel}">
             <span class="b5-text-mono" id="rcLevelVal">${st.level || rcLevel}</span>
           </label>
           ${st.running

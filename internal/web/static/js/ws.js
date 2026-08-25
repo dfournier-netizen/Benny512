@@ -4,6 +4,14 @@
 const Live = (() => {
   let socket = null;
   let retryMs = 1000;
+  // shuttingDown suppresses the normal "connection lost, retrying…" churn
+  // for exactly one case: a full reset (settings.js) intentionally ends the
+  // server process right after its 200 response. Every other disconnect
+  // (network blip, node restart, the tech closing their laptop lid) still
+  // gets the ordinary reconnect-with-backoff behavior below — this flag is
+  // set only by the one call site that knows the process is gone on
+  // purpose (see enterShutdown/settings.js's doFullReset).
+  let shuttingDown = false;
   const listeners = { node: [], rdm: [], capture: [], all: [] };
 
   function connect() {
@@ -15,6 +23,7 @@ const Live = (() => {
       setStatus(true);
     };
     socket.onclose = () => {
+      if (shuttingDown) return;
       setStatus(false);
       setTimeout(connect, retryMs);
       retryMs = Math.min(retryMs * 1.5, 15000);
@@ -55,6 +64,22 @@ const Live = (() => {
     }
   }
 
+  // enterShutdown is called once, right after a full-reset 200 response
+  // (settings.js) — the server is exiting on purpose, so stop trying to
+  // reconnect and stop touching #connStatus; the caller replaces the whole
+  // UI with its own terminal end-state instead. Deliberately does NOT call
+  // socket.close() itself: the server process is already tearing down
+  // (resetShutdownDelay has all but elapsed by the time the 200 response
+  // reaches the browser) and will drop the TCP connection on its own in a
+  // few hundred ms, which fires the ordinary onclose path above (a no-op
+  // once shuttingDown is set). Proactively closing here raced the server's
+  // own close and made Chrome log a spurious "WebSocket ... Close received
+  // after close" console error for a connection that was about to die
+  // cleanly either way.
+  function enterShutdown() {
+    shuttingDown = true;
+  }
+
   connect();
-  return { on, send };
+  return { on, send, enterShutdown };
 })();

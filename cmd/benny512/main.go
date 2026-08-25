@@ -68,6 +68,17 @@ func main() {
 	}
 	defer srv.Close()
 
+	// Wire the full-reset flow's "Reset and exit" behavior (task ask; see
+	// internal/web's reset.go) to the exact same context-cancel func the
+	// SIGINT/SIGTERM handler above already uses, so a reset-triggered
+	// shutdown goes through the identical clean-shutdown path (HTTP server
+	// Shutdown, deferred srv.Close/closeTransport) rather than a second,
+	// divergent one.
+	srv.OnShutdownRequest = func(reason string) {
+		logf("info", "shutdown requested (%s)", reason)
+		cancel()
+	}
+
 	// Rig Walk mode persists its session as a JSON file next to the exe
 	// (task ask: "a simple in-memory session plus JSON file next to the exe
 	// is fine, matching existing persistence conventions") so a dropped

@@ -75,7 +75,9 @@
           <button id="btnDiscover" class="b5-btn b5-btn--sm b5-btn--primary"><svg><use href="/icons/benny512-icons.svg#b5-icon-signal"/></svg>Discover</button>
           <span class="b5-inline-wait" id="discoverStatus"></span>
         </div>
+        <div class="b5-filterbar__group" id="clearDevicesGroup" style="margin-left:auto"></div>
       </div>
+      <div id="clearDevicesStatusRow"></div>
       <div class="b5-filterbar">
         <div class="b5-filterbar__group">
           <label class="b5-visually-hidden" for="deviceClassFilter">Class</label>
@@ -291,6 +293,10 @@
         <div class="b5-row">
           <button id="btnSaveSettings" class="b5-btn b5-btn--primary"><svg><use href="/icons/benny512-icons.svg#b5-icon-apply"/></svg>Apply settings</button>
           <span class="b5-text-muted b5-text-sm" id="settingsStatus"></span>
+        </div>
+        <div class="b5-panel b5-panel--danger-zone">
+          <div class="b5-panel__header"><h2 class="b5-panel__title">Danger zone &mdash; full reset</h2></div>
+          <div class="b5-panel__body b5-stack" id="resetPanelRoot"></div>
         </div>
       </div>
     </section>

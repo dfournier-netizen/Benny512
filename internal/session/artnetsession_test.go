@@ -353,6 +353,40 @@ func TestSessionRunPumpsInboundChannel(t *testing.T) {
 	}
 }
 
+// --- ClearNodes (full-reset flow) --------------------------------------
+
+func TestClearNodesWipesTheTableAndReturnsCount(t *testing.T) {
+	s, _, _ := newSession(t, ArtNetConfig{})
+	from1 := addrPort("2.11.90.2", ArtNetUDPPort)
+	from2 := addrPort("2.11.90.3", ArtNetUDPPort)
+	s.HandleInbound(inboundPollReply(pollReply("2.11.90.2", 1, "EN4-A", "long a"), from1))
+	s.HandleInbound(inboundPollReply(pollReply("2.11.90.3", 1, "EN4-B", "long b"), from2))
+	if got := len(s.Nodes()); got != 2 {
+		t.Fatalf("seeded node count = %d, want 2", got)
+	}
+
+	n := s.ClearNodes()
+	if n != 2 {
+		t.Fatalf("ClearNodes returned %d, want 2", n)
+	}
+	if got := len(s.Nodes()); got != 0 {
+		t.Fatalf("node count after ClearNodes = %d, want 0", got)
+	}
+
+	// A fresh reply repopulates from scratch.
+	s.HandleInbound(inboundPollReply(pollReply("2.11.90.2", 1, "EN4-A", "long a"), from1))
+	if got := len(s.Nodes()); got != 1 {
+		t.Fatalf("node count after a post-clear reply = %d, want 1", got)
+	}
+}
+
+func TestClearNodesOnEmptySessionReturnsZero(t *testing.T) {
+	s, _, _ := newSession(t, ArtNetConfig{})
+	if n := s.ClearNodes(); n != 0 {
+		t.Fatalf("ClearNodes on an empty session = %d, want 0", n)
+	}
+}
+
 func TestSessionIgnoresNonPollReplyTraffic(t *testing.T) {
 	s, _, _ := newSession(t, ArtNetConfig{})
 	from := addrPort("2.11.90.2", ArtNetUDPPort)

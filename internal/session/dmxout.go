@@ -133,6 +133,28 @@ func (e *DMXOutputEngine) Stop() {
 	}
 }
 
+// Blackout zeroes every currently started universe's buffer and pushes it
+// immediately (outside the tick cycle), without changing which universes
+// are started or the engine's running state — the same "zero and push now,
+// don't wait for the next tick" discipline patch.RigCheck's own Stop/
+// Blackout already apply to its own bookkeeping (internal/patch/
+// rigcheck.go), generalized here so a caller that needs to guarantee
+// nothing this engine drives is left lit (e.g. the full-reset flow, task
+// ask: "never leave the rig lit") can zero everything, not just whatever
+// one caller's own started-set happens to know about — RigCheck.Stop only
+// zeroes the universes IT started; a universe lit via a direct /api/dmx
+// send outside any rig check would otherwise survive a RigCheck.Stop
+// untouched.
+func (e *DMXOutputEngine) Blackout() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	zero := [DMXUniverseSize]byte{}
+	for _, u := range e.universes {
+		u.data = zero
+	}
+	e.transmitAllLocked()
+}
+
 func (e *DMXOutputEngine) scheduleLocked() {
 	if !e.running {
 		return

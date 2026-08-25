@@ -18,7 +18,7 @@ const SendScreen = (() => {
       cell.innerHTML = `
         <span class="b5-dmx-cell__ch">${String(ch).padStart(3, '0')}</span>
         <input type="number" min="0" max="255" value="0" data-ch="${ch}" class="dmx-num">
-        <input type="range" min="0" max="255" value="0" data-ch="${ch}" class="dmx-fader b5-dmx-cell__range">
+        <input type="range" min="0" max="255" value="0" data-ch="${ch}" class="dmx-fader b5-dmx-cell__range b5-range-touch">
       `;
       grid.appendChild(cell);
     }

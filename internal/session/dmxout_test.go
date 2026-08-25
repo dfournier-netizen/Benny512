@@ -359,6 +359,56 @@ func TestDMXSendNowTransmitsOutsideTheTick(t *testing.T) {
 	}
 }
 
+// --- Blackout (full-reset flow / any "never leave the rig lit" caller) --
+
+func TestBlackoutZeroesEveryStartedUniverseAndPushesImmediately(t *testing.T) {
+	e, _, tr := newDMX(t, DMXConfig{Interval: time.Second}) // engine never Started: Blackout must not depend on the tick loop
+	paA := mustPortAddress(t, 0, 0, 0)
+	paB := mustPortAddress(t, 0, 0, 1)
+	e.StartUniverse(paA, nodeAddr, 0)
+	e.StartUniverse(paB, nodeAddr, 0)
+	if err := e.SetFrame(paA, []byte{255, 200, 100}); err != nil {
+		t.Fatalf("SetFrame A: %v", err)
+	}
+	if err := e.SetFrame(paB, []byte{50, 60}); err != nil {
+		t.Fatalf("SetFrame B: %v", err)
+	}
+	tr.TakeSent() // discard nothing-yet-sent baseline
+
+	e.Blackout()
+
+	sent := dmxPackets(t, tr.TakeSent())
+	if len(sent) != 2 {
+		t.Fatalf("Blackout sent %d packets, want 2 (one per started universe)", len(sent))
+	}
+	frameA, ok := e.Frame(paA)
+	if !ok {
+		t.Fatal("universe A should still be started after Blackout")
+	}
+	for i, b := range frameA {
+		if b != 0 {
+			t.Fatalf("frame A slot %d = %d, want 0 after Blackout", i, b)
+		}
+	}
+	frameB, ok := e.Frame(paB)
+	if !ok {
+		t.Fatal("universe B should still be started after Blackout")
+	}
+	for i, b := range frameB {
+		if b != 0 {
+			t.Fatalf("frame B slot %d = %d, want 0 after Blackout", i, b)
+		}
+	}
+}
+
+func TestBlackoutOnNoStartedUniversesIsANoOp(t *testing.T) {
+	e, _, tr := newDMX(t, DMXConfig{})
+	e.Blackout() // must not panic
+	if got := len(tr.TakeSent()); got != 0 {
+		t.Fatalf("Blackout with no started universes sent %d packets, want 0", got)
+	}
+}
+
 func TestDMXRecordsSendErrors(t *testing.T) {
 	e, clock, tr := newDMX(t, DMXConfig{Interval: time.Millisecond})
 	pa := mustPortAddress(t, 0, 0, 0)

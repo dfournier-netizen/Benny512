@@ -205,6 +205,20 @@ func (r *Ring) Add(e Entry) Entry {
 	return e
 }
 
+// Clear empties the ring (full-reset flow, task ask: "everything") without
+// disturbing its capacity, subscribers, or the monotonic Seq counter —
+// Seq keeps counting up from wherever it was rather than resetting to 0, so
+// an existing subscriber's lastSeq high-water mark (see subscriber.
+// seqState/Publish) stays a valid comparison against whatever gets Added
+// next instead of looking like every future entry was already delivered.
+func (r *Ring) Clear() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.buf = r.buf[:0]
+	r.next = 0
+	r.count = 0
+}
+
 // AddPacket is a convenience wrapper: decode a raw datagram (via
 // DecodeEntry) and add it.
 func (r *Ring) AddPacket(dir Direction, peer netip.AddrPort, raw []byte) Entry {

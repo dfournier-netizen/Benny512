@@ -106,9 +106,43 @@ type Server struct {
 	// the server, same "one active run at a time" model as walkStore.
 	RigCheck *patch.RigCheck
 
+	// walkStorePath/patchStorePath retain the paths SetWalkStorePath/
+	// SetPatchStorePath were called with (those setters otherwise discard
+	// the path after constructing the store) — the full-reset flow
+	// (handleReset) needs them to know which on-disk files to delete.
+	// Empty means "no on-disk persistence configured", e.g. every test that
+	// builds a Server via New directly, and --demo mode's PatchStore (see
+	// cmd/benny512/main.go's long comment on why --demo never calls
+	// SetPatchStorePath) — reset tolerates either being empty.
+	walkStorePath  string
+	patchStorePath string
+
+	// OnShutdownRequest, if set, is invoked (on its own goroutine, after a
+	// short delay so the triggering HTTP response has time to flush first)
+	// when something inside the server decides the process should exit —
+	// today only the full-reset flow's "Reset and exit" behavior (task ask:
+	// Dom explicitly chose reset-then-exit over reset-live). reason names
+	// why. cmd/benny512 wires this to the same context-cancel func its
+	// SIGINT handler already uses, so shutdown stays clean and
+	// single-sourced. Left nil (the zero value — every test that builds a
+	// Server via New directly, since nothing here calls it) means "skip the
+	// exit, but still perform everything else" — see handleReset.
+	OnShutdownRequest func(reason string)
+
 	hub *hub
 
 	mux *http.ServeMux
+}
+
+// defaultSettings builds the Settings value a fresh server (or a full reset,
+// task ask: "reset Settings to the same defaults New installs") starts
+// with. Kept as one function so New and handleReset can never drift apart.
+func defaultSettings() Settings {
+	return Settings{
+		PollIntervalMS:  int(session.DefaultPollInterval / time.Millisecond),
+		CaptureLimit:    capture.DefaultCapacity,
+		TimeoutProfiles: map[string]string{},
+	}
 }
 
 // New wires a Server over already-constructed engines. rdmCap is the
@@ -118,11 +152,7 @@ type Server struct {
 func New(nodes *session.ArtNetSession, rdmc *session.RDMController, dmx *session.DMXOutputEngine, reg *registry.Registry, cap *capture.Ring, rdmCap *capture.Ring) *Server {
 	s := &Server{
 		Nodes: nodes, RDM: rdmc, DMX: dmx, Registry: reg, Capture: cap, RDMCapture: rdmCap,
-		settings: Settings{
-			PollIntervalMS:  int(session.DefaultPollInterval / time.Millisecond),
-			CaptureLimit:    capture.DefaultCapacity,
-			TimeoutProfiles: map[string]string{},
-		},
+		settings:   defaultSettings(),
 		walkStore:  walk.NewStore(""),
 		PatchStore: patch.NewStore(""),
 		RigCheck:   patch.NewRigCheck(dmx),
@@ -173,6 +203,7 @@ func (s *Server) LogRDMEntry(e capture.Entry) {
 // would want to change it mid-session.
 func (s *Server) SetWalkStorePath(path string) {
 	s.walkStore = walk.NewStore(path)
+	s.walkStorePath = path
 }
 
 // SetPatchStorePath switches the patch model's persistence to path (a JSON
@@ -182,6 +213,7 @@ func (s *Server) SetWalkStorePath(path string) {
 // internal/patch.NewStore).
 func (s *Server) SetPatchStorePath(path string) {
 	s.PatchStore = patch.NewStore(path)
+	s.patchStorePath = path
 }
 
 // SetLogRDMPath opens (or closes, if path=="") the continuous RDM disk
@@ -245,6 +277,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/capture/snapshot", s.handleCaptureSnapshot)
 	s.mux.HandleFunc("GET /api/capture/rdm/snapshot", s.handleRDMCaptureSnapshot)
 	s.mux.HandleFunc("GET /api/capture/export", s.handleCaptureExport)
+
+	// --- discovered-device cache clear / full reset ---
+	s.mux.HandleFunc("POST /api/devices/clear", s.handleDevicesClear)
+	s.mux.HandleFunc("POST /api/reset", s.handleReset)
 
 	// --- Phase 1c+: self-describing PIDs, sensors, device status ---
 	s.mux.HandleFunc("GET /api/device/{uid}/params", s.handleGetDeviceParams)
@@ -1027,6 +1063,9 @@ func (s *Server) pumpCapture(ctx context.Context) {
 //	                         connections subscribed to that UID (see handleWS)
 //	"node_config"          — NodeConfig (Kind carries the node IP string) — a
 //	                         SetPortAddresses/SetNodeNames/ProgramIP/SetInputEnabled result
+//	"devices_cleared"      — Scope ("all"|"port") and Cleared (device-entry
+//	                         count) — a POST /api/devices/clear result,
+//	                         broadcast so every other open browser refreshes
 type wsMessage struct {
 	Type        string                  `json:"type"`
 	Kind        string                  `json:"kind,omitempty"`
@@ -1039,7 +1078,13 @@ type wsMessage struct {
 	Descriptors []paramDescriptorJSON   `json:"descriptors,omitempty"`
 	Sensors     []sensorReadingJSON     `json:"sensors,omitempty"`
 	NodeConfig  *nodeConfigResultJSON   `json:"nodeConfig,omitempty"`
-	Err         string                  `json:"err,omitempty"`
+	// Scope/Cleared are set only for Type=="devices_cleared" — Cleared is a
+	// pointer (rather than a bare int) purely so it's omitted from every
+	// OTHER message type's JSON instead of spuriously rendering as
+	// "cleared":0 on every node/rdm/capture/... push.
+	Scope   string `json:"scope,omitempty"`
+	Cleared *int   `json:"cleared,omitempty"`
+	Err     string `json:"err,omitempty"`
 }
 
 // introspectProgressJSON mirrors params.IntrospectProgress.

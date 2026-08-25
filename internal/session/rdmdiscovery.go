@@ -293,6 +293,38 @@ func (c *RDMController) ToD(ip netip.Addr, port artnet.PortAddress) ([]rdm.UID, 
 	return append([]rdm.UID(nil), e.uids...), true
 }
 
+// ClearToD drops every cached Table of Devices entry, for every node port —
+// the "wipe all ports" granularity of the discovered-RDM-device cache clear
+// (task ask). This is a bare cache wipe, not the destructive Stop(): any
+// discovery currently in flight is left running (its own eventual result
+// simply repopulates c.tod for its key), and nothing about the command
+// queues is touched. The next Discover for any port starts from an empty
+// table instead of merging into stale entries. Returns the number of
+// (ip,port) tables dropped.
+func (c *RDMController) ClearToD() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := len(c.tod)
+	c.tod = make(map[todKey]*todEntry)
+	return n
+}
+
+// ClearToDPort drops the cached Table of Devices for one node port only —
+// the "wipe one port" granularity (task ask). Keyed on (ip, Port-Address)
+// alone, matching todKey (see its doc comment: BindIndex is deliberately
+// not part of the key). Returns 1 if a cached table existed and was
+// dropped, 0 if there was nothing cached for that port.
+func (c *RDMController) ClearToDPort(ip netip.Addr, port artnet.PortAddress) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	key := todKey{ip: ip, port: port.RawValue()}
+	if _, ok := c.tod[key]; !ok {
+		return 0
+	}
+	delete(c.tod, key)
+	return 1
+}
+
 func sortedUIDs(set map[rdm.UID]struct{}) []rdm.UID {
 	out := make([]rdm.UID, 0, len(set))
 	for u := range set {
