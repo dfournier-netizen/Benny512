@@ -8,9 +8,13 @@ import (
 // FormatEntryText renders one Entry as a human-readable annotated block:
 // timestamp, direction, kind/peer, decoded fields (when available), and a
 // full hex dump. Used by both the continuous disk logger (one block per
-// RDM/ToD entry as it happens) and the TXT export's per-exchange transcript
-// (report task item 3: "human-readable annotated transcript... decoded
-// fields, hex dump, so it can be pasted into a chat message").
+// RDM/ToD entry as it happens, now also every undecodable entry routed in
+// via IsRDMLoggable) and the TXT export's per-exchange transcript (report
+// task item 3: "human-readable annotated transcript... decoded fields, hex
+// dump, so it can be pasted into a chat message"). An entry that failed to
+// decode (DecodeErr != "") gets its decode error in place of decoded
+// fields, plus its hex — see HexThreshold's doc comment for why that hex is
+// never suppressed regardless of size.
 func FormatEntryText(e Entry) string {
 	var b strings.Builder
 	peer := "-"
@@ -25,6 +29,8 @@ func FormatEntryText(e Entry) string {
 		writeRDMDetailText(&b, e.RDM)
 	case e.Tod != nil:
 		writeTodDetailText(&b, e.Tod)
+	case e.DecodeErr != "":
+		fmt.Fprintf(&b, "  DECODE ERROR: %s\n", e.DecodeErr)
 	case e.Key != "":
 		fmt.Fprintf(&b, "  %s\n", e.Key)
 	}

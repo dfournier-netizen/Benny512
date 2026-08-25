@@ -494,14 +494,23 @@ func TestArtTodControlBelow24BytesThrows(t *testing.T) {
 }
 
 // --- Golden fixture: ArtRdm carrying GET DEVICE_INFO ---
+//
+// Spec-correct as of the wire-format bug fix: ArtRdm's RdmPacket field
+// begins at the RDM sub-start code (0x01), excluding the leading 0xCC RDM
+// start code — see artnet.Rdm's doc comment for the full story (this
+// project shipped the 0xCC-inclusive framing below until a real-hardware
+// bench session against an Obsidian/Elation-family gateway showed every
+// directed ArtRdm GET silently dropped because of it). The corresponding
+// legacy (0xCC-inclusive, pre-fix) 50-byte form is exercised separately in
+// TestGoldenArtRdmEncodeByteExactLegacy.
 
 func TestGoldenArtRdmDecode(t *testing.T) {
 	b := hexBytes(`
 	41 72 74 2D 4E 65 74 00 00 83 00 0E 01 00 00 00 00 00 00 00 00 00 00 00
-	CC 01 18 7A 70 12 34 56 78 7A 70 00 00 00 01 00 01 00 00 00 20 00 60 00
+	01 18 7A 70 12 34 56 78 7A 70 00 00 00 01 00 01 00 00 00 20 00 60 00
 	04 4F
 	`)
-	if len(b) != 50 {
+	if len(b) != 49 {
 		t.Fatalf("len=%d", len(b))
 	}
 	pkt, err := Decode(b)
@@ -515,7 +524,7 @@ func TestGoldenArtRdmDecode(t *testing.T) {
 	if p.Spare != [7]byte{} {
 		t.Fatalf("spare=%v", p.Spare)
 	}
-	if len(p.RdmData) != 26 || p.RdmData[0] != 0xCC {
+	if len(p.RdmData) != 25 || p.RdmData[0] != 0x01 {
 		t.Fatalf("rdmData=%v", p.RdmData)
 	}
 	msg, err := p.DecodedRDMMessage()
@@ -536,7 +545,7 @@ func TestGoldenArtRdmDecode(t *testing.T) {
 func TestGoldenArtRdmEncodeByteExact(t *testing.T) {
 	expected := hexBytes(`
 	41 72 74 2D 4E 65 74 00 00 83 00 0E 01 00 00 00 00 00 00 00 00 00 00 00
-	CC 01 18 7A 70 12 34 56 78 7A 70 00 00 00 01 00 01 00 00 00 20 00 60 00
+	01 18 7A 70 12 34 56 78 7A 70 00 00 00 01 00 01 00 00 00 20 00 60 00
 	04 4F
 	`)
 	msg := rdm.Message{
@@ -550,10 +559,209 @@ func TestGoldenArtRdmEncodeByteExact(t *testing.T) {
 		ParameterID:          rdm.PIDDeviceInfo,
 		ParameterData:        nil,
 	}
-	p := EncodeRdmPacket(msg, 0x000E, 0, 0)
+	p := EncodeRdmPacket(msg, 0x000E, 0, 0, false)
 	got := Encode(Packet{Kind: KindRdm, Rdm: p})
 	if !bytes.Equal(got, expected) {
 		t.Fatalf("got %X want %X", got, expected)
+	}
+}
+
+// TestGoldenArtRdmEncodeByteExactLegacy is the same GET DEVICE_INFO message
+// as TestGoldenArtRdmEncodeByteExact, but with legacyStartCode=true — the
+// --legacy-rdm-startcode escape hatch. It must reproduce this project's
+// original (spec-incorrect) 0xCC-inclusive 50-byte framing byte-for-byte,
+// since that is exactly the framing a node bench-confirmed to need it would
+// be expecting.
+func TestGoldenArtRdmEncodeByteExactLegacy(t *testing.T) {
+	expected := hexBytes(`
+	41 72 74 2D 4E 65 74 00 00 83 00 0E 01 00 00 00 00 00 00 00 00 00 00 00
+	CC 01 18 7A 70 12 34 56 78 7A 70 00 00 00 01 00 01 00 00 00 20 00 60 00
+	04 4F
+	`)
+	if len(expected) != 50 {
+		t.Fatalf("len=%d", len(expected))
+	}
+	msg := rdm.Message{
+		DestinationUID:       rdm.UID{ManufacturerID: 0x7A70, DeviceID: 0x12345678},
+		SourceUID:            rdm.UID{ManufacturerID: 0x7A70, DeviceID: 0x00000001},
+		TransactionNumber:    0,
+		PortIDOrResponseType: 0x01,
+		MessageCount:         0,
+		SubDevice:            0,
+		CommandClass:         rdm.GetCommand,
+		ParameterID:          rdm.PIDDeviceInfo,
+		ParameterData:        nil,
+	}
+	p := EncodeRdmPacket(msg, 0x000E, 0, 0, true)
+	if len(p.RdmData) != 26 || p.RdmData[0] != 0xCC {
+		t.Fatalf("legacy rdmData=%X", p.RdmData)
+	}
+	got := Encode(Packet{Kind: KindRdm, Rdm: p})
+	if !bytes.Equal(got, expected) {
+		t.Fatalf("got %X want %X", got, expected)
+	}
+	// Legacy-framed wire bytes must still decode via the tolerant receive
+	// path (decode accepts a payload starting 0xCC as-is).
+	pkt, err := Decode(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgBack, err := pkt.Rdm.DecodedRDMMessage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msgBack.ParameterID != rdm.PIDDeviceInfo || msgBack.CommandClass != rdm.GetCommand {
+		t.Fatalf("roundtrip mismatch: %+v", msgBack)
+	}
+}
+
+// --- ArtRdm 0xCC start-code framing: dedicated regression tests for the
+// wire-format bug fix (RdmPacket excludes the DMX start code per Art-Net 4;
+// see artnet.Rdm's doc comment) ---
+
+// rdmDeviceInfoRequest returns a message with ParameterData explicitly
+// []byte{} (not nil) so it compares equal, via reflect.DeepEqual, to a
+// message that has round-tripped through rdm.Decode — Decode always
+// allocates ParameterData with make([]byte, pdl), which is non-nil even at
+// pdl==0.
+func rdmDeviceInfoRequest() rdm.Message {
+	return rdm.Message{
+		DestinationUID:       rdm.UID{ManufacturerID: 0x22A6, DeviceID: 0x004D05BF},
+		SourceUID:            rdm.UID{ManufacturerID: 0x7FF0, DeviceID: 0x00000001},
+		TransactionNumber:    3,
+		PortIDOrResponseType: 1,
+		CommandClass:         rdm.GetCommand,
+		ParameterID:          rdm.PIDDeviceInfo,
+		ParameterData:        []byte{},
+	}
+}
+
+// TestEncodeRdmPacketStripsStartCode: legacyStartCode=false must drop
+// rdm.Encode's leading 0xCC before it lands in RdmData.
+func TestEncodeRdmPacketStripsStartCode(t *testing.T) {
+	msg := rdmDeviceInfoRequest()
+	full := rdm.Encode(msg)
+	p := EncodeRdmPacket(msg, DefaultProtocolVersion, 0, 0, false)
+	if len(p.RdmData) != len(full)-1 {
+		t.Fatalf("len(RdmData)=%d want %d", len(p.RdmData), len(full)-1)
+	}
+	if p.RdmData[0] != rdm.SubStartCode {
+		t.Fatalf("RdmData[0]=0x%02X want sub-start code 0x%02X", p.RdmData[0], rdm.SubStartCode)
+	}
+	if !bytes.Equal(p.RdmData, full[1:]) {
+		t.Fatalf("RdmData=%X want %X", p.RdmData, full[1:])
+	}
+}
+
+// TestEncodeRdmPacketLegacyKeepsStartCode: legacyStartCode=true must keep
+// rdm.Encode's output byte-for-byte, 0xCC included.
+func TestEncodeRdmPacketLegacyKeepsStartCode(t *testing.T) {
+	msg := rdmDeviceInfoRequest()
+	full := rdm.Encode(msg)
+	p := EncodeRdmPacket(msg, DefaultProtocolVersion, 0, 0, true)
+	if !bytes.Equal(p.RdmData, full) {
+		t.Fatalf("RdmData=%X want %X", p.RdmData, full)
+	}
+}
+
+// TestDecodedRDMMessageAcceptsSubStartCodeFirst: the spec-correct receive
+// case — RdmData begins at 0x01 (SC_SUB_MESSAGE), no 0xCC.
+func TestDecodedRDMMessageAcceptsSubStartCodeFirst(t *testing.T) {
+	msg := rdmDeviceInfoRequest()
+	full := rdm.Encode(msg)
+	p := Rdm{RdmData: append([]byte(nil), full[1:]...)}
+	got, err := p.DecodedRDMMessage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, msg) {
+		t.Fatalf("got %+v want %+v", got, msg)
+	}
+}
+
+// TestDecodedRDMMessageAcceptsStartCodeFirst: the tolerant case — some real
+// nodes send RdmData already 0xCC-prefixed despite the spec excluding it;
+// DecodedRDMMessage must decode that as-is rather than double-prepending.
+func TestDecodedRDMMessageAcceptsStartCodeFirst(t *testing.T) {
+	msg := rdmDeviceInfoRequest()
+	full := rdm.Encode(msg)
+	p := Rdm{RdmData: append([]byte(nil), full...)}
+	got, err := p.DecodedRDMMessage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, msg) {
+		t.Fatalf("got %+v want %+v", got, msg)
+	}
+}
+
+// TestDecodedRDMMessageDoesNotMutateCaller guards the "copy, don't mutate
+// the caller's slice in place" requirement: decoding a 0x01-first RdmData
+// (which requires prepending 0xCC internally) must leave the caller's
+// backing array untouched.
+func TestDecodedRDMMessageDoesNotMutateCaller(t *testing.T) {
+	msg := rdmDeviceInfoRequest()
+	full := rdm.Encode(msg)
+	rdmData := append([]byte(nil), full[1:]...)
+	before := append([]byte(nil), rdmData...)
+	p := Rdm{RdmData: rdmData}
+	if _, err := p.DecodedRDMMessage(); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(rdmData, before) {
+		t.Fatalf("RdmData mutated: got %X want %X", rdmData, before)
+	}
+}
+
+// TestRoundTripEncodeRdmPacketDecodedRDMMessage covers EncodeRdmPacket ->
+// wire -> Decode -> DecodedRDMMessage for both legacyStartCode settings,
+// confirming the reframing is transparent to the decoded RDM message.
+func TestRoundTripEncodeRdmPacketDecodedRDMMessage(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		msg := rdmDeviceInfoRequest()
+		p := EncodeRdmPacket(msg, DefaultProtocolVersion, 0, 0, legacy)
+		wire := Encode(Packet{Kind: KindRdm, Rdm: p})
+		pkt, err := Decode(wire)
+		if err != nil {
+			t.Fatalf("legacy=%v: %v", legacy, err)
+		}
+		got, err := pkt.Rdm.DecodedRDMMessage()
+		if err != nil {
+			t.Fatalf("legacy=%v: %v", legacy, err)
+		}
+		if !reflect.DeepEqual(got, msg) {
+			t.Fatalf("legacy=%v: got %+v want %+v", legacy, got, msg)
+		}
+	}
+}
+
+// TestReframingLeavesChecksumAndMessageLengthUntouched: the RDM message
+// itself (message-length slot and trailing checksum) must not change
+// between the two framings — only where the Art-Net payload starts. This
+// re-derives rdm.Encode(msg) as the reference and checks that
+// EncodeRdmPacket's output, with 0xCC re-prepended where it was stripped,
+// is byte-identical to it in both modes.
+func TestReframingLeavesChecksumAndMessageLengthUntouched(t *testing.T) {
+	msg := rdmDeviceInfoRequest()
+	reference := rdm.Encode(msg) // CC 01 <len> ... <checksum:2>
+	wantMessageLength := reference[2]
+	wantChecksum := reference[len(reference)-2:]
+
+	for _, legacy := range []bool{false, true} {
+		p := EncodeRdmPacket(msg, DefaultProtocolVersion, 0, 0, legacy)
+		full := p.RdmData
+		if !legacy {
+			full = append([]byte{rdm.StartCode}, p.RdmData...)
+		}
+		if !bytes.Equal(full, reference) {
+			t.Fatalf("legacy=%v: reframed message %X want %X", legacy, full, reference)
+		}
+		if full[2] != wantMessageLength {
+			t.Fatalf("legacy=%v: message length %d want %d", legacy, full[2], wantMessageLength)
+		}
+		if !bytes.Equal(full[len(full)-2:], wantChecksum) {
+			t.Fatalf("legacy=%v: checksum %X want %X", legacy, full[len(full)-2:], wantChecksum)
+		}
 	}
 }
 
@@ -582,14 +790,17 @@ func TestGoldenRawRDMGetResponseViaArtRdm(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	artRdm := EncodeRdmPacket(msg, 0x000E, 0, 0)
+	artRdm := EncodeRdmPacket(msg, 0x000E, 0, 0, false)
 	wire := Encode(Packet{Kind: KindRdm, Rdm: artRdm})
 	pkt, err := Decode(wire)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(pkt.Rdm.RdmData, rdmBytes) {
-		t.Fatalf("rdmData=%X want %X", pkt.Rdm.RdmData, rdmBytes)
+	// EncodeRdmPacket (legacyStartCode=false, spec-correct) strips the
+	// leading 0xCC before it goes on the wire, so the round-tripped
+	// RdmData is rdmBytes minus its first byte, not rdmBytes itself.
+	if !bytes.Equal(pkt.Rdm.RdmData, rdmBytes[1:]) {
+		t.Fatalf("rdmData=%X want %X", pkt.Rdm.RdmData, rdmBytes[1:])
 	}
 	roundTripped, err := pkt.Rdm.DecodedRDMMessage()
 	if err != nil {
@@ -689,14 +900,16 @@ func TestDUBRequestGoldenViaArtRdm(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	artRdm := EncodeRdmPacket(msg, 0x000E, 0, 0)
+	artRdm := EncodeRdmPacket(msg, 0x000E, 0, 0, false)
 	wire := Encode(Packet{Kind: KindRdm, Rdm: artRdm})
 	pkt, err := Decode(wire)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(pkt.Rdm.RdmData, dubBytes) {
-		t.Fatalf("got %X want %X", pkt.Rdm.RdmData, dubBytes)
+	// See TestGoldenRawRDMGetResponseViaArtRdm: spec-correct encode strips
+	// the leading 0xCC, so RdmData is dubBytes minus its first byte.
+	if !bytes.Equal(pkt.Rdm.RdmData, dubBytes[1:]) {
+		t.Fatalf("got %X want %X", pkt.Rdm.RdmData, dubBytes[1:])
 	}
 }
 

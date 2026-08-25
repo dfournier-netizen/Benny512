@@ -322,6 +322,18 @@ type RDMConfig struct {
 	DiscoveryTimeout time.Duration
 	// EventBuffer defaults to 64.
 	EventBuffer int
+	// LegacyRdmStartCode selects the ArtRdm outbound wire framing. Default
+	// (false) is spec-correct: the leading 0xCC RDM start code is stripped
+	// from every outbound ArtRdm's RdmPacket field, per Art-Net 4 (see
+	// artnet.Rdm's doc comment for the full story — this project shipped the
+	// 0xCC-inclusive framing until a bench session against a real
+	// Obsidian/Elation-family gateway showed every directed GET silently
+	// dropped). Set true only as an escape hatch, confirmed against real
+	// hardware, for a node that turns out to actually want the old framing —
+	// getting this wrong costs a bench session, not a compile error, so it
+	// is never assumed. Inbound decode tolerates both forms regardless of
+	// this setting (see artnet.Rdm.DecodedRDMMessage).
+	LegacyRdmStartCode bool
 }
 
 // DefaultAckTimerUnit is ACK_TIMER's parameter-data unit per ANSI E1.20.
@@ -657,7 +669,7 @@ func (c *RDMController) issueLocked(cmd *Command, newTN bool) {
 		ParameterID:          cmd.req.PID,
 		ParameterData:        cmd.req.Data,
 	}
-	pkt := artnet.EncodeRdmPacket(msg, c.cfg.ProtocolVersion, cmd.req.Node.Port.Net, cmd.req.Node.Port.SubUni())
+	pkt := artnet.EncodeRdmPacket(msg, c.cfg.ProtocolVersion, cmd.req.Node.Port.Net, cmd.req.Node.Port.SubUni(), c.cfg.LegacyRdmStartCode)
 	cmd.wireBytes = artnet.Encode(artnet.Packet{Kind: artnet.KindRdm, Rdm: pkt})
 
 	c.transmitLocked(cmd)

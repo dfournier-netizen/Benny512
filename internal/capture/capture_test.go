@@ -48,23 +48,58 @@ func TestRingSnapshotFilters(t *testing.T) {
 func TestRingHexThreshold(t *testing.T) {
 	r := New(10)
 	small := make([]byte, 10)
-	big := make([]byte, HexThreshold+1)
 	e1 := r.AddPacket(DirIn, netip.AddrPort{}, small)
-	e2 := r.AddPacket(DirIn, netip.AddrPort{}, big)
 	if e1.HexTrunc {
 		t.Error("small packet should not be truncated")
 	}
 	if e1.Hex == "" {
 		t.Error("small packet should retain hex")
 	}
+
+	// A big entry that DID decode (DecodeErr == "") is still truncated above
+	// HexThreshold — this is Ring.Add's general size cap, unaffected by the
+	// decode-error carve-out. Built directly (rather than via AddPacket)
+	// because nothing this codebase actually decodes exceeds the threshold
+	// (see HexThreshold's doc comment); Ring.Add doesn't care how an Entry
+	// was produced.
+	e2 := r.Add(Entry{Kind: "ArtDmx", Size: HexThreshold + 1, Hex: "aabbcc"})
 	if !e2.HexTrunc {
-		t.Error("big packet should be marked truncated")
+		t.Error("big decoded packet should be marked truncated")
 	}
 	if e2.Hex != "" {
-		t.Error("big packet should have empty hex")
+		t.Error("big decoded packet should have empty hex")
 	}
-	if e2.Size != len(big) {
-		t.Errorf("size should still reflect true length: got %d want %d", e2.Size, len(big))
+	if e2.Size != HexThreshold+1 {
+		t.Errorf("size should still reflect true length: got %d want %d", e2.Size, HexThreshold+1)
+	}
+}
+
+// TestRingHexThresholdBypassedForDecodeError covers the carve-out described
+// in HexThreshold's doc comment: an entry that failed to decode keeps its
+// full hex (and is never HexTrunc) no matter how large the raw datagram was,
+// because the raw bytes are the only diagnostic evidence such an entry
+// carries — exactly the case size-based truncation would otherwise hide.
+func TestRingHexThresholdBypassedForDecodeError(t *testing.T) {
+	r := New(10)
+	garbageOversized := make([]byte, HexThreshold+50) // all-zero, fails ID check
+	e := r.AddPacket(DirIn, netip.AddrPort{}, garbageOversized)
+	if e.Kind != "unknown" {
+		t.Fatalf("Kind = %q, want unknown", e.Kind)
+	}
+	if e.DecodeErr == "" {
+		t.Fatal("expected DecodeErr to be populated for undecodable input")
+	}
+	if e.HexTrunc {
+		t.Error("undecodable oversized entry should NOT be marked truncated")
+	}
+	if e.Hex == "" {
+		t.Error("undecodable oversized entry should retain full hex despite exceeding HexThreshold")
+	}
+	if len(e.Hex) != len(garbageOversized)*2 {
+		t.Errorf("hex length = %d, want %d (full raw bytes)", len(e.Hex), len(garbageOversized)*2)
+	}
+	if e.Size != len(garbageOversized) {
+		t.Errorf("Size = %d, want %d", e.Size, len(garbageOversized))
 	}
 }
 

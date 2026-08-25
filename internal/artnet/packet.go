@@ -202,9 +202,50 @@ type TodControl struct {
 	Address         byte
 }
 
-// Rdm is ArtRdm (OpCode 0x8300). RdmData is the raw RDM message bytes
-// starting at Slot 0 (the 0xCC start code) — decode/encode it via the rdm
-// package using the convenience helpers below.
+// Rdm is ArtRdm (OpCode 0x8300).
+//
+// RdmData is the wire-format RDM message *excluding* the leading 0xCC RDM
+// start code (RDM slot 0) — per the Art-Net 4 spec, ArtRdm's RdmPacket
+// field begins at the sub-start code 0x01 (SC_SUB_MESSAGE, RDM slot 1),
+// not at slot 0. An earlier revision of this project got this wrong
+// (RdmData held the full RDM message starting at 0xCC, and that
+// 0xCC-inclusive framing was sent on the wire) — that is a real,
+// root-caused bug that was bench-confirmed silently dropping every
+// directed ArtRdm GET against a real Obsidian/Elation-family gateway
+// (discovery worked — ArtTodData is unaffected by this field — but every
+// GET/SET went unanswered, no NACK, because the node read 0xCC where it
+// expected the sub-start code 0x01 and discarded the packet).
+//
+// CORRECTION, confirming evidence: OLA (OpenLightingProject/ola),
+// plugins/artnet/ArtNetNode.cpp, in its ArtRdm receive path, verbatim:
+//
+//	// The Art-Net packet does not include the RDM start code. Prepend that.
+//	RDMFrame rdm_response(packet.data, rdm_length, RDMFrame::Options(true));
+//
+// OLA's own artnet_rdm_s wire struct ends in a bare
+// `uint8_t data[ARTNET_MAX_RDM_DATA]` with no start-code byte accounted
+// for, consistent with that comment.
+//
+// Why this project's own wire-format verification missed it:
+// phase1a-wire-format-verification's §2.8 offset table (ArtRdm offsets
+// 0-23) has no row for this trailing RdmPacket field at all — the
+// requirement lives in the spec's prose, not in an offset table, so the
+// extraction pass that built that table never captured it. Its §3.8
+// "golden" ArtRdm fixture was then built 0xCC-inclusive from the same
+// wrong assumption, and this package's tests matched that fixture
+// byte-for-byte. Both have since been corrected here. Do NOT "fix" RdmData
+// back to 0xCC-inclusive to make it match that old doc/fixture — the doc
+// was wrong, not this code.
+//
+// EncodeRdmPacket strips the leading 0xCC on encode by default (see its
+// legacyStartCode parameter — plumbed from cmd/benny512's
+// --legacy-rdm-startcode flag via RDMConfig.LegacyRdmStartCode — an
+// explicit escape hatch for a node that turns out to actually want the old,
+// spec-incorrect 0xCC-inclusive framing; default is spec-correct/off).
+// DecodedRDMMessage tolerates BOTH forms on receive regardless of that
+// flag: some real nodes in the wild send the 0xCC anyway despite the spec
+// excluding it, and a decoder that rejected those would just trade one
+// silent failure for another.
 type Rdm struct {
 	ProtocolVersion uint16
 	RdmVersion      byte // 0x01
@@ -213,17 +254,44 @@ type Rdm struct {
 	Net             byte
 	Command         byte // 0x00 = ArProcess
 	Address         byte
-	RdmData         []byte
+	// RdmData is the RdmPacket field: wire-format RDM message bytes starting
+	// at the sub-start code (0x01), per the type doc comment above. Build/
+	// read it via EncodeRdmPacket / DecodedRDMMessage rather than by hand.
+	RdmData []byte
 }
 
 // DecodedRDMMessage decodes RdmData as a full RDM message via rdm.Decode.
+//
+// Tolerant of both wire forms: if RdmData already begins with the RDM
+// start code (0xCC — some nodes include it despite the Art-Net spec
+// excluding it), it is decoded as-is; otherwise the 0xCC is prepended
+// first, since rdm.Decode always expects a full RDM message starting at
+// slot 0. RdmData itself is never mutated — a new slice is allocated when
+// prepending is needed.
 func (p Rdm) DecodedRDMMessage() (rdm.Message, error) {
-	return rdm.Decode(p.RdmData)
+	if len(p.RdmData) > 0 && p.RdmData[0] == rdm.StartCode {
+		return rdm.Decode(p.RdmData)
+	}
+	buf := make([]byte, 0, len(p.RdmData)+1)
+	buf = append(buf, rdm.StartCode)
+	buf = append(buf, p.RdmData...)
+	return rdm.Decode(buf)
 }
 
-// EncodeRdmPacket builds an Rdm packet by encoding message via rdm.Encode
-// into RdmData.
-func EncodeRdmPacket(message rdm.Message, protocolVersion uint16, net, address byte) Rdm {
+// EncodeRdmPacket builds an Rdm packet by encoding message via rdm.Encode.
+//
+// rdm.Encode always returns a message starting with the 0xCC start code.
+// When legacyStartCode is false (spec-correct; the normal/default choice —
+// see the Rdm type's doc comment for why), that leading byte is stripped
+// before storing into RdmData, so the ArtRdm payload begins at the RDM
+// sub-start code as the spec requires. When legacyStartCode is true, the
+// 0xCC is left in place, reproducing this project's pre-fix framing for a
+// node bench-confirmed to actually expect it.
+func EncodeRdmPacket(message rdm.Message, protocolVersion uint16, net, address byte, legacyStartCode bool) Rdm {
+	data := rdm.Encode(message)
+	if !legacyStartCode {
+		data = data[1:]
+	}
 	return Rdm{
 		ProtocolVersion: protocolVersion,
 		RdmVersion:      1,
@@ -231,7 +299,7 @@ func EncodeRdmPacket(message rdm.Message, protocolVersion uint16, net, address b
 		Net:             net,
 		Command:         0,
 		Address:         address,
-		RdmData:         rdm.Encode(message),
+		RdmData:         data,
 	}
 }
 

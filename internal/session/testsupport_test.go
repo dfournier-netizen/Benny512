@@ -265,7 +265,7 @@ func (h *rdmHarness) buildResponse(req rdm.Message, r reply) Inbound {
 		ParameterID:          pid,
 		ParameterData:        r.Data,
 	}
-	pkt := artnet.EncodeRdmPacket(resp, artnet.DefaultProtocolVersion, h.node.Port.Net, h.node.Port.SubUni())
+	pkt := artnet.EncodeRdmPacket(resp, artnet.DefaultProtocolVersion, h.node.Port.Net, h.node.Port.SubUni(), false)
 	return Inbound{
 		Data: artnet.Encode(artnet.Packet{Kind: artnet.KindRdm, Rdm: pkt}),
 		From: h.node.Addr,

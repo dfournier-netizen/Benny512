@@ -216,12 +216,12 @@ func (d *demoDevice) handle(msg rdm.Message) (data []byte, nack bool, reason rdm
 // 1c+ research report call out, and starts a periodic fake ArtDmx
 // generator so the Analyzer screen has something to show. See each
 // demoDevice literal below for which report finding it demonstrates.
-func buildDemo(ctx context.Context) *web.Server {
+func buildDemo(ctx context.Context, legacyRdmStartCode bool) *web.Server {
 	clock := session.RealClock{}
 	tport := session.NewFakeTransport()
 
 	nodes := session.NewArtNetSession(session.ArtNetConfig{Transport: tport, Clock: clock, PollInterval: 3 * time.Second})
-	rdmc := session.NewRDMController(session.RDMConfig{Transport: tport, Clock: clock})
+	rdmc := session.NewRDMController(session.RDMConfig{Transport: tport, Clock: clock, LegacyRdmStartCode: legacyRdmStartCode})
 	dmx := session.NewDMXOutputEngine(session.DMXConfig{Transport: tport, Clock: clock})
 	reg := registry.New(nodes, rdmc)
 	ring := capture.New(capture.DefaultCapacity)
@@ -276,20 +276,30 @@ func buildDemo(ctx context.Context) *web.Server {
 	// and the export endpoints, not just the synthetic ArtDmx feed below.
 	srv := web.New(nodes, rdmc, dmx, reg, ring, rdmRing)
 	srv.NIC = "demo (fake transport)"
+	// unknownOpcodeThrottle mirrors buildReal's — demo traffic never
+	// actually produces an unrecognized opcode, but wiring the tap
+	// identically to production keeps this a faithful exercise of the same
+	// code path rather than a simplified stand-in.
+	unknownOpcodeThrottle := capture.NewUnknownOpcodeThrottle(0)
 	tap := func(dir capture.Direction, peer netip.AddrPort, data []byte) capture.Entry {
 		e := capture.DecodeEntry(dir, peer, data)
 		// Add stamps Time/Seq on its own returned copy — use that stamped
 		// copy for the RDM ring and disk logger (see main.go's buildReal
 		// for the same fix and fuller explanation of the bug this avoids).
 		e = ring.Add(e)
-		if capture.IsRDMKind(e.Kind) {
+		if capture.IsRDMLoggable(e) {
 			e = rdmRing.Add(e)
 			srv.LogRDMEntry(e)
+			return e
+		}
+		if logEntry, ok := unknownOpcodeThrottle.Consider(e); ok {
+			logEntry = rdmRing.Add(logEntry)
+			srv.LogRDMEntry(logEntry)
 		}
 		return e
 	}
 
-	installDemoResponder(tport, rdmc, devices, tap)
+	installDemoResponder(tport, rdmc, devices, tap, legacyRdmStartCode)
 	installDemoNodeConfigResponder(tport, nodes, en4IP, wirelessIP)
 
 	go reg.Run()
@@ -590,7 +600,7 @@ func buildDemoDevices(en4IP, wirelessIP netip.Addr, port0, port1, port2 artnet.P
 // with no hardware. The scripted "proxied" device answers its first
 // request with ACK_TIMER before ACKing, modelling a wireless RDM proxy's
 // normal path (architecture rev 5 §1.1).
-func installDemoResponder(tport *session.FakeTransport, ctrl *session.RDMController, devices []*demoDevice, tap func(dir capture.Direction, peer netip.AddrPort, data []byte) capture.Entry) {
+func installDemoResponder(tport *session.FakeTransport, ctrl *session.RDMController, devices []*demoDevice, tap func(dir capture.Direction, peer netip.AddrPort, data []byte) capture.Entry, legacyRdmStartCode bool) {
 	byUID := make(map[rdm.UID]*demoDevice, len(devices))
 	for _, d := range devices {
 		byUID[d.uid] = d
@@ -602,7 +612,7 @@ func installDemoResponder(tport *session.FakeTransport, ctrl *session.RDMControl
 	// would actually be on the wire, so --demo mode's Analyzer/export show
 	// the same shape of data a real bench session would.
 	replyWire := func(resp rdm.Message, node netip.AddrPort, net, address byte) {
-		pkt := artnet.EncodeRdmPacket(resp, artnet.DefaultProtocolVersion, net, address)
+		pkt := artnet.EncodeRdmPacket(resp, artnet.DefaultProtocolVersion, net, address, legacyRdmStartCode)
 		wire := artnet.Encode(artnet.Packet{Kind: artnet.KindRdm, Rdm: pkt})
 		tap(capture.DirIn, node, wire)
 	}

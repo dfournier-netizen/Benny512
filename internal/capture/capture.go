@@ -35,6 +35,12 @@ func (d Direction) String() string {
 // top out around 260 bytes (24-byte header + 231-byte max PDL + checksum),
 // so every RDM/ToD entry's full hex is always retained regardless of this
 // threshold — it only ever trims the occasional oversized ArtDmx/PollReply.
+//
+// This threshold is deliberately not applied to an entry that failed to
+// decode (DecodeErr != ""): the raw bytes are the only diagnostic evidence
+// such an entry carries, and an oversized malformed/garbage datagram is
+// exactly the case where hiding them behind a size cap would be most
+// counterproductive. See DecodeEntry and Ring.Add.
 const HexThreshold = 600
 
 // DefaultCapacity is the general ring buffer's default entry count.
@@ -46,11 +52,42 @@ const DefaultCapacity = 10000
 // minutes; routing RDM/ToD traffic into a dedicated, much larger ring (each
 // entry is small — at most a few hundred bytes of hex/decoded strings) means
 // a long session's RDM history survives regardless of how much DMX chatter
-// happens alongside it. See IsRDMKind for which opcodes route here.
+// happens alongside it. See IsRDMLoggable for the full routing rule
+// (IsRDMKind's four opcodes plus undecodable datagrams) and
+// UnknownOpcodeThrottle for the bounded addition of unrecognized-but-valid
+// opcodes.
 const DefaultRDMCapacity = 100000
 
 // DefaultBatchInterval is the server-side throttle for Subscribe deliveries.
 const DefaultBatchInterval = 100 * time.Millisecond
+
+// KindUndecoded and KindUnrecognized are Entry.Kind's two "we don't have
+// decoded fields for this" values, and are easy to mistake for each other
+// from a diff or a quick skim of a log — they differ only by the case of
+// their first letter. They are named here, rather than left as bare string
+// literals at every comparison site, specifically so that trap is visible:
+//
+//   - KindUndecoded: artnet.Decode returned an error — the raw datagram
+//     didn't parse as Art-Net at all (bad ID, truncated, malformed known
+//     opcode). See Entry.DecodeErr, which is non-empty exactly when Kind is
+//     this value.
+//   - KindUnrecognized: artnet.Decode succeeded — a valid "Art-Net\0"
+//     envelope, but carrying an OpCode this package has no decoder for
+//     (vendor extension, newer spec revision, or an opcode like ArtSync
+//     this codebase doesn't model). Not a failure; DecodeErr is empty. The
+//     actual numeric opcode is in Entry.UnknownOpCode.
+//
+// Renaming the underlying string values themselves (e.g. to remove the
+// case-only distinction) was considered and rejected: both values are
+// serialized as-is into the disk log text, the websocket JSON batch, and
+// the JSON export, so changing them would be a wire-format change for a
+// file the owner already has on disk from past sessions, for a benefit
+// (avoiding a case typo in *this package's own source*) that these two
+// named constants already provide.
+const (
+	KindUndecoded    = "unknown"
+	KindUnrecognized = "Unknown"
+)
 
 // Entry is one decoded packet summary.
 type Entry struct {
@@ -58,12 +95,26 @@ type Entry struct {
 	Time     time.Time
 	Dir      Direction
 	Peer     netip.AddrPort
-	Kind     string // artnet opcode name, e.g. "ArtDmx", "ArtRdm"
+	Kind     string // artnet opcode name, e.g. "ArtDmx", "ArtRdm"; see also KindUndecoded/KindUnrecognized
 	Universe uint16 // raw Port-Address value, when applicable; 0 otherwise
 	Size     int
 	Key      string // short human summary of key fields (e.g. "seq=3 len=512" or UID/PID for RDM)
 	HexTrunc bool
 	Hex      string // hex of raw bytes, present only when Size <= HexThreshold
+
+	// DecodeErr carries artnet.Decode's error text when the raw datagram
+	// didn't decode at all (Kind is then left at KindUndecoded). Empty for
+	// every entry that decoded successfully, including a
+	// recognized-envelope-but-vendor-opcode packet (Kind ==
+	// KindUnrecognized) — that's a legitimate decode, not a failure, and is
+	// deliberately left out of this field.
+	DecodeErr string `json:"DecodeErr,omitempty"`
+
+	// UnknownOpCode is the raw Art-Net OpCode read from the envelope when
+	// Kind == KindUnrecognized; zero for every other Kind (including
+	// KindUndecoded — a datagram that failed to decode may not even have a
+	// reliably-readable OpCode, depending on where decoding gave up).
+	UnknownOpCode uint16 `json:"unknownOpCode,omitempty"`
 
 	// RDM carries the full decoded detail for an ArtRdm entry (Kind ==
 	// "ArtRdm"), nil for every other Kind. See rdmdetail.go.
@@ -83,6 +134,165 @@ func IsRDMKind(kind string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// IsRDMLoggable reports whether e belongs in the dedicated RDM-only ring and
+// continuous disk log: either it decoded as one of the four RDM-family
+// opcodes (IsRDMKind), or it didn't decode at all (e.DecodeErr != "").
+//
+// The second half of that OR is the point: a datagram the decoder chokes on
+// is exactly the case the RDM diagnostic log exists to catch. Without it, a
+// log showing 42 outbound ArtRdm requests and zero inbound entries can't
+// tell "the gear never answered" from "the gear answered and we couldn't
+// parse the reply" — two problems with opposite fixes.
+//
+// This is a separate function from IsRDMKind rather than IsRDMKind itself
+// growing an "or unknown" branch: IsRDMKind's contract, per its own doc
+// comment and TestIsRDMKind (which asserts IsRDMKind("unknown") == false),
+// is "one of these four opcodes" — a pure classifier over a kind string.
+// Folding in "failed to decode" would need the Entry (for DecodeErr), not
+// just the kind string, and would make IsRDMKind's name a lie for every
+// existing caller that reads it as an opcode check.
+//
+// Undecodable datagrams are expected to be rare in real Art-Net traffic on
+// this port. If that assumption ever breaks — a misbehaving neighbor
+// blasting non-Art-Net UDP at the port, say — every one of those packets
+// would land in the RDM-only ring and disk log too. That defeats the
+// RDM-only ring's entire reason for existing (see DefaultRDMCapacity's doc
+// comment: keeping RDM history safe from high-rate *legitimate* traffic
+// evicting it) and would rotate the disk log much sooner than a bench
+// session should otherwise need. There is no rate limiting here for that
+// case; it would need its own fix if it ever became real.
+//
+// IsRDMLoggable deliberately does NOT cover Kind == KindUnrecognized (a
+// valid envelope, unrecognized opcode). Unlike a genuine decode failure,
+// that case can legitimately arrive at frame rate (ArtSync and other
+// opcodes this codebase simply doesn't model) and so needs the bounded
+// per-(peer,opcode) handling in UnknownOpcodeThrottle instead of an
+// unconditional OR here.
+func IsRDMLoggable(e Entry) bool {
+	return IsRDMKind(e.Kind) || e.DecodeErr != ""
+}
+
+// DefaultUnknownOpcodeCap is how many inbound KindUnrecognized entries per
+// distinct (peer, opcode) pair get routed into the RDM diagnostic stream
+// before UnknownOpcodeThrottle suppresses that pair. Picked to comfortably
+// cover "let me see a few of these to confirm what's going on" during a
+// bench session without exposing the RDM-only ring to a legitimate
+// high-rate opcode (ArtSync, say) it doesn't decode.
+const DefaultUnknownOpcodeCap = 15
+
+// UnknownOpcodeThrottle bounds how many inbound "valid Art-Net envelope,
+// opcode we don't recognize" entries (Kind == KindUnrecognized) get routed
+// into the RDM diagnostic stream, per distinct (peer, opcode) pair.
+//
+// This exists because of a real bench hypothesis: a gateway that answers
+// discovery but never answers directed RDM might be replying with
+// something this codebase doesn't decode — which, before this type
+// existed, was just as invisible in the disk log as a genuine decode
+// failure. Unlike a decode failure, though, a legitimate opcode this
+// package hasn't been taught (ArtSync is the standing example) can arrive
+// at frame rate, so routing it into the RDM-only ring unconditionally the
+// way IsRDMLoggable does for decode failures would defeat that ring's
+// entire purpose. Hence a cap: the first DefaultUnknownOpcodeCap sightings
+// of a given (peer, opcode) pair are logged in full, the sighting that
+// crosses the cap produces exactly one suppression entry saying so, and
+// every sighting after that is counted (see Count) but not logged again.
+//
+// Outbound entries are never eligible (see Consider) — an outbound
+// datagram carrying an opcode this codebase's own encoder doesn't produce
+// would be a bug in this program, not a device behavior worth capturing in
+// a log meant to diagnose the device.
+//
+// Safe for concurrent use via an internal mutex. As wired today (see
+// cmd/benny512), the only caller is the demux's single inbound-reader
+// goroutine, so the mutex is uncontended in practice — but Consider/Count
+// are exported precisely so something outside this package can drive a
+// throttle too, and nothing here enforces single-goroutine use, so it
+// takes the lock rather than relying on today's wiring staying the only
+// caller forever. A plain map (not sync.Map) is paired with the mutex
+// because the increment-then-compare-to-cap sequence in Consider needs to
+// happen atomically as one unit; sync.Map's per-operation atomicity
+// wouldn't cover that compound check.
+type UnknownOpcodeThrottle struct {
+	cap int
+
+	mu     sync.Mutex
+	counts map[unknownOpcodeKey]int
+}
+
+type unknownOpcodeKey struct {
+	peer   netip.AddrPort
+	opcode uint16
+}
+
+// NewUnknownOpcodeThrottle builds a throttle allowing up to cap logged
+// entries per (peer, opcode) pair before suppressing (DefaultUnknownOpcodeCap
+// if cap <= 0).
+func NewUnknownOpcodeThrottle(cap int) *UnknownOpcodeThrottle {
+	if cap <= 0 {
+		cap = DefaultUnknownOpcodeCap
+	}
+	return &UnknownOpcodeThrottle{cap: cap, counts: make(map[unknownOpcodeKey]int)}
+}
+
+// Consider evaluates e for the bounded unrecognized-opcode diagnostic case.
+// Only inbound, Kind == KindUnrecognized entries are eligible — anything
+// else returns (Entry{}, false) immediately without touching any state.
+// For an eligible entry, ok is true and logEntry is what the caller should
+// route into the RDM ring/disk log for exactly two cases: every sighting of
+// this (peer, opcode) pair up to and including the cap (logEntry == e), and
+// the one sighting that crosses the cap (logEntry is a synthesized
+// suppression entry, not e — see suppressionEntry). Every sighting after
+// that returns (Entry{}, false): still counted (see Count), never logged
+// again.
+func (u *UnknownOpcodeThrottle) Consider(e Entry) (logEntry Entry, ok bool) {
+	if e.Dir != DirIn || e.Kind != KindUnrecognized {
+		return Entry{}, false
+	}
+	key := unknownOpcodeKey{peer: e.Peer, opcode: e.UnknownOpCode}
+
+	u.mu.Lock()
+	u.counts[key]++
+	n := u.counts[key]
+	u.mu.Unlock()
+
+	switch {
+	case n <= u.cap:
+		return e, true
+	case n == u.cap+1:
+		return suppressionEntry(e, u.cap), true
+	default:
+		return Entry{}, false
+	}
+}
+
+// Count returns how many times (peer, opcode) has been seen by Consider,
+// including sightings suppressed past the cap — exposed for tests, and so
+// the running total isn't lost even though it's only ever logged once (in
+// the suppression entry's text, at the moment the cap is crossed).
+func (u *UnknownOpcodeThrottle) Count(peer netip.AddrPort, opcode uint16) int {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.counts[unknownOpcodeKey{peer: peer, opcode: opcode}]
+}
+
+// suppressionEntry builds the one-shot log entry emitted the instant a
+// (peer, opcode) pair crosses the cap. It keeps e's Dir/Peer/Size (Time is
+// left zero; Ring.Add stamps it like any other entry) so it sorts and
+// displays like a normal capture entry, but replaces Kind/Key with a human
+// sentence identifying the pair and clears every field that would
+// otherwise make it look like a second real packet (Hex, DecodeErr,
+// UnknownOpCode, RDM, Tod).
+func suppressionEntry(e Entry, cap int) Entry {
+	return Entry{
+		Dir:  e.Dir,
+		Peer: e.Peer,
+		Kind: "CaptureSuppressed",
+		Size: e.Size,
+		Key: "suppressing further opcode 0x" + hexU16(e.UnknownOpCode) + " from " + e.Peer.String() +
+			" after " + itoa(cap) + " logged this session; further instances are being counted but not logged",
 	}
 }
 
@@ -187,7 +397,7 @@ func (r *Ring) Add(e Entry) Entry {
 	if e.Time.IsZero() {
 		e.Time = time.Now()
 	}
-	if e.Size > HexThreshold {
+	if e.Size > HexThreshold && e.DecodeErr == "" {
 		e.HexTrunc = true
 		e.Hex = ""
 	}
@@ -228,18 +438,26 @@ func (r *Ring) AddPacket(dir Direction, peer netip.AddrPort, raw []byte) Entry {
 // DecodeEntry builds an Entry for one directional raw datagram without
 // inserting it into any ring. Exported so a caller feeding more than one
 // ring from the same datagram (a general capture ring plus the dedicated
-// RDM-only ring, see IsRDMKind) decodes it exactly once — undecodable bytes
-// still produce an Entry with Kind "unknown" rather than being dropped.
+// RDM-only ring, see IsRDMLoggable) decodes it exactly once — undecodable
+// bytes still produce an Entry with Kind "unknown" rather than being
+// dropped, now carrying the decode error in DecodeErr and its full hex
+// (bypassing HexThreshold — see that constant's doc comment) so the entry
+// is actually useful for diagnosis instead of a dead end.
 func DecodeEntry(dir Direction, peer netip.AddrPort, raw []byte) Entry {
-	e := Entry{Dir: dir, Peer: peer, Size: len(raw), Kind: "unknown"}
-	if len(raw) <= HexThreshold {
-		e.Hex = hexEncode(raw)
-	}
+	e := Entry{Dir: dir, Peer: peer, Size: len(raw), Kind: KindUndecoded}
 	pkt, err := artnet.Decode(raw)
 	if err == nil {
 		e.Kind = kindName(pkt.Kind)
 		e.Universe, e.Key = summarize(pkt)
 		attachRDMDetail(&e, pkt)
+		if pkt.Kind == artnet.KindUnknown {
+			e.UnknownOpCode = pkt.UnknownOpCode
+		}
+	} else {
+		e.DecodeErr = err.Error()
+	}
+	if len(raw) <= HexThreshold || e.DecodeErr != "" {
+		e.Hex = hexEncode(raw)
 	}
 	return e
 }
@@ -368,7 +586,7 @@ func kindName(k artnet.PacketKind) string {
 	case artnet.KindTimeCode:
 		return "ArtTimeCode"
 	default:
-		return "Unknown"
+		return KindUnrecognized
 	}
 }
 
@@ -390,6 +608,8 @@ func summarize(pkt artnet.Packet) (uint16, string) {
 		return 0, "tod uids=" + itoa(len(pkt.TodData.Tod)) + " total=" + itoa(int(pkt.TodData.UidTotal))
 	case artnet.KindPollReply:
 		return 0, "node=" + pkt.PollReply.ShortName
+	case artnet.KindUnknown:
+		return 0, "opcode=0x" + hexU16(pkt.UnknownOpCode)
 	default:
 		return 0, ""
 	}

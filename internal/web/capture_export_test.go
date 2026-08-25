@@ -26,7 +26,7 @@ func seedRDMExchange(h *testHarness) (rdm.UID, capture.Entry, capture.Entry) {
 		DestinationUID: dst, SourceUID: src, TransactionNumber: 5,
 		PortIDOrResponseType: 1, CommandClass: rdm.GetCommand, ParameterID: rdm.PIDDeviceInfo,
 	}
-	reqPkt := artnet.EncodeRdmPacket(req, artnet.DefaultProtocolVersion, 0, 0)
+	reqPkt := artnet.EncodeRdmPacket(req, artnet.DefaultProtocolVersion, 0, 0, false)
 	reqRaw := artnet.Encode(artnet.Packet{Kind: artnet.KindRdm, Rdm: reqPkt})
 	reqEntry := h.srv.RDMCapture.AddPacket(capture.DirOut, testExportPeer, reqRaw)
 	h.srv.Capture.Add(reqEntry)
@@ -37,7 +37,7 @@ func seedRDMExchange(h *testHarness) (rdm.UID, capture.Entry, capture.Entry) {
 		ParameterID:   rdm.PIDDeviceInfo,
 		ParameterData: make([]byte, 19), // valid DEVICE_INFO length, zeroed
 	}
-	respPkt := artnet.EncodeRdmPacket(resp, artnet.DefaultProtocolVersion, 0, 0)
+	respPkt := artnet.EncodeRdmPacket(resp, artnet.DefaultProtocolVersion, 0, 0, false)
 	respRaw := artnet.Encode(artnet.Packet{Kind: artnet.KindRdm, Rdm: respPkt})
 	respEntry := h.srv.RDMCapture.AddPacket(capture.DirIn, testExportPeer, respRaw)
 	h.srv.Capture.Add(respEntry)

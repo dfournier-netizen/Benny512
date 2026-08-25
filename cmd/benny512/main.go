@@ -30,6 +30,7 @@ func main() {
 	demo := flag.Bool("demo", false, "run against fake pre-scripted nodes/fixtures instead of real hardware")
 	logLevel := flag.String("loglevel", "info", "log verbosity: debug|info|warn|error")
 	logRDM := flag.String("logrdm", "", "optional: continuously append every RDM/ToD exchange to this file as it happens (rotates by size)")
+	legacyRdmStartCode := flag.Bool("legacy-rdm-startcode", false, "escape hatch: include the 0xCC RDM start code in outbound ArtRdm payloads (pre-fix, spec-incorrect framing). Default false sends the spec-correct payload starting at the RDM sub-start code (0x01). Inbound decode accepts both forms either way.")
 	flag.Parse()
 
 	logger := log.New(os.Stdout, "", log.LstdFlags)
@@ -50,15 +51,21 @@ func main() {
 		cancel()
 	}()
 
+	if *legacyRdmStartCode {
+		logf("info", "ArtRdm outbound framing: LEGACY (0xCC start code included in RdmPacket — spec-incorrect, --legacy-rdm-startcode set)")
+	} else {
+		logf("info", "ArtRdm outbound framing: spec-correct (RdmPacket begins at the 0x01 sub-start code, no leading 0xCC)")
+	}
+
 	var srv *web.Server
 	var closeTransport func()
 
 	if *demo {
 		logf("info", "starting in --demo mode: 2 fake nodes, 6 fake fixtures, synthetic ArtDmx traffic")
-		srv = buildDemo(ctx)
+		srv = buildDemo(ctx, *legacyRdmStartCode)
 	} else {
 		var err error
-		srv, closeTransport, err = buildReal(*iface, logf)
+		srv, closeTransport, err = buildReal(*iface, *legacyRdmStartCode, logf)
 		if err != nil {
 			logger.Fatalf("startup failed: %v", err)
 		}
@@ -132,7 +139,7 @@ func main() {
 
 // buildReal wires every engine against the real UDP transport bound to the
 // chosen (or auto-selected) NIC.
-func buildReal(ifaceName string, logf func(level, format string, args ...any)) (*web.Server, func(), error) {
+func buildReal(ifaceName string, legacyRdmStartCode bool, logf func(level, format string, args ...any)) (*web.Server, func(), error) {
 	ifaces, err := transport.ListInterfaces()
 	if err != nil {
 		return nil, nil, fmt.Errorf("enumerate interfaces: %w", err)
@@ -169,11 +176,17 @@ func buildReal(ifaceName string, logf func(level, format string, args ...any)) (
 
 	clock := session.RealClock{}
 	nodes := session.NewArtNetSession(session.ArtNetConfig{Transport: demux.Subscriber(), Clock: clock})
-	rdmc := session.NewRDMController(session.RDMConfig{Transport: demux.Subscriber(), Clock: clock})
+	rdmc := session.NewRDMController(session.RDMConfig{Transport: demux.Subscriber(), Clock: clock, LegacyRdmStartCode: legacyRdmStartCode})
 	dmx := session.NewDMXOutputEngine(session.DMXConfig{Transport: demux.Subscriber(), Clock: clock})
 	reg := registry.New(nodes, rdmc)
 	ring := capture.New(capture.DefaultCapacity)
 	rdmRing := capture.New(capture.DefaultRDMCapacity)
+	// unknownOpcodeThrottle bounds the separate, capped route into the RDM
+	// diagnostic stream for inbound datagrams with a valid envelope but an
+	// opcode we don't decode (see capture.UnknownOpcodeThrottle) — a
+	// legitimate high-rate opcode like ArtSync must not flood the RDM-only
+	// ring the way an occasional genuine decode failure safely can't.
+	unknownOpcodeThrottle := capture.NewUnknownOpcodeThrottle(0)
 
 	srv := web.New(nodes, rdmc, dmx, reg, ring, rdmRing)
 	srv.NIC = fmt.Sprintf("%s (%v)", chosen.Name, chosen.IPv4)
@@ -185,9 +198,14 @@ func buildReal(ifaceName string, logf func(level, format string, args ...any)) (
 		// copy for the RDM ring and disk logger, not the pre-Add value,
 		// or every disk-logged/second-ring entry gets a zero timestamp.
 		e = ring.Add(e)
-		if capture.IsRDMKind(e.Kind) {
+		if capture.IsRDMLoggable(e) {
 			e = rdmRing.Add(e)
 			srv.LogRDMEntry(e)
+			return
+		}
+		if logEntry, ok := unknownOpcodeThrottle.Consider(e); ok {
+			logEntry = rdmRing.Add(logEntry)
+			srv.LogRDMEntry(logEntry)
 		}
 	}
 	demux.OnSend = func(data []byte, dst netip.AddrPort) { tap(capture.DirOut, dst, data) }

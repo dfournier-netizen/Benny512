@@ -21,7 +21,7 @@ func TestDemoModeSmoke(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	srv := buildDemo(ctx)
+	srv := buildDemo(ctx, false)
 	go srv.Run(ctx)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -88,7 +88,7 @@ func TestDemoSensorWarningAndDeviceClass(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	srv := buildDemo(ctx)
+	srv := buildDemo(ctx, false)
 	go srv.Run(ctx)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()

@@ -843,7 +843,7 @@ func TestControllerRunPumpsInboundChannel(t *testing.T) {
 		ParameterID:          rdm.PIDDeviceInfo,
 		ParameterData:        []byte{0x42},
 	}
-	pkt := artnet.EncodeRdmPacket(resp, artnet.DefaultProtocolVersion, 0, 0)
+	pkt := artnet.EncodeRdmPacket(resp, artnet.DefaultProtocolVersion, 0, 0, false)
 	tr.Deliver(Inbound{Data: artnet.Encode(artnet.Packet{Kind: artnet.KindRdm, Rdm: pkt}), From: nodeAddr})
 
 	select {
