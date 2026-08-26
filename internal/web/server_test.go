@@ -3,6 +3,7 @@ package web
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -110,6 +111,63 @@ func TestGetNodesReturnsSeeded(t *testing.T) {
 	}
 	if out[0]["rdmCapable"] != true {
 		t.Errorf("expected rdmCapable true, got %v", out[0]["rdmCapable"])
+	}
+}
+
+// TestGetNodesSinglePortEN4NotPaddedToFour is this round's regression test
+// for the bench report "every node shows four ports, three of them n/a"
+// (RDM-LOG7, 2026-08-26): a real Obsidian EN4 sends one ArtPollReply PER
+// PHYSICAL PORT, each its own bind index, each declaring NumPorts=1 with
+// only port[0] populated — the theory was that Benny512 renders the
+// unused port[1..3] wire slots as phantom ports reporting neither
+// input nor output. Investigating found nothing to fix (see this round's
+// notes entry for the full trace): internal/session's nodeFromPollReply
+// already clamps to NumPorts and only ever builds that many NodePort
+// entries, and toNodeJSON below only serializes n.Ports — so this asserts
+// that behavior at the HTTP boundary this package owns, using the exact
+// field values RDM-LOG7 captured, to lock it in against a regression.
+func TestGetNodesSinglePortEN4NotPaddedToFour(t *testing.T) {
+	h := newHarness(t)
+	ip := netip.MustParseAddr("2.11.90.4")
+	// Three bind indices, byte-for-byte the NumPorts/PortTypes/GoodInput/
+	// GoodOutputB/SwOut RDM-LOG7 captured for "Port 1"/"Port 2"/"Port 3" of
+	// a real NETRON EN4 (see also internal/artnet/codec_test.go's
+	// TestGoldenArtPollReplyDecodeRealEN4SinglePort, the same evidence at
+	// the decode layer, and cmd/benny512/demo.go's realEN4PortReplies,
+	// the same shape wired into --demo for a render-proof screenshot).
+	for i, bind := range []byte{1, 2, 3} {
+		h.nodes.HandlePollReply(artnet.PollReply{
+			IPAddress: ip.As4(), BindIndex: bind,
+			ShortName: fmt.Sprintf("Port %d", i+1), LongName: "NETRON EN4",
+			NumPorts: 1, PortTypes: [4]byte{0x80, 0, 0, 0},
+			GoodInput: [4]byte{0x08, 0, 0, 0}, GoodOutputB: [4]byte{0x40, 0, 0, 0},
+			SwIn: [4]byte{byte(i), 0, 0, 0}, SwOut: [4]byte{byte(i), 0, 0, 0},
+			Status1: 0xE2,
+		}, netip.AddrPortFrom(ip, session.ArtNetUDPPort))
+	}
+
+	rr := doJSON(t, h.srv.Handler(), "GET", "/api/nodes", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	var out []nodeJSON
+	if err := json.Unmarshal(rr.Body.Bytes(), &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	// Three bind indices at one IP means three separate node rows, not one
+	// row with four ports — see this round's report on whether that reads
+	// correctly to a lighting tech (flagged, not restructured).
+	if len(out) != 3 {
+		t.Fatalf("expected 3 node rows (one per bind index), got %d: %s", len(out), rr.Body.String())
+	}
+	for _, n := range out {
+		if len(n.Ports) != 1 {
+			t.Fatalf("node bind=%d: expected exactly 1 port (NumPorts=1), got %d: %+v — padding to 4 would reproduce the bench-reported phantom n/a ports", n.BindIndex, len(n.Ports), n.Ports)
+		}
+		p := n.Ports[0]
+		if !p.Output || p.Input {
+			t.Fatalf("node bind=%d port[0]: expected output=true input=false (PortTypes 0x80), got %+v", n.BindIndex, p)
+		}
 	}
 }
 

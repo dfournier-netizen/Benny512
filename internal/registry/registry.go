@@ -229,6 +229,23 @@ func (reg *Registry) Run() {
 	}
 }
 
+// cachePIDFor picks the parameter an ACK's data actually belongs to.
+//
+// For every PID but one that is simply the PID that was requested. GET
+// QUEUED_MESSAGE is the exception: it has no value of its own, and its
+// response carries some other parameter's deferred answer under that
+// parameter's PID. Caching a drained payload under 0x0020 would file a
+// status report or a sensor reading as "the value of QUEUED_MESSAGE", which
+// is both wrong and, on a fixtures screen, visible. Filing it under the PID
+// the responder actually answered with puts a deferred DEVICE_INFO in the
+// DEVICE_INFO slot, which is what the device meant by sending it.
+func cachePIDFor(res *session.Result) rdm.ParameterID {
+	if res.Request.PID == rdm.PIDQueuedMessage && res.ResponsePID != 0 {
+		return res.ResponsePID
+	}
+	return res.Request.PID
+}
+
 func (reg *Registry) handleRDMEvent(ev session.Event) {
 	switch ev.Kind {
 	case session.EventToDUpdate:
@@ -244,7 +261,7 @@ func (reg *Registry) handleRDMEvent(ev session.Event) {
 			// is a valid ACK, not "nothing happened" — the previous
 			// len(data)>0 gate would have left such a device stuck looking
 			// "not yet attempted" forever).
-			reg.cacheParam(ev.Node, ev.UID, ev.Result.Request.PID, ev.Result.Data)
+			reg.cacheParam(ev.Node, ev.UID, cachePIDFor(ev.Result), ev.Result.Data)
 			reg.noteReachable(ev.Node, ev.UID)
 		case session.ResultNack:
 			reg.noteParamNack(ev.Node, ev.UID, ev.Result.Request.PID)

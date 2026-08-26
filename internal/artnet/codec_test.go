@@ -2,6 +2,7 @@ package artnet
 
 import (
 	"bytes"
+	"encoding/hex"
 	"errors"
 	"reflect"
 	"testing"
@@ -198,6 +199,61 @@ func TestArtPollReplyHasNoProtVerBytes(t *testing.T) {
 	b := hexBytes(artPollReplyHex)
 	if !bytes.Equal(b[10:14], []byte{10, 0, 0, 50}) {
 		t.Fatalf("got %v", b[10:14])
+	}
+}
+
+// realEN4Port1Hex is byte-for-byte the "Port 1" ArtPollReply RDM-LOG7
+// captured from a real Obsidian EN4 at the bench (2026-08-26 session,
+// investigating "every node shows four ports, three of them n/a"): one
+// bind index per physical port, NumPorts=1, only port[0] populated —
+// port[1..3] are on-the-wire padding the node itself sends as zero.
+const realEN4Port1Hex = "4172742d4e6574000021020b5a043619030100002a2000e2a622506f727420310000000000000000000000004e4554524f4e20454e340000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002330303031205b313338395d205263506f7765724f6b0000000000000000000000000000000000000000000000000000000000000000000000000000000000000001800000000800000000000000000000000000000000000000000000424c8a57476a020b5a0401dd400000003c22a606d5067f000000280000000000000000000000"
+
+// TestGoldenArtPollReplyDecodeRealEN4SinglePort proves the decode layer
+// carries the wire's own NumPorts=1 faithfully rather than inventing
+// anything for slots 1-3: those fixed [4]byte arrays are decoded as-is
+// (all zero, exactly what the node sent), and it is NumPorts — not the
+// arrays' fixed length — that says how many are real. The bench report's
+// hypothesis was that Benny512 renders slots beyond NumPorts as phantom
+// "n/a" ports; this fixture is the actual evidence packet, kept here so
+// that hypothesis is checked against real bytes, not paraphrase. (The
+// place that turns NumPorts into a port *list* is
+// internal/session/artnetsession.go's nodeFromPollReply, not this
+// package — see internal/web/server_test.go's
+// TestGetNodesSinglePortEN4NotPaddedToFour for proof of that step using
+// this same fixture, and this round's notes entry for the full trace
+// showing nodeFromPollReply already clamps to NumPorts and has since its
+// initial implementation.)
+func TestGoldenArtPollReplyDecodeRealEN4SinglePort(t *testing.T) {
+	b, err := hex.DecodeString(realEN4Port1Hex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkt, err := Decode(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pkt.Kind != KindPollReply {
+		t.Fatalf("kind=%v", pkt.Kind)
+	}
+	p := pkt.PollReply
+	if p.NumPorts != 1 {
+		t.Fatalf("numPorts=%d, want 1 (per RDM-LOG7)", p.NumPorts)
+	}
+	if p.PortTypes != [4]byte{0x80, 0, 0, 0} {
+		t.Fatalf("portTypes=%v, want only slot 0 populated (0x80 = output)", p.PortTypes)
+	}
+	if p.GoodInput != [4]byte{0x08, 0, 0, 0} {
+		t.Fatalf("goodInput=%v, want only slot 0 populated", p.GoodInput)
+	}
+	if p.GoodOutputB != [4]byte{0x40, 0, 0, 0} {
+		t.Fatalf("goodOutputB=%v, want only slot 0 populated", p.GoodOutputB)
+	}
+	if p.BindIndex != 1 {
+		t.Fatalf("bindIndex=%d, want 1", p.BindIndex)
+	}
+	if p.ShortName != "Port 1" || p.LongName != "NETRON EN4" {
+		t.Fatalf("names=%+v", p)
 	}
 }
 

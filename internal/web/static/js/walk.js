@@ -68,7 +68,23 @@ const WalkScreen = (() => {
     window.addEventListener('pagehide', () => {
       if (active) Api.walkIdentifyOffBeacon();
     });
-    DeviceDetail.init(() => { if (active) render(); });
+    // scope names which section's data changed ('info'/'params'/'sensors'/
+    // 'status', or undefined for "not sure, do a full render"). Rig Walk's
+    // accordion can have several sections expanded at once, so — unlike the
+    // Devices tab's single active-tab check — this only skips work when the
+    // changed section's own accordion is collapsed; when it IS expanded,
+    // only that one accordion body is rebuilt (updateAccordionSection)
+    // rather than the whole walk screen (render()), which used to tear down
+    // every other expanded section's DOM — including a Parameters accordion
+    // mid-edit on the Device Label — for, say, a 'sensors' push meant for
+    // the Sensors accordion. This is the Rig Walk half of the fix for the
+    // bench report "Device Label kicks you out mid-typing".
+    DeviceDetail.init((scope) => {
+      if (!active) return;
+      if (!scope) { render(); return; }
+      if (!expandedSections[scope]) return; // section not on screen — nothing to redraw
+      if (!updateAccordionSection(scope)) render(); // fallback if the accordion DOM isn't there yet
+    });
   }
 
   function onEnterScreen() {
@@ -415,15 +431,39 @@ const WalkScreen = (() => {
 
     SECTIONS.forEach(s => {
       if (!expandedSections[s.key]) return;
-      const body = root.querySelector(`[data-section-body="${s.key}"]`);
-      if (!body) return;
-      switch (s.key) {
-        case 'info': DeviceDetail.renderInfoSection(body, f); break;
-        case 'params': DeviceDetail.renderParamsSection(body, f, setWalkStatus, { hideAddressField: true }); break;
-        case 'sensors': DeviceDetail.renderSensorsSection(body, f); break;
-        case 'status': DeviceDetail.renderStatusSection(body, f); break;
-      }
+      renderAccordionSectionBody(root, s.key, f);
     });
+  }
+
+  // renderAccordionSectionBody renders one section's body into its
+  // accordion panel — the one place that maps a section key to its
+  // DeviceDetail render function, shared by wireAccordionHandlers (initial/
+  // full draw) and updateAccordionSection (a single section's targeted
+  // redraw, see DeviceDetail.init's callback above).
+  function renderAccordionSectionBody(root, key, f) {
+    const body = root.querySelector(`[data-section-body="${key}"]`);
+    if (!body) return false;
+    switch (key) {
+      case 'info': DeviceDetail.renderInfoSection(body, f); break;
+      case 'params': DeviceDetail.renderParamsSection(body, f, setWalkStatus, { hideAddressField: true }); break;
+      case 'sensors': DeviceDetail.renderSensorsSection(body, f); break;
+      case 'status': DeviceDetail.renderStatusSection(body, f); break;
+    }
+    return true;
+  }
+
+  // updateAccordionSection redraws just one expanded accordion section in
+  // place, without touching the rest of the walk screen (the walk progress
+  // header, the other accordion sections, the problem-note field, etc.) —
+  // see DeviceDetail.init's callback for why this matters. Returns false
+  // (asking the caller to fall back to a full render()) when the accordion
+  // DOM isn't there to update, e.g. the very first render for a device.
+  function updateAccordionSection(key) {
+    const root = document.getElementById('walkAccordion');
+    if (!root) return false;
+    const dev = currentDevice();
+    if (!dev) return false;
+    return renderAccordionSectionBody(root, key, toDetailFixture(dev));
   }
 
   function setWalkStatus(msg) {

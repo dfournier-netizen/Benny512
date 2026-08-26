@@ -482,9 +482,21 @@ const DevicesScreen = (() => {
     // when this screen/tab isn't the active one (renderDetail/render just
     // re-touch DOM that's already correct, and the underlying selectedUID
     // guards mean a Rig Walk-driven update never fires wire traffic here).
-    DeviceDetail.init(() => {
+    //
+    // scope names which section's data changed ('info'/'params'/'sensors'/
+    // 'status', or undefined for "not sure, refresh regardless"). This
+    // desktop shell shows exactly one tab at a time, so a scoped update that
+    // doesn't match the active tab has nothing to redraw here — skipping
+    // renderTabBody in that case is the fix for the bench report "Device
+    // Label kicks you out mid-typing": a 'sensors' push while activeTab is
+    // 'params' no longer touches the Parameters tab's DOM (and the Device
+    // Label input inside it) at all. render() (the devices table) has no
+    // editable fields and stays cheap to always refresh.
+    DeviceDetail.init((scope) => {
       render();
-      if (selectedUID) renderTabBody(fixtures.find(x => x.uid === selectedUID) || { uid: selectedUID });
+      if (selectedUID && (!scope || scope === activeTab)) {
+        renderTabBody(fixtures.find(x => x.uid === selectedUID) || { uid: selectedUID });
+      }
     });
 
     refreshNodes();

@@ -84,12 +84,69 @@ const DeviceDetail = (() => {
   let selectGen = 0;
   let settleTimer = null;
   let sensorsSubscribedUID = null;
-  const subscribers = []; // () => void, called after any async cache update
+  // subscribers: (scope) => void, called after any async cache update.
+  // scope names which section's data just changed — 'info' | 'params' |
+  // 'sensors' | 'status' — so a caller showing only one of those at a time
+  // (Devices tab's active tab; Rig Walk's expanded accordions) can update
+  // just that section instead of tearing down and rebuilding everything on
+  // screen for a change that section doesn't even display. This is the fix
+  // for the bench report "Device Label kicks you out mid-typing": before
+  // this, a 'sensors'-only update (the periodic WS sensor poll, subscribed
+  // as soon as the Sensors section/accordion has ever been opened for this
+  // device) called every subscriber unscoped, and both callers responded by
+  // rebuilding the *entire currently visible* section/screen regardless of
+  // whether it had anything to do with sensors — which, when that section
+  // was Parameters, replaced the Device Label <input> out from under
+  // whatever the tech was mid-typing. scope is omitted (undefined) only for
+  // updates that genuinely don't know which single section changed; callers
+  // treat that as "safe to do a full refresh" rather than skip it.
+  const subscribers = [];
 
   function onUpdate(fn) { subscribers.push(fn); }
-  function notify() { subscribers.forEach(fn => { try { fn(); } catch (e) { /* one bad subscriber must not break the others */ } }); }
+  function notify(scope) { subscribers.forEach(fn => { try { fn(scope); } catch (e) { /* one bad subscriber must not break the others */ } }); }
 
   function stillCurrent(uid, gen) { return uid === selectedUID && gen === selectGen; }
+
+  // --- focus/caret preservation across a re-render that must still happen
+  // within the SAME section (task ask: "preserving focus and caret position
+  // across a re-render that genuinely must happen is legitimate") ---------
+  //
+  // Keyed off data-b5-field, stamped by UI.buildApplyField's opts.name (or
+  // set by hand on a field devicedetail.js builds itself, e.g. the generic
+  // manufacturer-PID rows and the minimum-level pair). captureFieldFocus is
+  // called immediately before a section's container is torn down;
+  // restoreFieldFocus after it's rebuilt. A field the rebuild didn't
+  // recreate (e.g. it became disabled/removed) is simply not restored to —
+  // there's nothing to clobber in that case anyway.
+  function captureFieldFocus(container) {
+    const active = document.activeElement;
+    if (!active || !container.contains(active)) return null;
+    const name = active.dataset && active.dataset.b5Field;
+    if (!name) return null;
+    const state = { name, value: active.value };
+    if (typeof active.selectionStart === 'number') {
+      state.selectionStart = active.selectionStart;
+      state.selectionEnd = active.selectionEnd;
+    }
+    return state;
+  }
+
+  function restoreFieldFocus(container, state) {
+    if (!state) return;
+    let el;
+    try { el = container.querySelector(`[data-b5-field="${CSS.escape(state.name)}"]`); } catch (e) { return; }
+    if (!el) return;
+    el.value = state.value;
+    el.focus();
+    if (typeof state.selectionStart === 'number' && el.setSelectionRange) {
+      try { el.setSelectionRange(state.selectionStart, state.selectionEnd); } catch (e) { /* some input types (e.g. number) don't support selection ranges */ }
+    }
+    // Re-run the field's own dirty/Apply-button bookkeeping (wireApplyField/
+    // wireRowApply both listen for 'input') so the restored draft shows as
+    // unsaved/Apply-enabled exactly as it did before the rebuild, not as a
+    // freshly-loaded baseline value.
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }
 
   // select is the fetch/subscription entry point — see file doc comment.
   function select(uid, sections) {
@@ -155,7 +212,7 @@ const DeviceDetail = (() => {
     st.modelVal = model.status === 'fulfilled' ? model.value.value : '';
     st.swVersion = swVersion.status === 'fulfilled' ? swVersion.value.value : '';
     st.prodDetailHex = prodDetail.status === 'fulfilled' ? prodDetail.value.hex : '';
-    notify();
+    notify('info');
 
     // DMX_PERSONALITY_DESCRIPTION for the CURRENT personality only (task
     // ask, owner's real-world complaint: a bare "Personality 5 of 9" gave
@@ -177,7 +234,7 @@ const DeviceDetail = (() => {
         if (!stillCurrent(uid, gen)) return;
         st.currentPersonalityDesc = null;
       }
-      notify();
+      notify('info');
     }
   }
 
@@ -286,7 +343,7 @@ const DeviceDetail = (() => {
     st.minLevel = minLevel.status === 'fulfilled' ? minLevel.value.value : null;
     st.maxLevel = maxLevel.status === 'fulfilled' ? maxLevel.value.value : null;
     st.identMode = identMode.status === 'fulfilled' ? identMode.value.value : null;
-    notify();
+    notify('params');
 
     // Cached descriptors (no wire traffic — matches the pre-existing
     // "Introspect is user-triggered, not automatic" rule, task ask: "never
@@ -297,7 +354,7 @@ const DeviceDetail = (() => {
       st.descriptors = descs;
       await loadParamValues(uid, descs, gen);
     } catch (e) { /* best-effort */ }
-    if (stillCurrent(uid, gen)) notify();
+    if (stillCurrent(uid, gen)) notify('params');
 
     // Labeled-dropdown companions (the new CURVE_DESCRIPTION/OUTPUT_
     // RESPONSE_TIME_DESCRIPTION/MODULATION_FREQUENCY_DESCRIPTION) — fetched
@@ -331,7 +388,7 @@ const DeviceDetail = (() => {
       loadIndexedLabels(uid, gen, 'ortLabels', st.ort, 'output_response_time_description', d => d.Description),
       loadIndexedLabels(uid, gen, 'modFreqLabels', st.modFreq, 'modulation_frequency_description', d => d.Description),
     ]);
-    if (stillCurrent(uid, gen)) notify();
+    if (stillCurrent(uid, gen)) notify('params');
   }
 
   // loadAllPersonalityLabels is the explicit user action (task ask: "make
@@ -354,7 +411,7 @@ const DeviceDetail = (() => {
     results.forEach((r, idx) => {
       if (r.status === 'fulfilled') st.personality[need[idx]] = r.value.Description;
     });
-    notify();
+    notify('params');
   }
 
   // loadIndexedLabels fetches `choice.Count` description entries (indices
@@ -399,12 +456,12 @@ const DeviceDetail = (() => {
     const st = paramsCache[uid] || (paramsCache[uid] = { descriptors: [], values: {}, introspecting: false, progress: null });
     st.introspecting = true;
     st.progress = null;
-    notify();
+    notify('params');
     try {
       await Api.introspectDevice(uid);
     } catch (e) {
       st.introspecting = false;
-      notify();
+      notify('params');
     }
     // Completion/progress arrives over WS — see wireLiveUpdates below.
   }
@@ -429,12 +486,21 @@ const DeviceDetail = (() => {
     }
     const di = st.di, lbl = st.lbl || '', pers = st.pers, identOn = !!st.identOn;
 
+    // Captured before the teardown below so a re-render that genuinely must
+    // happen within this same section (see the notify() scoping above —
+    // this now only fires for 'params'-scoped updates: the base fields
+    // resolving, introspect progress/completion for THIS device, an Apply
+    // elsewhere in this section) doesn't cost the tech whatever they're
+    // mid-typing in one of this section's own fields. Restored at the
+    // bottom of this function, once every field below has been rebuilt.
+    const focusState = captureFieldFocus(container);
+
     container.innerHTML = '';
     const standard = document.createElement('div');
     standard.className = 'b5-stack';
     container.appendChild(standard);
 
-    const labelField = UI.buildApplyField({ label: 'Device label', value: lbl, enabled: !!di, maxLength: 32 });
+    const labelField = UI.buildApplyField({ label: 'Device label', value: lbl, enabled: !!di, maxLength: 32, name: 'device_label' });
     standard.appendChild(labelField.wrap);
     UI.wireApplyField(labelField, lbl, async (v) => { await saveParam(uid, 'device_label', v, statusSetter); }, statusSetter);
 
@@ -443,6 +509,7 @@ const DeviceDetail = (() => {
       const addrField = UI.buildApplyField({
         label: 'Start address', kind: 'number', mono: true, min: 1, max: 512,
         value: di && di.DMXFootprint ? di.DMXStartAddress : '', enabled: !!(di && di.DMXFootprint), hint: addrHint,
+        name: 'dmx_start_address',
       });
       standard.appendChild(addrField.wrap);
       UI.wireApplyField(addrField, di && di.DMXFootprint ? String(di.DMXStartAddress) : '', async (v) => {
@@ -455,6 +522,7 @@ const DeviceDetail = (() => {
       label: 'Personality', kind: 'select', enabled: !!pers,
       value: pers ? pers.Current : null,
       options: pers ? Array.from({ length: pers.Count }, (_, i) => i + 1).map(i => ({ value: i, label: personalityLabels[i] ? `${i} — ${personalityLabels[i]}` : String(i) })) : [],
+      name: 'dmx_personality',
     });
     standard.appendChild(persField.wrap);
     UI.wireApplyField(persField, pers ? String(pers.Current) : '', async (v) => {
@@ -537,6 +605,8 @@ const DeviceDetail = (() => {
         rowsEl.appendChild(renderParamRow(uid, desc, st.values[desc.pid], statusSetter));
       });
     }
+
+    restoreFieldFocus(container, focusState);
   }
 
   // renderDimmerFields appends the E1.37-1 dimmer-PID rows (task ask: "the
@@ -551,20 +621,20 @@ const DeviceDetail = (() => {
     wrap.className = 'b5-stack';
     let any = false;
 
-    function indexedRow(title, choice, labels, pidGet) {
+    function indexedRow(name, title, choice, labels, pidGet) {
       if (!choice) return;
       any = true;
       const opts = Array.from({ length: choice.Count }, (_, i) => i + 1)
         .map(i => ({ value: i, label: (labels && labels[i]) ? `${i} — ${labels[i]}` : String(i) }));
       const hint = (!labels || Object.keys(labels).length < choice.Count) ? 'fetching labels…' : undefined;
-      const field = UI.buildApplyField({ label: title, kind: 'select', enabled: true, value: choice.Current, options: opts, hint });
+      const field = UI.buildApplyField({ label: title, kind: 'select', enabled: true, value: choice.Current, options: opts, hint, name });
       UI.wireApplyField(field, String(choice.Current), pidGet, statusSetter);
       wrap.appendChild(field.wrap);
     }
 
-    indexedRow('Dimmer curve', st.curve, st.curveLabels, async (v) => saveParam(uid, 'curve', parseInt(v, 10), statusSetter));
-    indexedRow('Output response time', st.ort, st.ortLabels, async (v) => saveParam(uid, 'output_response_time', parseInt(v, 10), statusSetter));
-    indexedRow('Modulation frequency', st.modFreq, st.modFreqLabels, async (v) => saveParam(uid, 'modulation_frequency', parseInt(v, 10), statusSetter));
+    indexedRow('curve', 'Dimmer curve', st.curve, st.curveLabels, async (v) => saveParam(uid, 'curve', parseInt(v, 10), statusSetter));
+    indexedRow('output_response_time', 'Output response time', st.ort, st.ortLabels, async (v) => saveParam(uid, 'output_response_time', parseInt(v, 10), statusSetter));
+    indexedRow('modulation_frequency', 'Modulation frequency', st.modFreq, st.modFreqLabels, async (v) => saveParam(uid, 'modulation_frequency', parseInt(v, 10), statusSetter));
 
     if (st.minLevel) {
       any = true;
@@ -573,9 +643,9 @@ const DeviceDetail = (() => {
       field.innerHTML = `
         <label class="b5-field__label">Minimum level (rise / fall)</label>
         <div class="b5-field__row">
-          <input class="b5-input" type="number" min="0" max="65535" value="${st.minLevel.Increasing}" style="max-width:8em">
+          <input class="b5-input" type="number" min="0" max="65535" value="${st.minLevel.Increasing}" style="max-width:8em" data-b5-field="minimum_level_rise">
           <span class="b5-text-muted">/</span>
-          <input class="b5-input" type="number" min="0" max="65535" value="${st.minLevel.Decreasing}" style="max-width:8em">
+          <input class="b5-input" type="number" min="0" max="65535" value="${st.minLevel.Decreasing}" style="max-width:8em" data-b5-field="minimum_level_fall">
           <span class="b5-field__actions"><button class="b5-btn b5-btn--sm b5-btn--primary" disabled>${UI.icon('apply')}Apply</button></span>
         </div>
       `;
@@ -589,7 +659,7 @@ const DeviceDetail = (() => {
           await Api.setParam(uid, 'minimum_level', { Increasing: Number(riseInput.value), Decreasing: Number(fallInput.value), OnBelowMin: st.minLevel.OnBelowMin });
           statusSetter('applied minimum level');
           st.minLevel = { Increasing: Number(riseInput.value), Decreasing: Number(fallInput.value), OnBelowMin: st.minLevel.OnBelowMin };
-          notify();
+          notify('params');
         } catch (e) { statusSetter('error: ' + e.message); }
       });
       wrap.appendChild(field);
@@ -597,14 +667,14 @@ const DeviceDetail = (() => {
 
     if (st.maxLevel !== null && st.maxLevel !== undefined) {
       any = true;
-      const field = UI.buildApplyField({ label: 'Maximum level', kind: 'number', enabled: true, value: st.maxLevel, min: 0, max: 65535 });
+      const field = UI.buildApplyField({ label: 'Maximum level', kind: 'number', enabled: true, value: st.maxLevel, min: 0, max: 65535, name: 'maximum_level' });
       UI.wireApplyField(field, String(st.maxLevel), async (v) => saveParam(uid, 'maximum_level', parseInt(v, 10), statusSetter), statusSetter);
       wrap.appendChild(field.wrap);
     }
 
     if (st.identMode !== null && st.identMode !== undefined) {
       any = true;
-      const field = UI.buildApplyField({ label: 'Identify mode', kind: 'select', enabled: true, value: st.identMode, options: [{ value: 0, label: 'Quiet' }, { value: 1, label: 'Loud' }] });
+      const field = UI.buildApplyField({ label: 'Identify mode', kind: 'select', enabled: true, value: st.identMode, options: [{ value: 0, label: 'Quiet' }, { value: 1, label: 'Loud' }], name: 'identify_mode' });
       UI.wireApplyField(field, String(st.identMode), async (v) => saveParam(uid, 'identify_mode', v === '1', statusSetter), statusSetter);
       wrap.appendChild(field.wrap);
     }
@@ -681,11 +751,17 @@ const DeviceDetail = (() => {
       return row;
     }
     const v = valState.val;
+    // A stable per-PID field name (captureFieldFocus/restoreFieldFocus) so
+    // an in-progress edit on one of these generic manufacturer/unrecognized
+    // rows survives a re-render of the whole Parameters section the same
+    // way the fixed-position fields above it do.
+    const fieldName = 'pid_' + desc.pid;
 
     if (desc.dataType === DS.BOOLEAN || (desc.dataType === DS.BIT_FIELD && desc.pdlSize === 1)) {
       const checked = desc.dataType === DS.BOOLEAN ? v.int !== 0 : (v.hex && parseInt(v.hex.slice(0, 2), 16) !== 0);
       field.innerHTML = `<label class="b5-toggle"><input type="checkbox" ${checked ? 'checked' : ''} ${editable ? '' : 'disabled'}><span class="b5-toggle__track"></span></label>`;
       const cb = field.querySelector('input');
+      cb.dataset.b5Field = fieldName;
       if (editable) {
         wireRowApply(field, cb, true, checked, (checkedNow) => {
           const value = desc.dataType === DS.BOOLEAN ? (checkedNow ? 1 : 0) : (checkedNow ? '01' : '00');
@@ -695,12 +771,14 @@ const DeviceDetail = (() => {
     } else if (v.kind === 'string') {
       field.innerHTML = `<input class="b5-input" type="text" maxlength="32" value="${escapeHtml(v.str || '')}" ${editable ? '' : 'disabled'}>`;
       const input = field.querySelector('input');
+      input.dataset.b5Field = fieldName;
       if (editable) {
         wireRowApply(field, input, false, v.str || '', (val) => saveDeviceParam(uid, desc, val, row, statusSetter), statusSetter);
       }
     } else if (v.kind === 'int') {
       const { wrap, input } = numericStepper(desc, v.int, editable);
       field.appendChild(wrap);
+      input.dataset.b5Field = fieldName;
       if (editable) {
         wireRowApply(field, input, false, v.int, (val) => {
           const n = Number(val);
@@ -715,12 +793,14 @@ const DeviceDetail = (() => {
       const current = v.hex ? parseInt(v.hex, 16) || 0 : 0;
       const { wrap, input } = numericStepper(desc, current, editable);
       field.appendChild(wrap);
+      input.dataset.b5Field = fieldName;
       if (editable) {
         wireRowApply(field, input, false, current, (val) => saveDeviceParam(uid, desc, hexEncode(Number(val), width), row, statusSetter), statusSetter);
       }
     } else {
       field.innerHTML = `<input class="b5-input b5-input--mono" type="text" placeholder="hex bytes, e.g. DEAD" value="${escapeHtml(v.hex || '')}" ${editable ? '' : 'disabled'}>`;
       const input = field.querySelector('input');
+      input.dataset.b5Field = fieldName;
       if (editable) {
         wireRowApply(field, input, false, v.hex || '', (val) => saveDeviceParam(uid, desc, val.replace(/\s+/g, ''), row, statusSetter), statusSetter);
       }
@@ -826,7 +906,7 @@ const DeviceDetail = (() => {
       const st = paramsCache[uid];
       if (st) st.values[desc.pid] = { ok: true, val: r };
       if (statusSetter) statusSetter('saved 0x' + desc.pid);
-      notify();
+      notify('params');
     } catch (e) {
       if (statusSetter) statusSetter('error saving 0x' + desc.pid + ': ' + e.message);
     }
@@ -842,11 +922,11 @@ const DeviceDetail = (() => {
       const readings = await Api.getDeviceSensors(uid);
       if (!stillCurrent(uid, gen)) return;
       sensorsCache[uid] = { readings, loading: false, error: null };
-      notify();
+      notify('sensors');
     } catch (e) {
       if (!stillCurrent(uid, gen)) return;
       sensorsCache[uid] = { readings: [], loading: false, error: e.message };
-      notify();
+      notify('sensors');
     }
   }
 
@@ -936,7 +1016,7 @@ const DeviceDetail = (() => {
   async function refreshSensorsNow(uid) {
     const readings = await Api.getDeviceSensors(uid);
     sensorsCache[uid] = { readings, loading: false, error: null };
-    notify();
+    notify('sensors');
   }
 
   function formatSensorRaw(r, raw) { return formatValue(raw, r.unit, r.prefix); }
@@ -979,7 +1059,7 @@ const DeviceDetail = (() => {
     const st = statusCache[uid] || (statusCache[uid] = { filter: 'advisory', messages: [], loading: true, error: null });
     if (forceFilter) st.filter = forceFilter;
     st.loading = true;
-    notify();
+    notify('status');
     try {
       const msgs = await Api.getDeviceStatus(uid, st.filter);
       if (!stillCurrent(uid, gen)) return;
@@ -988,7 +1068,7 @@ const DeviceDetail = (() => {
       if (!stillCurrent(uid, gen)) return;
       st.loading = false; st.error = e.message;
     }
-    notify();
+    notify('status');
   }
 
   function renderStatusSection(container, f) {
@@ -1062,26 +1142,46 @@ const DeviceDetail = (() => {
     if (liveWired) return;
     liveWired = true;
 
+    // introspect_progress/complete update paramsCache for whichever uid the
+    // introspect was started against, even if the tech has since navigated
+    // to a different device (so results are ready if they come back) — but
+    // only NOTIFY (and thus trigger a caller's re-render) when that uid is
+    // the one currently on screen. Skipping notify() for a uid that isn't
+    // selectedUID means an introspect a tech kicked off on device A, then
+    // walked away from to type device B's label, can no longer force a
+    // rebuild of B's Parameters section it has nothing to do with.
     Live.on('introspect_progress', (msg) => {
       const st = paramsCache[msg.kind];
       if (!st) return;
       st.progress = msg.introspect;
-      notify();
+      if (msg.kind === selectedUID) notify('params');
     });
 
     Live.on('introspect_complete', async (msg) => {
       const st = paramsCache[msg.kind] || (paramsCache[msg.kind] = { descriptors: [], values: {}, introspecting: false, progress: null });
       st.introspecting = false;
-      if (msg.err) { notify(); return; }
+      if (msg.err) { if (msg.kind === selectedUID) notify('params'); return; }
       st.descriptors = msg.descriptors || [];
       await loadParamValues(msg.kind, st.descriptors, selectGen);
-      notify();
+      if (msg.kind === selectedUID) notify('params');
     });
 
+    // sensor_values is the periodic (DefaultSensorPollInterval, currently
+    // 2s) background push for every subscribed device — see
+    // server.go's handleWS. It keeps arriving for as long as a device's
+    // Sensors section/accordion has EVER been opened this selection (there
+    // is no auto-unsubscribe on tab/accordion switch, only on selecting a
+    // different device — see select()/subscribeSensors doc comment), so a
+    // tech who checks Sensors once and then switches to Parameters to edit
+    // the Device Label keeps receiving these. Scoping this to 'sensors'
+    // (rather than the old unscoped notify()) is the actual fix for the
+    // bench report: it stops this push from ever touching the Parameters
+    // section's DOM at all, so it cannot be the thing that reset an
+    // in-progress edit there.
     Live.on('sensor_values', (msg) => {
       if (msg.kind !== selectedUID) return;
       sensorsCache[msg.kind] = { readings: msg.sensors, loading: false, error: null };
-      notify();
+      notify('sensors');
     });
   }
 

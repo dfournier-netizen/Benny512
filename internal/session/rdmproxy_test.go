@@ -38,9 +38,15 @@ var proxyProfile = TimeoutProfile{
 	CommandDeadline: 5 * time.Minute,
 }
 
+// newProxyHarness builds a breaker harness with automatic QUEUED_MESSAGE
+// draining switched off, so these tests measure the breaker's own arithmetic
+// — requests spent, probes admitted, cool-downs served — without a recovery
+// drain adding wire traffic to every count. The drain's interaction with the
+// breaker, including the default DrainOnProxyRecovery policy, has its own
+// tests in rdmqueued_test.go.
 func newProxyHarness(t *testing.T, scope SerializationScope) *rdmHarness {
 	t.Helper()
-	return newRDMHarness(t, RDMConfig{DefaultProfile: proxyProfile, Scope: scope})
+	return newRDMHarness(t, RDMConfig{DefaultProfile: proxyProfile, Scope: scope, QueuedMessageDrain: DrainOff})
 }
 
 func proxyNack() reply {

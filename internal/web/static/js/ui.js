@@ -73,6 +73,17 @@ const UI = (() => {
     }
     input.disabled = !opts.enabled;
     if (opts.readonly) input.readOnly = true;
+    // opts.name stamps a stable data-b5-field identifier on the live
+    // control (input or select) — a caller whose container gets rebuilt out
+    // from under an in-progress edit (an unrelated WS-driven data update
+    // forcing a re-render of the section this field lives in) can use it to
+    // find "was this exact field focused, with what draft value/caret" just
+    // before tearing the DOM down, and restore that after — see
+    // devicedetail.js's captureFieldFocus/restoreFieldFocus. Optional: a
+    // caller that never rebuilds its container while this field could be
+    // focused (most of nodes.js's config fields, which are built once per
+    // node selection, not on every refresh) has no need for it.
+    if (opts.name) input.dataset.b5Field = opts.name;
     row.appendChild(input);
 
     let applyBtn = null, revertBtn = null;

@@ -272,6 +272,12 @@ type Result struct {
 	// Response is the final RDM response message, when there was one.
 	Response *rdm.Message
 	Err      error
+	// ResponsePID is the Parameter ID the responder actually answered
+	// with. It equals Request.PID for every PID except QUEUED_MESSAGE
+	// (0x0020), whose answer carries the PID of the queued message being
+	// delivered — that is what a caller must switch on to decode Data.
+	// Zero until a response has arrived.
+	ResponsePID rdm.ParameterID
 }
 
 // Command is the handle returned by Get/Set/Submit.
@@ -302,6 +308,24 @@ type Command struct {
 	finished      bool
 	finalResult   Result
 	messageCount  byte
+
+	// answerPID is the Parameter ID every response to this command must
+	// carry. For all but one PID it is simply req.PID and never changes.
+	answerPID rdm.ParameterID
+	// answerPIDSet records that answerPID was pinned by an actual answer
+	// rather than merely inherited from the request.
+	//
+	// It exists solely for GET QUEUED_MESSAGE (0x0020), whose response by
+	// spec carries the PID of the *queued* message rather than 0x0020 —
+	// that substitution is the entire point of the PID. For that one
+	// request PID the first real answer (ACK / ACK_OVERFLOW / NACK, but
+	// never ACK_TIMER, which defers rather than answers) pins answerPID,
+	// and every later response in the same transaction is matched against
+	// it exactly as strictly as for any other command. See rdmqueued.go.
+	answerPIDSet bool
+	// notify, when set, is called from completeLocked with c.mu held.
+	// Internal to the drain state machine; see completeLocked.
+	notify func(Result)
 }
 
 // Done delivers the Result exactly once, then closes.
@@ -359,6 +383,14 @@ type RDMConfig struct {
 	// reason; the default follows the standard (10 ms) and must be
 	// confirmed against real hardware in Phase 1d.
 	AckTimerUnit time.Duration
+	// QueuedMessageDrain selects when the controller drains a responder's
+	// message queue with GET QUEUED_MESSAGE on its own initiative. The zero
+	// value, DrainOnProxyRecovery, is the default. See rdmqueued.go.
+	QueuedMessageDrain QueuedMessageDrainPolicy
+	// MaxQueuedMessageDrain caps the iterations of a single drain pass, so
+	// a responder that never reports its queue empty cannot spin forever.
+	// Defaults to DefaultQueuedMessageDrainLimit.
+	MaxQueuedMessageDrain int
 	// DiscoveryTimeout bounds ToD assembly; the timer restarts on every
 	// ArtTodData block received, so it is a quiet-period timeout rather
 	// than a hard cap on a long discovery. Defaults to 20 s.
@@ -456,6 +488,12 @@ type RDMStats struct {
 	// failing its probes increments it once per re-open.
 	DevicesUnreachable uint64
 	DroppedEvents      uint64
+	// QueuedDrains counts GET QUEUED_MESSAGE drain passes started
+	// (rdmqueued.go), automatic and caller-driven alike.
+	QueuedDrains uint64
+	// QueuedMessagesDrained counts individual queued messages collected
+	// across every drain — the payoff measure for the drain machinery.
+	QueuedMessagesDrained uint64
 }
 
 // RDMController is the RDM-over-Art-Net client state machine (architecture
@@ -478,7 +516,11 @@ type RDMController struct {
 	// PROXY_BUFFER_FULL refusals (rdmproxy.go). An absent entry means the
 	// device has never been refused — the state every directly-wired device
 	// stays in for the whole life of the process.
-	devices     map[deviceKey]*deviceHealth
+	devices map[deviceKey]*deviceHealth
+	// drains carries the in-flight GET QUEUED_MESSAGE drain, at most one
+	// per device, so an automatic drain and a caller-driven one cannot
+	// interleave and consume each other's queued messages (rdmqueued.go).
+	drains      map[deviceKey]*drainState
 	profiles    map[NodeKey]TimeoutProfile
 	tod         map[todKey]*todEntry
 	discoveries map[todKey]*Discovery
@@ -516,12 +558,16 @@ func NewRDMController(cfg RDMConfig) *RDMController {
 	if cfg.EventBuffer <= 0 {
 		cfg.EventBuffer = DefaultEventBufferSize
 	}
+	if cfg.MaxQueuedMessageDrain <= 0 {
+		cfg.MaxQueuedMessageDrain = DefaultQueuedMessageDrainLimit
+	}
 	return &RDMController{
 		cfg:          cfg,
 		queues:       make(map[queueKey]*cmdQueue),
 		inflightByTN: make(map[byte]*Command),
 		overflowUID:  make(map[rdm.UID]*Command),
 		devices:      make(map[deviceKey]*deviceHealth),
+		drains:       make(map[deviceKey]*drainState),
 		profiles:     make(map[NodeKey]TimeoutProfile),
 		tod:          make(map[todKey]*todEntry),
 		discoveries:  make(map[todKey]*Discovery),
@@ -555,6 +601,10 @@ func (c *RDMController) Stop() {
 		return
 	}
 	c.stopped = true
+	// Retire drain passes before their commands are aborted, so a waiter
+	// gets one ErrControllerStopped rather than a partial pass that then
+	// tries to schedule another step.
+	c.abortDrainsLocked()
 	for _, q := range c.queues {
 		if q.inflight != nil {
 			c.finishLocked(q.inflight, ResultAborted, ErrControllerStopped)
@@ -602,10 +652,15 @@ func (c *RDMController) Set(node NodeRef, uid rdm.UID, pid rdm.ParameterID, data
 // starts on the wire as soon as its queue is free and its UID is not
 // mid-ACK_OVERFLOW.
 func (c *RDMController) Submit(req Request) *Command {
-	cmd := &Command{req: req, done: make(chan Result, 1)}
-
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return c.submitLocked(req)
+}
+
+// submitLocked is Submit's body, for callers that already hold c.mu (the
+// QUEUED_MESSAGE drain state machine in rdmqueued.go).
+func (c *RDMController) submitLocked(req Request) *Command {
+	cmd := &Command{req: req, done: make(chan Result, 1)}
 
 	if c.stopped {
 		c.completeLocked(cmd, ResultAborted, ErrControllerStopped)
@@ -620,6 +675,9 @@ func (c *RDMController) Submit(req Request) *Command {
 	cmd.id = c.nextID
 	cmd.profile = c.profileForLocked(req)
 	cmd.qkey = c.queueKeyFor(req)
+	// Responses must echo the request's PID until an answer says otherwise,
+	// which only a QUEUED_MESSAGE drain is ever allowed to do.
+	cmd.answerPID = req.PID
 
 	q := c.queues[cmd.qkey]
 	if q == nil {
@@ -846,21 +904,42 @@ func (c *RDMController) HandleRDMResponse(msg rdm.Message) {
 	if msg.MessageCount > 0 {
 		c.emitLocked(Event{Kind: EventQueuedMessages, Node: cmd.req.Node, UID: cmd.req.UID,
 			MessageCount: msg.MessageCount, At: c.cfg.Clock.Now()})
+		if !isQueuedMessageRequest(cmd.req) {
+			// E1.20's canonical "I have something for you" signal. Only
+			// under DrainOnProxyRecoveryAndMessageCount — the bench logs
+			// show this field is zero on every response this rig produces,
+			// so it is not the default. See QueuedMessageDrainPolicy.
+			c.maybeAutoDrainLocked(cmd.req.Node, cmd.req.UID, DrainReasonMessageCount)
+		}
 	}
 
-	if msg.ParameterID != cmd.req.PID {
+	if msg.ParameterID != cmd.answerPID {
 		// A responder must abort a partial ACK_OVERFLOW transfer if it sees
 		// a different PID; if we observe the mirror image (it answers our
 		// same-PID re-issue with a different PID) the sequence is dead and
-		// the accumulated data is not trustworthy.
+		// the accumulated data is not trustworthy. This holds for
+		// QUEUED_MESSAGE too: once the first block has pinned answerPID,
+		// the rest of the sequence must stay on that PID.
 		if cmd.overflow {
 			c.finishResponseLocked(cmd, ResultAborted, ErrOverflowPIDMismatch, &msg)
 			return
 		}
-		c.finishResponseLocked(cmd, ResultAborted,
-			fmt.Errorf("%w: want 0x%04X got 0x%04X", ErrPIDMismatch, uint16(cmd.req.PID), uint16(msg.ParameterID)), &msg)
-		return
+		// The one licensed mismatch: a QUEUED_MESSAGE request whose answer
+		// has not been pinned yet. Everything else aborts, as before.
+		if !queuedMessagePIDFloats(cmd, rt) {
+			c.finishResponseLocked(cmd, ResultAborted,
+				fmt.Errorf("%w: want 0x%04X got 0x%04X", ErrPIDMismatch, uint16(cmd.answerPID), uint16(msg.ParameterID)), &msg)
+			return
+		}
 	}
+	if !cmd.answerPIDSet && rt != rdm.ResponseACKTimer {
+		// Pin the answering PID on the first response that is an answer
+		// rather than a deferral. For every command but a QUEUED_MESSAGE
+		// drain this is a no-op restatement of req.PID.
+		cmd.answerPID = msg.ParameterID
+		cmd.answerPIDSet = true
+	}
+	cmd.finalResult.ResponsePID = cmd.answerPID
 
 	switch rt {
 	case rdm.ResponseACK:
@@ -1053,6 +1132,16 @@ func (c *RDMController) completeLocked(cmd *Command, kind ResultKind, err error)
 	cmd.finalResult = res
 	cmd.done <- res
 	close(cmd.done)
+
+	if cmd.notify != nil {
+		// Internal completion hook, used only by the QUEUED_MESSAGE drain
+		// state machine. It runs with c.mu held, so it must not block and
+		// must not re-enter the controller's public API — it may only
+		// mutate drain state and schedule a timer.
+		n := cmd.notify
+		cmd.notify = nil
+		n(res)
+	}
 
 	c.emitLocked(Event{Kind: EventCommandComplete, Node: cmd.req.Node, UID: cmd.req.UID,
 		Result: &res, At: c.cfg.Clock.Now()})

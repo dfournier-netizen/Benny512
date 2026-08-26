@@ -14,7 +14,11 @@ import (
 
 // TestDemoModeSmoke starts the demo wiring exactly as --demo does, hits
 // /api/nodes over httptest, and expects the two pre-scripted fake nodes
-// (architecture rev 5 §7 / brief item 7). It also checks /api/fixtures
+// (architecture rev 5 §7 / brief item 7) plus the three bind-per-port EN4
+// node rows added this round (realEN4PortReplies in demo.go — a real
+// Obsidian EN4 sends one ArtPollReply per physical port, each its own bind
+// index; see that variable's doc comment for the bench report this
+// reproduces). It also checks /api/fixtures
 // eventually reports the ten pre-scripted devices (five plain fixtures, one
 // NACK-fallback fixture, a Chroma-Q-like fixture, a splitter, and the EN4/
 // Aurora gateway "root" devices — see cmd/benny512/demo.go's
@@ -42,8 +46,27 @@ func TestDemoModeSmoke(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&nodes); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(nodes) != 2 {
-		t.Fatalf("expected 2 demo nodes, got %d: %+v", len(nodes), nodes)
+	if len(nodes) != 5 {
+		t.Fatalf("expected 5 demo node rows (EN4-Demo, Aurora-Demo, plus 3 bind-per-port realEN4PortReplies rows), got %d: %+v", len(nodes), nodes)
+	}
+	// Each of the three realEN4PortReplies rows must carry exactly its own
+	// single real port — not padded out to four with phantom "n/a" slots
+	// (RDM-LOG7's bench report, this round). See
+	// internal/web/server_test.go's TestGetNodesSinglePortEN4NotPaddedToFour
+	// for the same assertion built directly rather than through the demo.
+	realEN4Rows := 0
+	for _, n := range nodes {
+		if n["ip"] != "2.11.90.4" {
+			continue
+		}
+		realEN4Rows++
+		ports, _ := n["ports"].([]any)
+		if len(ports) != 1 {
+			t.Errorf("realEN4 node bind=%v: expected 1 port, got %d: %+v", n["bindIndex"], len(ports), ports)
+		}
+	}
+	if realEN4Rows != 3 {
+		t.Fatalf("expected 3 node rows at the realEN4 IP (one per bind index), got %d", realEN4Rows)
 	}
 
 	resp2, err := http.Get(ts.URL + "/api/fixtures")

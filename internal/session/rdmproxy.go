@@ -291,6 +291,13 @@ func (c *RDMController) breakerHoldLocked(req Request, now time.Time) *DeviceUnr
 	if h == nil || h.openUntil.IsZero() {
 		return nil // closed — the common case, and the only one wired gear sees.
 	}
+	if drainExemptFromBreaker(req) {
+		// Checked ahead of the open→half-open transition below, so a drain
+		// never consumes the single probe slot: that slot is reserved for
+		// real work, and a drain is the thing that might make real work
+		// possible again. See drainExemptFromBreaker in rdmqueued.go.
+		return nil
+	}
 	if !now.Before(h.openUntil) {
 		// Cool-down expired: admit exactly one probe. openUntil is cleared
 		// and probing set, so a refusal of the probe reopens the breaker
@@ -308,6 +315,12 @@ func (c *RDMController) breakerHoldLocked(req Request, now time.Time) *DeviceUnr
 // noteProxyRefusalLocked records one command that gave up with
 // ResultProxyBufferFull, and opens the breaker when the evidence is in.
 func (c *RDMController) noteProxyRefusalLocked(req Request, now time.Time) {
+	if !drainFeedsBreaker(req) {
+		// A refused drain says nothing the breaker does not already know;
+		// counting it would let every failed rescue lengthen the sentence.
+		// See drainFeedsBreaker in rdmqueued.go.
+		return
+	}
 	h := c.deviceHealthLocked(req)
 	h.refusals++
 	switch {
@@ -316,13 +329,13 @@ func (c *RDMController) noteProxyRefusalLocked(req Request, now time.Time) {
 		// straight away with a longer cool-down — no second three-strike
 		// count, because the strike that matters has already been served.
 		h.probing = false
-		c.openBreakerLocked(h, now)
+		c.openBreakerLocked(h, now, req)
 	case h.refusals >= ProxyBreakerTrip:
-		c.openBreakerLocked(h, now)
+		c.openBreakerLocked(h, now, req)
 	}
 }
 
-func (c *RDMController) openBreakerLocked(h *deviceHealth, now time.Time) {
+func (c *RDMController) openBreakerLocked(h *deviceHealth, now time.Time, req Request) {
 	if h.cooldown <= 0 {
 		h.cooldown = ProxyBreakerCooldownInitial
 	}
@@ -334,6 +347,11 @@ func (c *RDMController) openBreakerLocked(h *deviceHealth, now time.Time) {
 	if h.cooldown > ProxyBreakerCooldownMax {
 		h.cooldown = ProxyBreakerCooldownMax
 	}
+	// The breaker opening is the moment Benny512 gives up on this device,
+	// and PROXY_BUFFER_FULL is the one failure with a documented remedy:
+	// drain the queue the proxy says it cannot add to. One bounded pass per
+	// giving-up event — see maybeAutoDrainLocked and DrainOnProxyRecovery.
+	c.maybeAutoDrainLocked(req.Node, req.UID, DrainReasonProxyRecovery)
 }
 
 // noteDeviceRespondedLocked records that the device answered for real — an

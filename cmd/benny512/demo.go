@@ -296,6 +296,51 @@ func buildDemo(ctx context.Context, legacyRdmStartCode bool, logNodes bool) (*we
 		DefaultRespUID: uidToRespUID(auroraRootUID),
 	}
 
+	// realEN4IP/realEN4PortReplies reproduce the bind-per-port ArtPollReply
+	// pattern RDM-LOG7 actually captured from a real Obsidian EN4 (bench
+	// report, this round): the node sends one ArtPollReply PER PHYSICAL
+	// PORT, each its own bind index, each declaring NumPorts=1 with only
+	// port[0] populated — NOT one reply with NumPorts=4, the shape en4Reply
+	// above models (also a real, valid Art-Net pattern, just a different
+	// one — some nodes really do report all their ports in a single reply).
+	// Investigating that report's "every port shows n/a" symptom found
+	// nothing to fix in this app's decode/session/UI path — see the round's
+	// notes entry for the full trace — but there was no demo coverage of
+	// this exact wire shape to render-prove that finding against, only of
+	// the single-reply-NumPorts=4 shape. This fills that gap: three bind
+	// indices at the log's own IP, byte-for-byte matching NumPorts/PortTypes/
+	// GoodInput/GoodOutputA/GoodOutputB/SwOut per port from the captured hex
+	// (RDM-LOG7 lines 9-34), so the Nodes screen can be screenshotted
+	// against the literal bench evidence: three single-port rows, no
+	// phantom "n/a" ports.
+	realEN4IP := netip.MustParseAddr("2.11.90.4")
+	realEN4PortReplies := []artnet.PollReply{
+		{
+			IPAddress: realEN4IP.As4(), BindIndex: 1,
+			ShortName: "Port 1", LongName: "NETRON EN4",
+			NumPorts: 1, PortTypes: [4]byte{0x80, 0, 0, 0},
+			GoodInput: [4]byte{0x08, 0, 0, 0}, GoodOutputB: [4]byte{0x40, 0, 0, 0},
+			SwIn: [4]byte{0x00, 0, 0, 0}, SwOut: [4]byte{0x00, 0, 0, 0},
+			Status1: 0xE2,
+		},
+		{
+			IPAddress: realEN4IP.As4(), BindIndex: 2,
+			ShortName: "Port 2", LongName: "NETRON EN4",
+			NumPorts: 1, PortTypes: [4]byte{0x80, 0, 0, 0},
+			GoodInput: [4]byte{0x08, 0, 0, 0}, GoodOutputB: [4]byte{0x40, 0, 0, 0},
+			SwIn: [4]byte{0x01, 0, 0, 0}, SwOut: [4]byte{0x01, 0, 0, 0},
+			Status1: 0xE2,
+		},
+		{
+			IPAddress: realEN4IP.As4(), BindIndex: 3,
+			ShortName: "Port 3", LongName: "NETRON EN4",
+			NumPorts: 1, PortTypes: [4]byte{0x80, 0, 0, 0},
+			GoodInput: [4]byte{0x08, 0, 0, 0}, GoodOutputB: [4]byte{0x40, 0, 0, 0},
+			SwIn: [4]byte{0x02, 0, 0, 0}, SwOut: [4]byte{0x02, 0, 0, 0},
+			Status1: 0xE2,
+		},
+	}
+
 	port0, _ := artnet.NewPortAddress(0, 0, 0)
 	port1, _ := artnet.NewPortAddress(0, 0, 1)
 	port2, _ := artnet.NewPortAddress(0, 0, 2)
@@ -367,6 +412,9 @@ func buildDemo(ctx context.Context, legacyRdmStartCode bool, logNodes bool) (*we
 		// the node table. See deliverPollReply's doc comment.
 		deliverPollReply(nodes, tap, en4Reply, netip.AddrPortFrom(en4IP, session.ArtNetUDPPort))
 		deliverPollReply(nodes, tap, auroraReply, netip.AddrPortFrom(wirelessIP, session.ArtNetUDPPort))
+		for _, reply := range realEN4PortReplies {
+			deliverPollReply(nodes, tap, reply, netip.AddrPortFrom(realEN4IP, session.ArtNetUDPPort))
+		}
 
 		// Phase 2a: warm every demo device's manufacturer/model/footprint
 		// cache before installing the sample patch, so the reconcile
