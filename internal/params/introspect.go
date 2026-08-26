@@ -257,6 +257,34 @@ func (c *Client) resolveDescriptor(ctx context.Context, pid rdm.ParameterID) Par
 	if d, ok := descCacheGet(c.uid.ManufacturerID, pid); ok {
 		return d
 	}
+	if !isIntrospectionTarget(pid) {
+		// We already know the answer, so don't spend a transaction asking.
+		//
+		// E1.20 §10.4.2 defines PARAMETER_DESCRIPTION only for PIDs a
+		// responder has declared and cannot describe from the standard —
+		// ask about a standard PID and a conforming device NACKs. RDM-LOG4
+		// caught us doing exactly that against real gear: PARAMETER_
+		// DESCRIPTION for 0x0070 (PRODUCT_DETAIL_ID_LIST), 0x0080
+		// (DEVICE_MODEL_DESCRIPTION) and 0x0081 (MANUFACTURER_LABEL), all
+		// three of which are in knownDecodedESTAPIDs, and the one that
+		// reached a healthy responder came back NACK 0x0006
+		// (DATA_OUT_OF_RANGE) — the hardware confirming the round trip was
+		// pure waste.
+		//
+		// Introspect has gated its walk on isIntrospectionTarget since that
+		// waste was first identified; this on-demand path (reached from the
+		// generic parameter editor via DescribeParam, not from the walk)
+		// was missed, which is why the transactions were still on the wire
+		// two rounds later. Same gate, same rule, one place each.
+		//
+		// The returned descriptor is byte-for-byte what a NACK already
+		// produced below, so nothing downstream changes shape: the editor
+		// still falls back to the raw-hex field for these PIDs, as it did
+		// before. The only difference is that no request is sent.
+		d := ParamDescriptor{PID: pid, SelfDescribing: false}
+		descCacheSet(c.uid.ManufacturerID, pid, d)
+		return d
+	}
 	data, err := c.getRaw(ctx, rdm.PIDParameterDescription, rdm.EncodeParameterDescriptionRequest(pid))
 	var d ParamDescriptor
 	if err != nil {

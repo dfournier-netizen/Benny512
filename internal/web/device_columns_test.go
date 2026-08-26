@@ -3,7 +3,9 @@ package web
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
+	"time"
 
 	"benny512/internal/params"
 	"benny512/internal/rdm"
@@ -239,5 +241,54 @@ func TestDevicesBackfillPopulatesManufacturerAndModel(t *testing.T) {
 	}
 	if nacked.ManufacturerLabel != "" || nacked.ModelDescription != "" {
 		t.Errorf("nacking device raw fields should stay empty: %+v", nacked)
+	}
+}
+
+// TestFixtureJSONStatesUnreachabilityInPlainLanguage covers the round-4
+// visibility requirement: when Benny512 stops asking a device, the UI must be
+// able to say so in words a lighting tech can act on, rather than showing a
+// row that quietly stops filling in.
+func TestFixtureJSONStatesUnreachabilityInPlainLanguage(t *testing.T) {
+	retry := time.Date(2026, 8, 25, 21, 17, 4, 0, time.UTC)
+	f := registry.Fixture{
+		ManufacturerName: "LumenRadio AB",
+		ProxyUnreachable: true, ProxyRetryAt: retry, ProxyRefusals: 3,
+	}
+	out := toFixtureJSON(f)
+	if !out.Unreachable {
+		t.Fatal("unreachable = false for a fixture whose breaker is open")
+	}
+	if out.RetryAt == nil || !out.RetryAt.Equal(retry) {
+		t.Errorf("retryAt = %v, want %v", out.RetryAt, retry)
+	}
+	note := out.UnreachableNote
+	if note == "" {
+		t.Fatal("unreachableNote is empty; a missing row with no explanation reads as a Benny512 fault")
+	}
+	// The wording rules, asserted rather than left to drift: name the thing a
+	// tech can act on, and say it is not permanent. No protocol jargon —
+	// the NACK is in the RDM log for whoever wants it.
+	for _, want := range []string{"wireless proxy", "try again"} {
+		if !strings.Contains(note, want) {
+			t.Errorf("unreachableNote = %q, want it to mention %q", note, want)
+		}
+	}
+	for _, unwanted := range []string{"NACK", "PROXY_BUFFER_FULL", "0x000A", "breaker"} {
+		if strings.Contains(note, unwanted) {
+			t.Errorf("unreachableNote = %q leaks protocol jargon %q", note, unwanted)
+		}
+	}
+
+	// A healthy fixture carries neither the flag, the note, nor a retry time.
+	healthy := toFixtureJSON(registry.Fixture{ManufacturerName: "LumenRadio AB"})
+	if healthy.Unreachable || healthy.UnreachableNote != "" || healthy.RetryAt != nil {
+		t.Errorf("healthy fixture = %+v, want no unreachability at all", healthy)
+	}
+	b, err := json.Marshal(healthy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "unreachableNote") || strings.Contains(string(b), "retryAt") {
+		t.Errorf("healthy fixture JSON = %s, want the optional unreachability fields omitted", b)
 	}
 }

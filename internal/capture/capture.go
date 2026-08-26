@@ -19,14 +19,22 @@ type Direction int
 const (
 	DirIn Direction = iota
 	DirOut
+	// DirNote marks an entry that is not a datagram at all: a controller
+	// decision worth recording in the same timeline as the packets it
+	// explains. See NoteEntry.
+	DirNote
 )
 
 // String renders the direction.
 func (d Direction) String() string {
-	if d == DirOut {
+	switch d {
+	case DirOut:
 		return "out"
+	case DirNote:
+		return "note"
+	default:
+		return "in"
 	}
-	return "in"
 }
 
 // HexThreshold is the default size below which raw hex is retained in full;
@@ -88,6 +96,25 @@ const (
 	KindUndecoded    = "unknown"
 	KindUnrecognized = "Unknown"
 )
+
+// KindNote is Entry.Kind for a NoteEntry — a controller decision recorded
+// in the packet timeline rather than a datagram.
+const KindNote = "Note"
+
+// NoteEntry builds a zero-byte entry recording something the controller
+// decided, for interleaving with the packets in the RDM log.
+//
+// It exists because of a gap the round-4 bench log exposed: when Benny512
+// stops asking a device, it stops *sending*, so the very decision that
+// explains a suddenly-quiet log leaves no trace in the log. Reading
+// RDM-LOG4 required inferring "the controller gave up here" from an absence
+// — exactly the kind of inference an instrument should not require. A note
+// line states it.
+//
+// Size is 0 and Peer is left invalid: nothing went on the wire.
+func NoteEntry(at time.Time, text string) Entry {
+	return Entry{Time: at, Dir: DirNote, Kind: KindNote, Key: text}
+}
 
 // Entry is one decoded packet summary.
 type Entry struct {

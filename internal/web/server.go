@@ -87,6 +87,12 @@ type Server struct {
 	settings   Settings
 	rdmLogger  *capture.DiskLogger
 
+	// unreachLogged deduplicates the "stopped asking this device" NOTE line
+	// in the RDM log, keyed UID -> the breaker RetryAt already reported.
+	// See noteUnreachableToLog.
+	unreachMu     sync.Mutex
+	unreachLogged map[string]time.Time
+
 	// walkStore holds Rig Walk mode's session state (see internal/walk and
 	// walk.go in this package). Defaults to an in-memory-only store
 	// (persistence off) so existing tests/callers of New don't need to know
@@ -465,6 +471,43 @@ type fixtureJSON struct {
 	ModelDescriptionKnown  bool   `json:"modelDescriptionKnown"`
 	DeviceModelID          uint16 `json:"deviceModelId,omitempty"`
 	HasDeviceInfo          bool   `json:"hasDeviceInfo"`
+
+	// Unreachable / UnreachableNote / RetryAt state that Benny512 has
+	// stopped asking this device, and why.
+	//
+	// The round-4 bench symptom was a Devices screen that showed less and
+	// less about the two fixtures behind a CRMX link, with nothing on screen
+	// to say the controller had given up on them — Dom's "now I'm not even
+	// seeing all of the info for either moonlite". A row that silently stops
+	// filling in reads as a Benny512 fault; a row that says the fixture is
+	// not answering through its wireless proxy points a lighting tech at the
+	// radio link, which is where the problem actually is.
+	//
+	// UnreachableNote is a finished sentence deliberately — the UI renders
+	// it verbatim rather than reconstructing it, so the wording is identical
+	// in the Devices table, the device detail pane and Rig Walk. RetryAt
+	// lets the UI show a countdown without restating the sentence.
+	Unreachable     bool       `json:"unreachable"`
+	UnreachableNote string     `json:"unreachableNote,omitempty"`
+	RetryAt         *time.Time `json:"retryAt,omitempty"`
+}
+
+// unreachableNote is the one place the "we stopped asking" sentence is
+// written. Wording rules it follows, all from Dom's conventions:
+//
+//   - Name the thing a tech can act on ("its wireless proxy"), not the
+//     protocol condition ("NACK PROXY_BUFFER_FULL"). The NACK is still in
+//     the RDM log for whoever wants it.
+//   - Say what Benny512 did and that it is not permanent, so a missing row
+//     is never mistaken for a crash or for a fixture that has been dropped
+//     from the rig.
+//   - No color-only signalling and no jargon: this string carries the whole
+//     meaning on its own if the UI renders nothing else.
+func unreachableNote(f registry.Fixture) string {
+	if !f.ProxyUnreachable {
+		return ""
+	}
+	return "Not answering through its wireless proxy. Benny512 has paused it so the rest of the rig keeps running, and will try again automatically."
 }
 
 // effectiveManufacturer implements the Manufacturer column's priority rule:
@@ -494,7 +537,7 @@ func effectiveModel(f registry.Fixture) string {
 }
 
 func toFixtureJSON(f registry.Fixture) fixtureJSON {
-	return fixtureJSON{
+	out := fixtureJSON{
 		UID: f.UID.String(), ManufacturerID: f.ManufacturerID, ManufacturerName: f.ManufacturerName,
 		NodeIP: f.Node.IP.String(), BindIndex: f.Node.BindIndex, PortAddress: f.Port.RawValue(),
 		LastSeen: f.LastSeen, Class: f.Class.String(),
@@ -502,7 +545,13 @@ func toFixtureJSON(f registry.Fixture) fixtureJSON {
 		ManufacturerLabel: f.ManufacturerLabel, ManufacturerLabelKnown: f.ManufacturerLabelKnown,
 		ModelDescription: f.ModelDescription, ModelDescriptionKnown: f.ModelDescriptionKnown,
 		DeviceModelID: f.DeviceModelID, HasDeviceInfo: f.HasDeviceInfo,
+		Unreachable: f.ProxyUnreachable, UnreachableNote: unreachableNote(f),
 	}
+	if f.ProxyUnreachable && !f.ProxyRetryAt.IsZero() {
+		at := f.ProxyRetryAt
+		out.RetryAt = &at
+	}
+	return out
 }
 
 func (s *Server) handleGetFixtures(w http.ResponseWriter, r *http.Request) {
@@ -1065,6 +1114,7 @@ func (s *Server) pumpRDMEvents(ctx context.Context) {
 					Kind: ev.Result.Kind.String(), UID: ev.UID.String(),
 					PID: uint16(ev.Result.Request.PID), Err: errString(ev.Result.Err),
 				}
+				s.noteUnreachableToLog(ev)
 			}
 			if ev.Kind == session.EventToDUpdate {
 				uids := make([]string, 0, len(ev.UIDs))
@@ -1076,6 +1126,65 @@ func (s *Server) pumpRDMEvents(ctx context.Context) {
 			s.hub.broadcast(msg)
 		}
 	}
+}
+
+// noteUnreachableToLog writes one NOTE line into the RDM log each time a
+// device's proxy breaker opens, and one when it closes again.
+//
+// Deduplication matters more than it looks. When the breaker opens, every
+// queued command for that device fails immediately — on the bench that is a
+// dozen or more PIDs in the same millisecond — so logging per suppressed
+// command would bury the packets the log exists for under identical lines.
+// Keying on the breaker's RetryAt gives exactly one line per open: RetryAt
+// is constant for the life of one open and different for the next, because
+// the cool-down grows.
+func (s *Server) noteUnreachableToLog(ev session.Event) {
+	if ev.Result == nil {
+		return
+	}
+	uid := ev.UID.String()
+
+	switch ev.Result.Kind {
+	case session.ResultDeviceUnreachable:
+		var due *session.DeviceUnreachableError
+		if !errors.As(ev.Result.Err, &due) {
+			return
+		}
+		s.unreachMu.Lock()
+		already := s.unreachLogged[uid].Equal(due.RetryAt)
+		if !already {
+			if s.unreachLogged == nil {
+				s.unreachLogged = make(map[string]time.Time)
+			}
+			s.unreachLogged[uid] = due.RetryAt
+		}
+		s.unreachMu.Unlock()
+		if already {
+			return
+		}
+		s.logNote(ev.At, fmt.Sprintf(
+			"%s not answering through its wireless proxy — %d commands refused in a row (NACK PROXY_BUFFER_FULL). Benny512 has stopped asking it so the rest of the port keeps running; next try at %s.",
+			uid, due.Refusals, due.RetryAt.Format("15:04:05")))
+
+	case session.ResultAck, session.ResultNack:
+		s.unreachMu.Lock()
+		_, was := s.unreachLogged[uid]
+		delete(s.unreachLogged, uid)
+		s.unreachMu.Unlock()
+		if was {
+			s.logNote(ev.At, fmt.Sprintf("%s is answering again through its wireless proxy; resuming normally.", uid))
+		}
+	}
+}
+
+// logNote appends a NOTE entry to the RDM ring and the RDM disk log, so a
+// controller decision appears in the same timeline as the packets around it.
+func (s *Server) logNote(at time.Time, text string) {
+	e := capture.NoteEntry(at, text)
+	if s.RDMCapture != nil {
+		e = s.RDMCapture.Add(e)
+	}
+	s.LogRDMEntry(e)
 }
 
 func errString(err error) string {

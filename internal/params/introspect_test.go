@@ -536,3 +536,79 @@ func TestDeviceStatusMaxDrainBound(t *testing.T) {
 		t.Fatalf("msgs=%+v, want exactly 1 (loop stops at MessageCount==0)", msgs)
 	}
 }
+
+// TestDescribeParamDoesNotProbeStandardPIDs is the round-4 wasted-transaction
+// fix, verified as an absence of wire traffic.
+//
+// PARAMETER_DESCRIPTION (0x0051) is defined for PIDs a responder cannot
+// describe from the standard; ask a conforming device about a standard PID
+// and it NACKs. RDM-LOG4 caught Benny512 asking anyway — 0x0070
+// (PRODUCT_DETAIL_ID_LIST), 0x0080 (DEVICE_MODEL_DESCRIPTION) and 0x0081
+// (MANUFACTURER_LABEL) — and the one that reached a healthy responder came
+// back NACK 0x0006 DATA_OUT_OF_RANGE, the hardware agreeing the round trip
+// was pure waste. On a saturated wireless link every one of those costs a
+// real transaction.
+//
+// Introspect's walk had been gated on isIntrospectionTarget since the waste
+// was first identified. This on-demand path — DescribeParam, reached from the
+// generic parameter editor rather than from the walk — had not been, which is
+// why the requests were still on the wire two rounds later.
+func TestDescribeParamDoesNotProbeStandardPIDs(t *testing.T) {
+	ClearAllDeviceState()
+	uid := rdm.UID{ManufacturerID: 0x22A6, DeviceID: 0x004D05BF}
+
+	var describedPIDs []rdm.ParameterID
+	client, clock := newTestClient(t, uid, func(msg rdm.Message) ([]byte, bool, rdm.NackReason) {
+		if msg.ParameterID == rdm.PIDParameterDescription {
+			described := rdm.ParameterID(binaryBigEndianUint16(msg.ParameterData))
+			describedPIDs = append(describedPIDs, described)
+			// What real gear answers for a standard PID.
+			return nil, true, rdm.NackDataOutOfRange
+		}
+		return nil, true, rdm.NackUnknownPID
+	})
+
+	// The three PIDs the bench log caught us describing, all of which this
+	// package already decodes natively.
+	standard := []rdm.ParameterID{
+		rdm.PIDProductDetailIDList,    // 0x0070
+		rdm.PIDDeviceModelDescription, // 0x0080
+		rdm.PIDManufacturerLabel,      // 0x0081
+	}
+	for _, pid := range standard {
+		var d ParamDescriptor
+		runAsync(t, clock, func() {
+			d = client.DescribeParam(context.Background(), pid)
+		})
+		// The outcome is unchanged — a NACK produced exactly this descriptor
+		// before, so the parameter editor's raw-hex fallback still applies.
+		// The only difference is that nothing was sent.
+		if d.PID != pid || d.SelfDescribing {
+			t.Errorf("DescribeParam(0x%04X) = %+v, want the non-self-describing descriptor", uint16(pid), d)
+		}
+	}
+	if len(describedPIDs) != 0 {
+		t.Fatalf("PARAMETER_DESCRIPTION was sent for standard PIDs %v; a conforming device can only NACK those", describedPIDs)
+	}
+
+	// A manufacturer PID must still be probed for real — the gate must not
+	// have taken the generic editor's self-description away.
+	mfr := rdm.ParameterID(0x8021)
+	var d ParamDescriptor
+	runAsync(t, clock, func() {
+		d = client.DescribeParam(context.Background(), mfr)
+	})
+	if len(describedPIDs) != 1 || describedPIDs[0] != mfr {
+		t.Fatalf("described PIDs = %v, want exactly [0x8021]", describedPIDs)
+	}
+	if d.PID != mfr {
+		t.Errorf("DescribeParam(0x8021) = %+v", d)
+	}
+}
+
+func binaryBigEndianUint16(b []byte) uint16 {
+	if len(b) < 2 {
+		return 0
+	}
+	return binary.BigEndian.Uint16(b)
+}

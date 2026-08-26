@@ -2,6 +2,7 @@ package capture
 
 import (
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 )
@@ -192,5 +193,44 @@ func TestAddPacketDecodesArtDmx(t *testing.T) {
 	e := r.AddPacket(DirIn, netip.AddrPort{}, []byte("not art-net"))
 	if e.Kind != "unknown" {
 		t.Errorf("expected unknown kind for garbage input, got %q", e.Kind)
+	}
+}
+
+// TestNoteEntryReadsAsADecisionNotAPacket covers the round-4 logging gap.
+//
+// When Benny512 stops asking a device, it stops *sending* — so the decision
+// that explains a suddenly-quiet stretch of log leaves no trace in the log.
+// Reading RDM-LOG4 meant inferring "the controller gave up here" from an
+// absence, which is exactly the inference an instrument should not require.
+// A NOTE line states it, and must not pretend to be a datagram: no peer, no
+// size=0, nothing a reader would try to decode.
+func TestNoteEntryReadsAsADecisionNotAPacket(t *testing.T) {
+	at := time.Date(2026, 8, 25, 21, 16, 28, 897000000, time.UTC)
+	const msg = "4C55:6DA2C93B not answering through its wireless proxy — 3 commands refused in a row."
+	e := NoteEntry(at, msg)
+
+	if e.Dir != DirNote || e.Kind != KindNote {
+		t.Fatalf("entry = dir %v kind %q, want DirNote/%q", e.Dir, e.Kind, KindNote)
+	}
+	if e.Size != 0 || e.Peer.IsValid() {
+		t.Errorf("entry has size=%d peer=%v; a note is not a datagram", e.Size, e.Peer)
+	}
+
+	text := FormatEntryText(e)
+	if !strings.Contains(text, "[2026-08-25 21:16:28.897] NOTE ") {
+		t.Errorf("FormatEntryText = %q, want the timestamped NOTE prefix", text)
+	}
+	if !strings.Contains(text, msg) {
+		t.Errorf("FormatEntryText = %q, want it to carry the message", text)
+	}
+	// peer=/size= would be noise on every note line, and the whole point is
+	// that it reads at a glance while scanning a log full of packets.
+	for _, unwanted := range []string{"peer=", "size="} {
+		if strings.Contains(text, unwanted) {
+			t.Errorf("FormatEntryText = %q, want no %q on a note line", text, unwanted)
+		}
+	}
+	if n := strings.Count(strings.TrimRight(text, "\n"), "\n"); n != 0 {
+		t.Errorf("FormatEntryText = %q, want a single line", text)
 	}
 }

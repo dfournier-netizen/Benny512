@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"net/netip"
+	"sync"
 	"testing"
 	"time"
 
@@ -343,5 +344,161 @@ func TestManufacturerLabelAndModelDescriptionCaching(t *testing.T) {
 	}
 	if nk.HasDeviceInfo {
 		t.Errorf("nacking device never got a DEVICE_INFO ACK, HasDeviceInfo should stay false")
+	}
+}
+
+// TestUnreachableDeviceIsStatedNotSilentlyIncomplete is the round-4
+// regression test, end to end through the real controller.
+//
+// Dom's bench report was "now I'm not even seeing all of the info for either
+// moonlite". The mechanism was that a device behind a saturated CRMX proxy
+// answered nothing, so its row simply stopped filling in — with no way for a
+// lighting tech to tell "Benny512 has given up on this fixture" from
+// "Benny512 is broken". Two properties are asserted here:
+//
+//  1. Once session's circuit breaker opens, the registry says so, with a
+//     retry time, so the UI can put a sentence on screen.
+//  2. It does NOT record the PIDs as answered. That is the round-2
+//     cache-poisoning bug (a proxy refusal marking ManufacturerLabelKnown)
+//     re-appearing in a new place, and it must not.
+func TestUnreachableDeviceIsStatedNotSilentlyIncomplete(t *testing.T) {
+	clock := session.NewFakeClock(time.Time{})
+	tport := session.NewFakeTransport()
+
+	a := session.NewArtNetSession(session.ArtNetConfig{Transport: tport, Clock: clock})
+	r := session.NewRDMController(session.RDMConfig{Transport: tport, Clock: clock})
+	reg := New(a, r)
+	go reg.Run()
+
+	port, _ := artnet.NewPortAddress(0, 0, 3)
+	nodeKey := session.NodeKey{IP: netip.MustParseAddr("10.0.0.9"), BindIndex: 1}
+	nodeRef := session.NodeRef{Key: nodeKey, Addr: netip.MustParseAddrPort("10.0.0.9:6454"), Port: port}
+
+	proxied := rdm.UID{ManufacturerID: 0x4C55, DeviceID: 0x6DA2C93B}
+
+	// refusing is flipped once the device "comes back", so the same harness
+	// covers the recovery leg.
+	var mu sync.Mutex
+	refusing := true
+
+	tport.OnSend = func(sp session.SentPacket) {
+		if sp.DecodeErr != nil || sp.Packet.Kind != artnet.KindRdm {
+			return
+		}
+		msg, err := sp.Packet.Rdm.DecodedRDMMessage()
+		if err != nil || msg.DestinationUID != proxied {
+			return
+		}
+		mu.Lock()
+		refuse := refusing
+		mu.Unlock()
+
+		resp := rdm.Message{
+			DestinationUID: msg.SourceUID, SourceUID: proxied,
+			TransactionNumber: msg.TransactionNumber, SubDevice: msg.SubDevice,
+			CommandClass: rdm.GetCommandResponse, ParameterID: msg.ParameterID,
+		}
+		if refuse {
+			resp.PortIDOrResponseType = byte(rdm.ResponseNackReason)
+			resp.ParameterData = []byte{
+				byte(rdm.NackProxyBufferFull >> 8), byte(rdm.NackProxyBufferFull),
+			}
+		} else {
+			resp.PortIDOrResponseType = byte(rdm.ResponseACK)
+			resp.ParameterData = []byte("LumenRadio")
+		}
+		clock.AfterFunc(time.Millisecond, func() { r.HandleRDMResponse(resp) })
+	}
+
+	awaitGet := func(pid rdm.ParameterID) session.Result {
+		t.Helper()
+		cmd := r.Get(nodeRef, proxied, pid, nil)
+		done := make(chan session.Result, 1)
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			res, err := cmd.Await(ctx)
+			if err != nil {
+				t.Errorf("GET 0x%04X: %v", uint16(pid), err)
+				close(done)
+				return
+			}
+			done <- res
+		}()
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			select {
+			case res := <-done:
+				return res
+			case <-time.After(time.Millisecond):
+			}
+			clock.Advance(20 * time.Millisecond)
+			if time.Now().After(deadline) {
+				t.Fatalf("GET 0x%04X: timed out", uint16(pid))
+			}
+		}
+	}
+
+	// Every command is refused for its whole budget, so after
+	// ProxyBreakerTrip of them the breaker opens.
+	for i := 0; i < session.ProxyBreakerTrip; i++ {
+		if res := awaitGet(rdm.PIDManufacturerLabel); res.Kind != session.ResultProxyBufferFull {
+			t.Fatalf("command %d kind = %v, want proxy-buffer-full", i, res.Kind)
+		}
+	}
+	res := awaitGet(rdm.PIDManufacturerLabel)
+	if res.Kind != session.ResultDeviceUnreachable {
+		t.Fatalf("kind = %v (err %v), want device-unreachable once the breaker is open", res.Kind, res.Err)
+	}
+
+	f := awaitFixture(t, reg, proxied, func(f Fixture) bool { return f.ProxyUnreachable })
+	if f.ProxyRetryAt.IsZero() {
+		t.Error("ProxyRetryAt is zero; the UI has no retry time to show")
+	}
+	if f.ProxyRefusals < session.ProxyBreakerTrip {
+		t.Errorf("ProxyRefusals = %d, want at least %d", f.ProxyRefusals, session.ProxyBreakerTrip)
+	}
+	// The heart of it: nothing has been settled about this device.
+	if f.ManufacturerLabelKnown {
+		t.Error("ManufacturerLabelKnown = true for a device that never answered — the round-2 cache-poisoning bug, in a new place")
+	}
+	if len(f.Params) != 0 {
+		t.Errorf("Params = %v, want empty for a device that never answered", f.Params)
+	}
+
+	// The device comes back. Wait out the cool-down; the next command is
+	// admitted as a probe, answers, and clears the flag.
+	mu.Lock()
+	refusing = false
+	mu.Unlock()
+	clock.Advance(session.ProxyBreakerCooldownInitial)
+
+	if res := awaitGet(rdm.PIDManufacturerLabel); res.Kind != session.ResultAck {
+		t.Fatalf("kind = %v (err %v), want ack once the device answers again", res.Kind, res.Err)
+	}
+	f = awaitFixture(t, reg, proxied, func(f Fixture) bool { return !f.ProxyUnreachable })
+	if f.ManufacturerLabel != "LumenRadio" {
+		t.Errorf("ManufacturerLabel = %q after recovery, want %q", f.ManufacturerLabel, "LumenRadio")
+	}
+	if !f.ProxyRetryAt.IsZero() {
+		t.Errorf("ProxyRetryAt = %v after recovery, want zero", f.ProxyRetryAt)
+	}
+}
+
+// awaitFixture polls reg until uid's fixture satisfies cond. Registry.Run()
+// applies events on its own goroutine, so a command completing does not mean
+// the registry has caught up yet.
+func awaitFixture(t *testing.T, reg *Registry, uid rdm.UID, cond func(Fixture) bool) Fixture {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if f, ok := reg.Fixture(uid); ok && cond(f) {
+			return f
+		}
+		if time.Now().After(deadline) {
+			f, _ := reg.Fixture(uid)
+			t.Fatalf("timed out waiting for fixture condition; last = %+v", f)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }

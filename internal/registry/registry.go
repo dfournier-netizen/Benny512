@@ -9,6 +9,7 @@
 package registry
 
 import (
+	"errors"
 	"fmt"
 	"net/netip"
 	"sort"
@@ -76,6 +77,28 @@ type Fixture struct {
 	ManufacturerLabelKnown bool
 	ModelDescription       string
 	ModelDescriptionKnown  bool
+
+	// ProxyUnreachable / ProxyUnreachableSince / ProxyRetryAt /
+	// ProxyRefusals mirror session's per-device proxy circuit breaker (see
+	// session.DeviceUnreachableError) so a device Benny512 has stopped
+	// asking is a *stated* condition rather than a row that quietly stops
+	// filling in.
+	//
+	// This is the fix for the round-4 bench symptom: with the far side of a
+	// CRMX link refusing everything, the Devices screen simply showed less
+	// and less information with nothing to explain why. These are raw facts
+	// only — the sentence a lighting tech reads is composed in the web
+	// layer, the same division of labour as ManufacturerLabel above and
+	// effectiveManufacturer.
+	//
+	// ProxyUnreachable is cleared the moment the device answers anything at
+	// all, ACK or NACK. ProxyRefusals is the consecutive refused-command
+	// count behind the breaker, kept after recovery so a link that is only
+	// marginal still leaves a trace.
+	ProxyUnreachable      bool
+	ProxyUnreachableSince time.Time
+	ProxyRetryAt          time.Time
+	ProxyRefusals         int
 }
 
 // clone returns a deep-enough copy for safe hand-out across the mutex
@@ -222,8 +245,21 @@ func (reg *Registry) handleRDMEvent(ev session.Event) {
 			// len(data)>0 gate would have left such a device stuck looking
 			// "not yet attempted" forever).
 			reg.cacheParam(ev.Node, ev.UID, ev.Result.Request.PID, ev.Result.Data)
+			reg.noteReachable(ev.Node, ev.UID)
 		case session.ResultNack:
 			reg.noteParamNack(ev.Node, ev.UID, ev.Result.Request.PID)
+			// A NACK is an answer: it came back through the proxy, so
+			// whatever the breaker thought, this device is reachable.
+			reg.noteReachable(ev.Node, ev.UID)
+		case session.ResultDeviceUnreachable:
+			// Deliberately NOT routed through noteParamNack: the device has
+			// said nothing about this PID, so recording it as "asked and
+			// answered" would repeat the round-2 cache-poisoning bug in a
+			// new place.
+			var due *session.DeviceUnreachableError
+			if errors.As(ev.Result.Err, &due) {
+				reg.noteUnreachable(ev.Node, ev.UID, due)
+			}
 		}
 	}
 }
@@ -267,6 +303,37 @@ func (reg *Registry) cacheParam(node session.NodeRef, uid rdm.UID, pid rdm.Param
 	f.LastSeen = time.Now()
 	f.Params[pid] = append([]byte(nil), data...)
 	reclassify(f, pid, data)
+}
+
+// noteUnreachable records that session's proxy circuit breaker is open for
+// this device, so the UI can say so instead of showing a half-filled row.
+//
+// It does not touch Params or any *Known flag: the device has answered
+// nothing, and nothing about it has been settled.
+func (reg *Registry) noteUnreachable(node session.NodeRef, uid rdm.UID, due *session.DeviceUnreachableError) {
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+	f := reg.getOrCreateLocked(node.Key, node.Port, uid, time.Now())
+	if !f.ProxyUnreachable {
+		f.ProxyUnreachable = true
+		f.ProxyUnreachableSince = time.Now()
+	}
+	f.ProxyRetryAt = due.RetryAt
+	f.ProxyRefusals = due.Refusals
+	// LastSeen is deliberately NOT touched. The device has not been seen;
+	// the node's ToD still lists it, which is what put the row on screen in
+	// the first place.
+}
+
+// noteReachable clears the unreachable flag after the device answers.
+// ProxyRefusals is kept as a record that this path has had trouble.
+func (reg *Registry) noteReachable(node session.NodeRef, uid rdm.UID) {
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+	f := reg.getOrCreateLocked(node.Key, node.Port, uid, time.Now())
+	f.ProxyUnreachable = false
+	f.ProxyUnreachableSince = time.Time{}
+	f.ProxyRetryAt = time.Time{}
 }
 
 // noteParamNack records that a GET for pid completed with a NACK, for the

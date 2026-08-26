@@ -295,6 +295,23 @@ const DevicesScreen = (() => {
     return f.manufacturer || f.manufacturerName || '—';
   }
 
+  // unreachableNoteHTML renders the server's finished sentence verbatim.
+  //
+  // Round 4's bench symptom was a row that simply stopped filling in once the
+  // fixture behind a CRMX link stopped answering — at the bench that is
+  // indistinguishable from Benny512 being broken. The server composes the
+  // sentence (unreachableNote in internal/web/server.go) so the wording is
+  // identical here, in device detail and in Rig Walk; this only places it.
+  //
+  // The tag and the sentence are both text, per the standing accessibility
+  // constraint that color is never the sole signal.
+  function unreachableNoteHTML(f) {
+    if (!f || !f.unreachable) return '';
+    const retry = f.retryAt ? ` Next try ${new Date(f.retryAt).toLocaleTimeString()}.` : '';
+    const text = (f.unreachableNote || 'Not answering through its wireless proxy.') + retry;
+    return `<div class="b5-device__note">${escapeHtml(text)}</div>`;
+  }
+
   function modelCell(f) {
     if (classifying[f.uid] && !f.modelDescriptionKnown && !f.hasDeviceInfo) return '…';
     return f.model || '—';
@@ -313,9 +330,12 @@ const DevicesScreen = (() => {
     list.forEach(f => {
       const tr = document.createElement('tr');
       if (f.uid === selectedUID) tr.classList.add('is-selected');
+      if (f.unreachable) tr.classList.add('is-unreachable');
+      const classCell = UI.tag(f.class, classTagVariant(f.class)) +
+        (f.unreachable ? ' ' + UI.tag('Not answering', 'warn') : '');
       tr.innerHTML = `
-        <td data-label="Class">${UI.tag(f.class, classTagVariant(f.class))}</td>
-        <td data-label="Manufacturer">${escapeHtml(manufacturerCell(f))}</td>
+        <td data-label="Class">${classCell}</td>
+        <td data-label="Manufacturer">${escapeHtml(manufacturerCell(f))}${unreachableNoteHTML(f)}</td>
         <td data-label="Model/Type">${escapeHtml(modelCell(f))}</td>
         <td data-label="UID" class="b5-table__mono">${escapeHtml(f.uid)}</td>
         <td data-label="Address" class="b5-table__mono">${addressLabel(f)}</td>

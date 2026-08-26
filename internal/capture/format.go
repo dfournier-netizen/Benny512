@@ -17,6 +17,13 @@ import (
 // never suppressed regardless of size.
 func FormatEntryText(e Entry) string {
 	var b strings.Builder
+	if e.Dir == DirNote {
+		// A note is not a datagram: peer= and size= would both be noise,
+		// and the whole point of the line is that it reads at a glance
+		// while scanning a log full of packets.
+		fmt.Fprintf(&b, "[%s] NOTE %s\n", e.Time.Format("2006-01-02 15:04:05.000"), e.Key)
+		return b.String()
+	}
 	peer := "-"
 	if e.Peer.IsValid() {
 		peer = e.Peer.String()
@@ -50,10 +57,14 @@ func FormatEntryText(e Entry) string {
 }
 
 func dirLabel(d Direction) string {
-	if d == DirOut {
+	switch d {
+	case DirOut:
 		return "OUT"
+	case DirNote:
+		return "NOTE"
+	default:
+		return "IN "
 	}
-	return "IN "
 }
 
 func writeRDMDetailText(b *strings.Builder, d *RDMDetail) {

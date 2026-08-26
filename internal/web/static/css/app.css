@@ -329,3 +329,23 @@ td[data-label="Input enabled"] .b5-checkbox { margin-right: var(--b5-space-2); }
    confirmed by icon+text, not text alone) applied to the one new usage
    site, sized the same way every other icon site already is. */
 .b5-dialog__title svg { width: 22px; height: 22px; margin-right: var(--b5-space-2); vertical-align: -4px; flex: none; }
+
+/* ---- Devices: "Benny512 has stopped asking this fixture" ------------------
+   Round 4 (2026-08-25) bench finding. A fixture behind a saturated CRMX
+   proxy answers nothing, so its row simply stopped filling in — at a bench
+   that reads as Benny512 being broken, not as a radio-link problem. The row
+   now carries a "Not answering" tag plus the server's finished sentence.
+
+   Both signals are text; the tint is decoration on top of them, never the
+   signal itself (standing accessibility constraint: never color alone). The
+   warning ramp is used rather than the error red, which is reserved for
+   error/destructive only — a fixture we will retry is not an error. */
+.b5-table tbody tr.is-unreachable { background: rgba(184, 121, 15, 0.08); }
+.b5-device__note {
+  margin-top: var(--b5-space-1);
+  font-size: var(--b5-font-size-sm);
+  line-height: 1.4;
+  color: var(--b5-color-text-warning);
+  max-width: 44ch;
+  white-space: normal;
+}

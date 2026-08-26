@@ -205,6 +205,19 @@ const (
 	// full of featureless devices. Result.Err is a *ProxyBufferFullError and
 	// Result.NackReason is rdm.NackProxyBufferFull.
 	ResultProxyBufferFull
+	// ResultDeviceUnreachable: nothing was transmitted at all, because this
+	// device's proxy circuit breaker is open — the last ProxyBreakerTrip
+	// commands to it were each refused with PROXY_BUFFER_FULL until their
+	// retry budget ran out.
+	//
+	// Like ResultProxyBufferFull this is emphatically not ResultNack: the
+	// device has said nothing about the request, and a caller must not
+	// record the PID as "asked and answered". It is separate from
+	// ResultProxyBufferFull because the two mean different things to a
+	// human: "your proxy refused this command" versus "Benny512 has stopped
+	// asking this device for now, and will try again". Result.Err is a
+	// *DeviceUnreachableError carrying the retry time.
+	ResultDeviceUnreachable
 )
 
 // String renders the result kind.
@@ -224,6 +237,8 @@ func (k ResultKind) String() string {
 		return "broadcast"
 	case ResultProxyBufferFull:
 		return "proxy-buffer-full"
+	case ResultDeviceUnreachable:
+		return "device-unreachable"
 	default:
 		return "unknown"
 	}
@@ -435,7 +450,12 @@ type RDMStats struct {
 	// Nacks). It is the diagnostic for "the rig is saturating its proxies",
 	// which reads very differently from a rig that NACKs unsupported PIDs.
 	ProxyBufferFull uint64
-	DroppedEvents   uint64
+	// DevicesUnreachable counts how many times a device's proxy circuit
+	// breaker has opened (rdmproxy.go) — the "Benny512 gave up on something"
+	// counter. It counts openings, not devices: a single device that keeps
+	// failing its probes increments it once per re-open.
+	DevicesUnreachable uint64
+	DroppedEvents      uint64
 }
 
 // RDMController is the RDM-over-Art-Net client state machine (architecture
@@ -454,9 +474,11 @@ type RDMController struct {
 	// different queue, which is possible when the same responder is
 	// reachable through two node ports.
 	overflowUID map[rdm.UID]*Command
-	// links carries the pacing learned per node port from PROXY_BUFFER_FULL
-	// refusals (rdmproxy.go). An absent or zero-gap entry means "not paced".
-	links       map[linkKey]*linkState
+	// devices carries the per-responder proxy circuit breaker learned from
+	// PROXY_BUFFER_FULL refusals (rdmproxy.go). An absent entry means the
+	// device has never been refused — the state every directly-wired device
+	// stays in for the whole life of the process.
+	devices     map[deviceKey]*deviceHealth
 	profiles    map[NodeKey]TimeoutProfile
 	tod         map[todKey]*todEntry
 	discoveries map[todKey]*Discovery
@@ -499,7 +521,7 @@ func NewRDMController(cfg RDMConfig) *RDMController {
 		queues:       make(map[queueKey]*cmdQueue),
 		inflightByTN: make(map[byte]*Command),
 		overflowUID:  make(map[rdm.UID]*Command),
-		links:        make(map[linkKey]*linkState),
+		devices:      make(map[deviceKey]*deviceHealth),
 		profiles:     make(map[NodeKey]TimeoutProfile),
 		tod:          make(map[todKey]*todEntry),
 		discoveries:  make(map[todKey]*Discovery),
@@ -545,12 +567,6 @@ func (c *RDMController) Stop() {
 	}
 	for _, d := range c.discoveries {
 		c.finishDiscoveryLocked(d, ErrControllerStopped)
-	}
-	for _, ls := range c.links {
-		if ls.timer != nil {
-			ls.timer.Stop()
-			ls.timer = nil
-		}
 	}
 }
 
@@ -645,25 +661,30 @@ func (c *RDMController) pumpLocked() {
 	}
 	now := c.cfg.Clock.Now()
 	for _, q := range c.queues {
-		if q.inflight != nil || len(q.pending) == 0 {
-			continue
+		// The inner loop exists for the circuit breaker: a command aimed at
+		// an unreachable device is failed without ever taking the inflight
+		// slot, so the queue behind it must keep draining in the same pass
+		// rather than stalling until some unrelated event pumps again.
+		for q.inflight == nil && len(q.pending) > 0 {
+			next := q.pending[0]
+			if owner, busy := c.overflowUID[next.req.UID]; busy && owner != next {
+				// This UID is mid-ACK_OVERFLOW; the whole queue holds behind it.
+				break
+			}
+			if held := c.breakerHoldLocked(next.req, now); held != nil {
+				// This device's proxy has refused everything recently, so we
+				// are deliberately not asking it. Fail fast and keep going:
+				// the point of the breaker is that one sick device stops
+				// consuming the session's budget, and that its neighbours on
+				// the same link are not slowed down on its account.
+				q.pending = q.pending[1:]
+				c.completeLocked(next, ResultDeviceUnreachable, held)
+				continue
+			}
+			q.pending = q.pending[1:]
+			q.inflight = next
+			c.issueLocked(next, true)
 		}
-		next := q.pending[0]
-		if owner, busy := c.overflowUID[next.req.UID]; busy && owner != next {
-			// This UID is mid-ACK_OVERFLOW; the whole queue holds behind it.
-			continue
-		}
-		if wait := c.paceWaitLocked(next.req.Node, now); wait > 0 {
-			// This command's node port has refused with PROXY_BUFFER_FULL
-			// recently. The buffer is shared by everything behind that port,
-			// so the whole link waits — not just the command that was
-			// refused, and regardless of which queue this one sits in.
-			c.armLinkTimerLocked(next.req.Node, wait, now)
-			continue
-		}
-		q.pending = q.pending[1:]
-		q.inflight = next
-		c.issueLocked(next, true)
 	}
 }
 
@@ -737,9 +758,6 @@ func (c *RDMController) issueLocked(cmd *Command, newTN bool) {
 func (c *RDMController) transmitLocked(cmd *Command) {
 	c.stats.Sent++
 	now := c.cfg.Clock.Now()
-	// Every request the proxy sees counts against the pacing gap, including
-	// retransmissions and ACK_TIMER re-issues.
-	c.stampLinkSendLocked(cmd.req.Node, now)
 	_ = c.cfg.Transport.Send(cmd.wireBytes, cmd.req.Node.Addr)
 	c.emitLocked(Event{Kind: EventCommandSent, Node: cmd.req.Node, UID: cmd.req.UID, At: now})
 }
@@ -969,11 +987,18 @@ func (c *RDMController) finishLocked(cmd *Command, kind ResultKind, err error) {
 		return
 	}
 	c.releaseTNLocked(cmd)
-	if kind == ResultAck || kind == ResultNack {
-		// The link carried a whole transaction, response included, so it had
-		// buffer room: evidence that any pacing on it can be relaxed.
-		c.noteLinkTransactionLocked(cmd.req.Node)
+	switch kind {
+	case ResultAck, ResultNack:
+		// The device answered for real, so its proxy found room and
+		// delivered a response — the exact property the breaker measures.
+		// A NACK counts: "I don't support that PID" is still an answer.
+		c.noteDeviceRespondedLocked(cmd.req)
+	case ResultProxyBufferFull:
+		c.noteProxyRefusalLocked(cmd.req, c.cfg.Clock.Now())
 	}
+	// Every other outcome — timeout, deadline, abort — deliberately leaves
+	// the breaker's state alone. See ProxyBreakerTrip for why silence must
+	// not be read as a statement about any one device.
 	if owner, ok := c.overflowUID[cmd.req.UID]; ok && owner == cmd {
 		delete(c.overflowUID, cmd.req.UID)
 	}
