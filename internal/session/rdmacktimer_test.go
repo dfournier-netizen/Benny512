@@ -61,13 +61,14 @@ func TestRepeatedDeferralsDoNotCostASlotEach(t *testing.T) {
 	}
 
 	asks := h.countRequests(rdm.PIDDeviceInfo)
-	probes := h.countRequests(rdm.PIDQueuedMessage)
 	if asks != 1 {
 		t.Fatalf("DEVICE_INFO asked %d times, want exactly 1 — RDM-LOG8 filled the proxy at one ask per deferral", asks)
 	}
-	if probes != 8 {
-		t.Fatalf("QUEUED_MESSAGE probes = %d, want 8 (one per deferral)", probes)
-	}
+	// Count and content both. Counting probes alone would pass on a
+	// continuation that puts an out-of-range status_type on the wire, which
+	// is a probe a real responder answers with silence — so the shape would
+	// look right here and collect nothing on the rig.
+	assertEveryQueuedFilterLegal(t, h, "ACK_TIMER probe", 8)
 	if got := h.ctrl.Stats().AckTimerReissues; got != 0 {
 		t.Fatalf("AckTimerReissues = %d, want 0 — nothing should have fallen back", got)
 	}
@@ -101,6 +102,68 @@ func TestReissueOnlyReproducesTheOldShape(t *testing.T) {
 	if probes := h.countRequests(rdm.PIDQueuedMessage); probes != 0 {
 		t.Fatalf("QUEUED_MESSAGE probes under ReissueOnly = %d, want 0", probes)
 	}
+}
+
+// TestAckTimerProbeUsesALegalStatusTypeFilter pins the one byte of param data
+// the continuation puts on the wire.
+//
+// E1.20 allows only 1=Last Message, 2=Advisory, 3=Warning, 4=Error as
+// QUEUED_MESSAGE's request status_type; 0=None is STATUS_MESSAGES' value and
+// is out of range for this PID (research doc §2.4). StatusAdvisory (0x02) is
+// the lowest legal floor and so is this PID's "hand me everything you are
+// holding".
+//
+// This is the same assertion the recovery drain already carries
+// (TestAutoDrainUsesALegalStatusTypeFilter), made here because the two paths
+// build their request data independently — the drain in startDrainLocked, the
+// continuation in issueLocked's wire override — and the mistake was in fact
+// made in both. RDM-LOG8 is what makes it worth a byte-level test rather than
+// a shape one: six probes carrying 0x00 drew no response of any kind, not
+// even a NACK, from devices answering everything else in the same seconds. A
+// continuation that is silently never answered falls back to a re-issue every
+// time, which is exactly the buffer-filling behaviour the continuation exists
+// to end.
+//
+// Every route into issueLocked's override is covered, because each is its own
+// call: the first probe of a deferral, a re-probe after collecting somebody
+// else's message, and a probe standing in for a deferred SET.
+func TestAckTimerProbeUsesALegalStatusTypeFilter(t *testing.T) {
+	t.Run("first probe and re-probes after orphans", func(t *testing.T) {
+		h := newRDMHarness(t, RDMConfig{
+			DefaultProfile:     proxyProfile,
+			QueuedMessageDrain: DrainOff,
+			MaxAckTimerCollect: 3,
+		})
+		h.script(reply{Type: rdm.ResponseACKTimer, Data: ackTimerData(3)})
+		// Two messages belonging to somebody else, each of which sends the
+		// command back through beginCollectLocked for another probe...
+		for i := 0; i < 2; i++ {
+			h.script(reply{Type: rdm.ResponseACK, PID: &sensorValuePID, Data: []byte{byte(i)}})
+		}
+		// ...then ours.
+		h.script(reply{Type: rdm.ResponseACK, PID: &deviceInfoPID, Data: []byte("parked answer")})
+
+		cmd := h.ctrl.Get(h.node, uidA, rdm.PIDDeviceInfo, nil)
+		if res := h.awaitResult(cmd, 30*time.Second); res.Kind != ResultAck {
+			t.Fatalf("kind = %v (err %v), want ack", res.Kind, res.Err)
+		}
+		assertEveryQueuedFilterLegal(t, h, "ACK_TIMER probe", 3)
+	})
+
+	t.Run("probe standing in for a deferred SET", func(t *testing.T) {
+		h := collectHarness(t)
+		startAddr := rdm.PIDDMXStartAddress
+		h.script(
+			reply{Type: rdm.ResponseACKTimer, Data: ackTimerData(3)},
+			reply{Type: rdm.ResponseACK, PID: &startAddr},
+		)
+
+		cmd := h.ctrl.Set(h.node, uidA, rdm.PIDDMXStartAddress, []byte{0x00, 0x2A})
+		if res := h.awaitResult(cmd, 30*time.Second); res.Kind != ResultAck {
+			t.Fatalf("kind = %v (err %v), want ack", res.Kind, res.Err)
+		}
+		assertEveryQueuedFilterLegal(t, h, "ACK_TIMER probe", 1)
+	})
 }
 
 // --- routing --------------------------------------------------------------

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"runtime"
 	"testing"
 	"time"
@@ -520,20 +521,56 @@ func (h *rdmHarness) firstQueuedMessageRequest() rdm.Message {
 	return rdm.Message{}
 }
 
+// queuedMessageRequests returns every GET QUEUED_MESSAGE that actually
+// reached the wire, so a test can assert on the bytes sent rather than on
+// the intent behind them.
+func (h *rdmHarness) queuedMessageRequests() []rdm.Message {
+	h.t.Helper()
+	var out []rdm.Message
+	for _, m := range h.allRequests() {
+		if m.ParameterID == rdm.PIDQueuedMessage {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// assertQueuedFilterByte checks one QUEUED_MESSAGE request's param data is
+// the single byte StatusAdvisory, naming the illegal value explicitly when
+// it is not. what identifies the caller ("drain", "ACK_TIMER probe").
+func assertQueuedFilterByte(t *testing.T, what string, got []byte) {
+	t.Helper()
+	want := []byte{byte(rdm.StatusAdvisory)}
+	if bytes.Equal(got, want) {
+		return
+	}
+	if len(got) == 1 && got[0] == byte(rdm.StatusNone) {
+		t.Fatalf("%s sent status_type 0x%02X (STATUS_NONE), want 0x%02X (STATUS_ADVISORY) — "+
+			"0x00 is STATUS_MESSAGES' request value and is illegal for QUEUED_MESSAGE; "+
+			"real responders answer it with silence (RDM-LOG8)", what, got[0], want[0])
+	}
+	t.Fatalf("%s param data = % X, want % X", what, got, want)
+}
+
 // assertLegalQueuedFilter checks the first drain probe's param data is the
-// single byte StatusAdvisory, naming the illegal value explicitly when it is
-// not.
+// single byte StatusAdvisory.
 func assertLegalQueuedFilter(t *testing.T, h *rdmHarness) {
 	t.Helper()
-	got := h.firstQueuedMessageRequest().ParameterData
-	want := []byte{byte(rdm.StatusAdvisory)}
-	if !bytes.Equal(got, want) {
-		if len(got) == 1 && got[0] == byte(rdm.StatusNone) {
-			t.Fatalf("drain sent status_type 0x%02X (STATUS_NONE), want 0x%02X (STATUS_ADVISORY) — "+
-				"0x00 is STATUS_MESSAGES' request value and is illegal for QUEUED_MESSAGE; "+
-				"real responders answer it with silence (RDM-LOG8)", got[0], want[0])
-		}
-		t.Fatalf("drain param data = % X, want % X", got, want)
+	assertQueuedFilterByte(t, "drain", h.firstQueuedMessageRequest().ParameterData)
+}
+
+// assertEveryQueuedFilterLegal pins the filter byte of every QUEUED_MESSAGE
+// that reached the wire, and that there were wantProbes of them. Used by the
+// ACK_TIMER continuation, where a probe is issued per deferral and each one
+// is an independent trip through issueLocked.
+func assertEveryQueuedFilterLegal(t *testing.T, h *rdmHarness, what string, wantProbes int) {
+	t.Helper()
+	got := h.queuedMessageRequests()
+	if len(got) != wantProbes {
+		t.Fatalf("%s count = %d, want %d", what, len(got), wantProbes)
+	}
+	for i, m := range got {
+		assertQueuedFilterByte(t, fmt.Sprintf("%s %d/%d", what, i+1, len(got)), m.ParameterData)
 	}
 }
 

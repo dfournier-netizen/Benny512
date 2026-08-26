@@ -858,10 +858,22 @@ func (c *RDMController) issueLocked(cmd *Command, newTN bool) {
 	// every other attribute of the original request — same slot, same
 	// transaction number budget, same deadline. req is never mutated, so
 	// the command still knows what it is really waiting for.
+	//
+	// StatusAdvisory (0x02) is the filter, for the same reason the recovery
+	// drain uses it (see maybeAutoDrainLocked): E1.20 defines
+	// QUEUED_MESSAGE's request status_type as 1=Last Message, 2=Advisory,
+	// 3=Warning, 4=Error (research doc §2.4), so 0x02 is the lowest legal
+	// severity floor and therefore this PID's "hand me everything you are
+	// holding". StatusNone (0x00) is STATUS_MESSAGES' request value, not
+	// this PID's, and is out of range here — RDM-LOG8 measured what real
+	// hardware does with it: 6/6 probes drew no response at all, not even a
+	// NACK. A probe carrying 0x00 would silently never collect, which on
+	// this path means every deferral falls back to a re-issue and the proxy
+	// buffer fills exactly as it did before the collection existed.
 	wirePID, wireData, wireClass := cmd.req.PID, cmd.req.Data, cmd.req.CommandClass
 	if cmd.collecting {
 		wirePID = rdm.PIDQueuedMessage
-		wireData = rdm.EncodeQueuedMessageRequest(rdm.StatusNone)
+		wireData = rdm.EncodeQueuedMessageRequest(rdm.StatusAdvisory)
 		wireClass = rdm.GetCommand
 	}
 
