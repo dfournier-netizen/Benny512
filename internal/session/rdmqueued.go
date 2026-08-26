@@ -65,12 +65,17 @@ const (
 	// circuit breaker opens — the moment Benny512 would otherwise stop
 	// asking that device anything at all.
 	//
-	// This is the trigger the bench evidence supports and it is bounded by
-	// construction: the breaker opens at most once per ProxyBreakerTrip
-	// failed commands, so the drain cost is one bounded pass per giving-up
-	// event, not one per refused command. It is also the moment with the
-	// most to gain and the least to lose: the alternative on that code path
-	// is a cool-down during which nothing is asked at all.
+	// Bounded by construction: the breaker opens at most once per
+	// ProxyBreakerTrip failed commands, so the cost is one bounded pass per
+	// giving-up event, not one per refused command. It is the moment with
+	// the most to gain and the least to lose, because the alternative on
+	// that code path is a cool-down during which nothing is asked at all.
+	//
+	// Since RDM-LOG8 this is a backstop for a buffer that was already full
+	// at session start, not the primary defence — the ACK_TIMER continuation
+	// in rdmacktimer.go is what stops the buffer filling. It is also skipped
+	// for devices the continuation has already found do not serve queued
+	// messages; see maybeAutoDrainLocked.
 	DrainOnProxyRecovery QueuedMessageDrainPolicy = iota
 	// DrainOff never drains automatically. DrainQueuedMessages still works.
 	DrainOff
@@ -191,7 +196,9 @@ type drainState struct {
 // This is the whole of the relaxation, and it is deliberately four
 // conjunctions wide:
 //
-//   - the request must be GET QUEUED_MESSAGE, so no other PID is affected;
+//   - what is on the wire must be GET QUEUED_MESSAGE — either because this
+//     is a drain command, or because it is mid-collection standing in for a
+//     re-issue after ACK_TIMER (rdmacktimer.go). No other PID is affected;
 //   - the answering PID must not already be pinned, so a transaction gets
 //     exactly one degree of freedom rather than a licence to wander;
 //   - the response must be an answer, not an ACK_TIMER deferral — a
@@ -200,7 +207,7 @@ type drainState struct {
 //   - the command must not be mid-ACK_OVERFLOW, so a partial reassembly is
 //     still aborted on a PID change exactly as before.
 //
-// Note what is NOT relaxed: matching a response to a command still requires
+// Note what is NOT relaxed. Matching a response to a command still requires
 // transaction number, responder UID and command class to agree
 // (HandleRDMResponse), and that — not the PID check — is what stops a stray
 // or duplicated response being attributed to the wrong in-flight command.
@@ -208,14 +215,21 @@ type drainState struct {
 // different question than the one asked, and it protects the integrity of
 // an ACK_OVERFLOW reassembly. Both survive intact for every other PID, and
 // the second survives intact for this one too.
+//
+// Nor does a collecting command lose the first protection for its own
+// request: a collected message is only allowed to *satisfy* that command
+// when its PID matches req.PID exactly (collectRoutesToLocked). The float
+// here lets the probe's answer through the door; it does not let it be
+// mistaken for the caller's answer.
 func queuedMessagePIDFloats(cmd *Command, rt rdm.ResponseType) bool {
-	return cmd.req.PID == rdm.PIDQueuedMessage &&
+	return (cmd.collecting || cmd.req.PID == rdm.PIDQueuedMessage) &&
 		!cmd.answerPIDSet &&
 		rt != rdm.ResponseACKTimer &&
 		!cmd.overflow
 }
 
-// isQueuedMessageRequest reports whether req is a drain command.
+// isQueuedMessageRequest reports whether req is a drain command — a command
+// whose *request* is QUEUED_MESSAGE, as opposed to one merely collecting.
 func isQueuedMessageRequest(req Request) bool {
 	return req.CommandClass == rdm.GetCommand && req.PID == rdm.PIDQueuedMessage
 }
@@ -411,6 +425,18 @@ func isEmptyStatusReport(msgs []rdm.StatusMessage) bool {
 }
 
 // maybeAutoDrainLocked starts an automatic drain if the policy allows it.
+//
+// Since RDM-LOG8 this is a backstop rather than the main event. The main
+// event is the ACK_TIMER continuation in rdmacktimer.go, which stops the
+// buffer filling in the first place; a recovery drain only matters for a
+// buffer that is *already* full when a session starts — which LOG8 proved
+// really does happen, because the MoonLite2 carries its buffer across power
+// cycles of the controller and only a power cycle of the radio clears it.
+//
+// It also defers to what the continuation has learned. LOG8's own drain
+// passes drew six probes and zero responses from the proxied UIDs; there is
+// no point spending that again on a device the collection path has already
+// found does not serve queued messages.
 func (c *RDMController) maybeAutoDrainLocked(node NodeRef, uid rdm.UID, reason DrainReason) {
 	switch c.cfg.QueuedMessageDrain {
 	case DrainOff:
@@ -419,6 +445,12 @@ func (c *RDMController) maybeAutoDrainLocked(node NodeRef, uid rdm.UID, reason D
 		if reason != DrainReasonProxyRecovery {
 			return
 		}
+	}
+	if c.collectModeLocked(Request{Node: node, UID: uid}) == collectReissue {
+		// Known not to answer GET QUEUED_MESSAGE. Draining would be six
+		// silent probes and a pair of response timeouts, which is what the
+		// bench actually measured.
+		return
 	}
 	// StatusNone as the filter asks for everything the responder is holding,
 	// regardless of severity — a recovery drain wants the buffer empty, not

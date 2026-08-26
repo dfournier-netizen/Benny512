@@ -252,6 +252,13 @@ type deviceHealth struct {
 	opens int
 	// since is when the breaker most recently opened.
 	since time.Time
+	// collect is what this device was observed to do with a GET
+	// QUEUED_MESSAGE probe, so the probe is paid for once per device rather
+	// than once per deferral. Unrelated to the breaker; it lives here
+	// because deviceKey is already the right granularity for "what have we
+	// learned about this responder through this node port". See
+	// rdmacktimer.go.
+	collect collectMode
 }
 
 // proxyBackoffFor returns the delay before the Nth refusal is re-issued.

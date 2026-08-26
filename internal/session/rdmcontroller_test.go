@@ -258,11 +258,15 @@ func TestLateResponseToRetriedAttemptStillSatisfiesTheCommand(t *testing.T) {
 
 // --- ACK_TIMER --------------------------------------------------------
 
+// TestAckTimerSingleDeferral: one deferral, continued the way E1.20 says to
+// continue it — a GET QUEUED_MESSAGE collection, with the parked answer
+// coming back under the PID it was parked for. See rdmacktimer.go for the
+// RDM-LOG8 evidence behind the change from a plain re-issue.
 func TestAckTimerSingleDeferral(t *testing.T) {
 	h := newHarness(t)
 	h.script(
 		reply{Type: rdm.ResponseACKTimer, Data: ackTimerData(20)}, // 20 × 10 ms = 200 ms
-		reply{Type: rdm.ResponseACK, Data: []byte("late but fine")},
+		reply{Type: rdm.ResponseACK, PID: &deviceInfoPID, Data: []byte("late but fine")},
 	)
 
 	start := h.clock.Now()
@@ -285,24 +289,32 @@ func TestAckTimerSingleDeferral(t *testing.T) {
 		t.Fatalf("requests = %d, want 2", h.requestCount())
 	}
 
-	// The re-issue must wait out the responder's estimate — not fire at the
-	// ordinary 100 ms response timeout.
-	reissue := h.allRequests()[1]
-	_ = reissue
-	elapsed := h.clock.Now().Sub(start)
-	if elapsed < 200*time.Millisecond {
+	// The continuation must wait out the responder's estimate — not fire at
+	// the ordinary 100 ms response timeout.
+	if elapsed := h.clock.Now().Sub(start); elapsed < 200*time.Millisecond {
 		t.Fatalf("completed after %v, want at least the 200 ms the responder asked for", elapsed)
 	}
-	// An ACK_TIMER re-issue is a new transaction on the wire.
+	// It is a new transaction on the wire, and it is a collection rather than
+	// a fresh ask for the same parameter. That difference is the whole fix:
+	// a re-issue costs the proxy another buffer slot, a collection frees one.
 	if a, b := h.requestAt(0), h.requestAt(1); a.TransactionNumber == b.TransactionNumber {
-		t.Fatalf("ACK_TIMER re-issue reused TN %d; it is a new transaction", a.TransactionNumber)
+		t.Fatalf("continuation reused TN %d; it is a new transaction", a.TransactionNumber)
 	}
-	// Same PID and command class, though — it is the same request.
-	if a, b := h.requestAt(0), h.requestAt(1); a.ParameterID != b.ParameterID || a.CommandClass != b.CommandClass {
-		t.Fatalf("re-issue changed the request: %+v vs %+v", a, b)
+	if got := h.requestAt(1).ParameterID; got != rdm.PIDQueuedMessage {
+		t.Fatalf("continuation PID = 0x%04X, want QUEUED_MESSAGE", uint16(got))
+	}
+	if got := h.ctrl.Stats().AckTimerCollectHits; got != 1 {
+		t.Fatalf("AckTimerCollectHits = %d, want 1", got)
+	}
+	if got := h.ctrl.Stats().AckTimerReissues; got != 0 {
+		t.Fatalf("AckTimerReissues = %d, want 0", got)
 	}
 }
 
+// TestAckTimerRepeatedIsTheNormalWirelessProxyPath walks the RDM-LOG8 shape:
+// one command deferred over and over. Every deferral must be continued by a
+// collection, never by re-asking for the parameter — twenty re-asks are what
+// exhausted the MoonLite2's buffer from a verified cold start.
 func TestAckTimerRepeatedIsTheNormalWirelessProxyPath(t *testing.T) {
 	h := newHarness(t)
 	h.script(
@@ -310,7 +322,7 @@ func TestAckTimerRepeatedIsTheNormalWirelessProxyPath(t *testing.T) {
 		reply{Type: rdm.ResponseACKTimer, Data: ackTimerData(10)},
 		reply{Type: rdm.ResponseACKTimer, Data: ackTimerData(10)},
 		reply{Type: rdm.ResponseACKTimer, Data: ackTimerData(10)},
-		reply{Type: rdm.ResponseACK, Data: []byte{0xAB}},
+		reply{Type: rdm.ResponseACK, PID: &deviceInfoPID, Data: []byte{0xAB}},
 	)
 
 	cmd := h.ctrl.Get(h.node, uidA, rdm.PIDDeviceInfo, nil)
@@ -328,20 +340,35 @@ func TestAckTimerRepeatedIsTheNormalWirelessProxyPath(t *testing.T) {
 	if got := h.ctrl.Stats().AckTimers; got != 4 {
 		t.Fatalf("Stats().AckTimers = %d, want 4", got)
 	}
-	// Every re-issue gets its own transaction number.
+	// Exactly one ask for the parameter itself; everything after it is
+	// collection. This is the assertion that would have caught the LOG8 leak.
+	asks := 0
+	for _, r := range h.allRequests() {
+		if r.ParameterID == rdm.PIDDeviceInfo {
+			asks++
+		}
+	}
+	if asks != 1 {
+		t.Fatalf("DEVICE_INFO asked %d times across 4 deferrals, want exactly 1 — each extra ask costs a proxy buffer slot", asks)
+	}
+	// Every transmission still gets its own transaction number.
 	seen := map[byte]bool{}
 	for _, r := range h.allRequests() {
 		if seen[r.TransactionNumber] {
-			t.Fatalf("duplicate TN %d across ACK_TIMER re-issues", r.TransactionNumber)
+			t.Fatalf("duplicate TN %d across ACK_TIMER continuations", r.TransactionNumber)
 		}
 		seen[r.TransactionNumber] = true
 	}
 }
 
+// TestAckTimerBeyondDeadlineFailsImmediately is about the deadline
+// arithmetic, not about how a deferral is continued, so it pins the
+// continuation to ReissueOnly. That keeps the test measuring one thing, and
+// keeps the escape hatch covered.
 func TestAckTimerBeyondDeadlineFailsImmediately(t *testing.T) {
 	profile := testProfile
 	profile.CommandDeadline = 500 * time.Millisecond
-	h := newRDMHarness(t, RDMConfig{DefaultProfile: profile})
+	h := newRDMHarness(t, RDMConfig{DefaultProfile: profile, AckTimerCollect: ReissueOnly})
 	h.script(
 		reply{Type: rdm.ResponseACKTimer, Data: ackTimerData(40)}, // 400 ms, fits
 		reply{Type: rdm.ResponseACKTimer, Data: ackTimerData(40)}, // 400 ms more, does not
@@ -376,7 +403,9 @@ func TestUnansweredAckTimerChainStopsAtTheDeadline(t *testing.T) {
 	profile := testProfile
 	profile.Retries = 0
 	profile.CommandDeadline = 400 * time.Millisecond
-	h := newRDMHarness(t, RDMConfig{DefaultProfile: profile})
+	// Subject is the deadline bound on an endless chain, so the
+	// continuation is pinned; see TestAckTimerBeyondDeadlineFailsImmediately.
+	h := newRDMHarness(t, RDMConfig{DefaultProfile: profile, AckTimerCollect: ReissueOnly})
 	// An endlessly-deferring responder: every request gets a short
 	// ACK_TIMER, forever.
 	for i := 0; i < 50; i++ {
@@ -397,7 +426,8 @@ func TestUnansweredAckTimerChainStopsAtTheDeadline(t *testing.T) {
 func TestAckTimerDelayIsClampedToProfileCap(t *testing.T) {
 	profile := testProfile
 	profile.MaxAckTimer = 150 * time.Millisecond
-	h := newRDMHarness(t, RDMConfig{DefaultProfile: profile})
+	// Subject is the clamp on the wait, not the continuation.
+	h := newRDMHarness(t, RDMConfig{DefaultProfile: profile, AckTimerCollect: ReissueOnly})
 	h.script(
 		reply{Type: rdm.ResponseACKTimer, Data: ackTimerData(6000)}, // asks for 60 s
 		reply{Type: rdm.ResponseACK},
@@ -416,12 +446,15 @@ func TestAckTimerDelayIsClampedToProfileCap(t *testing.T) {
 }
 
 func TestAckTimerUnitIsConfigurable(t *testing.T) {
-	// SPEC AMBIGUITY guard: E1.20 says 10 ms units, the project protocol
-	// reference says plain milliseconds. Whichever proves right on the rig,
-	// the knob must actually change the pacing.
+	// The 10 ms vs 1 ms ambiguity that this knob existed for is SETTLED, in
+	// favour of E1.20's 10 ms: RDM-LOG8's twenty deferrals have inter-response
+	// gaps tracking raw x 10 ms plus a 12-30 ms round trip almost exactly
+	// (raw=6 -> 88 ms, raw=12 -> 144 ms, raw=30 -> 312 ms). A 1 ms unit would
+	// have made every gap a flat ~30 ms. The knob stays as an escape hatch for
+	// a responder that disagrees, so it still has to actually change pacing.
 	profile := testProfile
 	profile.MaxAckTimer = time.Hour
-	h := newRDMHarness(t, RDMConfig{DefaultProfile: profile, AckTimerUnit: time.Millisecond})
+	h := newRDMHarness(t, RDMConfig{DefaultProfile: profile, AckTimerUnit: time.Millisecond, AckTimerCollect: ReissueOnly})
 	h.script(
 		reply{Type: rdm.ResponseACKTimer, Data: ackTimerData(300)},
 		reply{Type: rdm.ResponseACK},
@@ -664,7 +697,10 @@ func TestNodePortScopeHoldsOtherUIDsOnTheSamePort(t *testing.T) {
 	h := newHarness(t)
 	h.script(
 		reply{Type: rdm.ResponseACKTimer, Data: ackTimerData(30)},
-		reply{Type: rdm.ResponseACK},
+		// A's deferral is continued by a collection, which returns A's
+		// parked DEVICE_INFO. The point here is the port queue, not the
+		// continuation; see rdmacktimer_test.go for that.
+		reply{Type: rdm.ResponseACK, PID: &deviceInfoPID},
 		reply{Type: rdm.ResponseACK},
 	)
 
@@ -712,8 +748,11 @@ func TestNodePortScopeAllowsParallelWorkOnADifferentPort(t *testing.T) {
 	other := nodeRef("2.11.90.2", 1, artnet.PortAddress{Universe: 1})
 	h.script(
 		reply{Delay: 20 * time.Millisecond, Type: rdm.ResponseACKTimer, Data: ackTimerData(30)},
-		reply{Delay: 20 * time.Millisecond, Type: rdm.ResponseACK},
-		reply{Type: rdm.ResponseACK},
+		// Port 1's own answer, then the collection that continues port 0's
+		// deferral. Both carry DEVICE_INFO, which is what each is really
+		// waiting for.
+		reply{Delay: 20 * time.Millisecond, Type: rdm.ResponseACK, PID: &deviceInfoPID},
+		reply{Type: rdm.ResponseACK, PID: &deviceInfoPID},
 	)
 
 	a := h.ctrl.Get(h.node, uidA, rdm.PIDDeviceInfo, nil)

@@ -326,6 +326,21 @@ type Command struct {
 	// notify, when set, is called from completeLocked with c.mu held.
 	// Internal to the drain state machine; see completeLocked.
 	notify func(Result)
+
+	// collecting is true while this command's current transmission is a
+	// GET QUEUED_MESSAGE probe standing in for a re-issue of the original
+	// request — E1.20's continuation after ACK_TIMER. The command keeps its
+	// own queue slot and transaction number throughout, which is the whole
+	// point: collecting an answer must not cost the responder a new slot.
+	// See rdmacktimer.go.
+	collecting bool
+	// collectProbes counts GET QUEUED_MESSAGE probes issued for this
+	// command, for diagnostics.
+	collectProbes int
+	// collectOrphans counts queued messages pulled back during this command
+	// that answered some other request. This, not collectProbes, is what
+	// the per-command cap bounds — see DefaultMaxAckTimerCollect.
+	collectOrphans int
 }
 
 // Done delivers the Result exactly once, then closes.
@@ -343,6 +358,18 @@ func (c *Command) Await(ctx context.Context) (Result, error) {
 
 // Request returns the originating request.
 func (c *Command) Request() Request { return c.req }
+
+// wireCommandClass is the command class currently on the wire for this
+// command. It differs from the request's only while collecting, because
+// GET QUEUED_MESSAGE is a GET even when it stands in for a SET's deferred
+// confirmation. Response matching uses this, so the anti-misattribution
+// guard keeps checking the class actually sent.
+func (c *Command) wireCommandClass() rdm.CommandClass {
+	if c.collecting {
+		return rdm.GetCommand
+	}
+	return c.req.CommandClass
+}
 
 type queueKey struct {
 	ip   netip.Addr
@@ -383,6 +410,14 @@ type RDMConfig struct {
 	// reason; the default follows the standard (10 ms) and must be
 	// confirmed against real hardware in Phase 1d.
 	AckTimerUnit time.Duration
+	// AckTimerCollect selects the continuation after an ACK_TIMER's
+	// estimated time elapses. The zero value, CollectQueuedMessageFirst, is
+	// the default and is E1.20's own flow. See rdmacktimer.go.
+	AckTimerCollect AckTimerCollectPolicy
+	// MaxAckTimerCollect caps the GET QUEUED_MESSAGE probes one deferral may
+	// issue before falling back to re-issuing the original request.
+	// Defaults to DefaultMaxAckTimerCollect.
+	MaxAckTimerCollect int
 	// QueuedMessageDrain selects when the controller drains a responder's
 	// message queue with GET QUEUED_MESSAGE on its own initiative. The zero
 	// value, DrainOnProxyRecovery, is the default. See rdmqueued.go.
@@ -433,6 +468,13 @@ const (
 	EventToDUpdate
 	// EventQueuedMessages fires when a responder reports MessageCount > 0.
 	EventQueuedMessages
+	// EventQueuedMessageCollected fires when an ACK_TIMER collection pulled
+	// back a queued message that answers no command currently waiting — a
+	// stale answer from an earlier session, or one whose command has since
+	// given up. QueuedPID and QueuedData carry it so it is filed rather than
+	// dropped. Nothing is ever attributed to a waiting command on the
+	// strength of this event; see collectRoutesToLocked.
+	EventQueuedMessageCollected
 )
 
 // String renders the event kind.
@@ -446,6 +488,8 @@ func (k EventKind) String() string {
 		return "tod-update"
 	case EventQueuedMessages:
 		return "queued-messages"
+	case EventQueuedMessageCollected:
+		return "queued-message-collected"
 	default:
 		return "unknown"
 	}
@@ -465,7 +509,11 @@ type Event struct {
 	Complete bool
 	// MessageCount is set for EventQueuedMessages.
 	MessageCount byte
-	At           time.Time
+	// QueuedPID and QueuedData are set for EventQueuedMessageCollected: the
+	// parameter the responder chose to deliver, and its payload.
+	QueuedPID  rdm.ParameterID
+	QueuedData []byte
+	At         time.Time
 }
 
 // RDMStats are cheap counters for the diagnostics screen.
@@ -494,6 +542,23 @@ type RDMStats struct {
 	// QueuedMessagesDrained counts individual queued messages collected
 	// across every drain — the payoff measure for the drain machinery.
 	QueuedMessagesDrained uint64
+	// AckTimerCollects counts GET QUEUED_MESSAGE probes issued as an
+	// ACK_TIMER continuation (rdmacktimer.go).
+	AckTimerCollects uint64
+	// AckTimerCollectHits counts probes that returned the very answer their
+	// command was deferred on — a deferral resolved without costing the
+	// proxy another buffer slot. This over AckTimerCollects is the measure
+	// of whether the LOG8 fix is working on a given rig.
+	AckTimerCollectHits uint64
+	// AckTimerCollectTimeouts counts probes that drew silence.
+	AckTimerCollectTimeouts uint64
+	// AckTimerReissues counts deferrals continued the old way, by re-issuing
+	// the original request. On a rig that collects properly this should stay
+	// near zero; a climbing count is the signal that responders are falling
+	// back and buffers will fill.
+	AckTimerReissues uint64
+	// AckTimerCollectors counts devices observed to serve QUEUED_MESSAGE.
+	AckTimerCollectors uint64
 }
 
 // RDMController is the RDM-over-Art-Net client state machine (architecture
@@ -789,15 +854,26 @@ func (c *RDMController) issueLocked(cmd *Command, newTN bool) {
 	}
 	c.inflightByTN[cmd.tn] = cmd
 
+	// A collecting command puts GET QUEUED_MESSAGE on the wire while keeping
+	// every other attribute of the original request — same slot, same
+	// transaction number budget, same deadline. req is never mutated, so
+	// the command still knows what it is really waiting for.
+	wirePID, wireData, wireClass := cmd.req.PID, cmd.req.Data, cmd.req.CommandClass
+	if cmd.collecting {
+		wirePID = rdm.PIDQueuedMessage
+		wireData = rdm.EncodeQueuedMessageRequest(rdm.StatusNone)
+		wireClass = rdm.GetCommand
+	}
+
 	msg := rdm.Message{
 		DestinationUID:       cmd.req.UID,
 		SourceUID:            c.cfg.ControllerUID,
 		TransactionNumber:    cmd.tn,
 		PortIDOrResponseType: c.cfg.PortID,
 		SubDevice:            cmd.req.SubDevice,
-		CommandClass:         cmd.req.CommandClass,
-		ParameterID:          cmd.req.PID,
-		ParameterData:        cmd.req.Data,
+		CommandClass:         wireClass,
+		ParameterID:          wirePID,
+		ParameterData:        wireData,
 	}
 	pkt := artnet.EncodeRdmPacket(msg, c.cfg.ProtocolVersion, cmd.req.Node.Port.Net, cmd.req.Node.Port.SubUni(), c.cfg.LegacyRdmStartCode)
 	cmd.wireBytes = artnet.Encode(artnet.Packet{Kind: artnet.KindRdm, Rdm: pkt})
@@ -835,6 +911,14 @@ func (c *RDMController) onResponseTimeout(cmd *Command, gen uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if cmd.finished || cmd.gen != gen {
+		return
+	}
+	if cmd.collecting {
+		// Silence in answer to a QUEUED_MESSAGE probe. This gets no retry
+		// budget: one probe is enough to learn that this responder will not
+		// serve one, and the caller's actual request is still waiting. See
+		// collectTimedOutLocked for the RDM-LOG8 evidence.
+		c.collectTimedOutLocked(cmd)
 		return
 	}
 	if cmd.attempt < cmd.profile.Retries {
@@ -894,7 +978,7 @@ func (c *RDMController) HandleRDMResponse(msg rdm.Message) {
 	// in-flight command and is discarded — that is the idempotency rule.
 	if cmd == nil || cmd.finished ||
 		cmd.req.UID != msg.SourceUID ||
-		msg.CommandClass != responseClassFor(cmd.req.CommandClass) {
+		msg.CommandClass != responseClassFor(cmd.wireCommandClass()) {
 		c.stats.StrayResponses++
 		return
 	}
@@ -940,6 +1024,31 @@ func (c *RDMController) HandleRDMResponse(msg rdm.Message) {
 		cmd.answerPIDSet = true
 	}
 	cmd.finalResult.ResponsePID = cmd.answerPID
+
+	if cmd.collecting {
+		// This response is to a GET QUEUED_MESSAGE probe standing in for a
+		// re-issue, so it needs routing rather than folding straight into
+		// the command. ACK_OVERFLOW is the exception: it is still just
+		// reassembly of the probe's own answer, and the normal path below
+		// re-issues the identical wire request (which is the probe) and
+		// keeps the PID latch honest.
+		switch rt {
+		case rdm.ResponseACK:
+			c.handleCollectAckLocked(cmd, &msg)
+			return
+		case rdm.ResponseNackReason:
+			reason := rdm.NackReason(0)
+			if len(msg.ParameterData) >= 2 {
+				reason = rdm.NackReason(uint16(msg.ParameterData[0])<<8 | uint16(msg.ParameterData[1]))
+			}
+			c.stats.Nacks++
+			if reason == rdm.NackProxyBufferFull {
+				c.stats.ProxyBufferFull++
+			}
+			c.handleCollectNackLocked(cmd, &msg, reason)
+			return
+		}
+	}
 
 	switch rt {
 	case rdm.ResponseACK:
@@ -1017,6 +1126,25 @@ func (c *RDMController) onAckTimerElapsed(cmd *Command, gen uint64) {
 	if cmd.finished || cmd.gen != gen {
 		return
 	}
+	// E1.20's continuation after ACK_TIMER is to collect the parked answer
+	// with GET QUEUED_MESSAGE, which the responder serves from the buffer it
+	// already holds. Re-issuing the original instead is what filled the
+	// MoonLite2's buffer in twenty deferrals (RDM-LOG8) — see rdmacktimer.go
+	// for why the collection is tried first but not unconditionally.
+	if c.ackTimerCollectsLocked(cmd) {
+		c.beginCollectLocked(cmd)
+		return
+	}
+	if cmd.collecting {
+		// We were collecting and have now hit the per-command probe cap (or
+		// learned this device cannot collect). abandonCollectLocked is the
+		// only correct way out: it restores the PID latch to the request's
+		// own parameter, which a bare issueLocked would leave pointing at
+		// QUEUED_MESSAGE and reject the real answer against.
+		c.abandonCollectLocked(cmd)
+		return
+	}
+	c.stats.AckTimerReissues++
 	c.issueLocked(cmd, true)
 }
 

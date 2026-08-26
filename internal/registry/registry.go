@@ -250,6 +250,19 @@ func (reg *Registry) handleRDMEvent(ev session.Event) {
 	switch ev.Kind {
 	case session.EventToDUpdate:
 		reg.mergeToD(ev.Node, ev.UIDs)
+	case session.EventQueuedMessageCollected:
+		// A queued message the controller pulled back that answered no
+		// command still waiting — stale, or one whose command has given up.
+		// It is still a real reading from a real device, so file it under
+		// the parameter it actually is, and take it as proof the device is
+		// reachable. What must not happen is it being credited to whichever
+		// command was in flight at the time; the controller has already
+		// ruled that out (session.collectRoutesToLocked), and this event
+		// carries exactly the messages that rule excluded.
+		if ev.QueuedPID != 0 {
+			reg.cacheParam(ev.Node, ev.UID, ev.QueuedPID, ev.QueuedData)
+		}
+		reg.noteReachable(ev.Node, ev.UID)
 	case session.EventCommandComplete:
 		if ev.Result == nil {
 			return
