@@ -240,9 +240,12 @@ func isQueuedMessageRequest(req Request) bool {
 // than an ACK, or ctx is cancelled. maxIter <= 0 uses the controller's
 // configured cap.
 //
-// filter is the severity floor: E1.20 STATUS_NONE (0x00) asks for every
-// queued message regardless of severity, which is what a recovery drain
-// wants.
+// filter is the severity floor, and E1.20 allows only 1=Last Message,
+// 2=Advisory, 3=Warning, 4=Error for this PID's request. StatusAdvisory
+// (0x02) is the lowest of the real severities and so is the "give me
+// everything queued" value a recovery drain wants. STATUS_NONE (0x00) is
+// STATUS_MESSAGES' request value and is out of range here — responders
+// observed on the bench answer it with silence rather than a NACK.
 //
 // At most one drain runs per device at a time. A caller arriving while an
 // automatic drain is already in flight waits for that pass and receives its
@@ -452,10 +455,19 @@ func (c *RDMController) maybeAutoDrainLocked(node NodeRef, uid rdm.UID, reason D
 		// bench actually measured.
 		return
 	}
-	// StatusNone as the filter asks for everything the responder is holding,
-	// regardless of severity — a recovery drain wants the buffer empty, not
-	// a severity-filtered view of it.
-	c.startDrainLocked(node, uid, rdm.StatusNone, 0, reason, nil)
+	// StatusAdvisory (0x02) is the lowest legal severity floor for a GET
+	// QUEUED_MESSAGE request, so it is this PID's way of saying "give me
+	// everything you are holding" — which is what a recovery drain wants.
+	//
+	// It is emphatically not interchangeable with StatusNone (0x00). E1.20
+	// defines QUEUED_MESSAGE's request status_type as 1=Last Message,
+	// 2=Advisory, 3=Warning, 4=Error (research doc §2.4, OLA-schema
+	// confirmed); 0=None is STATUS_MESSAGES' request value, not this PID's.
+	// Sending 0x00 here is an out-of-range filter, and RDM-LOG8 measured the
+	// consequence on real hardware: 6/6 drain probes drew no response at all,
+	// not even a NACK, from devices answering everything else in the same
+	// seconds.
+	c.startDrainLocked(node, uid, rdm.StatusAdvisory, 0, reason, nil)
 }
 
 // --- circuit-breaker interaction -----------------------------------------

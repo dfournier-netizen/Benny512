@@ -81,9 +81,12 @@ func (c *Client) DeviceStatus(ctx context.Context, filter rdm.StatusType, maxDra
 // The controller also runs this itself when a device's proxy circuit breaker
 // opens; see session.QueuedMessageDrainPolicy.
 //
-// filter is a severity floor. rdm.StatusNone asks for everything the
-// responder is holding, which is what a recovery drain wants; a higher
-// StatusType asks only for messages at least that severe.
+// filter is a severity floor, and E1.20 allows only 1=Last Message,
+// 2=Advisory, 3=Warning, 4=Error for this PID's request. rdm.StatusAdvisory
+// is the lowest real severity and so asks for everything the responder is
+// holding, which is what a recovery drain wants; a higher StatusType asks
+// only for messages at least that severe. rdm.StatusNone (0x00) belongs to
+// STATUS_MESSAGES, not to this PID, and is out of range here.
 //
 // maxDrain <= 0 uses the controller's configured cap. The loop always
 // terminates: on the responder reporting its queue empty, on that cap, on

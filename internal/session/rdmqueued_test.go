@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"runtime"
@@ -502,6 +503,88 @@ func TestMessageCountTriggersADrainOnlyUnderThatPolicy(t *testing.T) {
 		if got := h.ctrl.Stats().QueuedMessagesDrained; got != 1 {
 			t.Fatalf("QueuedMessagesDrained = %d, want 1", got)
 		}
+	})
+}
+
+// firstQueuedMessageRequest returns the first GET QUEUED_MESSAGE that
+// actually reached the wire, so a test can assert on the bytes sent rather
+// than on the intent behind them.
+func (h *rdmHarness) firstQueuedMessageRequest() rdm.Message {
+	h.t.Helper()
+	for _, m := range h.allRequests() {
+		if m.ParameterID == rdm.PIDQueuedMessage {
+			return m
+		}
+	}
+	h.t.Fatalf("no GET QUEUED_MESSAGE reached the wire (saw %d requests)", h.requestCount())
+	return rdm.Message{}
+}
+
+// assertLegalQueuedFilter checks the first drain probe's param data is the
+// single byte StatusAdvisory, naming the illegal value explicitly when it is
+// not.
+func assertLegalQueuedFilter(t *testing.T, h *rdmHarness) {
+	t.Helper()
+	got := h.firstQueuedMessageRequest().ParameterData
+	want := []byte{byte(rdm.StatusAdvisory)}
+	if !bytes.Equal(got, want) {
+		if len(got) == 1 && got[0] == byte(rdm.StatusNone) {
+			t.Fatalf("drain sent status_type 0x%02X (STATUS_NONE), want 0x%02X (STATUS_ADVISORY) — "+
+				"0x00 is STATUS_MESSAGES' request value and is illegal for QUEUED_MESSAGE; "+
+				"real responders answer it with silence (RDM-LOG8)", got[0], want[0])
+		}
+		t.Fatalf("drain param data = % X, want % X", got, want)
+	}
+}
+
+// TestAutoDrainUsesALegalStatusTypeFilter pins the one byte of param data an
+// automatic drain puts on the wire.
+//
+// E1.20 allows only 1=Last Message, 2=Advisory, 3=Warning, 4=Error as
+// QUEUED_MESSAGE's request status_type; 0=None is STATUS_MESSAGES' value and
+// is out of range for this PID (research doc §2.4). StatusAdvisory (0x02) is
+// therefore the lowest legal floor and this PID's way of saying "everything
+// you are holding".
+//
+// The distinction is not academic. RDM-LOG8 captured six auto-drain probes
+// carrying 0x00 and got back no response of any kind — not even a NACK —
+// from devices answering everything else in the same seconds, which is why
+// this asserts the wire byte rather than the drain's bookkeeping. Both
+// automatic reasons are covered because each reaches startDrainLocked by its
+// own route.
+func TestAutoDrainUsesALegalStatusTypeFilter(t *testing.T) {
+	t.Run("message-count drain", func(t *testing.T) {
+		h := queuedHarness(t, DrainOnProxyRecoveryAndMessageCount)
+		h.script(
+			reply{Type: rdm.ResponseACK, Data: []byte("x"), MessageCount: 3},
+			emptyQueueAck(),
+		)
+
+		cmd := h.ctrl.Get(h.node, uidA, rdm.PIDDeviceInfo, nil)
+		if res := h.awaitResult(cmd, time.Second); res.Kind != ResultAck {
+			t.Fatalf("kind = %v, want ack", res.Kind)
+		}
+		h.clock.Advance(2 * time.Second)
+
+		assertLegalQueuedFilter(t, h)
+	})
+
+	t.Run("proxy-recovery drain", func(t *testing.T) {
+		h := queuedHarness(t, DrainOnProxyRecovery)
+		for i := 0; i < ProxyBreakerTrip*sendsPerCommand; i++ {
+			h.script(proxyNack())
+		}
+		h.script(emptyQueueAck())
+
+		for i := 0; i < ProxyBreakerTrip; i++ {
+			cmd := h.ctrl.Get(h.node, uidA, rdm.PIDDeviceInfo, nil)
+			if res := h.awaitResult(cmd, 30*time.Second); res.Kind != ResultProxyBufferFull {
+				t.Fatalf("command %d kind = %v, want proxy-buffer-full", i, res.Kind)
+			}
+		}
+		h.clock.Advance(2 * time.Second)
+
+		assertLegalQueuedFilter(t, h)
 	})
 }
 
