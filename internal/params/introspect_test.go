@@ -194,16 +194,6 @@ func TestIntrospectNackFallback(t *testing.T) {
 	}
 }
 
-// TestIntrospectReachesProxiedDevicePIDs guards task item 2 ("keep
-// PROXIED_DEVICES/PROXIED_DEVICE_COUNT reachable via the generic parameter
-// editor"): the Devices screen dropped its dedicated proxy-status callout
-// (0x0011 used to be fetched and rendered as a standalone "Proxied
-// devices" field), so Introspect's normal SUPPORTED_PARAMETERS walk is now
-// the *only* way either PID ever reaches the UI. Before this change both
-// PIDs were listed in knownDecodedESTAPIDs and so were deliberately
-// excluded from introspection (isIntrospectionTarget returned false) —
-// that exclusion had to be lifted for this test to pass, matching what
-// TestIntrospectSelfDescribing already asserts DEVICE_LABEL should NOT do.
 // TestClearAllDeviceStateWipesPerUIDIntrospectionState checks
 // ClearAllDeviceState (the full-reset flow's "everything" companion to
 // ForgetDevice's single-UID scope) empties Descriptors() for a UID that had
@@ -242,20 +232,31 @@ func TestClearAllDeviceStateWipesPerUIDIntrospectionState(t *testing.T) {
 	}
 }
 
+// TestIntrospectReachesProxiedDevicePIDs guards task item 2 ("keep
+// PROXIED_DEVICES/PROXIED_DEVICE_COUNT reachable via the generic parameter
+// editor"): the Devices screen dropped its dedicated proxy-status callout
+// (0x0011 used to be fetched and rendered as a standalone "Proxied devices"
+// field), so Introspect's normal SUPPORTED_PARAMETERS walk is now the only
+// way either PID ever reaches the UI. Both PIDs are deliberately left out of
+// knownDecodedESTAPIDs so isEditorTarget still gives them a row — but
+// because they're standard, not manufacturer-specific, isDescribable must
+// keep resolveDescriptor from ever putting PARAMETER_DESCRIPTION for either
+// one on the wire (E1.20 §10.4.2 doesn't allow describing them, and RDM-LOG6
+// shows real hardware NACKs every such request anyway) — this test asserts
+// that silence directly, not just the descriptor shape it produces.
 func TestIntrospectReachesProxiedDevicePIDs(t *testing.T) {
 	uid := rdm.UID{ManufacturerID: 0x6C74, DeviceID: 1}
 	supported := rdm.EncodeSupportedParameters([]rdm.ParameterID{rdm.PIDProxiedDevices, rdm.PIDProxiedDeviceCount})
 
+	var describedPIDs []rdm.ParameterID
 	client, clock := newTestClient(t, uid, func(msg rdm.Message) ([]byte, bool, rdm.NackReason) {
 		switch msg.ParameterID {
 		case rdm.PIDSupportedParameters:
 			return supported, false, 0
+		case rdm.PIDParameterDescription:
+			describedPIDs = append(describedPIDs, rdm.ParameterID(binaryBigEndianUint16(msg.ParameterData)))
+			return nil, true, rdm.NackUnknownPID
 		default:
-			// A real proxy commonly won't implement PARAMETER_DESCRIPTION for
-			// these standard PIDs (report §2.2 notes it's optional even for
-			// PIDs a responder is technically allowed to describe) — NACKing
-			// here proves the universal raw-hex fallback still surfaces the
-			// PID rather than silently dropping it (report §1.1 item 4).
 			return nil, true, rdm.NackUnknownPID
 		}
 	})
@@ -275,11 +276,179 @@ func TestIntrospectReachesProxiedDevicePIDs(t *testing.T) {
 	for _, d := range result.Descriptors {
 		seen[d.PID] = true
 		if d.SelfDescribing {
-			t.Errorf("PID 0x%04X: expected non-self-describing (NACKed PARAMETER_DESCRIPTION), got %+v", uint16(d.PID), d)
+			t.Errorf("PID 0x%04X: expected non-self-describing, got %+v", uint16(d.PID), d)
 		}
 	}
 	if !seen[rdm.PIDProxiedDevices] || !seen[rdm.PIDProxiedDeviceCount] {
 		t.Fatalf("descriptors=%+v, want both 0x0010 and 0x0011", result.Descriptors)
+	}
+	if len(describedPIDs) != 0 {
+		t.Fatalf("PARAMETER_DESCRIPTION was sent for standard PIDs %v; both are out of E1.20's manufacturer-only PARAMETER_DESCRIPTION range", describedPIDs)
+	}
+}
+
+// TestIntrospectDoesNotProbeUndecodedStandardPIDs reproduces RDM-LOG6
+// against a fake Elation KL Core IP: a SUPPORTED_PARAMETERS response made up
+// entirely of standard PIDs, most of which this package has no dedicated
+// typed field for (DEVICE_HOURS, COMMS_STATUS, CLEAR_STATUS_ID, the LAMP_*
+// group, the PAN/TILT/DISPLAY group, POWER_STATE, PRESET_PLAYBACK,
+// DEFAULT_SLOT_VALUE, LANGUAGE(_CAPABILITIES), the BOOT_SOFTWARE_VERSION
+// pair, RESET_DEVICE, FACTORY_DEFAULTS). Before this fix, every one of these
+// fell through isIntrospectionTarget's "unknown ESTA PID" branch and got
+// PARAMETER_DESCRIPTION-probed — 25 requests, 25 NACKs, on real hardware.
+// isDescribable now means exactly "manufacturer-specific", so none of them
+// may ever reach the wire as a PARAMETER_DESCRIPTION request, regardless of
+// whether this package recognizes the PID.
+func TestIntrospectDoesNotProbeUndecodedStandardPIDs(t *testing.T) {
+	uid := rdm.UID{ManufacturerID: 0x22A6, DeviceID: 0x004D09D1}
+	standard := []rdm.ParameterID{
+		rdm.PIDProxiedDeviceCount, rdm.PIDDeviceHours, rdm.PIDCommsStatus, rdm.PIDClearStatusID,
+		rdm.PIDLampHours, rdm.PIDLampStrikes, rdm.PIDLampState, rdm.PIDLampOnMode, rdm.PIDDevicePowerCycles,
+		rdm.PIDPanInvert, rdm.PIDTiltInvert, rdm.PIDPanTiltSwap, rdm.PIDDisplayInvert, rdm.PIDDisplayLevel,
+		rdm.PIDRealTimeClock, rdm.PIDPowerState, rdm.PIDPresetPlayback, rdm.PIDDefaultSlotValue,
+		rdm.PIDLanguage, rdm.PIDLanguageCapabilities, rdm.PIDBootSoftwareVersionLabel, rdm.PIDBootSoftwareVersionID,
+		rdm.PIDResetDevice, rdm.PIDFactoryDefaults,
+	}
+	supported := rdm.EncodeSupportedParameters(standard)
+
+	var describedPIDs []rdm.ParameterID
+	client, clock := newTestClient(t, uid, func(msg rdm.Message) ([]byte, bool, rdm.NackReason) {
+		switch msg.ParameterID {
+		case rdm.PIDSupportedParameters:
+			return supported, false, 0
+		case rdm.PIDParameterDescription:
+			describedPIDs = append(describedPIDs, rdm.ParameterID(binaryBigEndianUint16(msg.ParameterData)))
+			return nil, true, rdm.NackUnknownPID
+		default:
+			return nil, true, rdm.NackUnknownPID
+		}
+	})
+
+	var result IntrospectResult
+	var err error
+	runAsync(t, clock, func() {
+		result, err = client.Introspect(context.Background(), nil)
+	})
+	if err != nil {
+		t.Fatalf("Introspect: %v", err)
+	}
+	if len(describedPIDs) != 0 {
+		t.Fatalf("PARAMETER_DESCRIPTION sent for standard PIDs %v; only manufacturer-specific PIDs (0x8000-0xFFDF) may ever be described per E1.20 §10.4.2", describedPIDs)
+	}
+	if len(result.Descriptors) != len(standard) {
+		t.Fatalf("got %d descriptors, want %d (every standard PID should still surface, just without a live probe): %+v",
+			len(result.Descriptors), len(standard), result.Descriptors)
+	}
+	for _, d := range result.Descriptors {
+		if d.SelfDescribing {
+			t.Errorf("PID 0x%04X: standard PID must not be self-describing (no PARAMETER_DESCRIPTION was legally sent), got %+v", uint16(d.PID), d)
+		}
+	}
+}
+
+// TestIntrospectDropsZeroPID guards the 0x0000 entry RDM-LOG6 caught in the
+// KL Core IP's own SUPPORTED_PARAMETERS response — 0x0000 is not a valid RDM
+// PID (real PID numbers start at 0x0001), so it must never become an editor
+// row, a PARAMETER_DESCRIPTION probe, or a GET target of any kind.
+func TestIntrospectDropsZeroPID(t *testing.T) {
+	uid := rdm.UID{ManufacturerID: 0x22A6, DeviceID: 0x004D09D1}
+	supported := rdm.EncodeSupportedParameters([]rdm.ParameterID{rdm.PIDDeviceHours, 0x0000})
+
+	var requestedPIDs []rdm.ParameterID
+	client, clock := newTestClient(t, uid, func(msg rdm.Message) ([]byte, bool, rdm.NackReason) {
+		if msg.ParameterID == rdm.PIDSupportedParameters {
+			return supported, false, 0
+		}
+		requestedPIDs = append(requestedPIDs, msg.ParameterID)
+		if msg.ParameterID == rdm.PIDParameterDescription {
+			return nil, true, rdm.NackUnknownPID
+		}
+		return nil, true, rdm.NackUnknownPID
+	})
+
+	var result IntrospectResult
+	var err error
+	runAsync(t, clock, func() {
+		result, err = client.Introspect(context.Background(), nil)
+	})
+	if err != nil {
+		t.Fatalf("Introspect: %v", err)
+	}
+	if len(result.Descriptors) != 1 || result.Descriptors[0].PID != rdm.PIDDeviceHours {
+		t.Fatalf("descriptors=%+v, want exactly DEVICE_HOURS (0x0000 must be dropped)", result.Descriptors)
+	}
+	for _, pid := range requestedPIDs {
+		if pid == 0 {
+			t.Fatalf("PID 0x0000 reached the wire: requestedPIDs=%v", requestedPIDs)
+		}
+	}
+}
+
+// TestResolveDescriptorGivesUpAfterUnknownPIDOnDescriptionItself covers the
+// "should a device that NACKs PARAMETER_DESCRIPTION once be asked again"
+// question raised alongside RDM-LOG6: E1.20's UNKNOWN_PID NACK reason on a
+// GET means the responder does not implement the PID being asked about — in
+// this case 0x0051 (PARAMETER_DESCRIPTION) itself, not whichever
+// manufacturer PID was in the request payload. A device that says so once
+// should not be asked to describe a second, different manufacturer PID.
+func TestResolveDescriptorGivesUpAfterUnknownPIDOnDescriptionItself(t *testing.T) {
+	uid := rdm.UID{ManufacturerID: 0x22A7, DeviceID: 1}
+
+	var describedPIDs []rdm.ParameterID
+	client, clock := newTestClient(t, uid, func(msg rdm.Message) ([]byte, bool, rdm.NackReason) {
+		if msg.ParameterID == rdm.PIDParameterDescription {
+			describedPIDs = append(describedPIDs, rdm.ParameterID(binaryBigEndianUint16(msg.ParameterData)))
+			return nil, true, rdm.NackUnknownPID
+		}
+		return nil, true, rdm.NackUnknownPID
+	})
+
+	var d1, d2 ParamDescriptor
+	runAsync(t, clock, func() {
+		d1 = client.DescribeParam(context.Background(), 0x8001)
+	})
+	runAsync(t, clock, func() {
+		d2 = client.DescribeParam(context.Background(), 0x8002)
+	})
+
+	if len(describedPIDs) != 1 || describedPIDs[0] != 0x8001 {
+		t.Fatalf("described PIDs = %v, want exactly [0x8001] (second manufacturer PID should have been short-circuited)", describedPIDs)
+	}
+	if d1.SelfDescribing || d1.PID != 0x8001 {
+		t.Errorf("d1 = %+v", d1)
+	}
+	if d2.SelfDescribing || d2.PID != 0x8002 {
+		t.Errorf("d2 = %+v", d2)
+	}
+}
+
+// TestResolveDescriptorDoesNotGiveUpOnOtherNackReasons guards against an
+// over-broad reading of the give-up rule: a NACK reason other than
+// UNKNOWN_PID (e.g. DATA_OUT_OF_RANGE, which some responders use to reject a
+// specific out-of-range/unsupported target PID while still implementing
+// PARAMETER_DESCRIPTION as a command) must not flip the per-UID
+// "unsupported" flag — a later manufacturer PID must still get a real probe.
+func TestResolveDescriptorDoesNotGiveUpOnOtherNackReasons(t *testing.T) {
+	uid := rdm.UID{ManufacturerID: 0x22A8, DeviceID: 1}
+
+	var describedPIDs []rdm.ParameterID
+	client, clock := newTestClient(t, uid, func(msg rdm.Message) ([]byte, bool, rdm.NackReason) {
+		if msg.ParameterID == rdm.PIDParameterDescription {
+			describedPIDs = append(describedPIDs, rdm.ParameterID(binaryBigEndianUint16(msg.ParameterData)))
+			return nil, true, rdm.NackDataOutOfRange
+		}
+		return nil, true, rdm.NackUnknownPID
+	})
+
+	runAsync(t, clock, func() {
+		client.DescribeParam(context.Background(), 0x8001)
+	})
+	runAsync(t, clock, func() {
+		client.DescribeParam(context.Background(), 0x8002)
+	})
+
+	if len(describedPIDs) != 2 || describedPIDs[0] != 0x8001 || describedPIDs[1] != 0x8002 {
+		t.Fatalf("described PIDs = %v, want [0x8001 0x8002] (DATA_OUT_OF_RANGE must not suppress later probes)", describedPIDs)
 	}
 }
 
@@ -549,10 +718,13 @@ func TestDeviceStatusMaxDrainBound(t *testing.T) {
 // was pure waste. On a saturated wireless link every one of those costs a
 // real transaction.
 //
-// Introspect's walk had been gated on isIntrospectionTarget since the waste
-// was first identified. This on-demand path — DescribeParam, reached from the
-// generic parameter editor rather than from the walk — had not been, which is
-// why the requests were still on the wire two rounds later.
+// Introspect's walk had been gated on the shared predicate (then named
+// isIntrospectionTarget, now split into isDescribable/isEditorTarget) since
+// the waste was first identified. This on-demand path — DescribeParam,
+// reached from the generic parameter editor rather than from the walk — had
+// not been, which is why the requests were still on the wire two rounds
+// later. (RDM-LOG6 then caught a second, broader leak through this same
+// shared predicate: see TestIntrospectDoesNotProbeUndecodedStandardPIDs.)
 func TestDescribeParamDoesNotProbeStandardPIDs(t *testing.T) {
 	ClearAllDeviceState()
 	uid := rdm.UID{ManufacturerID: 0x22A6, DeviceID: 0x004D05BF}

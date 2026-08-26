@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"benny512/internal/rdm"
+	"benny512/internal/session"
 )
 
 // This file implements report §1.1's generic, self-describing manufacturer
@@ -44,23 +45,33 @@ func paramDescriptorFromPD(pd rdm.ParameterDescription) ParamDescriptor {
 }
 
 // knownDecodedESTAPIDs are ESTA-standard PIDs (< 0x8000) this package or
-// package rdm already has a native decoder for — Introspect does not bother
-// PARAMETER_DESCRIPTION-probing these even though report §2.2 notes a
-// responder is technically allowed to describe them. Anything ESTA-range
-// but NOT in this set is treated as "unknown ESTA PID" and is
-// PARAMETER_DESCRIPTION-probed exactly like a manufacturer PID, per report
-// §1.1 item 5's recommendation.
+// package rdm already has a native, typed decoder/UI field for — Introspect
+// does not give these a row in the generic parameter editor, since a
+// dedicated field already covers them.
+//
+// IMPORTANT: this set has nothing to do with whether PARAMETER_DESCRIPTION
+// may be sent for a PID — see isDescribable for that. E1.20 §10.4.2 defines
+// PARAMETER_DESCRIPTION only for manufacturer-specific PIDs; a prior
+// version of this file's doc comment claimed a responder was "technically
+// allowed" to describe standard PIDs too and used that claim to justify
+// PARAMETER_DESCRIPTION-probing any standard PID not in this set ("unknown
+// ESTA PID"). RDM-LOG6 (a clean hard-line capture, zero timeouts, zero
+// proxy refusals) shows that claim is simply wrong: 25/25 PARAMETER_
+// DESCRIPTION requests for standard PIDs against a real, healthy responder
+// (Elation KL Core IP) came back NACK UNKNOWN_PID. This set now only
+// answers "does this PID already have a dedicated UI field" — see
+// isEditorTarget.
 //
 // PIDProxiedDevices/PIDProxiedDeviceCount (0x0010/0x0011) are deliberately
 // NOT in this set (task ask, item 2: "keep PROXIED_DEVICES/
 // PROXIED_DEVICE_COUNT reachable via the generic parameter editor" — the
 // UI dropped its dedicated proxy-status callout, so the *only* remaining
-// way to inspect either PID is Introspect's normal manufacturer/unknown-PID
-// walk). A device that doesn't implement proxy behavior simply won't list
-// either PID in SUPPORTED_PARAMETERS, so this is a no-op for it; a proxy
-// that does will get it PARAMETER_DESCRIPTION-probed like any other PID,
-// falling back to the raw-hex editor if the device NACKs the description
-// (report §1.1 item 4's universal fallback) — no special-casing needed.
+// way to inspect either PID is Introspect's normal editor-target walk).
+// Both PIDs still get an editor row (isEditorTarget), but — being standard,
+// not manufacturer-specific — resolveDescriptor never actually sends
+// PARAMETER_DESCRIPTION for them; they surface as non-self-describing rows
+// straight away, falling back to the raw-hex editor (report §1.1 item 4's
+// universal fallback) with no wire traffic spent finding that out.
 var knownDecodedESTAPIDs = map[rdm.ParameterID]bool{
 	rdm.PIDDiscUniqueBranch: true, rdm.PIDDiscMute: true, rdm.PIDDiscUnMute: true,
 	rdm.PIDQueuedMessage: true, rdm.PIDStatusMessages: true, rdm.PIDStatusIDDescription: true,
@@ -82,10 +93,32 @@ var knownDecodedESTAPIDs = map[rdm.ParameterID]bool{
 	rdm.PIDMinimumLevel: true, rdm.PIDMaximumLevel: true, rdm.PIDIdentifyMode: true,
 }
 
-// isIntrospectionTarget reports whether pid should be walked via
-// PARAMETER_DESCRIPTION: any manufacturer PID, or any ESTA-range PID this
-// package doesn't already natively decode (report §1.1 item 5).
-func isIntrospectionTarget(pid rdm.ParameterID) bool {
+// isDescribable reports whether PARAMETER_DESCRIPTION may legally be sent
+// for pid at all. E1.20 §10.4.2 defines PARAMETER_DESCRIPTION only for
+// manufacturer-specific PIDs (rdm.ParameterID.IsManufacturerSpecific,
+// 0x8000-0xFFDF) — asking about anything in the standard range is out of
+// spec, and RDM-LOG6 confirms a real, healthy responder NACKs UNKNOWN_PID
+// for every standard PID asked about (25/25, zero exceptions). This is the
+// ONLY predicate that may gate an actual GET PARAMETER_DESCRIPTION on the
+// wire: resolveDescriptor below is the single chokepoint that calls it, and
+// every caller of PARAMETER_DESCRIPTION (Introspect's walk, DescribeParam's
+// on-demand path, and any future one) MUST go through resolveDescriptor
+// rather than issuing the GET directly, so this rule cannot be bypassed by
+// adding a new call site elsewhere.
+func isDescribable(pid rdm.ParameterID) bool {
+	return pid.IsManufacturerSpecific()
+}
+
+// isEditorTarget reports whether pid should get a row in the generic
+// parameter editor: any manufacturer PID, or any standard PID this package
+// doesn't already have a dedicated typed field for (report §1.1 item 5's
+// "surface everything" goal). This is deliberately broader than
+// isDescribable — a standard PID with no dedicated field (e.g.
+// PROXIED_DEVICE_COUNT) still needs a row so the raw-hex editor can
+// GET/SET it, it just never gets PARAMETER_DESCRIPTION-probed to find its
+// shape (resolveDescriptor's isDescribable check turns that into a
+// zero-wire-traffic non-self-describing descriptor instead).
+func isEditorTarget(pid rdm.ParameterID) bool {
 	if pid.IsManufacturerSpecific() {
 		return true
 	}
@@ -140,6 +173,20 @@ type uidState struct {
 	mu          sync.RWMutex
 	descriptors map[rdm.ParameterID]ParamDescriptor
 	sensorDefs  []rdm.SensorDefinition
+	// paramDescUnsupported is set once this UID's responder NACKs
+	// PARAMETER_DESCRIPTION itself with UNKNOWN_PID. E1.20's UNKNOWN_PID
+	// reason on a GET means "I do not implement this PID [0x0051, the
+	// command being sent] at all" — a statement about the device, not about
+	// whichever target PID happened to be in that request's payload. Once
+	// set, resolveDescriptor short-circuits every later manufacturer-PID
+	// probe for this UID without spending another transaction to learn the
+	// same fact again. The per-(manufacturer,pid) descCache above already
+	// avoids re-asking about one specific PID; this catches the case
+	// descCache can't — a device with several *different* manufacturer PIDs
+	// and no PARAMETER_DESCRIPTION support at all, which would otherwise pay
+	// one wasted NACK per distinct PID before the per-PID cache had a chance
+	// to help.
+	paramDescUnsupported bool
 }
 
 var (
@@ -198,11 +245,15 @@ type IntrospectResult struct {
 	Descriptors []ParamDescriptor
 }
 
-// Introspect issues GET SUPPORTED_PARAMETERS, then GET PARAMETER_DESCRIPTION
-// for every manufacturer-range PID (and unknown ESTA PID — see
-// isIntrospectionTarget) it finds, building a []ParamDescriptor. Devices
-// that NACK PARAMETER_DESCRIPTION for a given PID get SelfDescribing:false
-// for that PID rather than failing the whole call — report §1.1 item 4.
+// Introspect issues GET SUPPORTED_PARAMETERS, then builds one ParamDescriptor
+// per editor-target PID it finds (see isEditorTarget: any manufacturer PID,
+// plus any standard PID without a dedicated typed field). Only
+// manufacturer-specific PIDs (isDescribable) actually get a live GET
+// PARAMETER_DESCRIPTION; standard editor-target PIDs resolve to a
+// non-self-describing descriptor without any wire traffic, since E1.20
+// never allows describing them. Devices that NACK PARAMETER_DESCRIPTION for
+// a manufacturer PID get SelfDescribing:false for that PID rather than
+// failing the whole call — report §1.1 item 4.
 //
 // Concurrency: each GET goes through the same c.ctrl (session.RDMController)
 // as every other call on this Client, so requests are naturally serialized
@@ -223,7 +274,19 @@ func (c *Client) Introspect(ctx context.Context, onProgress func(IntrospectProgr
 
 	var targets []rdm.ParameterID
 	for _, pid := range pids {
-		if isIntrospectionTarget(pid) {
+		if pid == 0 {
+			// 0x0000 is not a valid RDM PID at all — real PID numbers start
+			// at 0x0001 (rdm.PIDDiscUniqueBranch). RDM-LOG6 caught the
+			// Elation KL Core IP listing a spurious trailing 0x0000 entry in
+			// its own SUPPORTED_PARAMETERS response (a firmware quirk, not
+			// anything we sent); asking any responder to describe or GET a
+			// null PID is nonsensical regardless of range, so it's dropped
+			// here at the boundary where a device's raw, untrusted PID list
+			// becomes our internal target list — before it can become an
+			// editor row, a PARAMETER_DESCRIPTION probe, or a GET.
+			continue
+		}
+		if isEditorTarget(pid) {
 			targets = append(targets, pid)
 		}
 	}
@@ -257,25 +320,26 @@ func (c *Client) resolveDescriptor(ctx context.Context, pid rdm.ParameterID) Par
 	if d, ok := descCacheGet(c.uid.ManufacturerID, pid); ok {
 		return d
 	}
-	if !isIntrospectionTarget(pid) {
+	if !isDescribable(pid) {
 		// We already know the answer, so don't spend a transaction asking.
 		//
-		// E1.20 §10.4.2 defines PARAMETER_DESCRIPTION only for PIDs a
-		// responder has declared and cannot describe from the standard —
-		// ask about a standard PID and a conforming device NACKs. RDM-LOG4
-		// caught us doing exactly that against real gear: PARAMETER_
-		// DESCRIPTION for 0x0070 (PRODUCT_DETAIL_ID_LIST), 0x0080
-		// (DEVICE_MODEL_DESCRIPTION) and 0x0081 (MANUFACTURER_LABEL), all
-		// three of which are in knownDecodedESTAPIDs, and the one that
-		// reached a healthy responder came back NACK 0x0006
-		// (DATA_OUT_OF_RANGE) — the hardware confirming the round trip was
-		// pure waste.
-		//
-		// Introspect has gated its walk on isIntrospectionTarget since that
-		// waste was first identified; this on-demand path (reached from the
-		// generic parameter editor via DescribeParam, not from the walk)
-		// was missed, which is why the transactions were still on the wire
-		// two rounds later. Same gate, same rule, one place each.
+		// E1.20 §10.4.2 defines PARAMETER_DESCRIPTION only for
+		// manufacturer-specific PIDs — ask about a standard PID and a
+		// conforming device NACKs. RDM-LOG4 caught us doing exactly that
+		// against real gear for three specific standard PIDs; RDM-LOG6 later
+		// caught a broader version of the same bug (see isDescribable's doc
+		// comment): the predicate this branch used to consult
+		// (isIntrospectionTarget, now split into isDescribable/
+		// isEditorTarget) only excluded a hardcoded list of standard PIDs
+		// this package already decodes, so any *other* standard PID a
+		// device happened to list in SUPPORTED_PARAMETERS — 25 of them, for
+		// the KL Core IP in RDM-LOG6 — still fell through to the wire below
+		// and got NACKed UNKNOWN_PID. Both Introspect's walk and this
+		// on-demand path (DescribeParam) already funneled through this one
+		// function; the bug was in what the shared predicate meant, not in
+		// which callers consulted it. isDescribable now means exactly and
+		// only "manufacturer-specific", so there is nothing left to gate
+		// wrong.
 		//
 		// The returned descriptor is byte-for-byte what a NACK already
 		// produced below, so nothing downstream changes shape: the editor
@@ -285,10 +349,32 @@ func (c *Client) resolveDescriptor(ctx context.Context, pid rdm.ParameterID) Par
 		descCacheSet(c.uid.ManufacturerID, pid, d)
 		return d
 	}
+
+	st := stateFor(c.uid)
+	st.mu.RLock()
+	givenUp := st.paramDescUnsupported
+	st.mu.RUnlock()
+	if givenUp {
+		// This UID has already told us, via an UNKNOWN_PID NACK on
+		// PARAMETER_DESCRIPTION itself, that it does not implement the
+		// command at all. That fact doesn't depend on which manufacturer
+		// PID we ask about next, so don't ask again — see uidState.
+		// paramDescUnsupported's doc comment.
+		d := ParamDescriptor{PID: pid, SelfDescribing: false}
+		descCacheSet(c.uid.ManufacturerID, pid, d)
+		return d
+	}
+
 	data, err := c.getRaw(ctx, rdm.PIDParameterDescription, rdm.EncodeParameterDescriptionRequest(pid))
 	var d ParamDescriptor
 	if err != nil {
 		d = ParamDescriptor{PID: pid, SelfDescribing: false}
+		var nackErr *session.NackError
+		if errors.As(err, &nackErr) && nackErr.Reason == rdm.NackUnknownPID {
+			st.mu.Lock()
+			st.paramDescUnsupported = true
+			st.mu.Unlock()
+		}
 	} else if pd, decErr := rdm.DecodeParameterDescription(data); decErr == nil {
 		d = paramDescriptorFromPD(pd)
 	} else {
