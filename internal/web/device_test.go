@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
+	"runtime"
 	"testing"
 	"time"
 
@@ -56,24 +58,104 @@ func (h *testHarness) wireDeviceResponder(uid rdm.UID, handler func(msg rdm.Mess
 
 // runHTTPAsync drives an HTTP request against handler on its own goroutine
 // (since it blocks on RDM round-trips) while advancing h.clock until the
-// response is ready or the deadline expires.
+// response is ready.
+//
+// This intentionally does NOT race a real wall-clock deadline against the
+// fake clock. An earlier version looped on `time.Now().Before(deadline)`
+// with a 1ms real sleep between fake-clock advances: under CPU contention
+// (parallel test processes, -race overhead, a loaded CI box) the real
+// deadline could expire before the handler goroutine had been scheduled
+// enough times to make progress, even though the fake-clock-driven state
+// machine itself hadn't stalled and would have resolved fine given more
+// wall-clock slack. That produced flaky failures with no logic bug behind
+// them — sometimes a timeout, sometimes a downstream assertion tripped by
+// an incompletely-processed response. Bounding on a fixed number of fake
+// advances instead (with a cooperative yield, not a real sleep, in between)
+// makes completion depend only on logical progress, never on how much real
+// CPU time the scheduler happened to hand this goroutine.
 func (h *testHarness) runHTTPAsync(t *testing.T, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	done := make(chan *httptest.ResponseRecorder, 1)
 	go func() {
 		done <- doJSON(t, h.srv.Handler(), method, path, body)
 	}()
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
+
+	// 20,000 advances of 2ms of fake time each is 40 fake seconds of
+	// protocol time to resolve in — orders of magnitude more than any
+	// real RDM round-trip/backoff in this codebase needs — while imposing
+	// no real-time budget at all, so it can't be raced by CPU contention.
+	const maxAdvances = 20000
+	for i := 0; i < maxAdvances; i++ {
+		select {
+		case r := <-done:
+			h.waitForRegistrySync(t)
+			return r
+		default:
+		}
 		h.clock.Advance(2 * time.Millisecond)
 		select {
 		case r := <-done:
+			h.waitForRegistrySync(t)
 			return r
-		case <-time.After(time.Millisecond):
+		default:
+		}
+		runtime.Gosched()
+	}
+	t.Fatal("timed out waiting for HTTP handler to resolve (no progress after many fake-clock advances — a real hang, not scheduling jitter)")
+	return nil
+}
+
+// waitForRegistrySync closes a second, independent race behind the same
+// symptom: RDMController.Command.done fires the instant a command
+// completes, but that completion only reaches the fixture table when
+// Registry.Run() — a separate goroutine started by newHarness — later
+// drains the corresponding EventCommandComplete off RDMController.Events()
+// and applies it via handleRDMEvent (see completeLocked: it sends on
+// cmd.done, *then* emits the event — so the HTTP response the caller just
+// received can legitimately arrive before Registry has seen the same
+// completion at all). A caller that immediately inspects Registry state
+// right after runHTTPAsync returns (as
+// TestDevicesBackfillPopulatesManufacturerAndModel does via /api/fixtures)
+// would otherwise race that goroutine under contention — reproduced by
+// running this file's flaky test under artificial CPU load until it failed,
+// not merely inferred.
+//
+// The fix borrows devicesclear_test.go's seedToD technique (see its doc
+// comment) and generalizes it into a barrier: submit a harmless broadcast
+// RDM command (broadcasts complete synchronously in issueLocked, no
+// simulated device required) and block until *that* command's own
+// EventCommandComplete is republished on Registry.RDMEvents(). Registry.Run
+// drains RDMController.Events() strictly in arrival order, one event at a
+// time, handling each fully (handleRDMEvent) before republishing it and
+// moving to the next — so by construction every event queued ahead of the
+// sentinel (in particular, whatever the just-completed HTTP call produced)
+// has already been applied by the time the sentinel's own event comes back
+// out. That is a deterministic proof, not a poll-and-hope: it holds
+// regardless of how many RDM round trips the request triggered, including
+// zero (a request rejected before ever reaching Submit).
+func (h *testHarness) waitForRegistrySync(t *testing.T) {
+	t.Helper()
+	sentinelUID := rdm.Broadcast(0x7FFE) // ESTA prototyping range; no test fixture ever uses it
+	sentinelNode := session.NodeRef{
+		Key:  session.NodeKey{IP: netip.MustParseAddr("0.0.0.1"), BindIndex: 0xFF},
+		Addr: netip.MustParseAddrPort("0.0.0.1:6454"),
+		Port: mustPort(t),
+	}
+	h.rdmc.Get(sentinelNode, sentinelUID, 0x0000, nil)
+
+	const maxAdvances = 20000
+	for i := 0; i < maxAdvances; i++ {
+		select {
+		case ev := <-h.srv.Registry.RDMEvents():
+			if ev.Kind == session.EventCommandComplete && ev.UID == sentinelUID {
+				return
+			}
+		default:
+			h.clock.Advance(2 * time.Millisecond)
+			runtime.Gosched()
 		}
 	}
-	t.Fatal("timed out waiting for HTTP handler to resolve")
-	return nil
+	t.Fatal("timed out waiting for Registry to catch up with RDM completion events")
 }
 
 func TestDeviceParamsFlow(t *testing.T) {

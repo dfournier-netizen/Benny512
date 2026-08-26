@@ -255,7 +255,7 @@ func TestIdentifyUnknownFixture404(t *testing.T) {
 
 func TestDMXStartStopAndSend(t *testing.T) {
 	h := newHarness(t)
-	rr := doJSON(t, h.srv.Handler(), "POST", "/api/dmx", dmxRequest{Universe: 0, Channels: map[string]byte{"1": 255, "2": 128}})
+	rr := doJSON(t, h.srv.Handler(), "POST", "/api/dmx", dmxRequest{Universe: 0, Channels: dmxFrame(map[int]byte{1: 255, 2: 128})})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("dmx send status=%d body=%s", rr.Code, rr.Body.String())
 	}
@@ -273,6 +273,50 @@ func TestDMXStartStopAndSend(t *testing.T) {
 	if rr := doJSON(t, h.srv.Handler(), "POST", "/api/dmx/stop", nil); rr.Code != http.StatusOK {
 		t.Fatalf("dmx stop status=%d", rr.Code)
 	}
+}
+
+// TestDMXSendZeroActuallyZeroes is the direct regression test for the "send
+// channels even at 0" bug: a channel that was previously lit and is now
+// sent as 0 in a full-frame payload must actually land at 0, not be left at
+// its old value because it was "unmentioned" the way the old map-shaped
+// payload allowed.
+func TestDMXSendZeroActuallyZeroes(t *testing.T) {
+	h := newHarness(t)
+	doJSON(t, h.srv.Handler(), "POST", "/api/dmx", dmxRequest{Universe: 0, Channels: dmxFrame(map[int]byte{1: 200})})
+	frame, ok := h.srv.DMX.Frame(mustPortAddr(t, 0))
+	if !ok || frame[0] != 200 {
+		t.Fatalf("seed: frame[0] = %v ok=%v, want 200/true", frame, ok)
+	}
+
+	// Drag channel 1 back down to 0: the client now sends the whole 512-slot
+	// frame, channel 1 included as 0, exactly as a real fader-down would.
+	rr := doJSON(t, h.srv.Handler(), "POST", "/api/dmx", dmxRequest{Universe: 0, Channels: dmxFrame(nil)})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("dmx send status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	frame, ok = h.srv.DMX.Frame(mustPortAddr(t, 0))
+	if !ok || frame[0] != 0 {
+		t.Fatalf("frame[0] = %v ok=%v, want 0/true (fader dragged to 0 must not stay lit)", frame, ok)
+	}
+}
+
+func TestDMXRejectsShortFrame(t *testing.T) {
+	h := newHarness(t)
+	rr := doJSON(t, h.srv.Handler(), "POST", "/api/dmx", dmxRequest{Universe: 0, Channels: []byte{1, 2, 3}})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s, want 400 for a non-512-byte frame", rr.Code, rr.Body.String())
+	}
+}
+
+// dmxFrame builds a full 512-byte DMX frame (all other slots 0) with the
+// given 1-based channel overrides, mirroring the always-send-everything
+// shape send.js now builds on every commit.
+func dmxFrame(overrides map[int]byte) []byte {
+	frame := make([]byte, session.DMXUniverseSize)
+	for ch, v := range overrides {
+		frame[ch-1] = v
+	}
+	return frame
 }
 
 func mustPortAddr(t *testing.T, raw uint16) artnet.PortAddress {

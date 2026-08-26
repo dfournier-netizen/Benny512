@@ -7,6 +7,15 @@ const Api = (() => {
     return out;
   }
 
+  // bytesToBase64: plain byte array/typed array -> base64 string, matching
+  // what Go's encoding/json produces/expects for a []byte field. No atob/
+  // btoa polyfill needed — both are standard browser globals.
+  function bytesToBase64(bytes) {
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
+  }
+
   async function req(method, path, body) {
     const opts = { method, headers: {} };
     if (body !== undefined) {
@@ -122,7 +131,13 @@ const Api = (() => {
     getParam: (uid, pid, query) => req('GET', `/api/fixture/${encodeURIComponent(uid)}/param/${pid}` + (query ? '?' + new URLSearchParams(query).toString() : '')),
     setParam: (uid, pid, value) => req('POST', `/api/fixture/${encodeURIComponent(uid)}/param/${pid}`, { value }),
     identify: (uid, on) => req('POST', '/api/identify', { uid, on }),
-    sendDmx: (universe, channels) => req('POST', '/api/dmx', { universe, channels }),
+    // sendDmx takes a 512-length array/typed-array of raw channel bytes
+    // (index 0 = channel 1) and always transmits the whole frame, zeros
+    // included — see server.go's dmxRequest doc comment for why the wire
+    // format is a base64 []byte rather than the old per-channel-key object.
+    // btoa/String.fromCharCode is a browser built-in, not a dependency —
+    // consistent with the "vanilla JS, stdlib only" rule.
+    sendDmx: (universe, channelBytes) => req('POST', '/api/dmx', { universe, channels: bytesToBase64(channelBytes) }),
     dmxStart: () => req('POST', '/api/dmx/start'),
     dmxStop: () => req('POST', '/api/dmx/stop'),
     getSettings: () => req('GET', '/api/settings'),

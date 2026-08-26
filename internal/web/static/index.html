@@ -240,7 +240,7 @@
       </div>
       <div class="b5-alert b5-alert--caution" style="margin-bottom:var(--b5-space-4)">
         <svg><use href="/icons/benny512-icons.svg#b5-icon-status-warning"/></svg>
-        <div><p class="b5-alert__title">Manual send overrides live console output</p><p class="b5-alert__body">Circuit values 0&ndash;255. Changes apply on blur/change, not while dragging. Confirm no board is patched to this universe before sending.</p></div>
+        <div><p class="b5-alert__title">Manual send overrides live console output</p><p class="b5-alert__body">Circuit values 0&ndash;255. Every channel transmits live while you drag, zeros included &mdash; a channel pulled down to 0 goes dark immediately, it does not hold its last value. Park a channel to freeze it and protect it from a stray drag; a parked channel still transmits at its frozen value, park does not hand it back to a console. Confirm no board is patched to this universe before sending.</p></div>
       </div>
       <div class="b5-panel">
         <div class="b5-panel__body">

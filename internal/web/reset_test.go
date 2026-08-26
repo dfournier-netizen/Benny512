@@ -207,7 +207,7 @@ func TestReset_BlacksOutAndStopsDirectDMXOutsideAnyRigCheck(t *testing.T) {
 	// universes it started itself.
 	h := newHarness(t)
 	pa := mustPortAddr(t, 0)
-	doJSON(t, h.srv.Handler(), "POST", "/api/dmx", dmxRequest{Universe: pa.RawValue(), Channels: map[string]byte{"1": 255}})
+	doJSON(t, h.srv.Handler(), "POST", "/api/dmx", dmxRequest{Universe: pa.RawValue(), Channels: dmxFrame(map[int]byte{1: 255})})
 	frame, ok := h.srv.DMX.Frame(pa)
 	if !ok || frame[0] != 255 {
 		t.Fatalf("seed: frame[0] = %v ok=%v, want 255/true", frame, ok)

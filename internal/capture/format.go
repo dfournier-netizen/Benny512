@@ -29,6 +29,12 @@ func FormatEntryText(e Entry) string {
 		writeRDMDetailText(&b, e.RDM)
 	case e.Tod != nil:
 		writeTodDetailText(&b, e.Tod)
+	case e.PollReply != nil:
+		writePollReplyDetailText(&b, e.PollReply)
+	case e.Poll != nil:
+		writePollDetailText(&b, e.Poll)
+	case e.NodeConfig != nil:
+		writeNodeConfigDetailText(&b, e.NodeConfig)
 	case e.DecodeErr != "":
 		fmt.Fprintf(&b, "  DECODE ERROR: %s\n", e.DecodeErr)
 	case e.Key != "":
@@ -98,6 +104,72 @@ func writeTodDetailText(b *strings.Builder, d *TodDetail) {
 			fmt.Fprintln(b, "  uids: (none in this block)")
 		}
 	}
+}
+
+// writePollDetailText renders one ArtPoll entry's decoded detail.
+func writePollDetailText(b *strings.Builder, d *PollDetail) {
+	fmt.Fprintf(b, "  flags=0x%02X (sendPollReplyOnChange=%s)  diagPriority=%d\n",
+		d.FlagsRaw, boolLabel(d.SendPollReplyOnChange), d.DiagPriority)
+}
+
+// writePollReplyDetailText renders one ArtPollReply entry's decoded
+// detail — report task 1's primary evidence for the "every port shows n/a"
+// bug: raw byte alongside decoded interpretation for every per-port field,
+// never the interpretation alone.
+func writePollReplyDetailText(b *strings.Builder, d *PollReplyDetail) {
+	fmt.Fprintf(b, "  node=%q (%q)  ip=%s  numPorts=%d\n", d.ShortName, d.LongName, d.IPAddress, d.NumPorts)
+	fmt.Fprintf(b, "  netSwitch=0x%02X  subSwitch=0x%02X  status1=0x%02X",
+		d.NetSwitchRaw, d.SubSwitchRaw, d.Status1Raw)
+	if d.NodeReport != "" {
+		fmt.Fprintf(b, "  nodeReport=%q", d.NodeReport)
+	}
+	fmt.Fprintln(b)
+	for _, p := range d.Ports {
+		fmt.Fprintf(b, "  port[%d]: portTypes=0x%02X (input=%s output=%s)  goodInput=0x%02X  goodOutputA=0x%02X  goodOutputB=0x%02X  swIn=0x%02X  swOut=0x%02X\n",
+			p.Index, p.PortTypesRaw, boolLabel(p.InputSupported), boolLabel(p.OutputSupported),
+			p.GoodInputRaw, p.GoodOutputARaw, p.GoodOutputBRaw, p.SwInRaw, p.SwOutRaw)
+	}
+}
+
+// writeNodeConfigDetailText renders one ArtAddress/ArtInput/ArtIpProg/
+// ArtIpProgReply entry's decoded detail, per SubKind — report task 1's
+// complete-record family for "ArtAddress/ArtIpProg does nothing".
+func writeNodeConfigDetailText(b *strings.Builder, d *NodeConfigDetail) {
+	switch d.SubKind {
+	case "Address":
+		fmt.Fprintf(b, "  ArtAddress  command=0x%02X (%s)  bindIndex=%d\n", d.CommandRaw, d.CommandName, d.BindIndex)
+		fmt.Fprintf(b, "  shortName=%q  longName=%q\n", d.ShortName, d.LongName)
+		fmt.Fprintf(b, "  netSwitch=0x%02X  subSwitch=0x%02X  swIn=%s  swOut=%s\n",
+			d.NetSwitchRaw, d.SubSwitchRaw, hexBytesLabel(d.SwInRaw[:]), hexBytesLabel(d.SwOutRaw[:]))
+	case "Input":
+		fmt.Fprintf(b, "  ArtInput  bindIndex=%d\n", d.BindIndex)
+		fmt.Fprintf(b, "  input=%s  disabled=%v\n", hexBytesLabel(d.InputRaw[:]), d.InputDisabled)
+	case "IpProg":
+		fmt.Fprintf(b, "  ArtIpProg  command=0x%02X (enable=%s enableDHCP=%s setDefault=%s programSubnetMask=%s programIP=%s)\n",
+			d.IpProgCommandRaw, boolLabel(d.Enable), boolLabel(d.EnableDHCP), boolLabel(d.SetDefault),
+			boolLabel(d.ProgramSubnetMask), boolLabel(d.ProgramIP))
+		fmt.Fprintf(b, "  progIP=%s  progSubnetMask=%s  progPort=%d\n", d.ProgIP, d.ProgSubnetMask, d.ProgPort)
+	case "IpProgReply":
+		fmt.Fprintf(b, "  ArtIpProgReply  status=0x%02X (dhcpEnabled=%s)\n", d.StatusRaw, boolLabel(d.DHCPEnabled))
+		fmt.Fprintf(b, "  currentIP=%s  currentSubnet=%s  currentPort=%d\n", d.CurrentIP, d.CurrentSubnet, d.ProgPort)
+	default:
+		fmt.Fprintf(b, "  unrecognized NodeConfig SubKind %q\n", d.SubKind)
+	}
+}
+
+func boolLabel(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
+}
+
+func hexBytesLabel(bs []byte) string {
+	out := make([]string, len(bs))
+	for i, v := range bs {
+		out[i] = fmt.Sprintf("0x%02X", v)
+	}
+	return "[" + strings.Join(out, " ") + "]"
 }
 
 func validLabel(ok bool) string {

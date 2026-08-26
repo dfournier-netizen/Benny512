@@ -368,6 +368,17 @@ type nodePortJSON struct {
 	InputAddress  uint16 `json:"inputAddress"`
 	OutputAddress uint16 `json:"outputAddress"`
 	RDMEnabled    bool   `json:"rdmEnabled"`
+	// PortTypeRaw is the undecoded ArtPollReply PortTypes[i] byte (bit 7 =
+	// output, bit 6 = input; internal/session/artnetsession.go owns that
+	// decode, not this package). Input and Output above are already false
+	// when a node's PortTypes byte sets neither bit — a real-world case
+	// (reported live on an Obsidian EN4: every port shows "n/a") that
+	// otherwise dead-ends the UI with no way to tell "this port genuinely
+	// advertises nothing" from "we decoded a real report wrong". Carrying
+	// the raw byte lets the Nodes screen show it next to "n/a" so the value
+	// is diagnosable at a bench instead of a dead end, without this package
+	// guessing at or changing the decode itself.
+	PortTypeRaw byte `json:"portTypeRaw"`
 }
 
 type nodeJSON struct {
@@ -394,7 +405,7 @@ func toNodeJSON(n registry.NodeView) nodeJSON {
 		out.Ports = append(out.Ports, nodePortJSON{
 			Index: p.Index, Input: p.Input, Output: p.Output,
 			InputAddress: p.InputAddress.RawValue(), OutputAddress: p.OutputAddress.RawValue(),
-			RDMEnabled: p.RDMEnabled,
+			RDMEnabled: p.RDMEnabled, PortTypeRaw: p.Type,
 		})
 	}
 	return out
@@ -833,9 +844,31 @@ func (s *Server) handleIdentify(w http.ResponseWriter, r *http.Request) {
 
 // --- DMX send ------------------------------------------------------------
 
+// dmxRequest carries one full-frame snapshot: Channels must be exactly
+// session.DMXUniverseSize (512) bytes, index 0 = channel 1, zeros included.
+//
+// Wire-format decision (bug: "send channels even at 0"): the old shape was
+// map[string]byte keyed by channel number, and the Send screen only put
+// non-zero channels in it — so a fader dragged from 200 back down to 0 was
+// simply absent from the payload, and this handler only ever called
+// SetChannels for channels that were present, leaving the rig stuck at 200.
+// The fix requires the client to always transmit the whole 512-slot state,
+// which makes a positional array the natural shape (there's no longer any
+// "which channels are present" question, so per-channel string keys are
+// pure overhead — every key duplicates information the array's index
+// already carries). []byte gets us that positional array AND a compact
+// wire encoding for free: encoding/json base64-encodes a []byte field on
+// both the marshal and unmarshal side, so 512 slots cost ~683 base64 chars
+// instead of a ~4KB+ JSON object of "123":45 pairs — worth having given
+// this now fires at ~30Hz while scrubbing (see send.js's throttle), even
+// though the absolute bytes-per-second is trivial on localhost either way.
+// This is a breaking wire-format change, not a backward-compatible one:
+// /api/dmx has exactly one caller (send.js, owned in this same change) plus
+// this package's own tests (updated alongside), so there is no external
+// caller to preserve compatibility for.
 type dmxRequest struct {
-	Universe uint16          `json:"universe"`
-	Channels map[string]byte `json:"channels"`
+	Universe uint16 `json:"universe"`
+	Channels []byte `json:"channels"`
 }
 
 func (s *Server) handleDMX(w http.ResponseWriter, r *http.Request) {
@@ -849,13 +882,18 @@ func (s *Server) handleDMX(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	if len(req.Channels) != session.DMXUniverseSize {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("channels: want %d bytes (a full-frame snapshot), got %d", session.DMXUniverseSize, len(req.Channels)))
+		return
+	}
 	s.DMX.StartUniverse(pa, netip.AddrPort{}, 512)
-	for chStr, val := range req.Channels {
-		var ch int
-		if _, scanErr := fmt.Sscanf(chStr, "%d", &ch); scanErr != nil || ch < 1 || ch > 512 {
-			continue
-		}
-		_ = s.DMX.SetChannels(pa, ch, []byte{val})
+	// SetFrame, not SetChannels: this is always a complete 512-slot frame
+	// now, so a single whole-buffer replace is both simpler and correct by
+	// construction — no per-channel loop that could (as the old map-based
+	// code did) simply never visit a channel the client didn't mention.
+	if err := s.DMX.SetFrame(pa, req.Channels); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

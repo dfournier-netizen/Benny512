@@ -122,6 +122,22 @@ type Entry struct {
 	// Tod carries decoded detail for ArtTodRequest/ArtTodData/ArtTodControl
 	// entries, nil otherwise. See rdmdetail.go.
 	Tod *TodDetail `json:"Tod,omitempty"`
+
+	// Poll carries decoded detail for an ArtPoll entry, nil otherwise. See
+	// nodeconfigdetail.go.
+	Poll *PollDetail `json:"Poll,omitempty"`
+	// PollReply carries decoded detail for an ArtPollReply entry — the
+	// primary evidence for the "every port shows n/a" bug class (report
+	// task 1) — nil otherwise. See nodeconfigdetail.go.
+	PollReply *PollReplyDetail `json:"PollReply,omitempty"`
+	// NodeConfig carries decoded detail for the three remote
+	// node-configuration packet kinds (ArtAddress, ArtInput, ArtIpProg) and
+	// the one reply that answers ArtIpProg (ArtIpProgReply) — grouped under
+	// one tagged struct exactly the way Tod groups ArtTodRequest/Data/
+	// Control, since these four are the "rare, user-initiated, want a
+	// complete record" family the --lognodes flag exists for. Nil for every
+	// other Kind. See nodeconfigdetail.go.
+	NodeConfig *NodeConfigDetail `json:"NodeConfig,omitempty"`
 }
 
 // IsRDMKind reports whether kind is one of the RDM-family Art-Net opcodes
@@ -296,6 +312,156 @@ func suppressionEntry(e Entry, cap int) Entry {
 	}
 }
 
+// IsNodeConfigKind reports whether kind is one of the four rare,
+// user-initiated Art-Net remote node-configuration opcodes (ArtAddress,
+// ArtInput, ArtIpProg, ArtIpProgReply) — the "owner presses a config button
+// at the bench" family --lognodes exists to give a complete record of.
+//
+// Unlike IsPeriodicNodeKind's two opcodes, these four are not background
+// chatter: a real bench session sees at most a handful of them, driven by an
+// explicit user action (setting a universe, renaming a node, programming an
+// IP address) or its node's reply to one. There is therefore no cap here —
+// every sighting is logged in full when --lognodes is set; see
+// cmd/benny512's tap wiring. Deliberately excludes ArtPoll/ArtPollReply
+// (IsPeriodicNodeKind's job) even though all six opcodes are part of the
+// same report-task item: a poll cycle runs continuously for the life of the
+// session and would swamp the log if given this function's "always log"
+// treatment.
+func IsNodeConfigKind(kind string) bool {
+	switch kind {
+	case "ArtAddress", "ArtInput", "ArtIpProg", "ArtIpProgReply":
+		return true
+	default:
+		return false
+	}
+}
+
+// IsPeriodicNodeKind reports whether kind is one of the two Art-Net
+// node-discovery opcodes (ArtPoll, ArtPollReply) that run continuously in
+// the background for the life of a session, rather than being triggered by
+// a one-off user action the way IsNodeConfigKind's four opcodes are.
+//
+// A poll cycle typically repeats every few seconds for as long as the
+// program runs; logging every instance unconditionally would swamp a bench
+// log and bury the RDM exchanges the file exists for (the same reasoning
+// DefaultRDMCapacity's doc comment gives for keeping the RDM-only ring safe
+// from high-rate ArtDmx). These two therefore go through
+// PeriodicNodeThrottle's bounded per-(peer,kind) cap instead of
+// IsNodeConfigKind's unconditional "always log".
+func IsPeriodicNodeKind(kind string) bool {
+	switch kind {
+	case "ArtPoll", "ArtPollReply":
+		return true
+	default:
+		return false
+	}
+}
+
+// DefaultPeriodicNodeCap is how many ArtPoll/ArtPollReply entries per
+// distinct (peer, kind) pair PeriodicNodeThrottle logs before suppressing.
+// A real ArtPollReply's per-port fields (PortTypes/GoodInput/GoodOutputA/
+// GoodOutputB/SwIn/SwOut — the report task's primary evidence for the
+// "every port shows n/a" bug) don't change between one poll cycle and the
+// next unless the owner reconfigures the node, so one or two sightings per
+// node already gives a bench session everything it needs; a handful more
+// gives headroom against catching a reply mid-reconfiguration.
+const DefaultPeriodicNodeCap = 3
+
+// PeriodicNodeThrottle bounds how many ArtPoll/ArtPollReply entries
+// (IsPeriodicNodeKind) get routed into the RDM diagnostic stream, per
+// distinct (peer, kind) pair. Same cap-then-suppress-once shape as
+// UnknownOpcodeThrottle — see that type's doc comment for the general
+// pattern — but keyed by (peer, Kind string) rather than (peer, opcode
+// uint16): these two Kinds are already known-and-decoded (unlike
+// UnknownOpcodeThrottle's unrecognized-envelope case), so there is no raw
+// opcode number to key on, and the Kind string is exactly the dimension
+// that matters (an ArtPoll broadcast and its node's ArtPollReply are two
+// independent budgets, each capped against that specific chatter repeating
+// for the life of the session).
+//
+// Both directions are eligible (unlike UnknownOpcodeThrottle, which
+// deliberately excludes outbound): ArtPoll is normally this program's own
+// outbound broadcast and ArtPollReply a node's inbound answer, and both
+// sides of that exchange are exactly what a bench session needs capped
+// samples of.
+//
+// Safe for concurrent use via an internal mutex, matching
+// UnknownOpcodeThrottle's own concurrency note.
+type PeriodicNodeThrottle struct {
+	cap int
+
+	mu     sync.Mutex
+	counts map[periodicNodeKey]int
+}
+
+type periodicNodeKey struct {
+	peer netip.AddrPort
+	kind string
+}
+
+// NewPeriodicNodeThrottle builds a throttle allowing up to cap logged
+// entries per (peer, kind) pair before suppressing (DefaultPeriodicNodeCap
+// if cap <= 0).
+func NewPeriodicNodeThrottle(cap int) *PeriodicNodeThrottle {
+	if cap <= 0 {
+		cap = DefaultPeriodicNodeCap
+	}
+	return &PeriodicNodeThrottle{cap: cap, counts: make(map[periodicNodeKey]int)}
+}
+
+// Consider evaluates e for the bounded periodic-node-chatter case. Only
+// entries with IsPeriodicNodeKind(e.Kind) are eligible — anything else
+// returns (Entry{}, false) immediately without touching any state. For an
+// eligible entry, ok is true and logEntry is what the caller should route
+// into the RDM ring/disk log for exactly two cases: every sighting of this
+// (peer, kind) pair up to and including the cap (logEntry == e), and the one
+// sighting that crosses the cap (logEntry is a synthesized suppression
+// entry, not e). Every sighting after that returns (Entry{}, false): still
+// counted (see Count), never logged again.
+func (u *PeriodicNodeThrottle) Consider(e Entry) (logEntry Entry, ok bool) {
+	if !IsPeriodicNodeKind(e.Kind) {
+		return Entry{}, false
+	}
+	key := periodicNodeKey{peer: e.Peer, kind: e.Kind}
+
+	u.mu.Lock()
+	u.counts[key]++
+	n := u.counts[key]
+	u.mu.Unlock()
+
+	switch {
+	case n <= u.cap:
+		return e, true
+	case n == u.cap+1:
+		return periodicSuppressionEntry(e, u.cap), true
+	default:
+		return Entry{}, false
+	}
+}
+
+// Count returns how many times (peer, kind) has been seen by Consider,
+// including sightings suppressed past the cap.
+func (u *PeriodicNodeThrottle) Count(peer netip.AddrPort, kind string) int {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.counts[periodicNodeKey{peer: peer, kind: kind}]
+}
+
+// periodicSuppressionEntry builds the one-shot log entry emitted the instant
+// a (peer, kind) pair crosses the cap — the periodic-chatter counterpart of
+// suppressionEntry (which keys on opcode number rather than a Kind string
+// already known and decoded).
+func periodicSuppressionEntry(e Entry, cap int) Entry {
+	return Entry{
+		Dir:  e.Dir,
+		Peer: e.Peer,
+		Kind: "CaptureSuppressed",
+		Size: e.Size,
+		Key: "suppressing further " + e.Kind + " from " + e.Peer.String() +
+			" after " + itoa(cap) + " logged this session; further instances are being counted but not logged",
+	}
+}
+
 // Filter narrows what Subscribe/Snapshot returns. Zero-value fields mean
 // "no filter on this dimension".
 type Filter struct {
@@ -450,6 +616,7 @@ func DecodeEntry(dir Direction, peer netip.AddrPort, raw []byte) Entry {
 		e.Kind = kindName(pkt.Kind)
 		e.Universe, e.Key = summarize(pkt)
 		attachRDMDetail(&e, pkt)
+		attachNodeConfigDetail(&e, pkt)
 		if pkt.Kind == artnet.KindUnknown {
 			e.UnknownOpCode = pkt.UnknownOpCode
 		}
@@ -585,6 +752,14 @@ func kindName(k artnet.PacketKind) string {
 		return "ArtRdmSub"
 	case artnet.KindTimeCode:
 		return "ArtTimeCode"
+	case artnet.KindAddress:
+		return "ArtAddress"
+	case artnet.KindInput:
+		return "ArtInput"
+	case artnet.KindIpProg:
+		return "ArtIpProg"
+	case artnet.KindIpProgReply:
+		return "ArtIpProgReply"
 	default:
 		return KindUnrecognized
 	}
@@ -608,6 +783,14 @@ func summarize(pkt artnet.Packet) (uint16, string) {
 		return 0, "tod uids=" + itoa(len(pkt.TodData.Tod)) + " total=" + itoa(int(pkt.TodData.UidTotal))
 	case artnet.KindPollReply:
 		return 0, "node=" + pkt.PollReply.ShortName
+	case artnet.KindAddress:
+		return 0, "cmd=0x" + hexByte(byte(pkt.Address.Command)) + " short=" + pkt.Address.ShortName
+	case artnet.KindInput:
+		return 0, "bindIndex=" + itoa(int(pkt.Input.BindIndex))
+	case artnet.KindIpProg:
+		return 0, "cmd=0x" + hexByte(byte(pkt.IpProg.Command))
+	case artnet.KindIpProgReply:
+		return 0, "ip=" + formatIPv4(pkt.IpProgReply.CurrentIP)
 	case artnet.KindUnknown:
 		return 0, "opcode=0x" + hexU16(pkt.UnknownOpCode)
 	default:

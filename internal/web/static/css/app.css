@@ -273,6 +273,51 @@ svg {
 .b5-panel--danger-zone { border-color: var(--b5-color-danger-700); }
 .b5-panel--danger-zone .b5-panel__header { border-bottom-color: var(--b5-color-danger-700); }
 
+/* ---- Nodes: "not confirmed" caption beside the input-enable checkbox -----
+   .b5-checkbox (components.css) is inline-flex around just the box+label
+   text it owns; the config table's per-port input-enable cell adds a
+   second, separate <span> after it (a hinted-default disclaimer — task
+   ask: don't let an unconfirmed default read as confirmed state) that
+   needs a little breathing room from the checkbox rather than touching it. */
+td[data-label="Input enabled"] .b5-checkbox { margin-right: var(--b5-space-2); }
+
+/* ---- Send grid: per-channel park toggle + frozen state --------------------
+   Task ask ("send channels even at 0" bench fix): once every send always
+   transmits all 512 slots, a stray drag on the wrong cell is one accidental
+   mouse move away from lighting a hazer or moving a dowser — park exists as
+   a client-side guard against exactly that, not a channel-ownership
+   mechanism (the parked value is still transmitted every send). Nothing in
+   the base kit models a per-cell freeze toggle or its frozen visual state,
+   so both are added here rather than in components.css.
+   .b5-dmx-cell__park keeps the checkbox+label compact enough to fit the
+   existing 64px-min grid cell (kit's .b5-checkbox is sized for a full-width
+   field row, not a cell this narrow). .is-parked recolors the cell AND
+   swaps the label text (Park -> Parked, done in JS) — never color alone,
+   per the standing accessibility rule — using the warning ramp so a parked
+   cell reads as "handle with care", distinct from .is-active's accent tint
+   for "non-zero". */
+.b5-dmx-cell__park {
+  display: flex;
+  align-items: center;
+  gap: var(--b5-space-1);
+  font-size: var(--b5-font-size-xs);
+  color: var(--b5-color-text-muted);
+  cursor: pointer;
+}
+.b5-dmx-cell__park input { width: auto; min-height: 0; }
+.b5-dmx-cell.is-parked {
+  border-color: var(--b5-color-warning-700);
+  background: rgba(184, 121, 15, 0.12);
+}
+.b5-dmx-cell.is-parked .b5-dmx-cell__park-label {
+  color: var(--b5-color-text-warning);
+  font-weight: var(--b5-font-weight-medium);
+}
+.b5-dmx-cell.is-parked input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* ---- Reset terminal dialog: title icon sizing -----------------------------
    .b5-dialog__title (components.css) is plain text in every existing kit
    usage — nothing paired it with an icon before, so it never got an

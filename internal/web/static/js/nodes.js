@@ -120,11 +120,22 @@ const NodesScreen = (() => {
   // A port's *advertised capability* (PortTypes bits) can still list both,
   // so when that happens both universes are shown, clearly labeled, rather
   // than picking one and hiding the other.
+  // portTypeHex formats the raw, undecoded ArtPollReply PortTypes byte
+  // (server.go's nodePortJSON.portTypeRaw) so a port that reports neither
+  // the input nor output bit is diagnosable at a glance instead of a dead
+  // end (bench report: every port on an Obsidian EN4 showed "n/a" for
+  // input/output). This is display-only — the input/output decode itself
+  // lives in internal/session/artnetsession.go, not here.
+  function portTypeHex(p) {
+    const v = p.portTypeRaw || 0;
+    return '0x' + v.toString(16).padStart(2, '0').toUpperCase();
+  }
+
   function portDirectionLabel(p) {
     if (p.input && p.output) return 'Input + Output';
     if (p.output) return 'Output';
     if (p.input) return 'Input';
-    return '—';
+    return `n/a (PortTypes ${portTypeHex(p)})`;
   }
 
   function portUniverseLabel(p) {
@@ -172,6 +183,7 @@ const NodesScreen = (() => {
         universeIn: p.inputAddress & 0x0F,
         universeOut: p.outputAddress & 0x0F,
         input: p.input, output: p.output,
+        portTypeRaw: p.portTypeRaw,
         // direction selects which of universeIn/universeOut is currently
         // being displayed/edited (report task: "In node config, editing the
         // universe edits the value for the port's current direction;
@@ -252,7 +264,11 @@ const NodesScreen = (() => {
                    <option value="output" ${p.direction === 'output' ? 'selected' : ''}>Output</option>
                    <option value="input" ${p.direction === 'input' ? 'selected' : ''}>Input</option>
                  </select>`
-              : UI.tag(p.output ? 'OUTPUT' : p.input ? 'INPUT' : 'n/a');
+              : p.output ? UI.tag('OUTPUT')
+              : p.input ? UI.tag('INPUT')
+              // Neither bit set: show the raw PortTypes byte next to "n/a"
+              // instead of a dead end — see portTypeHex above.
+              : `${UI.tag('n/a')} <span class="b5-text-muted b5-text-sm">PortTypes ${portTypeHex(p)}</span>`;
             const uniValue = p.direction === 'output' ? p.universeOut : p.universeIn;
             const uniCell = (p.input || p.output)
               ? `<input class="b5-input b5-input--mono cfg-universe" data-i="${i}" type="number" min="0" max="15" value="${uniValue}" style="max-width:6em">`
@@ -274,7 +290,18 @@ const NodesScreen = (() => {
               <td data-label="Direction">${dirCell}</td>
               <td data-label="Universe">${uniCell}</td>
               <td data-label="Merge mode">${mergeCell}</td>
-              <td data-label="Input enabled">${p.input ? `<label class="b5-checkbox"><input class="cfg-input-en" data-i="${i}" type="checkbox" ${p.inputEnabled ? 'checked' : ''}></label>` : '<span class="b5-text-muted b5-text-sm">n/a</span>'}</td>
+              <td data-label="Input enabled">${p.input
+                // inputEnabled has no ArtPollReply read-back (nodePortJSON
+                // carries no such field, and there is none to carry —
+                // Phase 1c+ notes: this is not confirmed hardware state).
+                // The checkbox pre-checks to a hinted default so the field
+                // is immediately usable, but per-row text makes clear that
+                // default is a guess, not a report, so it can't be misread
+                // as "confirmed off" if unchecked or "confirmed on" if
+                // checked — the exact "invented value that looks
+                // confirmed" failure mode this is guarding against.
+                ? `<label class="b5-checkbox"><input class="cfg-input-en" data-i="${i}" type="checkbox" ${p.inputEnabled ? 'checked' : ''}></label><span class="b5-text-muted b5-text-sm">not confirmed by node</span>`
+                : '<span class="b5-text-muted b5-text-sm">n/a</span>'}</td>
             </tr>`;
           }).join('')}
         </tbody>

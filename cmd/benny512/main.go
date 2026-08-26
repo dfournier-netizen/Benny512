@@ -30,6 +30,7 @@ func main() {
 	demo := flag.Bool("demo", false, "run against fake pre-scripted nodes/fixtures instead of real hardware")
 	logLevel := flag.String("loglevel", "info", "log verbosity: debug|info|warn|error")
 	logRDM := flag.String("logrdm", "", "optional: continuously append every RDM/ToD exchange to this file as it happens (rotates by size)")
+	logNodes := flag.Bool("lognodes", false, "with --logrdm: also log Art-Net node-configuration traffic to the same file — the complete ArtAddress/ArtInput/ArtIpProg/ArtIpProgReply history (every instance, since these are rare and user-initiated), plus a bounded sample of the periodic ArtPoll/ArtPollReply background chatter (per-node, since that repeats for the life of the session). Has no effect without --logrdm.")
 	legacyRdmStartCode := flag.Bool("legacy-rdm-startcode", false, "escape hatch: include the 0xCC RDM start code in outbound ArtRdm payloads (pre-fix, spec-incorrect framing). Default false sends the spec-correct payload starting at the RDM sub-start code (0x01). Inbound decode accepts both forms either way.")
 	flag.Parse()
 
@@ -57,15 +58,23 @@ func main() {
 		logf("info", "ArtRdm outbound framing: spec-correct (RdmPacket begins at the 0x01 sub-start code, no leading 0xCC)")
 	}
 
+	// buildDemo/buildReal only construct — engines, capture tap, the
+	// server — and hand back a start func that is not called until this
+	// function has finished arming everything traffic could possibly touch
+	// (--logrdm's disk logger above all: see buildReal's doc comment for
+	// why calling start before that is armed would permanently lose
+	// exactly the packets --lognodes exists to capture, ArtPollReply
+	// included). Nothing above start() may generate a single packet.
 	var srv *web.Server
+	var start func()
 	var closeTransport func()
 
 	if *demo {
 		logf("info", "starting in --demo mode: 2 fake nodes, 6 fake fixtures, synthetic ArtDmx traffic")
-		srv = buildDemo(ctx, *legacyRdmStartCode)
+		srv, start = buildDemo(ctx, *legacyRdmStartCode, *logNodes)
 	} else {
 		var err error
-		srv, closeTransport, err = buildReal(*iface, *legacyRdmStartCode, logf)
+		srv, start, closeTransport, err = buildReal(*iface, *legacyRdmStartCode, *logNodes, logf)
 		if err != nil {
 			logger.Fatalf("startup failed: %v", err)
 		}
@@ -109,7 +118,20 @@ func main() {
 			logger.Fatalf("--logrdm: %v", err)
 		}
 		logf("info", "logging RDM/ToD traffic to %s", *logRDM)
+		if *logNodes {
+			logf("info", "also logging Art-Net node-configuration traffic (--lognodes): full ArtAddress/ArtInput/ArtIpProg/ArtIpProgReply history, plus a bounded sample of ArtPoll/ArtPollReply")
+		}
+	} else if *logNodes {
+		logf("warn", "--lognodes has no effect without --logrdm (there is no disk log to write to)")
 	}
+
+	// Everything that can generate a packet the capture tap would see
+	// starts here — after OnShutdownRequest, the walk/patch store paths,
+	// and --logrdm are all wired above. This is the fix for the disk log
+	// being able to miss its own seed traffic (both demo nodes' initial
+	// ArtPollReply, the demo device-cache RDM warmup, and in real mode the
+	// first ArtPoll) — see buildDemo/buildReal's doc comments.
+	start()
 
 	go srv.Run(ctx)
 
@@ -138,15 +160,23 @@ func main() {
 }
 
 // buildReal wires every engine against the real UDP transport bound to the
-// chosen (or auto-selected) NIC.
-func buildReal(ifaceName string, legacyRdmStartCode bool, logf func(level, format string, args ...any)) (*web.Server, func(), error) {
+// chosen (or auto-selected) NIC, and returns a start func that begins
+// actually driving traffic (demux dispatch, the engines' Run loops, and the
+// initial ArtPoll/DMX output) — see this function's call site in main() and
+// buildDemo's doc comment for why construction and traffic generation are
+// split the same way in both builders: --logrdm's disk logger is armed by
+// the caller *after* getting srv back from here, so nothing here may
+// generate a packet the tap could observe before start is called, or that
+// packet's entry in the log is lost for good (LogRDMEntry silently no-ops
+// until a logger is configured — it doesn't buffer).
+func buildReal(ifaceName string, legacyRdmStartCode bool, logNodes bool, logf func(level, format string, args ...any)) (srv *web.Server, start func(), closeTransport func(), err error) {
 	ifaces, err := transport.ListInterfaces()
 	if err != nil {
-		return nil, nil, fmt.Errorf("enumerate interfaces: %w", err)
+		return nil, nil, nil, fmt.Errorf("enumerate interfaces: %w", err)
 	}
 	chosen, err := selectInterface(ifaces, ifaceName)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	logf("info", "using interface %q (%v)", chosen.Name, chosen.IPv4)
 
@@ -161,7 +191,7 @@ func buildReal(ifaceName string, legacyRdmStartCode bool, logf func(level, forma
 
 	udp, err := transport.Listen(transport.Config{BindAddr: bindAddr, BroadcastAddr: bcast})
 	if err != nil {
-		return nil, nil, fmt.Errorf("bind UDP: %w", err)
+		return nil, nil, nil, fmt.Errorf("bind UDP: %w", err)
 	}
 
 	// Demux fixes a real bug that only shows up with more than one real-mode
@@ -187,8 +217,14 @@ func buildReal(ifaceName string, legacyRdmStartCode bool, logf func(level, forma
 	// legitimate high-rate opcode like ArtSync must not flood the RDM-only
 	// ring the way an occasional genuine decode failure safely can't.
 	unknownOpcodeThrottle := capture.NewUnknownOpcodeThrottle(0)
+	// periodicNodeThrottle is unknownOpcodeThrottle's counterpart for
+	// ArtPoll/ArtPollReply once --lognodes is set (see
+	// capture.PeriodicNodeThrottle's doc comment) — built regardless of
+	// logNodes so it's always available, but only ever consulted when
+	// logNodes is true.
+	periodicNodeThrottle := capture.NewPeriodicNodeThrottle(0)
 
-	srv := web.New(nodes, rdmc, dmx, reg, ring, rdmRing)
+	srv = web.New(nodes, rdmc, dmx, reg, ring, rdmRing)
 	srv.NIC = fmt.Sprintf("%s (%v)", chosen.Name, chosen.IPv4)
 
 	tap := func(dir capture.Direction, peer netip.AddrPort, data []byte) {
@@ -198,30 +234,53 @@ func buildReal(ifaceName string, legacyRdmStartCode bool, logf func(level, forma
 		// copy for the RDM ring and disk logger, not the pre-Add value,
 		// or every disk-logged/second-ring entry gets a zero timestamp.
 		e = ring.Add(e)
-		if capture.IsRDMLoggable(e) {
+		switch {
+		case capture.IsRDMLoggable(e):
 			e = rdmRing.Add(e)
 			srv.LogRDMEntry(e)
-			return
-		}
-		if logEntry, ok := unknownOpcodeThrottle.Consider(e); ok {
-			logEntry = rdmRing.Add(logEntry)
-			srv.LogRDMEntry(logEntry)
+		case logNodes && capture.IsNodeConfigKind(e.Kind):
+			// Rare, user-initiated node-configuration traffic (ArtAddress/
+			// ArtInput/ArtIpProg/ArtIpProgReply): every instance logged in
+			// full, unconditionally — see IsNodeConfigKind's doc comment.
+			e = rdmRing.Add(e)
+			srv.LogRDMEntry(e)
+		case logNodes && capture.IsPeriodicNodeKind(e.Kind):
+			// Periodic background chatter (ArtPoll/ArtPollReply): bounded
+			// per-(peer,kind) sample, not every instance — see
+			// IsPeriodicNodeKind's doc comment.
+			if logEntry, ok := periodicNodeThrottle.Consider(e); ok {
+				logEntry = rdmRing.Add(logEntry)
+				srv.LogRDMEntry(logEntry)
+			}
+		default:
+			if logEntry, ok := unknownOpcodeThrottle.Consider(e); ok {
+				logEntry = rdmRing.Add(logEntry)
+				srv.LogRDMEntry(logEntry)
+			}
 		}
 	}
+	// Wiring the hooks is safe here — a func value assignment, not a send —
+	// but nothing may actually run yet: see this function's doc comment.
 	demux.OnSend = func(data []byte, dst netip.AddrPort) { tap(capture.DirOut, dst, data) }
 	demux.OnReceive = func(data []byte, from netip.AddrPort) { tap(capture.DirIn, from, data) }
-	demux.Start()
 
-	go reg.Run()
-	go nodes.Run(context.Background())
-	go rdmc.Run(context.Background())
-
-	if err := nodes.Start(); err != nil {
-		logf("warn", "initial ArtPoll failed: %v", err)
+	// start is deferred to the caller — see this function's doc comment.
+	// demux.Start (begins dispatching whatever the OS socket already has
+	// buffered), the engines' Run loops, nodes.Start's initial ArtPoll, and
+	// dmx.Start's periodic output are the only things in this function that
+	// can put a packet in front of the tap, so they all live here.
+	start = func() {
+		demux.Start()
+		go reg.Run()
+		go nodes.Run(context.Background())
+		go rdmc.Run(context.Background())
+		if err := nodes.Start(); err != nil {
+			logf("warn", "initial ArtPoll failed: %v", err)
+		}
+		dmx.Start()
 	}
-	dmx.Start()
 
-	return srv, func() { udp.Close() }, nil
+	return srv, start, func() { udp.Close() }, nil
 }
 
 func selectInterface(ifaces []transport.Interface, want string) (transport.Interface, error) {

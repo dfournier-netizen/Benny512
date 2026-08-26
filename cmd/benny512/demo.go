@@ -234,10 +234,26 @@ func (d *demoDevice) handle(msg rdm.Message) (data []byte, nack bool, reason rdm
 // pre-scripts two fake Art-Net nodes (a 4-port "Netron EN4"-ish gateway and
 // a 1-port "LumenRadio Aurora"-ish wireless node) and ten fake RDM
 // responders covering every device class/feature Dom's kit and the Phase
-// 1c+ research report call out, and starts a periodic fake ArtDmx
-// generator so the Analyzer screen has something to show. See each
-// demoDevice literal below for which report finding it demonstrates.
-func buildDemo(ctx context.Context, legacyRdmStartCode bool) *web.Server {
+// 1c+ research report call out, and returns a start func that generates all
+// of that traffic. See each demoDevice literal below for which report
+// finding it demonstrates.
+//
+// Construction and traffic generation are deliberately split: everything
+// up to and including installDemoResponder/installDemoNodeConfigResponder
+// below only builds engines and wires the capture tap — nothing is sent or
+// delivered yet, so nothing can reach srv.LogRDMEntry yet either. The
+// returned start func is where the two demo nodes' seed ArtPollReply and
+// the device-cache RDM warmup actually fire. This split exists because that
+// seed traffic — both nodes' very first ArtPollReply, plus every warmup
+// GET — is exactly the evidence --lognodes exists to capture, and
+// cmd/benny512's caller wires --logrdm's disk logger via
+// srv.SetLogRDMPath *after* getting srv back from this function. Returning
+// srv fully built but silent, with start left for the caller to call once
+// logging (and everything else in its startup sequence) is armed, is what
+// makes "the log is non-empty from the first instant there's anything to
+// log" true instead of "true after the first lucky re-poll" — see main()'s
+// call site.
+func buildDemo(ctx context.Context, legacyRdmStartCode bool, logNodes bool) (*web.Server, func()) {
 	clock := session.RealClock{}
 	tport := session.NewFakeTransport()
 
@@ -258,23 +274,27 @@ func buildDemo(ctx context.Context, legacyRdmStartCode bool) *web.Server {
 	// Aurora root UID (0x4C55 = LumenRadio AB, report-CONFIRMED).
 	auroraRootUID := rdm.UID{ManufacturerID: 0x4C55, DeviceID: 0x00000001}
 
-	nodes.HandlePollReply(artnet.PollReply{
+	// The two seed ArtPollReply values below are delivered further down
+	// (after tap is wired), via deliverPollReply, so they flow through the
+	// same capture tap real node traffic would — see that function's doc
+	// comment for why a direct nodes.HandlePollReply call here would leave
+	// --demo unable to exercise --lognodes' ArtPollReply rendering at all.
+	en4Reply := artnet.PollReply{
 		IPAddress: en4IP.As4(),
 		ShortName: "EN4-Demo", LongName: "Netron EN4 (demo)",
 		NumPorts:       4,
 		PortTypes:      [4]byte{0x80, 0x80, 0x80, 0x80},
 		Status1:        0x02, // RDM capable
 		DefaultRespUID: uidToRespUID(en4RootUID),
-	}, netip.AddrPortFrom(en4IP, session.ArtNetUDPPort))
-
-	nodes.HandlePollReply(artnet.PollReply{
+	}
+	auroraReply := artnet.PollReply{
 		IPAddress: wirelessIP.As4(),
 		ShortName: "Aurora-Demo", LongName: "LumenRadio Aurora (demo)",
 		NumPorts:       1,
 		PortTypes:      [4]byte{0x80, 0, 0, 0},
 		Status1:        0x02,
 		DefaultRespUID: uidToRespUID(auroraRootUID),
-	}, netip.AddrPortFrom(wirelessIP, session.ArtNetUDPPort))
+	}
 
 	port0, _ := artnet.NewPortAddress(0, 0, 0)
 	port1, _ := artnet.NewPortAddress(0, 0, 1)
@@ -302,51 +322,83 @@ func buildDemo(ctx context.Context, legacyRdmStartCode bool) *web.Server {
 	// identically to production keeps this a faithful exercise of the same
 	// code path rather than a simplified stand-in.
 	unknownOpcodeThrottle := capture.NewUnknownOpcodeThrottle(0)
+	// periodicNodeThrottle mirrors buildReal's --lognodes wiring — see
+	// capture.PeriodicNodeThrottle's doc comment.
+	periodicNodeThrottle := capture.NewPeriodicNodeThrottle(0)
 	tap := func(dir capture.Direction, peer netip.AddrPort, data []byte) capture.Entry {
 		e := capture.DecodeEntry(dir, peer, data)
 		// Add stamps Time/Seq on its own returned copy — use that stamped
 		// copy for the RDM ring and disk logger (see main.go's buildReal
 		// for the same fix and fuller explanation of the bug this avoids).
 		e = ring.Add(e)
-		if capture.IsRDMLoggable(e) {
+		switch {
+		case capture.IsRDMLoggable(e):
 			e = rdmRing.Add(e)
 			srv.LogRDMEntry(e)
-			return e
-		}
-		if logEntry, ok := unknownOpcodeThrottle.Consider(e); ok {
-			logEntry = rdmRing.Add(logEntry)
-			srv.LogRDMEntry(logEntry)
+		case logNodes && capture.IsNodeConfigKind(e.Kind):
+			e = rdmRing.Add(e)
+			srv.LogRDMEntry(e)
+		case logNodes && capture.IsPeriodicNodeKind(e.Kind):
+			if logEntry, ok := periodicNodeThrottle.Consider(e); ok {
+				logEntry = rdmRing.Add(logEntry)
+				srv.LogRDMEntry(logEntry)
+			}
+		default:
+			if logEntry, ok := unknownOpcodeThrottle.Consider(e); ok {
+				logEntry = rdmRing.Add(logEntry)
+				srv.LogRDMEntry(logEntry)
+			}
 		}
 		return e
 	}
 
 	installDemoResponder(tport, rdmc, devices, tap, legacyRdmStartCode)
-	installDemoNodeConfigResponder(tport, nodes, en4IP, wirelessIP)
+	installDemoNodeConfigResponder(tport, nodes, en4IP, wirelessIP, tap)
 
-	go reg.Run()
+	// start is deferred to the caller — see this function's doc comment.
+	// Nothing above this point sends or delivers a single packet.
+	start := func() {
+		go reg.Run()
 
-	// Phase 2a: warm every demo device's manufacturer/model/footprint cache
-	// before installing the sample patch, so the reconcile matcher's type-
-	// corroboration tiers (manufacturer/model/footprint — internal/patch's
-	// scorePair) have real evidence to work with immediately, matching what
-	// Dom would actually see: he always opens the Devices tab and browses
-	// the rig before touching Patch. Without this, every demo device would
-	// start with an unfetched DEVICE_INFO/label (registry.Fixture's zero
-	// state), and corroboration alone could never clear the match
-	// threshold — see buildDemoPatch's doc comment on why manufacturer text
-	// alone isn't enough. Best-effort and blocking (RealClock — this is
-	// --demo, not a test — real responses land in 3-30ms per device, run
-	// concurrently below, so this adds well under 100ms to startup).
-	warmDemoDeviceCaches(ctx, rdmc, devices)
+		// Deliver the two nodes' initial ArtPollReply now that the caller
+		// has finished arming --logrdm/--lognodes, so this seed state —
+		// the app's very first view of each node's ports — reaches the
+		// capture rings/disk log like real wire traffic would, not just
+		// the node table. See deliverPollReply's doc comment.
+		deliverPollReply(nodes, tap, en4Reply, netip.AddrPortFrom(en4IP, session.ArtNetUDPPort))
+		deliverPollReply(nodes, tap, auroraReply, netip.AddrPortFrom(wirelessIP, session.ArtNetUDPPort))
 
-	// Phase 2a: pre-load a sample patch (task ask, item 5: "the whole flow
-	// is exercisable") deliberately covering every reconcile classification
-	// plus a channel-overlap collision — see buildDemoPatch's doc comment.
-	srv.PatchStore.Replace(buildDemoPatch(port1, port2))
+		// Phase 2a: warm every demo device's manufacturer/model/footprint
+		// cache before installing the sample patch, so the reconcile
+		// matcher's type-corroboration tiers (manufacturer/model/footprint
+		// — internal/patch's scorePair) have real evidence to work with
+		// immediately, matching what Dom would actually see: he always
+		// opens the Devices tab and browses the rig before touching Patch.
+		// Without this, every demo device would start with an unfetched
+		// DEVICE_INFO/label (registry.Fixture's zero state), and
+		// corroboration alone could never clear the match threshold — see
+		// buildDemoPatch's doc comment on why manufacturer text alone
+		// isn't enough. Best-effort and blocking (RealClock — this is
+		// --demo, not a test — real responses land in 3-30ms per device,
+		// run concurrently below, so this adds well under 100ms to
+		// startup) — this same blocking call used to happen inside
+		// buildDemo itself, so moving it here changes when it runs
+		// relative to --logrdm being armed, not the startup time budget.
+		warmDemoDeviceCaches(ctx, rdmc, devices)
 
-	go generateDemoTraffic(ctx, ring)
+		// Phase 2a: pre-load a sample patch (task ask, item 5: "the whole
+		// flow is exercisable") deliberately covering every reconcile
+		// classification plus a channel-overlap collision — see
+		// buildDemoPatch's doc comment. Not wire traffic, so its ordering
+		// relative to --logrdm doesn't matter, but it belongs here anyway:
+		// buildDemoPatch's own doc comment on the "correct match" case
+		// depends on warmDemoDeviceCaches (just above) having already run.
+		srv.PatchStore.Replace(buildDemoPatch(port1, port2))
 
-	return srv
+		go generateDemoTraffic(ctx, ring)
+	}
+
+	return srv, start
 }
 
 // warmDemoDeviceCaches issues GET DEVICE_INFO / MANUFACTURER_LABEL /
@@ -714,7 +766,7 @@ func installDemoResponder(tport *session.FakeTransport, ctrl *session.RDMControl
 // agent... can exercise everything with no hardware"). It chains onto
 // whatever OnSend hook is already installed (installDemoResponder's RDM
 // handling) rather than replacing it.
-func installDemoNodeConfigResponder(tport *session.FakeTransport, nodes *session.ArtNetSession, en4IP, wirelessIP netip.Addr) {
+func installDemoNodeConfigResponder(tport *session.FakeTransport, nodes *session.ArtNetSession, en4IP, wirelessIP netip.Addr, tap func(dir capture.Direction, peer netip.AddrPort, data []byte) capture.Entry) {
 	prev := tport.OnSend
 	tport.OnSend = func(sp session.SentPacket) {
 		if prev != nil {
@@ -730,19 +782,21 @@ func installDemoNodeConfigResponder(tport *session.FakeTransport, nodes *session
 				return
 			}
 			a := sp.Packet.Address
+			reply := artnet.PollReply{
+				IPAddress: ip.As4(), ShortName: a.ShortName, LongName: a.LongName,
+				NumPorts: 4, PortTypes: [4]byte{0x80, 0x80, 0x80, 0x80}, Status1: 0x02,
+			}
 			time.AfterFunc(5*time.Millisecond, func() {
-				nodes.HandlePollReply(artnet.PollReply{
-					IPAddress: ip.As4(), ShortName: a.ShortName, LongName: a.LongName,
-					NumPorts: 4, PortTypes: [4]byte{0x80, 0x80, 0x80, 0x80}, Status1: 0x02,
-				}, netip.AddrPortFrom(ip, session.ArtNetUDPPort))
+				deliverPollReply(nodes, tap, reply, netip.AddrPortFrom(ip, session.ArtNetUDPPort))
 			})
 		case artnet.KindInput:
 			ip, ok := demoTargetIP(sp, en4IP, wirelessIP)
 			if !ok {
 				return
 			}
+			reply := artnet.PollReply{IPAddress: ip.As4(), NumPorts: 4, PortTypes: [4]byte{0x80, 0x80, 0x80, 0x80}, Status1: 0x02}
 			time.AfterFunc(5*time.Millisecond, func() {
-				nodes.HandlePollReply(artnet.PollReply{IPAddress: ip.As4(), NumPorts: 4, PortTypes: [4]byte{0x80, 0x80, 0x80, 0x80}, Status1: 0x02}, netip.AddrPortFrom(ip, session.ArtNetUDPPort))
+				deliverPollReply(nodes, tap, reply, netip.AddrPortFrom(ip, session.ArtNetUDPPort))
 			})
 		case artnet.KindIpProg:
 			ip, ok := demoTargetIP(sp, en4IP, wirelessIP)
@@ -755,11 +809,34 @@ func installDemoNodeConfigResponder(tport *session.FakeTransport, nodes *session
 				reply.Status = artnet.IpProgReplyDHCPEnabled
 			}
 			pkt := artnet.Encode(artnet.Packet{Kind: artnet.KindIpProgReply, IpProgReply: reply})
+			addr := netip.AddrPortFrom(ip, session.ArtNetUDPPort)
 			time.AfterFunc(5*time.Millisecond, func() {
-				nodes.HandleInbound(session.Inbound{Data: pkt, From: netip.AddrPortFrom(ip, session.ArtNetUDPPort)})
+				// Route through tap first (so the capture rings/disk log see
+				// the ArtIpProgReply exactly as real wire traffic would),
+				// then fold it into the node session same as production.
+				tap(capture.DirIn, addr, pkt)
+				nodes.HandleInbound(session.Inbound{Data: pkt, From: addr})
 			})
 		}
 	}
+}
+
+// deliverPollReply encodes reply as a real ArtPollReply datagram and routes
+// it through tap before folding it into the node session (via
+// HandleInbound, which is what dispatches an already-decoded ArtPollReply
+// into HandlePollReply — see that method's doc comment). Calling
+// nodes.HandlePollReply directly, as earlier revisions of this file did, is
+// a legitimate shortcut for driving the node table in tests, but it
+// silently means the bytes never reach the capture tap — so --demo mode
+// could never actually exercise --lognodes' ArtPollReply rendering (the
+// PortTypes/GoodInput/... byte-for-byte evidence report task 1 added
+// --lognodes for). Going through tap first, exactly like the real UDP
+// demux in main.go's buildReal, keeps --demo a faithful exercise of the
+// same code path production traffic takes.
+func deliverPollReply(nodes *session.ArtNetSession, tap func(dir capture.Direction, peer netip.AddrPort, data []byte) capture.Entry, reply artnet.PollReply, addr netip.AddrPort) {
+	pkt := artnet.Encode(artnet.Packet{Kind: artnet.KindPollReply, PollReply: reply})
+	tap(capture.DirIn, addr, pkt)
+	nodes.HandleInbound(session.Inbound{Data: pkt, From: addr})
 }
 
 func demoTargetIP(sp session.SentPacket, en4IP, wirelessIP netip.Addr) (netip.Addr, bool) {
