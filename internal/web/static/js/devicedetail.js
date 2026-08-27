@@ -84,6 +84,20 @@ const DeviceDetail = (() => {
   let selectGen = 0;
   let settleTimer = null;
   let sensorsSubscribedUID = null;
+  // liveFieldState closes the residual focus-race left open by the previous
+  // round's captureFieldFocus/restoreFieldFocus fix: that mechanism only
+  // samples document.activeElement at the instant a section tears down, so
+  // a native blur — e.g. clicking Introspect while Device Label has an
+  // uncommitted edit — moves activeElement to the clicked button *before*
+  // that button's own handler fires notify('params'), and the in-progress
+  // draft is lost with nothing ever having captured it. liveFieldState is
+  // kept current independently of momentary focus: updated on every 'input'
+  // (tracks the latest keystroke) and 'focusin' (gives a freshly-clicked
+  // field a baseline before it's typed in) on any [data-b5-field] inside the
+  // Parameters container, via trackLiveFieldState below. captureFieldFocus
+  // falls back to it whenever activeElement isn't one of our own fields.
+  let liveFieldState = null;
+  let liveFieldTrackedContainer = null;
   // subscribers: (scope) => void, called after any async cache update.
   // scope names which section's data just changed — 'info' | 'params' |
   // 'sensors' | 'status' — so a caller showing only one of those at a time
@@ -120,15 +134,48 @@ const DeviceDetail = (() => {
   // there's nothing to clobber in that case anyway.
   function captureFieldFocus(container) {
     const active = document.activeElement;
-    if (!active || !container.contains(active)) return null;
-    const name = active.dataset && active.dataset.b5Field;
-    if (!name) return null;
-    const state = { name, value: active.value };
-    if (typeof active.selectionStart === 'number') {
-      state.selectionStart = active.selectionStart;
-      state.selectionEnd = active.selectionEnd;
+    if (active && container.contains(active) && active.dataset && active.dataset.b5Field) {
+      const state = { name: active.dataset.b5Field, value: active.value };
+      if (typeof active.selectionStart === 'number') {
+        state.selectionStart = active.selectionStart;
+        state.selectionEnd = active.selectionEnd;
+      }
+      return state;
     }
-    return state;
+    // activeElement isn't one of our fields — most often because a native
+    // blur already fired (clicking Introspect, clicking another field's
+    // label, etc.). Fall back to whatever liveFieldState last recorded for
+    // a field that still exists in this container, so an edit-in-progress
+    // survives a rebuild it didn't itself trigger. Confirmed stale states
+    // can't leak in: liveFieldState is reset to null on every device change
+    // (see select()), and the querySelector below only matches a field this
+    // exact container currently owns.
+    if (liveFieldState && container.querySelector(`[data-b5-field="${CSS.escape(liveFieldState.name)}"]`)) {
+      return liveFieldState;
+    }
+    return null;
+  }
+
+  // trackLiveFieldState wires the delegated 'focusin'/'input' listeners that
+  // keep liveFieldState current (see its doc comment above). container is a
+  // stable node across re-renders — renderParamsSection only replaces its
+  // children — so this only needs to bind once; guarded here rather than in
+  // every renderParamsSection call.
+  function trackLiveFieldState(container) {
+    if (liveFieldTrackedContainer === container) return;
+    liveFieldTrackedContainer = container;
+    const capture = (e) => {
+      const t = e.target;
+      if (!t || !t.dataset || !t.dataset.b5Field) return;
+      const state = { name: t.dataset.b5Field, value: t.value };
+      if (typeof t.selectionStart === 'number') {
+        state.selectionStart = t.selectionStart;
+        state.selectionEnd = t.selectionEnd;
+      }
+      liveFieldState = state;
+    };
+    container.addEventListener('focusin', capture);
+    container.addEventListener('input', capture);
   }
 
   function restoreFieldFocus(container, state) {
@@ -155,6 +202,7 @@ const DeviceDetail = (() => {
       unsubscribeSensors();
       selectedUID = uid;
       selectGen++;
+      liveFieldState = null; // a draft belongs to the device it was typed against, never carried to the next selection
       if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }
       if (!uid) return;
       const gen = selectGen;
@@ -479,6 +527,7 @@ const DeviceDetail = (() => {
   function renderParamsSection(container, f, statusSetter, opts) {
     opts = opts || {};
     const uid = f.uid;
+    trackLiveFieldState(container);
     const st = paramsCache[uid];
     if (!st || (st.loading && st.di === undefined)) {
       container.innerHTML = `<span class="b5-inline-wait">${UI.spinner()}Loading…</span>`;
