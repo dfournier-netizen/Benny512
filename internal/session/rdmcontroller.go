@@ -117,6 +117,13 @@ var (
 	ErrControllerStopped   = errors.New("session: RDM controller stopped")
 	ErrTodNak              = errors.New("session: node returned TodNak (discovery did not complete)")
 	ErrTodTimeout          = errors.New("session: timed out assembling Table of Devices")
+	// ErrSetUnverified: a SET command's ACK_TIMER deferral could not be
+	// collected (this responder doesn't serve QUEUED_MESSAGE, or it does
+	// but never handed back our answer) and Benny512 deliberately did not
+	// re-issue it. See ResultUnverified and rdmacktimer.go's
+	// finishSetUnverifiedLocked for why a SET is never blindly re-sent the
+	// way a GET is.
+	ErrSetUnverified = errors.New("session: SET deferred (ACK_TIMER) and could not be verified; not re-sent")
 )
 
 // NackError wraps a NACK_REASON response as a typed Go error.
@@ -218,6 +225,25 @@ const (
 	// asking this device for now, and will try again". Result.Err is a
 	// *DeviceUnreachableError carrying the retry time.
 	ResultDeviceUnreachable
+	// ResultUnverified: a SET command was deferred with ACK_TIMER and its
+	// completion could not be confirmed — this responder does not serve
+	// QUEUED_MESSAGE (or served one that wasn't ours), so there is no way
+	// left to collect the real SET_COMMAND_RESPONSE.
+	//
+	// This is not an E1.20 outcome; it is Benny512's own. RDM-LOG13 showed
+	// what the alternative costs: re-issuing an unverifiable SET under a
+	// fresh TN produced 352 duplicate SET DMX_PERSONALITY commands over 61
+	// seconds against an already-congested wireless link, for a mode
+	// change confirmed (at the bench) to have taken effect on the very
+	// first attempt — hammering the exact link that was struggling to
+	// deliver the first one, then still finishing as a timeout. A GET may
+	// safely fall back to re-issuing (idempotent — asking again costs
+	// nothing but a round trip); a SET may not, because the responder has
+	// already accepted and is very likely acting on the original command,
+	// and firing duplicates at it doesn't help. Per product decision (Dom,
+	// 2026-08-26): once a SET can't be verified, stop sending and report
+	// it as an error — never assume success, never keep retrying.
+	ResultUnverified
 )
 
 // String renders the result kind.
@@ -239,6 +265,8 @@ func (k ResultKind) String() string {
 		return "proxy-buffer-full"
 	case ResultDeviceUnreachable:
 		return "device-unreachable"
+	case ResultUnverified:
+		return "unverified"
 	default:
 		return "unknown"
 	}
@@ -1154,6 +1182,14 @@ func (c *RDMController) onAckTimerElapsed(cmd *Command, gen uint64) {
 		// own parameter, which a bare issueLocked would leave pointing at
 		// QUEUED_MESSAGE and reject the real answer against.
 		c.abandonCollectLocked(cmd)
+		return
+	}
+	if cmd.req.CommandClass == rdm.SetCommand {
+		// This device is already known (or policy-forced) to not collect,
+		// so there was nothing to begin collecting this round — same "a
+		// SET must not be blindly re-sent" rule as abandonCollectLocked
+		// applies here too. See ResultUnverified's doc comment.
+		c.finishSetUnverifiedLocked(cmd)
 		return
 	}
 	c.stats.AckTimerReissues++

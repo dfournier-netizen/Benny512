@@ -489,6 +489,97 @@ func TestSetDeferredThenCollected(t *testing.T) {
 	}
 }
 
+// --- a SET that cannot be collected must never be re-sent ------------------
+//
+// RDM-LOG13's bench shape: SET DMX_PERSONALITY got ACK_TIMER, the one
+// QUEUED_MESSAGE probe drew silence, and the pre-fix code fell back to
+// abandonCollectLocked's re-issue exactly as a GET would — 352 duplicate SET
+// commands over 61 seconds against an already-congested link, for a mode
+// change that had already taken effect on the very first attempt. A SET must
+// stop and report ResultUnverified instead: see ResultUnverified's doc
+// comment (rdmcontroller.go) for the reasoning. These tests hold that a SET
+// never gets a second transmission once its deferral can't be verified,
+// however the "can't collect" finding arrives — a NACK on the probe, silence
+// on the probe, or (TestSetAlreadyKnownNotToCollectNeverReissues) the device
+// having already taught the controller not to bother probing at all.
+
+func TestSetUnknownPIDDoesNotReissue(t *testing.T) {
+	h := collectHarness(t)
+	h.script(
+		reply{Type: rdm.ResponseACKTimer, Data: ackTimerData(3)},
+		reply{Type: rdm.ResponseNackReason, Data: nackData(rdm.NackUnknownPID)}, // probe refused
+	)
+
+	cmd := h.ctrl.Set(h.node, uidA, rdm.PIDDMXPersonality, []byte{0x01})
+	res := h.awaitResult(cmd, 30*time.Second)
+
+	if res.Kind != ResultUnverified {
+		t.Fatalf("kind = %v (err %v), want ResultUnverified", res.Kind, res.Err)
+	}
+	if !errors.Is(res.Err, ErrSetUnverified) {
+		t.Fatalf("err = %v, want ErrSetUnverified", res.Err)
+	}
+	if got := h.countRequests(rdm.PIDDMXPersonality); got != 1 {
+		t.Fatalf("SET DMX_PERSONALITY sent %d times, want exactly 1 — a SET must never be re-issued once unverifiable", got)
+	}
+}
+
+func TestSetSilentProbeDoesNotReissue(t *testing.T) {
+	h := collectHarness(t)
+	h.script(
+		reply{Type: rdm.ResponseACKTimer, Data: ackTimerData(10)},
+		reply{Drop: true}, // the QUEUED_MESSAGE probe vanishes, exactly as RDM-LOG13
+	)
+
+	cmd := h.ctrl.Set(h.node, uidA, rdm.PIDDMXPersonality, []byte{0x01})
+	res := h.awaitResult(cmd, 60*time.Second)
+
+	if res.Kind != ResultUnverified {
+		t.Fatalf("kind = %v (err %v), want ResultUnverified", res.Kind, res.Err)
+	}
+	if got := h.countRequests(rdm.PIDDMXPersonality); got != 1 {
+		t.Fatalf("SET DMX_PERSONALITY sent %d times, want exactly 1", got)
+	}
+	if got := h.countRequests(rdm.PIDQueuedMessage); got != 1 {
+		t.Fatalf("probes = %d, want exactly 1 — silence gets no retransmission budget here either", got)
+	}
+}
+
+// TestSetAlreadyKnownNotToCollectNeverReissues covers onAckTimerElapsed's
+// other exit path: a device already taught (by an earlier command) that it
+// does not collect skips probing entirely — ackTimerCollectsLocked returns
+// false immediately, so cmd.collecting is never set, and the fix in that
+// branch (not abandonCollectLocked) is what must catch this SET.
+func TestSetAlreadyKnownNotToCollectNeverReissues(t *testing.T) {
+	h := collectHarness(t)
+	h.script(
+		reply{Type: rdm.ResponseACKTimer, Data: ackTimerData(3)},
+		reply{Type: rdm.ResponseNackReason, Data: nackData(rdm.NackUnknownPID)},
+		reply{Type: rdm.ResponseACK, Data: []byte("direct")},
+	)
+	learn := h.ctrl.Get(h.node, uidA, rdm.PIDDeviceInfo, nil)
+	if res := h.awaitResult(learn, 30*time.Second); res.Kind != ResultAck {
+		t.Fatalf("setup command kind = %v (err %v)", res.Kind, res.Err)
+	}
+	probesAfterLearning := h.countRequests(rdm.PIDQueuedMessage)
+
+	h.script(
+		reply{Type: rdm.ResponseACKTimer, Data: ackTimerData(3)},
+	)
+	cmd := h.ctrl.Set(h.node, uidA, rdm.PIDDMXPersonality, []byte{0x01})
+	res := h.awaitResult(cmd, 30*time.Second)
+
+	if res.Kind != ResultUnverified {
+		t.Fatalf("kind = %v (err %v), want ResultUnverified", res.Kind, res.Err)
+	}
+	if got := h.countRequests(rdm.PIDQueuedMessage); got != probesAfterLearning {
+		t.Fatalf("probes went from %d to %d — should not have probed a device already known not to collect", probesAfterLearning, got)
+	}
+	if got := h.countRequests(rdm.PIDDMXPersonality); got != 1 {
+		t.Fatalf("SET DMX_PERSONALITY sent %d times, want exactly 1", got)
+	}
+}
+
 // TestRecoveryDrainSkipsDevicesKnownNotToCollect: the breaker-open drain is a
 // backstop now, and it must not repeat RDM-LOG8's six silent probes against a
 // device the collection path has already found cannot serve them.

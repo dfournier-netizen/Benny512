@@ -202,16 +202,37 @@ func (c *RDMController) beginCollectLocked(cmd *Command) {
 	c.issueLocked(cmd, true)
 }
 
-// abandonCollectLocked gives up on collecting and re-issues the original
-// request — the pre-LOG8 path, reached when this responder cannot serve a
-// queued message, or when the queue held nothing for us.
+// abandonCollectLocked gives up on collecting, reached when this responder
+// cannot serve a queued message, or when the queue held nothing for us.
+//
+// For a GET this re-issues the original request — the pre-LOG8 path, safe
+// because asking again costs nothing but a round trip. For a SET it does
+// NOT re-issue; see finishSetUnverifiedLocked and ResultUnverified's doc
+// comment for why RDM-LOG13 made that the wrong default for a command the
+// responder has already accepted and is very likely acting on.
 func (c *RDMController) abandonCollectLocked(cmd *Command) {
 	cmd.collecting = false
+	if cmd.req.CommandClass == rdm.SetCommand {
+		c.finishSetUnverifiedLocked(cmd)
+		return
+	}
 	cmd.answerPID = cmd.req.PID
 	cmd.answerPIDSet = false
 	c.resetBlocksLocked(cmd)
 	c.stats.AckTimerReissues++
 	c.issueLocked(cmd, true)
+}
+
+// finishSetUnverifiedLocked ends a SET command whose ACK_TIMER deferral
+// could not be collected. See ResultUnverified's doc comment (rdmcontroller.go)
+// for the reasoning and the RDM-LOG13 evidence behind it: the responder has
+// almost certainly already applied the command, but nothing on the wire can
+// confirm that, and per product decision the honest outcome is to stop and
+// say so — not assume success, and not keep firing duplicate SETs at an
+// already-congested link.
+func (c *RDMController) finishSetUnverifiedLocked(cmd *Command) {
+	c.resetBlocksLocked(cmd)
+	c.finishLocked(cmd, ResultUnverified, ErrSetUnverified)
 }
 
 // resetBlocksLocked discards data accumulated for a probe that turned out
