@@ -209,6 +209,7 @@ const Api = (() => {
     reconcileFix: (id, deviceUid) => req('POST', `/api/patch/reconcile/${encodeURIComponent(id)}/fix`, { deviceUid }),
     reconcileFixAll: (confirm) => req('POST', '/api/patch/reconcile/fix-all', { confirm }),
     patchAdopt: (mode) => req('POST', '/api/patch/adopt', { mode }),
+    patchImport: (mode, entries) => req('POST', '/api/patch/import', { mode, entries }),
     patchExportUrl: (format) => '/api/patch/export?format=' + format,
     patchReconcileExportUrl: (format) => '/api/patch/reconcile/export?format=' + format,
 

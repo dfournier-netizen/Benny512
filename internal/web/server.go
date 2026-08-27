@@ -331,6 +331,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/patch/reconcile/{id}/fix", s.handlePatchReconcileFix)
 	s.mux.HandleFunc("POST /api/patch/reconcile/fix-all", s.handlePatchReconcileFixAll)
 	s.mux.HandleFunc("POST /api/patch/adopt", s.handlePatchAdopt)
+	s.mux.HandleFunc("POST /api/patch/import", s.handlePatchImport)
 	s.mux.HandleFunc("GET /api/patch/export", s.handlePatchExport)
 	s.mux.HandleFunc("GET /api/patch/reconcile/export", s.handlePatchReconcileExport)
 	s.mux.HandleFunc("GET /api/patch/rigcheck", s.handleGetRigCheckState)

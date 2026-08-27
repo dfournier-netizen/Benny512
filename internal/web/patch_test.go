@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -346,6 +347,146 @@ func TestPatchExport(t *testing.T) {
 	rr = doJSON(t, h.srv.Handler(), "GET", "/api/patch/reconcile/export?format=json", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("reconcile export json: status=%d", rr.Code)
+	}
+}
+
+func TestPatchImport_Fresh(t *testing.T) {
+	h := newHarness(t)
+	// Seed an existing patch that "fresh" import must discard entirely.
+	doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", entryRequest{Name: "Old", Universe: 0, StartAddress: 1, Footprint: 1})
+
+	rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/import", importRequest{
+		Mode: "fresh",
+		Entries: []entryRequest{
+			{Name: "Imported A", FixtureType: "Robe MegaPointe", Footprint: 20, Universe: 0, StartAddress: 1},
+			{Name: "Imported B", FixtureType: "Robe MegaPointe", Footprint: 20, Universe: 0, StartAddress: 21},
+		},
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("import fresh: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var resp patchResponse
+	mustUnmarshal(t, rr, &resp)
+	if !resp.Active || resp.Patch.Name != "Imported" {
+		t.Fatalf("resp = %+v", resp)
+	}
+	if len(resp.Patch.Entries) != 2 {
+		t.Fatalf("expected fresh import to replace the old patch with 2 entries, got %+v", resp.Patch.Entries)
+	}
+	for _, e := range resp.Patch.Entries {
+		if e.Name == "Old" {
+			t.Fatalf("fresh import must discard the previous patch, still found: %+v", resp.Patch.Entries)
+		}
+		if e.ID == "" {
+			t.Error("expected a server-assigned entry ID")
+		}
+	}
+}
+
+func TestPatchImport_MergeUpdatesExistingByUniverseAndAddress(t *testing.T) {
+	h := newHarness(t)
+
+	// Existing entry already reconciled/confirmed against a live device —
+	// import-merge must preserve ID/ConfirmedUID/MatchState untouched even
+	// though it overwrites the descriptive fields.
+	rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", entryRequest{
+		Name: "Old Name", FixtureType: "Old Type", Mode: "Old Mode", Footprint: 10,
+		Universe: 3, StartAddress: 50, Position: "Old Pos", FixtureNumber: "101", Notes: "old notes",
+	})
+	var resp patchResponse
+	mustUnmarshal(t, rr, &resp)
+	id := resp.Patch.Entries[0].ID
+
+	uid := "1900:00000042"
+	_, err := h.srv.PatchStore.Mutate(func(pp *patch.Patch) error {
+		idx := pp.IndexOf(id)
+		pp.Entries[idx].ConfirmedUID = uid
+		pp.Entries[idx].MatchState = patch.MatchStateConfirmed
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("seed confirmed pairing: %v", err)
+	}
+
+	rr = doJSON(t, h.srv.Handler(), "POST", "/api/patch/import", importRequest{
+		Mode: "merge",
+		Entries: []entryRequest{
+			{
+				Name: "New Name", FixtureType: "New Type", Mode: "New Mode", Footprint: 16,
+				Universe: 3, StartAddress: 50, Position: "New Pos", FixtureNumber: "202", Notes: "new notes",
+			},
+		},
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("import merge: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	mustUnmarshal(t, rr, &resp)
+	if len(resp.Patch.Entries) != 1 {
+		t.Fatalf("merge on matching (universe,startAddress) must update in place, not duplicate: %+v", resp.Patch.Entries)
+	}
+	e := resp.Patch.Entries[0]
+	if e.ID != id {
+		t.Errorf("ID changed: got %q, want %q (must never disturb existing entry ID)", e.ID, id)
+	}
+	if e.ConfirmedUID != uid || e.MatchState != patch.MatchStateConfirmed {
+		t.Errorf("import merge must never disturb existing reconciliation state: %+v", e)
+	}
+	if e.Name != "New Name" || e.FixtureType != "New Type" || e.Mode != "New Mode" || e.Footprint != 16 ||
+		e.Position != "New Pos" || e.FixtureNumber != "202" || e.Notes != "new notes" {
+		t.Errorf("descriptive fields not updated from imported entry: %+v", e)
+	}
+}
+
+func TestPatchImport_MergeAppendsWhenNoAddressMatch(t *testing.T) {
+	h := newHarness(t)
+	doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", entryRequest{Name: "Existing", Universe: 0, StartAddress: 1, Footprint: 4})
+
+	rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/import", importRequest{
+		Mode: "merge",
+		Entries: []entryRequest{
+			{Name: "New Fixture", FixtureType: "Chauvet Rogue", Footprint: 8, Universe: 5, StartAddress: 100},
+		},
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("import merge: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var resp patchResponse
+	mustUnmarshal(t, rr, &resp)
+	if len(resp.Patch.Entries) != 2 {
+		t.Fatalf("expected the non-matching entry to be appended, got %+v", resp.Patch.Entries)
+	}
+	var found bool
+	for _, e := range resp.Patch.Entries {
+		if e.Name == "New Fixture" {
+			found = true
+			if e.ID == "" {
+				t.Error("expected a server-assigned entry ID for the appended entry")
+			}
+			if e.ConfirmedUID != "" || e.MatchState != patch.MatchStateUnresolved {
+				t.Errorf("a freshly imported entry must not carry any RDM identity: %+v", e)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("appended entry not found: %+v", resp.Patch.Entries)
+	}
+}
+
+func TestPatchImport_InvalidMode(t *testing.T) {
+	h := newHarness(t)
+	rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/import", importRequest{Mode: "bogus"})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("invalid mode: status=%d body=%s, want 400", rr.Code, rr.Body.String())
+	}
+}
+
+func TestPatchImport_MalformedJSON(t *testing.T) {
+	h := newHarness(t)
+	req := httptest.NewRequest("POST", "/api/patch/import", bytes.NewReader([]byte(`{not valid json`)))
+	rr := httptest.NewRecorder()
+	h.srv.Handler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("malformed json: status=%d body=%s, want 400", rr.Code, rr.Body.String())
 	}
 }
 

@@ -33,6 +33,15 @@ const PatchScreen = (() => {
   let editingEntry = null; // null | 'new' | entry id being edited
   let entryDraft = null;
 
+  // MVR import state (Apply-to-confirm: parsing a file only builds a
+  // preview; nothing is sent to the server until the preview's own
+  // "Import (merge/replace patch)" button is clicked — same contract as
+  // runAdopt's confirm() dialog, just richer since an import preview has a
+  // fixture count and a warning list to show rather than one line of text).
+  let mvrFileInput = null;
+  let mvrPreview = null; // null | { fileName, entries, warnings }
+  let mvrImporting = false;
+
   // Rig check setup state.
   let rcScopeKind = sessionStorage.getItem('benny512.patch.rcScopeKind') || 'all';
   let rcScopeUniverse = 0;
@@ -50,6 +59,42 @@ const PatchScreen = (() => {
     window.addEventListener('pagehide', () => {
       if (active) Api.rigCheckStopBeacon();
     });
+    ensureMvrFileInput();
+  }
+
+  // ensureMvrFileInput: created once and kept off-screen (never rebuilt on
+  // re-render, so it survives renderEntries() replacing patchViewBody's
+  // innerHTML) — clicked programmatically by the "Import MVR…" toolbar
+  // button. display:none is fine; Playwright/browsers still allow
+  // setInputFiles on a hidden <input type=file>.
+  function ensureMvrFileInput() {
+    if (mvrFileInput) return mvrFileInput;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.mvr';
+    input.id = 'mvrFileInput';
+    input.style.display = 'none';
+    input.addEventListener('change', onMvrFileChosen);
+    document.body.appendChild(input);
+    mvrFileInput = input;
+    return input;
+  }
+
+  async function onMvrFileChosen(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    try {
+      const buf = await file.arrayBuffer();
+      const result = await MvrImport.parseMvrFile(buf);
+      mvrPreview = { fileName: file.name, entries: result.entries, warnings: result.warnings };
+      setStatus(`parsed ${result.entries.length} fixture(s) from ${file.name}`);
+      render();
+    } catch (err) {
+      setStatus('error: ' + err.message);
+    } finally {
+      // Reset so choosing the exact same file again still fires 'change'.
+      e.target.value = '';
+    }
   }
 
   function onEnterScreen() {
@@ -157,6 +202,7 @@ const PatchScreen = (() => {
           <button id="btnAddEntry" class="b5-btn b5-btn--sm b5-btn--primary">Add entry</button>
           <button id="btnAdoptMerge" class="b5-btn b5-btn--sm">Adopt discovered (merge)</button>
           <button id="btnAdoptFresh" class="b5-btn b5-btn--sm">Adopt discovered (replace patch)</button>
+          <button id="btnImportMvr" class="b5-btn b5-btn--sm">Import MVR&hellip;</button>
         </div>
         <span class="b5-filterbar__summary">${p ? escapeHtml(p.name || '(unnamed)') + ' — ' + entries.length + ' entr' + (entries.length === 1 ? 'y' : 'ies') : 'No patch yet — add an entry or adopt the discovered rig to start one.'}</span>
       </div>
@@ -176,6 +222,7 @@ const PatchScreen = (() => {
         </div>
       </div>
       ${renderCollisionBanner(collisions)}
+      <div id="mvrImportPreview"></div>
       <div class="b5-panel">
         <div class="b5-panel__body--flush">
           <table class="b5-table b5-table--responsive" id="patchEntriesTable">
@@ -203,6 +250,7 @@ const PatchScreen = (() => {
     document.getElementById('btnAddEntry').addEventListener('click', openNewEntry);
     document.getElementById('btnAdoptMerge').addEventListener('click', () => runAdopt('merge'));
     document.getElementById('btnAdoptFresh').addEventListener('click', () => runAdopt('fresh'));
+    document.getElementById('btnImportMvr').addEventListener('click', () => ensureMvrFileInput().click());
     document.getElementById('btnExportPatchJson').addEventListener('click', () => window.open(Api.patchExportUrl('json'), '_blank'));
     document.getElementById('btnExportPatchTxt').addEventListener('click', () => window.open(Api.patchExportUrl('txt'), '_blank'));
 
@@ -212,6 +260,87 @@ const PatchScreen = (() => {
 
     renderEntriesTableBody();
     renderEntryEditor();
+    renderMvrImportPreview();
+  }
+
+  // --- MVR import preview (Apply-to-confirm: parseMvrFile() above only
+  // builds this preview; nothing reaches the server until Import
+  // (merge/replace) is clicked here) --------------------------------------
+
+  function renderMvrImportPreview() {
+    const container = document.getElementById('mvrImportPreview');
+    if (!container) return;
+    if (!mvrPreview) {
+      container.innerHTML = '';
+      return;
+    }
+    const { fileName, entries, warnings } = mvrPreview;
+    container.innerHTML = `
+      <div class="b5-panel" style="margin-bottom:var(--b5-space-4)">
+        <div class="b5-panel__header"><h3 class="b5-panel__title">Import preview — ${escapeHtml(fileName)}</h3></div>
+        <div class="b5-panel__body b5-stack">
+          <p class="b5-text-sm">${entries.length} fixture${entries.length === 1 ? '' : 's'} parsed${warnings.length ? `, ${warnings.length} warning${warnings.length === 1 ? '' : 's'}` : ''}.</p>
+          ${warnings.length ? `
+            <div class="b5-alert b5-alert--caution">
+              ${UI.icon('status-warning')}
+              <div>
+                <p class="b5-alert__title">${warnings.length} warning${warnings.length === 1 ? '' : 's'}</p>
+                <ul style="margin:var(--b5-space-2) 0 0; padding-left:1.2em">
+                  ${warnings.map(w => `<li class="b5-text-sm">${escapeHtml(w)}</li>`).join('')}
+                </ul>
+              </div>
+            </div>
+          ` : ''}
+          <div class="b5-panel__body--flush" style="max-height:40vh;overflow-y:auto">
+            <table class="b5-table b5-table--responsive">
+              <thead><tr><th>Universe</th><th>Address</th><th>Name</th><th>Fixture type</th><th>Footprint</th></tr></thead>
+              <tbody>
+                ${entries.map(e => `
+                  <tr>
+                    <td data-label="Universe">${e.universe || 0}</td>
+                    <td data-label="Address">${e.startAddress || '—'}</td>
+                    <td data-label="Name">${escapeHtml(e.name || '—')}</td>
+                    <td data-label="Fixture type">${escapeHtml(e.fixtureType || '—')}</td>
+                    <td data-label="Footprint">${e.footprint || 0}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+          <div class="b5-row">
+            <button id="mvrImportMerge" class="b5-btn b5-btn--sm b5-btn--primary" ${mvrImporting ? 'disabled' : ''}>Import (merge)</button>
+            <button id="mvrImportFresh" class="b5-btn b5-btn--sm" ${mvrImporting ? 'disabled' : ''}>Import (replace patch)</button>
+            <button id="mvrImportCancel" class="b5-btn b5-btn--sm b5-btn--ghost" ${mvrImporting ? 'disabled' : ''}>Cancel</button>
+            ${mvrImporting ? `<span class="b5-inline-wait">${UI.spinner()}Importing…</span>` : ''}
+          </div>
+        </div>
+      </div>
+    `;
+    document.getElementById('mvrImportMerge').addEventListener('click', () => runMvrImport('merge'));
+    document.getElementById('mvrImportFresh').addEventListener('click', () => runMvrImport('fresh'));
+    document.getElementById('mvrImportCancel').addEventListener('click', () => {
+      mvrPreview = null;
+      renderMvrImportPreview();
+    });
+  }
+
+  async function runMvrImport(mode) {
+    if (!mvrPreview) return;
+    const verb = mode === 'fresh' ? 'REPLACE the current patch with' : 'merge into the current patch';
+    if (!confirm(`Import ${mvrPreview.entries.length} fixture(s) from "${mvrPreview.fileName}" — ${verb} entries parsed from this MVR file?`)) return;
+    mvrImporting = true;
+    renderMvrImportPreview();
+    try {
+      patchData = await Api.patchImport(mode, mvrPreview.entries);
+      setStatus(`imported ${mvrPreview.entries.length} entr${mvrPreview.entries.length === 1 ? 'y' : 'ies'} from ${mvrPreview.fileName}`);
+      mvrPreview = null;
+      mvrImporting = false;
+      await refresh();
+    } catch (e) {
+      mvrImporting = false;
+      setStatus('error: ' + e.message);
+      renderMvrImportPreview();
+    }
   }
 
   async function runAdopt(mode) {

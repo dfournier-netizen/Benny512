@@ -22,6 +22,7 @@
 //	POST   /api/patch/reconcile/{id}/fix          <- reconcileConfirmRequest -> patchResponse (one-tap SET DMX_START_ADDRESS + confirm)
 //	POST   /api/patch/reconcile/fix-all           <- fixAllRequest        -> fixAllResponse (confirm:false = preview only, never applies)
 //	POST   /api/patch/adopt                       <- adoptRequest         -> patchResponse
+//	POST   /api/patch/import                      <- importRequest       -> patchResponse
 //	GET    /api/patch/export?format=json|txt      -> file download
 //	GET    /api/patch/reconcile/export?format=json|txt -> file download
 //	GET    /api/patch/rigcheck                    -> rigCheckStateJSON
