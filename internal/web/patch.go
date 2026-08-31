@@ -436,7 +436,11 @@ func (s *Server) handlePatchReconcileFixAll(w http.ResponseWriter, r *http.Reque
 	}
 	rep := patch.Reconcile(p.Entries, devices)
 
-	var items []fixAllItemJSON
+	// Same defect class as internal/patch/collision.go's DetectCollisions
+	// (see its comment): items is serialized as fixAllResponse.Items, whose
+	// json tag has no `omitempty`, so a nil slice here would round-trip as
+	// JSON `null` on the zero-mismatches preview instead of `[]`.
+	items := make([]fixAllItemJSON, 0)
 	for _, row := range rep.Rows {
 		if row.Status != patch.StatusAddressMismatch || row.EntryID == "" || row.DeviceUID == "" {
 			continue
@@ -619,21 +623,74 @@ func (s *Server) handlePatchExport(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 
 	findings := patch.DetectCollisions(p)
+	universeBase := s.SettingsSnapshot().UniverseBase
 	switch format {
 	case "json":
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
+		// JSON is canonical, wire-format data (like every other API
+		// response) — Universe values here stay the 0-based Art-Net
+		// Port-Address regardless of the display-base setting; a consumer
+		// re-importing this file must get back the same numbers it would
+		// from GET /api/patch. Display conversion is a TXT-export-only
+		// concern (see writePatchExportText/composeFindingText below).
 		_ = enc.Encode(patchExportDoc{AppVersion: AppVersion, GeneratedAt: now, Patch: p, Findings: findings})
 	case "txt":
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		writePatchExportText(w, now, p, findings)
+		writePatchExportText(w, now, p, findings, universeBase)
 	}
 }
 
-func writePatchExportText(w io.Writer, at time.Time, p patch.Patch, findings []patch.Finding) {
+// displayUniverse converts a canonical, 0-based Art-Net Port-Address into
+// what a tech would see on screen at the given Settings.UniverseBase — the
+// exact formula ui.js's UI.formatUniverse uses client-side. This file's TXT
+// export has no browser to apply that conversion in, so it's the one place
+// in internal/web that legitimately reimplements it: the export IS the
+// presentation boundary for a downloaded file, same as ui.js is for the
+// live DOM. Every other Go-side use of Entry.Universe / Finding.Universe
+// must stay canonical (see collision.go's Finding.Message doc comment).
+func displayUniverse(raw uint16, base int) int {
+	return int(raw) + base
+}
+
+// composeFindingText renders f as the one-line sentence a human reads,
+// using patch.Patch p to resolve entry names and converting any universe
+// number to base via displayUniverse — the TXT-export mirror of patch.js's
+// renderCollisionBanner composer, so the collision banner on screen and
+// this export always state the same universe number for the same finding.
+// Every FindingKind DetectCollisions can produce today is handled
+// explicitly; an unrecognized future Kind falls back to f.Message, which by
+// contract (see Finding.Message's doc comment) never states a bare universe
+// number, so that fallback can never be wrong here either.
+func composeFindingText(p patch.Patch, f patch.Finding, base int) string {
+	switch f.Kind {
+	case patch.KindOverlap:
+		labels := make([]string, 0, len(f.EntryIDs))
+		for _, id := range f.EntryIDs {
+			if idx := p.IndexOf(id); idx >= 0 {
+				labels = append(labels, patch.EntryLabel(p.Entries[idx]))
+			} else {
+				labels = append(labels, id)
+			}
+		}
+		who := ""
+		for i, l := range labels {
+			if i > 0 {
+				who += " and "
+			}
+			who += fmt.Sprintf("%q", l)
+		}
+		return fmt.Sprintf("channels %d-%d overlap between %s in universe %d",
+			f.ChannelStart, f.ChannelEnd, who, displayUniverse(f.Universe, base))
+	default:
+		return f.Message
+	}
+}
+
+func writePatchExportText(w io.Writer, at time.Time, p patch.Patch, findings []patch.Finding, universeBase int) {
 	fmt.Fprintln(w, "Benny512 Patch Export")
 	fmt.Fprintf(w, "App version: %s\n", AppVersion)
 	fmt.Fprintf(w, "Generated:   %s\n", at.Format("2006-01-02 15:04:05 MST"))
@@ -644,7 +701,7 @@ func writePatchExportText(w io.Writer, at time.Time, p patch.Patch, findings []p
 	if len(findings) > 0 {
 		fmt.Fprintf(w, "%d collision finding(s):\n", len(findings))
 		for _, f := range findings {
-			fmt.Fprintf(w, "  [%s] %s: %s\n", strings.ToUpper(string(f.Severity)), f.Kind, f.Message)
+			fmt.Fprintf(w, "  [%s] %s: %s\n", strings.ToUpper(string(f.Severity)), f.Kind, composeFindingText(p, f, universeBase))
 		}
 		fmt.Fprintln(w)
 	}
@@ -652,7 +709,7 @@ func writePatchExportText(w io.Writer, at time.Time, p patch.Patch, findings []p
 	for i, e := range p.Entries {
 		fmt.Fprintf(w, "%3d. %s\n", i+1, patch.EntryLabel(e))
 		fmt.Fprintf(w, "     type: %s | mode: %s\n", nonEmptyStr(e.FixtureType, "—"), nonEmptyStr(e.Mode, "—"))
-		fmt.Fprintf(w, "     universe %d, %s\n", e.Universe, formatEntryAddressRange(e))
+		fmt.Fprintf(w, "     universe %d, %s\n", displayUniverse(e.Universe, universeBase), formatEntryAddressRange(e))
 		if e.Position != "" {
 			fmt.Fprintf(w, "     position: %s\n", e.Position)
 		}

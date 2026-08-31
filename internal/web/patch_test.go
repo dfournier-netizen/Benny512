@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"benny512/internal/artnet"
@@ -349,6 +350,72 @@ func TestPatchExport(t *testing.T) {
 		t.Fatalf("reconcile export json: status=%d", rr.Code)
 	}
 }
+
+// TestPatchExport_UniverseDisplayBase covers the export-side half of the
+// universe-numbering-base bug: the collision banner (client-composed, see
+// patch.js's composeFindingMessage) and the Patch table both show universe
+// N+base for a canonical entry in universe N, and the TXT export a tech
+// downloads and carries to the console must say the exact same number —
+// for both the entry listing and the collision finding line — not the raw
+// canonical value. GET /api/patch/export?format=json, by contrast, is wire
+// data (round-trips back into the app) and must stay canonical regardless
+// of the display setting.
+func TestPatchExport_UniverseDisplayBase(t *testing.T) {
+	h := newHarness(t)
+	doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", entryRequest{Name: "Practical 1", Universe: 5, StartAddress: 100, Footprint: 10})
+	doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", entryRequest{Name: "Practical 2", Universe: 5, StartAddress: 105, Footprint: 10})
+
+	for _, base := range []int{0, 1} {
+		rr := doJSON(t, h.srv.Handler(), "POST", "/api/settings", Settings{PollIntervalMS: 3000, CaptureLimit: 1000, TimeoutProfiles: map[string]string{}, UniverseBase: base})
+		if rr.Code != http.StatusOK {
+			t.Fatalf("POST settings base=%d: status=%d body=%s", base, rr.Code, rr.Body.String())
+		}
+
+		rr = doJSON(t, h.srv.Handler(), "GET", "/api/patch/export?format=txt", nil)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("export txt: status=%d", rr.Code)
+		}
+		body := rr.Body.String()
+		wantDisplayed := 5 + base
+		wantEntryLine := "universe " + itoa(wantDisplayed) + ","
+		if !bytes.Contains(rr.Body.Bytes(), []byte(wantEntryLine)) {
+			t.Errorf("base=%d: entry listing missing %q, got:\n%s", base, wantEntryLine, body)
+		}
+		wantFindingSuffix := "in universe " + itoa(wantDisplayed)
+		if !bytes.Contains(rr.Body.Bytes(), []byte(wantFindingSuffix)) {
+			t.Errorf("base=%d: collision finding line missing %q, got:\n%s", base, wantFindingSuffix, body)
+		}
+		// The other base's number must never appear as a universe number —
+		// the exact confusion this whole class of bug produces (banner and
+		// table disagreeing about which universe a fixture is in).
+		wrongDisplayed := 5 + (1 - base)
+		wrongEntryLine := "universe " + itoa(wrongDisplayed) + ","
+		if bytes.Contains(rr.Body.Bytes(), []byte(wrongEntryLine)) {
+			t.Errorf("base=%d: entry listing states the wrong-base universe number %q, got:\n%s", base, wrongEntryLine, body)
+		}
+
+		// JSON export is canonical wire data — always universe 5, never
+		// shifted by the display setting.
+		rr = doJSON(t, h.srv.Handler(), "GET", "/api/patch/export?format=json", nil)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("export json: status=%d", rr.Code)
+		}
+		var doc patchExportDoc
+		mustUnmarshal(t, rr, &doc)
+		for _, e := range doc.Patch.Entries {
+			if e.Universe != 5 {
+				t.Errorf("base=%d: JSON export entry universe = %d, want canonical 5", base, e.Universe)
+			}
+		}
+		for _, f := range doc.Findings {
+			if f.Kind == patch.KindOverlap && f.Universe != 5 {
+				t.Errorf("base=%d: JSON export finding universe = %d, want canonical 5", base, f.Universe)
+			}
+		}
+	}
+}
+
+func itoa(n int) string { return strconv.Itoa(n) }
 
 func TestPatchImport_Fresh(t *testing.T) {
 	h := newHarness(t)

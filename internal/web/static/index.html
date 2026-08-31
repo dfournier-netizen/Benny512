@@ -68,10 +68,17 @@
       <div class="b5-page-header">
         <h1 class="b5-page-header__title">Devices</h1>
       </div>
+      <div class="b5-panel" id="devicePickerPanel" style="margin-bottom:var(--b5-space-4)">
+        <div class="b5-panel__header">
+          <h2 class="b5-panel__title b5-text-sm">Target device / port</h2>
+          <span class="b5-text-muted b5-text-xs">Ports on the same physical device are grouped together — pick a device, then the port that Discover and port-scoped Clear act on.</span>
+        </div>
+        <div class="b5-panel__body--flush">
+          <div class="b5-accordion" id="devicePickerAccordion"></div>
+        </div>
+      </div>
       <div class="b5-filterbar">
         <div class="b5-filterbar__group">
-          <label class="b5-visually-hidden" for="fixtureNodeSelect">Node/port (discover target)</label>
-          <select id="fixtureNodeSelect" class="b5-select" style="width:auto"></select>
           <button id="btnDiscover" class="b5-btn b5-btn--sm b5-btn--primary"><svg><use href="/icons/benny512-icons.svg#b5-icon-signal"/></svg>Discover</button>
           <span class="b5-inline-wait" id="discoverStatus"></span>
         </div>

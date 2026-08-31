@@ -1,6 +1,10 @@
 package patch
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 func findingsOfKind(fs []Finding, kind FindingKind) []Finding {
 	var out []Finding
@@ -32,6 +36,32 @@ func TestDetectCollisions_NoOverlap(t *testing.T) {
 	}
 }
 
+// TestDetectCollisions_CollisionFreeMarshalsToEmptyArray guards against a
+// nil-slice regression: a collision-free patch must marshal to JSON `[]`,
+// not `null`. len(findings)==0 is true for both a nil slice and an
+// allocated-empty slice, so that assertion alone would pass vacuously
+// against the bug this test exists to catch — asserting on the actual
+// marshalled bytes is the only thing that distinguishes them. This
+// reproduces the bug that crashed the Patch screen with "Cannot read
+// properties of null (reading 'length')" on every clean patch, because the
+// server previously returned `null` for a patch with zero findings.
+func TestDetectCollisions_CollisionFreeMarshalsToEmptyArray(t *testing.T) {
+	p := Patch{Entries: []Entry{
+		{ID: "a", Universe: 0, StartAddress: 1, Footprint: 10},
+	}}
+	findings := DetectCollisions(p)
+	if findings == nil {
+		t.Fatal("DetectCollisions returned a nil slice for a collision-free patch; want a non-nil empty slice")
+	}
+	got, err := json.Marshal(findings)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	if string(got) != "[]" {
+		t.Errorf("json.Marshal(DetectCollisions(...)) = %s, want []", got)
+	}
+}
+
 func TestDetectCollisions_AdjacentButNotOverlapping(t *testing.T) {
 	// a occupies 1-10, b occupies 11-15: end of a is exactly start of b
 	// minus one. Must NOT be flagged.
@@ -60,6 +90,37 @@ func TestDetectCollisions_PartialOverlap(t *testing.T) {
 	}
 	if !hasEntryID(f, "a") || !hasEntryID(f, "b") {
 		t.Errorf("overlap finding should name both entries: %+v", f)
+	}
+}
+
+// TestDetectCollisions_OverlapMessageOmitsUniverseNumber guards the bug this
+// comment's sibling doc comment on Finding.Message describes: the collision
+// banner (Patch table shows universe N at the configured display base) and
+// this Message must never disagree about which universe a fixture is in.
+// The only way to guarantee that for every caller — including one that
+// falls back to Message verbatim — is for Message to never state a bare
+// (display-base-naive) universe number in the first place. Universe 7 is
+// chosen deliberately: at display base 0 the correct on-screen number is 7,
+// at base 1 it is 8 — if this test only checked for "in universe 6" (a
+// stale 0-based-plus-one guess) it could pass by accident.
+func TestDetectCollisions_OverlapMessageOmitsUniverseNumber(t *testing.T) {
+	p := Patch{Entries: []Entry{
+		{ID: "a", Name: "Practical 1", Universe: 7, StartAddress: 100, Footprint: 10}, // 100-109
+		{ID: "b", Name: "Practical 2", Universe: 7, StartAddress: 105, Footprint: 10}, // 105-114, overlaps 105-109
+	}}
+	findings := findingsOfKind(DetectCollisions(p), KindOverlap)
+	if len(findings) != 1 {
+		t.Fatalf("expected exactly 1 overlap finding, got %d: %+v", len(findings), findings)
+	}
+	f := findings[0]
+	if f.Universe != 7 {
+		t.Fatalf("finding.Universe = %d, want 7 (canonical, structured field)", f.Universe)
+	}
+	if strings.Contains(f.Message, "7") || strings.Contains(strings.ToLower(f.Message), "universe") {
+		t.Errorf("Message must never state a bare universe number (display base is not this package's concern): got %q", f.Message)
+	}
+	if !strings.Contains(f.Message, "Practical 1") || !strings.Contains(f.Message, "Practical 2") {
+		t.Errorf("Message should still name both entries: got %q", f.Message)
 	}
 }
 

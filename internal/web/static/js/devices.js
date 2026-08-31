@@ -45,10 +45,11 @@ const DevicesScreen = (() => {
   // --- Clear discovered devices (POST /api/devices/clear) -----------------
   // Arm-then-confirm, same shape as the node-config IP editor's Apply →
   // Arm → Confirm gate (nodes.js) minus the separate Apply step (there's no
-  // field to stage here — the "port" scope IS #fixtureNodeSelect's current
-  // value, so arming just freezes which port that confirm click will act
-  // on). Auto-disarms after a few seconds of inactivity so a stale armed
-  // button left on screen can't be mis-clicked later.
+  // field to stage here — the "port" scope IS the device/port picker's
+  // currently selected port (selectedScope, below), so arming just freezes
+  // which port that confirm click will act on). Auto-disarms after a few
+  // seconds of inactivity so a stale armed button left on screen can't be
+  // mis-clicked later.
   let clearArmed = null; // null | 'all' | 'port'
   let clearArmedScope = null; // the {ip,bindIndex,portAddress} frozen at arm time, for 'port'
   let clearBusy = false;
@@ -56,10 +57,154 @@ const DevicesScreen = (() => {
   let clearArmTimer = null;
   const CLEAR_ARM_TIMEOUT_MS = 8000;
 
-  function selectedNodePort() {
-    const sel = document.getElementById('fixtureNodeSelect');
-    if (!sel || !sel.value) return null;
-    try { return JSON.parse(sel.value); } catch (e) { return null; }
+  // --- Device/port picker ---------------------------------------------------
+  // An Art-Net node's ports all share one physical box. Some gateways (e.g.
+  // Obsidian's EN4, per the bench capture reproduced in demo.go's
+  // realEN4PortReplies) advertise that box as several ArtPollReply "nodes"
+  // at the SAME IP, one per physical port, each its own BindIndex — so
+  // grouping on NodeKey (IP, BindIndex), which is what distinguishes
+  // genuinely separate node identities elsewhere in this app (see
+  // internal/session/artnetsession.go), would still split that box into
+  // several top-level entries. IP alone is the key that reunites both
+  // shapes: a single-reply, NumPorts=4-style node (one nodes[] entry, many
+  // ports) and a bind-per-port node (many nodes[] entries at one IP, one
+  // port each) both collapse to one device group either way. Two distinct
+  // physical nodes coincidentally sharing an IP is not a real Art-Net
+  // scenario (nodes address a LAN individually), so this is safe.
+  //
+  // selectedScope is the {ip,bindIndex,portAddress} of the currently
+  // targeted port — the value Discover and armClear('port') act on. It
+  // replaces reading a <select>'s value; the picker is now an accordion of
+  // device groups, each containing one selectable port per row.
+  let selectedScope = null;
+  // expandedGroups tracks which device-group <details> the user has opened,
+  // keyed by IP, surviving the accordion's own re-renders (same pattern as
+  // walk.js's expandedSections) — a re-render must not silently collapse a
+  // group the tech just opened.
+  let expandedGroups = {};
+
+  function selectedNodePort() { return selectedScope; }
+
+  function portScopeKey(s) { return s ? `${s.ip}|${s.bindIndex}|${s.portAddress}` : ''; }
+
+  // deviceGroups collapses `nodes` (one entry per NodeKey, i.e. per
+  // IP+BindIndex, each with its own ports[]) into one entry per physical
+  // device (grouped by IP alone — see the doc comment on selectedScope
+  // above), each carrying every port from every NodeKey at that IP.
+  function deviceGroups() {
+    const order = [];
+    const byIP = {};
+    nodes.forEach(n => {
+      if (!byIP[n.ip]) { byIP[n.ip] = { ip: n.ip, entries: [], ports: [] }; order.push(n.ip); }
+      const g = byIP[n.ip];
+      g.entries.push(n);
+      (n.ports || []).forEach(p => {
+        g.ports.push({ ip: n.ip, bindIndex: n.bindIndex, portAddress: p.outputAddress, index: p.index, rdmEnabled: p.rdmEnabled, output: p.output, ownerName: n.shortName || n.longName || n.ip });
+      });
+    });
+    return order.map(ip => {
+      const g = byIP[ip];
+      return { ip, entries: g.entries, ports: g.ports, name: deviceGroupName(g.entries) };
+    });
+  }
+
+  // deviceGroupName prefers a name shared by every NodeKey contributing to
+  // this IP (the common case: one node, or a bind-per-port gateway that
+  // repeats its own long name on every reply — demo.go's realEN4PortReplies
+  // all report LongName "NETRON EN4" despite distinct per-port ShortNames).
+  // Falling back to the first entry's own name keeps a group labeled even
+  // when nothing agrees.
+  function deviceGroupName(entries) {
+    const longNames = Array.from(new Set(entries.map(n => n.longName).filter(Boolean)));
+    if (longNames.length === 1) return longNames[0];
+    const shortNames = Array.from(new Set(entries.map(n => n.shortName).filter(Boolean)));
+    if (shortNames.length === 1) return shortNames[0];
+    return entries[0].shortName || entries[0].longName || entries[0].ip;
+  }
+
+  function discoveredCountForPort(port) {
+    return fixtures.filter(f => f.nodeIp === port.ip && f.portAddress === port.portAddress).length;
+  }
+
+  function setSelectedScope(scope, opts) {
+    selectedScope = scope;
+    if (scope) expandedGroups[scope.ip] = true;
+    if (!(opts && opts.silent)) {
+      if (clearArmed === 'port') disarmClear(); else renderClearGroup();
+    }
+  }
+
+  function renderDevicePicker() {
+    const el = document.getElementById('devicePickerAccordion');
+    if (!el) return;
+    const groups = deviceGroups();
+    // If the current selection no longer exists (a node/port disappeared)
+    // or nothing is selected yet, default to the first available port so
+    // Discover/Clear always have a sane, visible target.
+    const stillValid = selectedScope && groups.some(g => g.ports.some(p =>
+      p.ip === selectedScope.ip && p.bindIndex === selectedScope.bindIndex && p.portAddress === selectedScope.portAddress));
+    if (!stillValid) {
+      const first = groups.find(g => g.ports.length);
+      selectedScope = first ? first.ports[0] : null;
+      if (selectedScope) expandedGroups[selectedScope.ip] = true;
+    }
+    if (!groups.length) {
+      el.innerHTML = `<p class="b5-text-muted b5-text-sm" style="margin:var(--b5-space-3)">No nodes discovered yet.</p>`;
+      return;
+    }
+    const focusedKey = document.activeElement && document.activeElement.name === 'devicePortRadio' ? document.activeElement.value : null;
+    el.innerHTML = groups.map(renderDeviceGroup).join('');
+    el.querySelectorAll('details.b5-accordion__item').forEach(d => {
+      d.addEventListener('toggle', () => { expandedGroups[d.dataset.ip] = d.open; });
+    });
+    el.querySelectorAll('input[name="devicePortRadio"]').forEach(r => {
+      r.addEventListener('change', () => {
+        setSelectedScope({ ip: r.dataset.ip, bindIndex: Number(r.dataset.bind), portAddress: Number(r.dataset.port) });
+      });
+    });
+    if (focusedKey) {
+      const toRefocus = el.querySelector(`input[name="devicePortRadio"][value="${CSS.escape(focusedKey)}"]`);
+      if (toRefocus) toRefocus.focus();
+    }
+    renderClearGroup();
+  }
+
+  function renderDeviceGroup(g) {
+    const discovered = fixtures.filter(f => f.nodeIp === g.ip).length;
+    const open = expandedGroups[g.ip] || g.ports.some(p => selectedScope && p.ip === selectedScope.ip && p.bindIndex === selectedScope.bindIndex && p.portAddress === selectedScope.portAddress);
+    return `
+      <details class="b5-accordion__item" data-ip="${escapeHtml(g.ip)}" ${open ? 'open' : ''}>
+        <summary class="b5-accordion__trigger">
+          <span>${escapeHtml(g.name)} <span class="b5-text-muted b5-text-sm">(${escapeHtml(g.ip)})</span>
+            ${UI.tag(`${g.ports.length} port${g.ports.length === 1 ? '' : 's'}`)}
+            ${discovered ? UI.tag(`${discovered} discovered`, 'info') : ''}
+          </span>
+          ${UI.icon('chevron-expand')}
+        </summary>
+        <div class="b5-accordion__panel">
+          ${g.ports.map(p => renderPortRow(g, p)).join('') || '<p class="b5-text-muted b5-text-sm">This device has no ports.</p>'}
+        </div>
+      </details>`;
+  }
+
+  function renderPortRow(g, p) {
+    const key = portScopeKey(p);
+    const checked = selectedScope && portScopeKey(selectedScope) === key;
+    const count = discoveredCountForPort(p);
+    // Only worth calling out which NodeKey (bind index) a port came from
+    // when the group actually spans more than one — the bind-per-port
+    // gateway shape (see the doc comment above deviceGroups). A single-node
+    // group would just repeat "Port N" (the port's own name is already
+    // shown), which reads as noise rather than disambiguation.
+    const ownerNote = g.entries.length > 1 ? ` (bind ${p.bindIndex})` : '';
+    return `
+      <label class="b5-checkbox b5-port-pick${checked ? ' is-selected' : ''}">
+        <input type="radio" name="devicePortRadio" value="${escapeHtml(key)}" data-ip="${escapeHtml(p.ip)}" data-bind="${p.bindIndex}" data-port="${p.portAddress}" ${checked ? 'checked' : ''}>
+        <span>Port ${p.index}${ownerNote} &mdash; universe ${UI.formatUniverse(p.portAddress)}
+          ${p.rdmEnabled ? '' : UI.tag('RDM off', 'warn')}
+          ${count ? UI.tag(`${count} discovered`, 'info') : UI.tag('none discovered')}
+        </span>
+      </label>`;
   }
 
   function nodePortLabel(scope) {
@@ -153,26 +298,15 @@ const DevicesScreen = (() => {
 
   async function refreshNodes() {
     nodes = await Api.getNodes();
-    const sel = document.getElementById('fixtureNodeSelect');
-    const prevValue = sel.value;
-    sel.innerHTML = '';
-    nodes.forEach(n => {
-      (n.ports || []).forEach(p => {
-        const opt = document.createElement('option');
-        opt.value = JSON.stringify({ ip: n.ip, bindIndex: n.bindIndex, portAddress: p.outputAddress });
-        opt.textContent = `${n.shortName || n.ip} — port ${p.index} (universe ${UI.formatUniverse(p.outputAddress)})`;
-        sel.appendChild(opt);
-      });
-    });
-    if (prevValue) sel.value = prevValue;
+    renderDevicePicker();
     refreshFilterOptions();
-    renderClearGroup();
   }
 
   async function refreshFixtures() {
     fixtures = await Api.getFixtures();
     refreshFilterOptions();
     render();
+    renderDevicePicker();
     classifyUnknown();
   }
 
@@ -433,11 +567,10 @@ const DevicesScreen = (() => {
 
   function init() {
     document.getElementById('btnDiscover').addEventListener('click', discover);
-    // Changing the node/port selection while a 'port'-scope clear is armed
-    // would let a confirm click fire against a port the tech isn't looking
-    // at any more — disarm rather than silently retarget.
-    const nodePortSel = document.getElementById('fixtureNodeSelect');
-    if (nodePortSel) nodePortSel.addEventListener('change', () => { if (clearArmed === 'port') disarmClear(); else renderClearGroup(); });
+    // Changing the port selection while a 'port'-scope clear is armed would
+    // let a confirm click fire against a port the tech isn't looking at any
+    // more — setSelectedScope (wired from each port radio's 'change' in
+    // renderDevicePicker) disarms rather than silently retargeting.
     renderClearGroup();
     // A clear can be triggered from any open browser (task ask) — refresh
     // this one's table either way; our own confirmClear() already awaits
@@ -445,8 +578,9 @@ const DevicesScreen = (() => {
     // it's our own action, and the only refresh when it's someone else's.
     Live.on('devices_cleared', () => { refreshFixtures(); });
     // Universe base changed on the Settings screen — refresh the universe
-    // filter dropdown's labels and the table's Node/Port column in place.
-    window.addEventListener('b5-universe-base-changed', () => { refreshFilterOptions(); render(); });
+    // filter dropdown's labels, the device/port picker's universe labels,
+    // and the table's Node/Port column in place.
+    window.addEventListener('b5-universe-base-changed', () => { refreshFilterOptions(); render(); renderDevicePicker(); });
 
     const classSel = document.getElementById('deviceClassFilter');
     if (classSel) {
@@ -507,10 +641,9 @@ const DevicesScreen = (() => {
   }
 
   async function discover() {
-    const sel = document.getElementById('fixtureNodeSelect');
     const status = document.getElementById('discoverStatus');
-    if (!sel.value) { status.textContent = 'no node/port selected'; return; }
-    const { ip, bindIndex, portAddress } = JSON.parse(sel.value);
+    if (!selectedScope) { status.textContent = 'no device/port selected'; return; }
+    const { ip, bindIndex, portAddress } = selectedScope;
     status.innerHTML = UI.spinner() + 'discovering…';
     try {
       const res = await Api.discover(ip, bindIndex, portAddress);

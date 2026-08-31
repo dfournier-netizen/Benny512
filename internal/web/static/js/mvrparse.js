@@ -29,13 +29,42 @@
 // both the documented casing and the capitalized variant seen in some
 // exports), then a same-named child element's text content.
 //
-// Address -> universe/startAddress conversion mirrors Benny512's own
-// architecture notes for absolute-DMX-address flattening: address N is
-// 1-based and flattened across 512-channel universes, so
-//   universe      = floor((N-1)/512) + 1
-//   startAddress  = ((N-1) % 512) + 1
-// (verbatim — e.g. N=513 -> universe 2, startAddress 1; do not re-derive a
-// different formula here).
+// Address -> universe/startAddress conversion.
+//
+// CONVENTION MISMATCH (confirmed bug, fixed here — see git history/task
+// notes for the postmortem): the MVR/GDTF spec's absolute DMX address N is
+// 1-based and flattened across 512-channel universes using a 1-based
+// universe count (universe 1 = addresses 1-512, universe 2 = 513-1024,
+// ...). Benny512's OWN canonical internal representation, however, is the
+// 0-based Art-Net Port-Address — see patch.Entry.Universe's doc comment
+// ("Art-Net Port-Address (raw value, 0-32767)") and
+// artnet.PortAddressFromRaw, which every consumer of Entry.Universe
+// (internal/patch/rigcheck.go, internal/session/dmxout.go) feeds straight
+// through with NO +1/-1 adjustment anywhere else in the app. Manually
+// entered and adopt-from-RDM entries were always correct because they were
+// authored/derived directly in 0-based terms; only this MVR path was
+// wrong, converting to MVR's 1-based universe numbering and then storing
+// that mismatched number as if it were the canonical 0-based value — every
+// MVR-imported fixture landed ONE UNIVERSE TOO HIGH on the wire.
+//
+//   MVR-1-based universe = floor((N-1)/512) + 1   (the spec's own number)
+//   canonical 0-based    = floor((N-1)/512)       (what this module now
+//                                                   returns — subtract 1
+//                                                   from the spec formula,
+//                                                   do NOT add it)
+//   startAddress          = ((N-1) % 512) + 1       (unchanged either way —
+//                                                     already 1-based both
+//                                                     in MVR and in Entry)
+//
+// e.g. N=513 -> MVR calls this "universe 2" (its own 1-based notation) but
+// this module returns universe=1, startAddress=1 — the 0-based canonical
+// pair that, once patched, actually drives Art-Net universe 1 (raw
+// Port-Address 1), matching what Vectorworks/MVR shows as "universe 2" in
+// its 1-based UI. The display-notation layer (UI.formatUniverse/
+// parseUniverse in ui.js, driven by the Settings "universe numbering base"
+// which defaults to 1) re-adds that +1 ONLY at the presentation boundary —
+// callers of this module must never re-apply a +1/-1 themselves, or the
+// conversion silently doubles up again.
 const MvrParse = (() => {
   function parseXml(xmlString) {
     const doc = new DOMParser().parseFromString(xmlString, 'application/xml');
@@ -121,9 +150,11 @@ const MvrParse = (() => {
     return { chosen, extraBreaks };
   }
 
-  // absoluteToUniverseAddress: see file header formula.
+  // absoluteToUniverseAddress: see file header formula. Returns the
+  // CANONICAL 0-based universe (not MVR's own 1-based notation) — do not
+  // add 1 here; see the file header's "CONVENTION MISMATCH" note for why.
   function absoluteToUniverseAddress(n) {
-    const universe = Math.floor((n - 1) / 512) + 1;
+    const universe = Math.floor((n - 1) / 512);
     const startAddress = ((n - 1) % 512) + 1;
     return { universe, startAddress };
   }

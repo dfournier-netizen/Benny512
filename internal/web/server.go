@@ -420,6 +420,12 @@ func toNodeJSON(n registry.NodeView) nodeJSON {
 		ShortName: n.ShortName, LongName: n.LongName, Style: n.Style.String(),
 		RDMCapable: n.RDMCapable, Stale: n.Stale, LastSeen: n.LastSeen,
 		FixtureCount: n.FixtureCount,
+		// Same defect class as internal/patch/collision.go's
+		// DetectCollisions: Ports has no `omitempty`, so it must start
+		// non-nil or a node with an empty Ports slice would serialize as
+		// "ports":null instead of "ports":[] — which the Devices screen's
+		// multi-port grouping/expansion reads as an array unconditionally.
+		Ports: make([]nodePortJSON, 0, len(n.Ports)),
 	}
 	for _, p := range n.Ports {
 		out.Ports = append(out.Ports, nodePortJSON{

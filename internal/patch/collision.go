@@ -50,7 +50,25 @@ const (
 type Finding struct {
 	Kind     FindingKind `json:"kind"`
 	Severity Severity    `json:"severity"`
-	Message  string      `json:"message"`
+	// Message is a human-readable, English fallback description, meant for
+	// a renderer that has no per-Kind composer of its own (see the Patch
+	// screen's renderCollisionBanner in patch.js, and internal/web's
+	// composeFindingText for the TXT export — both build their own sentence
+	// from this struct's structured fields for every Kind DetectCollisions
+	// can produce today, and only fall back to this string for a Kind they
+	// don't recognize).
+	//
+	// INVARIANT: Message must never state a bare universe number. Universe
+	// here is the canonical, 0-based Art-Net Port-Address — not what a tech
+	// sees on screen, which is shifted by Settings.UniverseBase (see
+	// server.go's doc comment on that field). A raw number in prose reads
+	// as authoritative and, at the wrong display base, is flatly wrong —
+	// exactly the bug this comment exists to prevent recurring (a collision
+	// banner reading "universe 5" next to a Patch table reading "universe
+	// 6" for the same fixtures). If a future Kind's message needs to state
+	// which universe, give it a structured composer on both the Go export
+	// side and patch.js's client side instead of writing the number here.
+	Message string `json:"message"`
 	// EntryIDs lists every entry this finding concerns (2+ for overlap/
 	// duplicate-fixture-number, exactly 1 for overflow/zero-footprint/
 	// invalid-address).
@@ -70,7 +88,12 @@ type Finding struct {
 // fixture numbers in patch order) so tests and the UI never see findings
 // reshuffle between calls on the same input.
 func DetectCollisions(p Patch) []Finding {
-	var findings []Finding
+	// findings is initialized to a non-nil, empty slice (not `var findings
+	// []Finding`) so a collision-free patch marshals to JSON `[]`, not
+	// `null` — the caller (internal/web's /api/patch/collisions handler)
+	// returns this slice straight through json.Marshal, and the Patch
+	// screen JS iterates the response assuming an array.
+	findings := make([]Finding, 0)
 
 	// --- per-entry checks: invalid address, zero footprint, overflow -----
 	for _, e := range p.Entries {
@@ -129,8 +152,12 @@ func DetectCollisions(p Patch) []Finding {
 					ea, eb := p.Entries[a.idx], p.Entries[b.idx]
 					findings = append(findings, Finding{
 						Kind: KindOverlap, Severity: SeverityError,
-						Message: fmt.Sprintf("channels %d-%d overlap between %q and %q in universe %d",
-							lo, hi, EntryLabel(ea), EntryLabel(eb), universe),
+						// Deliberately does not state the universe number in
+						// prose — see Message's doc comment above. Universe
+						// is still on the struct (below) for any composer
+						// that wants to display it correctly.
+						Message: fmt.Sprintf("channels %d-%d overlap between %q and %q",
+							lo, hi, EntryLabel(ea), EntryLabel(eb)),
 						EntryIDs: []string{ea.ID, eb.ID}, Universe: universe,
 						ChannelStart: uint16(lo), ChannelEnd: uint16(hi),
 					})

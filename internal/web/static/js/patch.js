@@ -22,6 +22,20 @@ const PatchScreen = (() => {
   let active = false; // this screen is the current tab
   let view = 'entries'; // 'entries' | 'reconcile' | 'rigcheck'
   let patchData = { active: false };
+  // collisions: findings from GET /api/patch/collisions. Every fetch of it
+  // below is guarded with `|| []` — found during Phase C render-proofing
+  // against a real ~20MB show file: internal/patch.DetectCollisions
+  // (internal/patch/collision.go) used to declare `var findings []Finding`
+  // and never initialize it when a patch had zero findings, so
+  // encoding/json marshalled that nil slice as JSON `null` rather than
+  // `[]` (a plain `[]Finding` var is nil until the first append). The
+  // client then crashed on the very next render (renderCollisionBanner did
+  // `findings.length` on `null`) for ANY clean patch, MVR-imported or
+  // not. The root cause is now fixed server-side (collision.go builds
+  // findings with `make([]Finding, 0)`, backed by a test asserting the
+  // marshalled JSON is `[]`, not just len==0) — these `|| []` guards stay
+  // as defense-in-depth, not because the server bug is still open.
+  // Not the same bug as the Task-1 universe off-by-one.
   let collisions = [];
   let reconcile = null;
   let rigCheckState = null;
@@ -58,6 +72,17 @@ const PatchScreen = (() => {
   let mvrPreview = null; // null | { fileName, entries, warnings }
   let mvrImporting = false;
 
+  // Single-GDTF import state (task ask: "import a single .gdtf file and
+  // match it to a fixture type" — the motivating case is a GDTFSpec an MVR
+  // referenced but didn't embed, supplied by hand afterward so the entries
+  // that landed at footprint 0 can pick up their real mode/footprint).
+  // Apply-to-confirm: parsing only builds a preview; nothing is written
+  // until the preview's own "Apply" button is clicked, same contract as
+  // the MVR import preview above.
+  let gdtfFileInput = null;
+  let gdtfPreview = null; // null | { fileName, parsed, selectedModeIndex, matches }
+  let gdtfApplying = false;
+
   // Rig check setup state.
   let rcScopeKind = sessionStorage.getItem('benny512.patch.rcScopeKind') || 'all';
   let rcScopeUniverse = 0;
@@ -76,6 +101,7 @@ const PatchScreen = (() => {
       if (active) Api.rigCheckStopBeacon();
     });
     ensureMvrFileInput();
+    ensureGdtfFileInput();
     // Universe base changed on the Settings screen — re-render every
     // universe number currently on screen (notation only, no data refetch
     // needed: patchData already holds the true 0-based values).
@@ -117,6 +143,60 @@ const PatchScreen = (() => {
     }
   }
 
+  // ensureGdtfFileInput: same pattern as ensureMvrFileInput above — created
+  // once, kept off-screen, survives re-renders, clicked programmatically by
+  // the "Import GDTF…" toolbar button.
+  function ensureGdtfFileInput() {
+    if (gdtfFileInput) return gdtfFileInput;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.gdtf';
+    input.id = 'gdtfFileInput';
+    input.style.display = 'none';
+    input.addEventListener('change', onGdtfFileChosen);
+    document.body.appendChild(input);
+    gdtfFileInput = input;
+    return input;
+  }
+
+  async function onGdtfFileChosen(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    try {
+      const buf = await file.arrayBuffer();
+      const parsed = await MvrImport.parseGdtfFile(buf);
+      const matches = computeGdtfMatches(parsed);
+      gdtfPreview = { fileName: file.name, parsed, selectedModeIndex: 0, matches };
+      setStatus(`parsed "${parsed.fixtureType || '(unnamed fixture type)'}" from ${file.name} — ` +
+        `${parsed.modes.length} mode${parsed.modes.length === 1 ? '' : 's'}, ${matches.length} matching patch entr${matches.length === 1 ? 'y' : 'ies'}`);
+      render();
+    } catch (err) {
+      gdtfPreview = null;
+      setStatus('error: ' + err.message);
+      render();
+    } finally {
+      e.target.value = '';
+    }
+  }
+
+  // computeGdtfMatches: every current patch entry whose fixtureType matches
+  // the GDTF's "Manufacturer Model" string, trimmed/case-insensitive (task
+  // ask: "at minimum to all entries whose fixtureType matches" — the
+  // fallback entry a failed MVR import produces uses the fixture's own MVR
+  // <name> as fixtureType (see mvrimport.js's buildFallbackEntry), and
+  // fixtureType is free text per entry.go's doc comment, so an exact
+  // case-sensitive match would miss real-world capitalization drift; a
+  // trimmed case-insensitive compare is the same leniency match.js already
+  // uses for RDM-reconcile fuzzy matching, just not tokenized — this is a
+  // "the same type" identity match, not a fuzzy-confidence one).
+  function computeGdtfMatches(parsed) {
+    const p = patchData.active ? patchData.patch : null;
+    const entries = (p && p.entries) || [];
+    const want = (parsed.fixtureType || '').trim().toLowerCase();
+    if (!want) return [];
+    return entries.filter(e => (e.fixtureType || '').trim().toLowerCase() === want);
+  }
+
   function onEnterScreen() {
     active = true;
     refresh();
@@ -140,7 +220,7 @@ const PatchScreen = (() => {
       statusMsg = 'error: ' + e.message;
     }
     try {
-      collisions = patchData.active ? await Api.getPatchCollisions() : [];
+      collisions = patchData.active ? (await Api.getPatchCollisions() || []) : [];
     } catch (e) { /* best-effort */ }
     if (view === 'reconcile') await refreshReconcile();
     if (view === 'rigcheck') await refreshRigCheck();
@@ -223,6 +303,7 @@ const PatchScreen = (() => {
           <button id="btnAdoptMerge" class="b5-btn b5-btn--sm">Adopt discovered (merge)</button>
           <button id="btnAdoptFresh" class="b5-btn b5-btn--sm">Adopt discovered (replace patch)</button>
           <button id="btnImportMvr" class="b5-btn b5-btn--sm">Import MVR&hellip;</button>
+          <button id="btnImportGdtf" class="b5-btn b5-btn--sm">Import GDTF&hellip;</button>
         </div>
         <span class="b5-filterbar__summary">${p ? escapeHtml(p.name || '(unnamed)') + ' — ' + entries.length + ' entr' + (entries.length === 1 ? 'y' : 'ies') : 'No patch yet — add an entry or adopt the discovered rig to start one.'}</span>
       </div>
@@ -243,6 +324,7 @@ const PatchScreen = (() => {
       </div>
       ${renderCollisionBanner(collisions)}
       <div id="mvrImportPreview"></div>
+      <div id="gdtfImportPreview"></div>
       <div class="b5-panel">
         <div class="b5-panel__body--flush">
           <table class="b5-table b5-table--responsive" id="patchEntriesTable">
@@ -272,6 +354,7 @@ const PatchScreen = (() => {
     document.getElementById('btnAdoptMerge').addEventListener('click', () => runAdopt('merge'));
     document.getElementById('btnAdoptFresh').addEventListener('click', () => runAdopt('fresh'));
     document.getElementById('btnImportMvr').addEventListener('click', () => ensureMvrFileInput().click());
+    document.getElementById('btnImportGdtf').addEventListener('click', () => ensureGdtfFileInput().click());
     document.getElementById('btnExportPatchJson').addEventListener('click', () => window.open(Api.patchExportUrl('json'), '_blank'));
     document.getElementById('btnExportPatchTxt').addEventListener('click', () => window.open(Api.patchExportUrl('txt'), '_blank'));
 
@@ -282,6 +365,7 @@ const PatchScreen = (() => {
     renderEntriesTableBody();
     renderEntryEditor();
     renderMvrImportPreview();
+    renderGdtfImportPreview();
   }
 
   // --- MVR import preview (Apply-to-confirm: parseMvrFile() above only
@@ -364,6 +448,135 @@ const PatchScreen = (() => {
     }
   }
 
+  // --- single-GDTF import preview (task ask: import one .gdtf file, match
+  // it to a fixture type, apply to matching entries — apply-to-confirm,
+  // same contract as the MVR import preview above: parsing only builds
+  // this preview, nothing is written until "Apply" is clicked) -----------
+
+  function renderGdtfImportPreview() {
+    const container = document.getElementById('gdtfImportPreview');
+    if (!container) return;
+    if (!gdtfPreview) {
+      container.innerHTML = '';
+      return;
+    }
+    const { fileName, parsed, selectedModeIndex, matches } = gdtfPreview;
+    const modes = parsed.modes || [];
+    const mode = modes[selectedModeIndex] || null;
+    const fixtureType = parsed.fixtureType || '(unnamed fixture type)';
+
+    let body;
+    if (!modes.length) {
+      body = `
+        <div class="b5-alert b5-alert--caution">
+          ${UI.icon('status-warning')}
+          <div><p class="b5-alert__title">No DMX modes found in this GDTF file</p>
+          <p class="b5-text-sm">The file parsed, but "${escapeHtml(fixtureType)}" has no &lt;DMXMode&gt; entries — there is nothing to apply.</p></div>
+        </div>
+      `;
+    } else if (!matches.length) {
+      body = `
+        <div class="b5-alert b5-alert--caution">
+          ${UI.icon('status-warning')}
+          <div><p class="b5-alert__title">No patch entries match this fixture type</p>
+          <p class="b5-text-sm">No entry in the current patch has fixture type "${escapeHtml(fixtureType)}" exactly (case-insensitive). Nothing to apply — check the entry's "Fixture type" field matches this GDTF's manufacturer/model.</p></div>
+        </div>
+      `;
+    } else {
+      body = `
+        <p class="b5-text-sm">${matches.length} patch entr${matches.length === 1 ? 'y matches' : 'ies match'} fixture type "${escapeHtml(fixtureType)}".</p>
+        ${modes.length > 1 ? `
+          <div class="b5-field">
+            <label class="b5-field__label" for="gdtfModeSelect">DMX mode to apply</label>
+            <select id="gdtfModeSelect" class="b5-select">
+              ${modes.map((m, i) => `<option value="${i}" ${i === selectedModeIndex ? 'selected' : ''}>${escapeHtml(m.name || '(unnamed mode)')} — ${m.footprint} ch</option>`).join('')}
+            </select>
+          </div>
+        ` : `<p class="b5-text-sm b5-text-muted">Mode: ${escapeHtml(mode.name || '(unnamed mode)')} — ${mode.footprint} channels (only mode in this file).</p>`}
+        <div class="b5-panel__body--flush" style="max-height:40vh;overflow-y:auto">
+          <table class="b5-table b5-table--responsive">
+            <thead><tr><th>Name</th><th>Universe</th><th>Address</th><th>Footprint (old &rarr; new)</th></tr></thead>
+            <tbody>
+              ${matches.map(e => `
+                <tr>
+                  <td data-label="Name">${escapeHtml(e.name || e.fixtureType || e.id)}</td>
+                  <td data-label="Universe">${UI.formatUniverse(e.universe)}</td>
+                  <td data-label="Address">${e.startAddress || '—'}</td>
+                  <td data-label="Footprint">${e.footprint || 0} &rarr; <strong>${mode.footprint}</strong></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div class="b5-row">
+          <button id="gdtfApply" class="b5-btn b5-btn--sm b5-btn--primary" ${gdtfApplying ? 'disabled' : ''}>Apply mode "${escapeHtml(mode.name || '(unnamed)')}" to ${matches.length} entr${matches.length === 1 ? 'y' : 'ies'}&hellip;</button>
+          <button id="gdtfCancel" class="b5-btn b5-btn--sm b5-btn--ghost" ${gdtfApplying ? 'disabled' : ''}>Cancel</button>
+          ${gdtfApplying ? `<span class="b5-inline-wait">${UI.spinner()}Applying…</span>` : ''}
+        </div>
+      `;
+    }
+
+    container.innerHTML = `
+      <div class="b5-panel" style="margin-bottom:var(--b5-space-4)">
+        <div class="b5-panel__header"><h3 class="b5-panel__title">Import GDTF — ${escapeHtml(fileName)}</h3></div>
+        <div class="b5-panel__body b5-stack">
+          <p class="b5-text-sm b5-text-muted">${escapeHtml(parsed.manufacturer || '—')} / ${escapeHtml(parsed.model || '—')}</p>
+          ${body}
+          ${(!matches.length || !modes.length) ? `<div class="b5-row"><button id="gdtfCancel" class="b5-btn b5-btn--sm b5-btn--ghost">Close</button></div>` : ''}
+        </div>
+      </div>
+    `;
+    const modeSel = document.getElementById('gdtfModeSelect');
+    if (modeSel) modeSel.addEventListener('change', (e) => {
+      gdtfPreview.selectedModeIndex = Number(e.target.value);
+      renderGdtfImportPreview();
+    });
+    document.querySelectorAll('#gdtfCancel').forEach(btn => btn.addEventListener('click', () => {
+      gdtfPreview = null;
+      renderGdtfImportPreview();
+    }));
+    const applyBtn = document.getElementById('gdtfApply');
+    if (applyBtn) applyBtn.addEventListener('click', runGdtfApply);
+  }
+
+  async function runGdtfApply() {
+    if (!gdtfPreview) return;
+    const { parsed, selectedModeIndex, matches } = gdtfPreview;
+    const mode = (parsed.modes || [])[selectedModeIndex];
+    if (!mode || !matches.length) return;
+    const n = matches.length;
+    const lines = matches.slice(0, 25)
+      .map(e => `  ${e.name || e.fixtureType || e.id}: footprint ${e.footprint || 0} → ${mode.footprint}`)
+      .join('\n');
+    const more = n > 25 ? `\n  ...and ${n - 25} more` : '';
+    if (!confirm(
+      `Apply mode "${mode.name || '(unnamed)'}" (${mode.footprint} channels) from "${parsed.fixtureType}" to ${n} matching ` +
+      `patch entr${n === 1 ? 'y' : 'ies'}? Only mode/footprint change — name, universe, address, position, fixture ` +
+      `number and any confirmed RDM pairing are left exactly as they are.\n\n${lines}${more}`
+    )) return;
+    gdtfApplying = true;
+    renderGdtfImportPreview();
+    const errors = [];
+    for (const e of matches) {
+      const draft = {
+        name: e.name || '', fixtureType: e.fixtureType || '', mode: mode.name || '',
+        footprint: mode.footprint || 0, universe: e.universe || 0, startAddress: e.startAddress || 1,
+        position: e.position || '', fixtureNumber: e.fixtureNumber || '', notes: e.notes || '',
+      };
+      try {
+        patchData = await Api.updatePatchEntry(e.id, draft);
+      } catch (err) {
+        errors.push((e.name || e.fixtureType || e.id) + ': ' + err.message);
+      }
+    }
+    gdtfApplying = false;
+    setStatus(errors.length ? `applied GDTF mode to ${n - errors.length} of ${n}, ${errors.length} error(s)` : `applied GDTF mode to ${n} entries`);
+    try { collisions = patchData.active ? (await Api.getPatchCollisions() || []) : []; } catch (e) { /* best-effort */ }
+    if (!errors.length) gdtfPreview = null;
+    render();
+    if (errors.length) setStatus('error applying to some entries: ' + errors.join('; '));
+  }
+
   async function runAdopt(mode) {
     const verb = mode === 'fresh' ? 'REPLACE the current patch with' : 'merge into the current patch';
     if (!confirm(`Adopt the currently discovered rig — ${verb} entries built from live RDM devices (name/type/footprint/universe/address from what's on the network right now, UID pre-confirmed)?`)) return;
@@ -372,6 +585,24 @@ const PatchScreen = (() => {
       setStatus('adopted from discovered rig');
       await refresh();
     } catch (e) { setStatus('error: ' + e.message); }
+  }
+
+  // composeFindingMessage: the client-side mirror of internal/web/patch.go's
+  // composeFindingText — the one place a finding's structured fields become
+  // the sentence a human reads on screen. f.message (from GET
+  // /api/patch/collisions) is server-authored English but, by contract (see
+  // internal/patch/collision.go's Finding.Message doc comment), never states
+  // a bare universe number — the number is always display-base-shifted here
+  // via UI.formatUniverse, from the canonical f.universe field, so the
+  // banner and the Universe column always agree by construction. Every Kind
+  // that needs to state a universe (today, just "overlap") gets a case
+  // below; any other Kind's f.message is already safe to show verbatim and
+  // needs no composing.
+  function composeFindingMessage(f) {
+    if (f.kind === 'overlap') {
+      return `${f.message} in universe ${UI.formatUniverse(f.universe)}`;
+    }
+    return f.message;
   }
 
   // renderCollisionBanner: text+glyph, never color alone (accessibility
@@ -385,7 +616,7 @@ const PatchScreen = (() => {
         <div>
           <p class="b5-alert__title">${findings.length} patch issue${findings.length === 1 ? '' : 's'} found</p>
           <ul style="margin:var(--b5-space-2) 0 0; padding-left:1.2em">
-            ${findings.map(f => `<li class="b5-text-sm">${severityBadge(f.severity)} ${escapeHtml(f.message)}</li>`).join('')}
+            ${findings.map(f => `<li class="b5-text-sm">${severityBadge(f.severity)} ${escapeHtml(composeFindingMessage(f))}</li>`).join('')}
           </ul>
         </div>
       </div>
@@ -523,7 +754,7 @@ const PatchScreen = (() => {
     try {
       patchData = await Api.deletePatchEntry(id);
       setStatus('entry deleted');
-      collisions = patchData.active ? await Api.getPatchCollisions() : [];
+      collisions = patchData.active ? (await Api.getPatchCollisions() || []) : [];
       renderEntriesTableBody();
     } catch (e2) { setStatus('error: ' + e2.message); }
   }
@@ -664,7 +895,7 @@ const PatchScreen = (() => {
           setStatus('entry saved');
         }
         editingEntry = null; entryDraft = null;
-        collisions = patchData.active ? await Api.getPatchCollisions() : [];
+        collisions = patchData.active ? (await Api.getPatchCollisions() || []) : [];
         render();
       } catch (e) {
         errEl.innerHTML = UI.icon('status-error') + ('error: ' + escapeHtml(e.message));
@@ -711,6 +942,19 @@ const PatchScreen = (() => {
               <span class="b5-field__actions"><button id="bulkApplyPosition" class="b5-btn b5-btn--sm b5-btn--primary" ${bulkApplying ? 'disabled' : ''}>${UI.icon('apply')}Apply</button></span>
             </div>
           </div>
+          <div class="b5-field" style="border-top:1px solid var(--b5-border-subtle);padding-top:var(--b5-space-3)">
+            <label class="b5-field__label">Fix pre-fix MVR import (one-time correction)</label>
+            <span class="b5-field__hint">
+              Patches imported from MVR before the universe off-by-one fix were stored one
+              universe too high. Select ONLY the affected entries above, then shift them down
+              by exactly one universe. Start addresses are unchanged. Re-selecting and running
+              this again on already-corrected entries WILL shift them too far — check the
+              before/after list in the confirmation carefully.
+            </span>
+            <div class="b5-field__row" style="margin-top:var(--b5-space-2)">
+              <button id="bulkShiftDown" class="b5-btn b5-btn--sm" ${bulkApplying ? 'disabled' : ''}>Shift selected down one universe&hellip;</button>
+            </div>
+          </div>
           <div class="b5-row">
             <button id="bulkClearSelection" class="b5-btn b5-btn--sm b5-btn--ghost" ${bulkApplying ? 'disabled' : ''}>Clear selection</button>
             ${bulkApplying ? `<span class="b5-inline-wait">${UI.spinner()}Applying…</span>` : ''}
@@ -725,6 +969,75 @@ const PatchScreen = (() => {
     document.getElementById('bulkPosition').addEventListener('input', (e) => { bulkDraft.position = e.target.value; });
     document.getElementById('bulkApplyUniverse').addEventListener('click', () => runBulkApply('universe', selected));
     document.getElementById('bulkApplyPosition').addEventListener('click', () => runBulkApply('position', selected));
+    document.getElementById('bulkShiftDown').addEventListener('click', () => runShiftDownOneUniverse(selected));
+  }
+
+  // runShiftDownOneUniverse: the Task-1 migration action for patches that
+  // were imported from MVR before the universe off-by-one fix (see
+  // mvrparse.js's "CONVENTION MISMATCH" comment). Deliberately NOT an
+  // automatic startup migration — this app cannot reliably tell an
+  // MVR-imported entry apart from a hand-entered or adopt-from-RDM one
+  // (entryRequest/patch.Entry carry no provenance field), so silently
+  // reinterpreting every entry's universe on load risks shifting entries
+  // that were never wrong in the first place. Instead this is an explicit,
+  // user-aimed, selection-scoped action: the tech selects exactly the rows
+  // they know came from the affected MVR import (the existing multi-select
+  // checkboxes/shift-click range-select already built for bulk edit), the
+  // confirm() dialog lists every entry's exact old -> new universe so a
+  // mis-selection is visible before anything is sent, and a universe-0
+  // entry in the selection (which cannot shift down without going
+  // negative) aborts the WHOLE batch rather than silently clamping one
+  // entry — better to force the tech to look again than to leave a subset
+  // silently unshifted. Selection is cleared after a successful run so an
+  // accidental second click of this button (now with 0 selected) is a
+  // no-op instead of a silent double-shift.
+  async function runShiftDownOneUniverse(selected) {
+    const errEl = document.getElementById('bulkError');
+    errEl.innerHTML = '';
+    const n = selected.length;
+    if (!n) { errEl.innerHTML = UI.icon('status-error') + 'no entries selected'; return; }
+    const zeroUniverse = selected.filter(e => (e.universe || 0) === 0);
+    if (zeroUniverse.length) {
+      errEl.innerHTML = UI.icon('status-error') +
+        `${zeroUniverse.length} selected entr${zeroUniverse.length === 1 ? 'y is' : 'ies are'} already at universe ` +
+        `${UI.formatUniverse(0)} (cannot shift below universe 0) — deselect ${zeroUniverse.length === 1 ? 'it' : 'them'} ` +
+        `(${zeroUniverse.map(e => e.name || e.fixtureType || e.id).join(', ')}) and try again`;
+      return;
+    }
+    const lines = selected
+      .slice(0, 25)
+      .map(e => `  ${e.name || e.fixtureType || e.id}: universe ${UI.formatUniverse(e.universe)} → ${UI.formatUniverse(e.universe - 1)}`)
+      .join('\n');
+    const more = n > 25 ? `\n  ...and ${n - 25} more` : '';
+    if (!confirm(
+      `Shift ${n} selected entr${n === 1 ? 'y' : 'ies'} down by exactly one universe? Start addresses stay unchanged. ` +
+      `This is the one-time fix for entries imported from MVR before the universe numbering fix — running it on ` +
+      `entries that are already correct WILL make them wrong.\n\n${lines}${more}`
+    )) return;
+    bulkApplying = true;
+    renderEntryEditor();
+    const errors = [];
+    for (const e of selected) {
+      const draft = {
+        name: e.name || '', fixtureType: e.fixtureType || '', mode: e.mode || '',
+        footprint: e.footprint || 0, universe: (e.universe || 0) - 1, startAddress: e.startAddress || 1,
+        position: e.position || '', fixtureNumber: e.fixtureNumber || '', notes: e.notes || '',
+      };
+      try {
+        patchData = await Api.updatePatchEntry(e.id, draft);
+      } catch (err) {
+        errors.push((e.name || e.fixtureType || e.id) + ': ' + err.message);
+      }
+    }
+    bulkApplying = false;
+    setStatus(errors.length ? `shifted ${n - errors.length} of ${n}, ${errors.length} error(s)` : `shifted ${n} entries down one universe`);
+    try { collisions = patchData.active ? (await Api.getPatchCollisions() || []) : []; } catch (e) { /* best-effort */ }
+    if (!errors.length) clearSelection(); // no-op on an accidental second click
+    render();
+    if (errors.length) {
+      const err2 = document.getElementById('bulkError');
+      if (err2) err2.innerHTML = UI.icon('status-error') + errors.join('; ');
+    }
   }
 
   async function runBulkApply(field, selected) {
@@ -767,7 +1080,7 @@ const PatchScreen = (() => {
     // Collision detection is server-side; re-fetch so the banner reflects
     // the just-applied bulk change (task ask, item 4: "collision
     // detection ... just ensure the UI refreshes the collision banner").
-    try { collisions = patchData.active ? await Api.getPatchCollisions() : []; } catch (e) { /* best-effort */ }
+    try { collisions = patchData.active ? (await Api.getPatchCollisions() || []) : []; } catch (e) { /* best-effort */ }
     if (errors.length) errEl.innerHTML = UI.icon('status-error') + errors.join('; ');
     render();
   }

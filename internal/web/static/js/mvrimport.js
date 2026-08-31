@@ -24,6 +24,14 @@
 // GDTF file each downgrade that one fixture to footprint 0 plus a warning,
 // rather than throwing. Only a totally unreadable/non-zip file, or a zip
 // with no GeneralSceneDescription.xml at all, produces a top-level Error.
+//
+// Also exports parseGdtfFile(arrayBuffer) — single-.gdtf-file import (task
+// ask, single-GDTF match-to-fixture-type flow) for the case a GDTFSpec
+// reference is genuinely absent from an .mvr archive and the tech supplies
+// the .gdtf by hand afterward; see its doc comment below. patch.js is the
+// only caller and owns matching it against existing patch entries by
+// fixtureType plus the apply-to-confirm preview/write flow — this module
+// only parses.
 const MvrImport = (() => {
   function lastSegment(name) {
     const parts = String(name).split(/[\\/]/);
@@ -174,5 +182,45 @@ const MvrImport = (() => {
     return { entries, warnings };
   }
 
-  return { parseMvrFile };
+  // parseGdtfFile: single-.gdtf-file import (task ask: "import a single
+  // .gdtf file and match it to a fixture type" — the motivating case is a
+  // GDTF referenced by an MVR but absent from that MVR's archive, supplied
+  // by hand afterward). A .gdtf file is itself a zip (mvrzip.js's own doc
+  // comment); this opens it directly rather than looking inside an outer
+  // .mvr. Returns { manufacturer, model, fixtureType, modes: [{name,
+  // footprint}] } — same shape gdtfparse.js already produces, so the
+  // orchestration/matching logic (patch.js) is identical to the MVR path's
+  // per-fixture GDTF resolution. Throws a plain Error with a clear message
+  // for: not a zip at all, a zip with no description.xml, or a
+  // description.xml that fails to parse — never silently returns a partial
+  // result (task ask: "never crash", but also never invent data — a file
+  // that isn't a valid GDTF must say so, not pretend to have zero modes).
+  async function parseGdtfFile(arrayBuffer) {
+    let zip;
+    try {
+      zip = await MvrZip.openZip(arrayBuffer);
+    } catch (e) {
+      throw new Error('could not read file as a GDTF (zip) archive: ' + e.message);
+    }
+    const descName = zip.names.find(n => {
+      const seg = n.split(/[\\/]/).pop();
+      return seg.toLowerCase() === 'description.xml';
+    });
+    if (!descName) {
+      throw new Error('not a valid GDTF file — no description.xml found inside the archive');
+    }
+    let descBytes;
+    try {
+      descBytes = await zip.read(descName);
+    } catch (e) {
+      throw new Error('could not read description.xml from the GDTF archive: ' + e.message);
+    }
+    const descXml = new TextDecoder('utf-8').decode(descBytes);
+    // GdtfParse.parseDescriptionXml throws its own clear Error for
+    // malformed XML / missing <GDTF>/<FixtureType> — let it propagate
+    // as-is, no need to wrap twice.
+    return GdtfParse.parseDescriptionXml(descXml);
+  }
+
+  return { parseMvrFile, parseGdtfFile };
 })();

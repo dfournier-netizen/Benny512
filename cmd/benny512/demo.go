@@ -282,8 +282,17 @@ func buildDemo(ctx context.Context, legacyRdmStartCode bool, logNodes bool) (*we
 	en4Reply := artnet.PollReply{
 		IPAddress: en4IP.As4(),
 		ShortName: "EN4-Demo", LongName: "Netron EN4 (demo)",
-		NumPorts:       4,
-		PortTypes:      [4]byte{0x80, 0x80, 0x80, 0x80},
+		NumPorts:  4,
+		PortTypes: [4]byte{0x80, 0x80, 0x80, 0x80},
+		// SwOut gives each of the 4 ports its own Port-Address (universe
+		// 0/1/2/3, matching port0/port1/port2 below) — Phase B addition.
+		// Without this the struct's zero value left every port decoding to
+		// Port-Address 0, so the Devices screen's device/port picker (which
+		// groups this node's 4 ports into one card) had no genuinely
+		// distinct ports to pick between: a port-scoped Discover/Clear on
+		// "port 1" would have silently acted on the same Port-Address as
+		// "port 0". See devices.js's device/port picker survey notes.
+		SwOut:          [4]byte{0x00, 0x01, 0x02, 0x03},
 		Status1:        0x02, // RDM capable
 		DefaultRespUID: uidToRespUID(en4RootUID),
 	}
