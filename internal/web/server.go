@@ -58,6 +58,18 @@ type Settings struct {
 	// Changing it via POST /api/settings opens/closes the on-disk logger
 	// immediately (see Server.applyLogRDMPathLocked).
 	LogRDMPath string `json:"logRdmPath,omitempty"`
+	// UniverseBase is a pure DISPLAY/NOTATION setting (0 or 1): what number
+	// the UI shows for the wire's universe 0. It never changes any stored
+	// or transmitted value — Entry.Universe, artnet.PortAddress and every
+	// other internal/wire representation stay 0-based always. The
+	// conversion happens only at the presentation boundary in the browser
+	// (ui.js's UI.formatUniverse/UI.parseUniverse) so that, per the task
+	// ask, "if our base is starting at 1 and I set a port to universe 1,
+	// [we] actually send a 0." Defaults to 1 (defaultSettings below) since
+	// Obsidian EN4/Vectorworks 1-based numbering is what most working techs
+	// expect; 0 is offered for Art-Net-native users who think in wire
+	// values directly.
+	UniverseBase int `json:"universeBase"`
 }
 
 // Server bundles the engines and serves REST + WS + the embedded UI.
@@ -148,6 +160,7 @@ func defaultSettings() Settings {
 		PollIntervalMS:  int(session.DefaultPollInterval / time.Millisecond),
 		CaptureLimit:    capture.DefaultCapacity,
 		TimeoutProfiles: map[string]string{},
+		UniverseBase:    1,
 	}
 }
 
@@ -970,6 +983,10 @@ func (s *Server) handlePostSettings(w http.ResponseWriter, r *http.Request) {
 	var req Settings
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if req.UniverseBase != 0 && req.UniverseBase != 1 {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("universeBase must be 0 or 1, got %d", req.UniverseBase))
 		return
 	}
 	s.settingsMu.Lock()

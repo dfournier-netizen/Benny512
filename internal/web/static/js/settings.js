@@ -39,6 +39,10 @@ const SettingsScreen = (() => {
     document.getElementById('pollInterval').value = current.pollIntervalMs || 3000;
     document.getElementById('captureLimit').value = current.captureLimit || 10000;
     document.getElementById('logRdmPath').value = current.logRdmPath || '';
+    const base = (current.universeBase === 0) ? 0 : 1;
+    const universeSel = document.getElementById('universeBase');
+    if (universeSel) universeSel.value = String(base);
+    UI.setUniverseBase(base);
   }
 
   // save() is the one and only place any setting takes effect — every field
@@ -52,10 +56,12 @@ const SettingsScreen = (() => {
       captureLimit: parseInt(document.getElementById('captureLimit').value, 10) || 10000,
       timeoutProfiles: (current && current.timeoutProfiles) || {},
       logRdmPath: document.getElementById('logRdmPath').value.trim(),
+      universeBase: parseInt(document.getElementById('universeBase').value, 10) === 0 ? 0 : 1,
     };
     try {
       await Api.postSettings(payload);
       current = payload;
+      UI.setUniverseBase(payload.universeBase);
       status.innerHTML = UI.icon('status-ok') + 'applied';
     } catch (e) {
       status.innerHTML = UI.icon('status-error') + ('error: ' + e.message);

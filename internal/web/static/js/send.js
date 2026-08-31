@@ -170,11 +170,27 @@ const SendScreen = (() => {
   // commit sends the full 512-slot frame — every channel, zeros included,
   // parked channels' frozen values included — as one compact request. See
   // server.go's dmxRequest doc comment for the wire-format rationale.
+  // sendUniverseCanonical is the true 0-based wire universe — the single
+  // source of truth. The #sendUniverse input only ever shows/accepts the
+  // display-base-converted number (UI.formatUniverse/parseUniverse); an
+  // oninput on that field updates THIS from the CURRENT base (correct at
+  // the moment of typing), so a later base change can just reformat this
+  // already-canonical number instead of misreading the old display text
+  // under the new base (which would silently shift the wire universe).
+  let sendUniverseCanonical = 0;
+
+  function syncUniverseFieldDisplay() {
+    const el = document.getElementById('sendUniverse');
+    if (!el) return;
+    const ua = UI.universeInputAttrs();
+    el.min = ua.min; el.max = ua.max;
+    el.value = UI.formatUniverse(sendUniverseCanonical);
+  }
+
   async function commit() {
-    const universe = parseInt(document.getElementById('sendUniverse').value, 10) || 0;
     const bytes = new Uint8Array(512);
     for (let ch = 1; ch <= 512; ch++) bytes[ch - 1] = channels[ch];
-    await Api.sendDmx(universe, bytes);
+    await Api.sendDmx(sendUniverseCanonical, bytes);
   }
 
   function allOff() {
@@ -197,6 +213,10 @@ const SendScreen = (() => {
     document.getElementById('btnDmxStart').addEventListener('click', () => Api.dmxStart());
     document.getElementById('btnDmxStop').addEventListener('click', () => Api.dmxStop());
     document.getElementById('btnDmxAllOff').addEventListener('click', allOff);
+    const uniEl = document.getElementById('sendUniverse');
+    syncUniverseFieldDisplay();
+    uniEl.addEventListener('input', () => { sendUniverseCanonical = UI.parseUniverse(uniEl.value); });
+    window.addEventListener('b5-universe-base-changed', syncUniverseFieldDisplay);
   }
 
   return { init };

@@ -274,6 +274,14 @@
                 <option value="WirelessProxy">Wireless (BiDi proxy)</option>
               </select>
             </div>
+            <div class="b5-field">
+              <label class="b5-field__label" for="universeBase">Universe numbering starts at</label>
+              <select id="universeBase" class="b5-select">
+                <option value="0">Art-Net native (0)</option>
+                <option value="1">Industry standard (1)</option>
+              </select>
+              <span class="b5-field__hint">Display only &mdash; every universe number shown or typed anywhere in Benny512 (Patch, Send, Devices, Rig Check, import previews) is renumbered from this base. Nothing sent on the wire or stored in the patch ever changes: if this is set to 1 and you enter universe 1, Benny512 still addresses wire universe 0, matching Art-Net's own 0-based numbering (Obsidian EN4 and Vectorworks number from 1, hence the choice). Nodes' port configuration still shows Art-Net's own raw Net/Sub-Net/Universe addressing, unaffected by this setting &mdash; see the Phase A notes.</span>
+            </div>
           </div>
         </div>
         <div class="b5-panel">

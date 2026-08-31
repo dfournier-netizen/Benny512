@@ -66,7 +66,7 @@ const DevicesScreen = (() => {
     if (!scope) return '(no port selected)';
     const n = nodes.find(x => x.ip === scope.ip && x.bindIndex === scope.bindIndex);
     const name = n ? (n.shortName || n.longName || n.ip) : scope.ip;
-    return `${escapeHtml(name)} (${escapeHtml(scope.ip)}) port ${scope.portAddress}`;
+    return `${escapeHtml(name)} (${escapeHtml(scope.ip)}) universe ${UI.formatUniverse(scope.portAddress)}`;
   }
 
   function armClear(kind) {
@@ -160,7 +160,7 @@ const DevicesScreen = (() => {
       (n.ports || []).forEach(p => {
         const opt = document.createElement('option');
         opt.value = JSON.stringify({ ip: n.ip, bindIndex: n.bindIndex, portAddress: p.outputAddress });
-        opt.textContent = `${n.shortName || n.ip} — port ${p.index} (addr ${p.outputAddress})`;
+        opt.textContent = `${n.shortName || n.ip} — port ${p.index} (universe ${UI.formatUniverse(p.outputAddress)})`;
         sel.appendChild(opt);
       });
     });
@@ -200,7 +200,7 @@ const DevicesScreen = (() => {
       universes.forEach(u => {
         const opt = document.createElement('option');
         opt.value = String(u);
-        opt.textContent = `Universe ${u}`;
+        opt.textContent = `Universe ${UI.formatUniverse(u)}`;
         uniSel.appendChild(opt);
       });
       uniSel.value = universeFilter;
@@ -339,7 +339,7 @@ const DevicesScreen = (() => {
         <td data-label="Model/Type">${escapeHtml(modelCell(f))}</td>
         <td data-label="UID" class="b5-table__mono">${escapeHtml(f.uid)}</td>
         <td data-label="Address" class="b5-table__mono">${addressLabel(f)}</td>
-        <td data-label="Node/Port">${escapeHtml(f.nodeIp)} / ${f.portAddress}</td>
+        <td data-label="Node/Port">${escapeHtml(f.nodeIp)} / U${UI.formatUniverse(f.portAddress)}</td>
       `;
       tr.addEventListener('click', () => { selectDevice(f.uid); });
       tbody.appendChild(tr);
@@ -444,6 +444,9 @@ const DevicesScreen = (() => {
     // refreshFixtures() itself, so this is a harmless extra refresh when
     // it's our own action, and the only refresh when it's someone else's.
     Live.on('devices_cleared', () => { refreshFixtures(); });
+    // Universe base changed on the Settings screen — refresh the universe
+    // filter dropdown's labels and the table's Node/Port column in place.
+    window.addEventListener('b5-universe-base-changed', () => { refreshFilterOptions(); render(); });
 
     const classSel = document.getElementById('deviceClassFilter');
     if (classSel) {

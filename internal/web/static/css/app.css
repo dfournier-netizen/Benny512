@@ -349,3 +349,75 @@ td[data-label="Input enabled"] .b5-checkbox { margin-right: var(--b5-space-2); }
   max-width: 44ch;
   white-space: normal;
 }
+
+/* ---- Patch: floating entry/bulk editor -----------------------------------
+   Phase A task ask: editing a patch entry used to mean scrolling to the
+   bottom of the Patch screen every time. #patchEntryEditor (patch.js) is
+   now a fixed panel that appears the instant a row is selected for
+   edit/bulk-edit, with no scrolling required — but per the SAME lesson
+   app.css's own --b5-walk-bar-reserve comment records ("previously bitten
+   by fixed bars covering content, with nothing to scroll"), a fixed panel
+   must always have matching reserved space on the content it sits over, at
+   every breakpoint, or it just permanently covers whatever was there.
+
+   Desktop/tablet (>=768px): a right-hand sidebar, narrow enough to leave
+   the table's Universe/Address/Name columns visible so the editor rarely
+   covers the exact row being edited. --b5-patch-editor-reserve-right
+   becomes #main's padding-right whenever the editor is open, so the last
+   table column and Actions buttons are never pushed under the panel with
+   nothing to scroll sideways to reach (page never scrolls horizontally —
+   standing responsive rule).
+
+   Phone (<768px): there is no spare horizontal space to sit beside, so the
+   panel becomes a fixed bottom sheet instead (same construction as
+   .b5-walk-bar), and the reserve becomes padding-BOTTOM instead of RIGHT.
+   Mirrors the walk-bar rule directly below it: derive the reserved amount
+   from the panel's own sizing tokens, never a guessed px number, and
+   replace (not stack with) the mobile nav bar's own reservation since here
+   too the tab bar is not usable at the same time as an open editor. */
+:root {
+  --b5-patch-editor-reserve-right: min(400px, 92vw);
+  --b5-patch-editor-reserve-bottom: min(70vh, 560px);
+}
+#patchEntryEditor:empty { display: none; }
+/* .b5-panel already supplies background/border/border-radius (see
+   benny512-layout.css) — this rule only adds the fixed positioning/sizing
+   a floating panel needs on top of that. */
+.b5-patch-editor__panel {
+  position: fixed;
+  z-index: 30;
+  overflow-y: auto;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+}
+@media (min-width: 768px) {
+  .b5-patch-editor__panel {
+    top: calc(var(--b5-space-4) + 56px); /* clear the nav header */
+    right: var(--b5-space-4);
+    bottom: var(--b5-space-4);
+    width: var(--b5-patch-editor-reserve-right);
+  }
+  body.b5-patch-editor-open #main.b5-app__body {
+    padding-right: calc(var(--b5-patch-editor-reserve-right) + var(--b5-space-4) * 2);
+  }
+}
+@media (max-width: 767px) {
+  .b5-patch-editor__panel {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    max-height: var(--b5-patch-editor-reserve-bottom);
+    border-bottom: none;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  body.b5-patch-editor-open .b5-nav--mobile { display: none; }
+  body.b5-patch-editor-open #main.b5-app__body {
+    padding-bottom: calc(var(--b5-patch-editor-reserve-bottom) + var(--b5-space-4));
+  }
+}
+.b5-patch-editor__panel .b5-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--b5-space-2);
+}
+.b5-patch-row--selected { background: rgba(58, 130, 217, 0.10); }

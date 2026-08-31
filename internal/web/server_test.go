@@ -220,6 +220,51 @@ func TestPostAndGetSettings(t *testing.T) {
 	}
 }
 
+// TestDefaultSettings_UniverseBase covers Phase A's universe-numbering-base
+// setting: a fresh server must default to 1 (industry-standard/Obsidian
+// EN4/Vectorworks numbering), the more common expectation, per the task ask.
+func TestDefaultSettings_UniverseBase(t *testing.T) {
+	h := newHarness(t)
+	rr := doJSON(t, h.srv.Handler(), "GET", "/api/settings", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET status = %d", rr.Code)
+	}
+	var got Settings
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.UniverseBase != 1 {
+		t.Errorf("default UniverseBase = %d, want 1", got.UniverseBase)
+	}
+}
+
+// TestPostSettings_UniverseBase covers both valid values round-tripping and
+// an out-of-range value being rejected outright — UniverseBase is a
+// closed 0/1 choice (task ask: "0 / 1"), never an arbitrary offset.
+func TestPostSettings_UniverseBase(t *testing.T) {
+	h := newHarness(t)
+
+	for _, base := range []int{0, 1} {
+		newSettings := Settings{PollIntervalMS: 3000, CaptureLimit: 1000, TimeoutProfiles: map[string]string{}, UniverseBase: base}
+		rr := doJSON(t, h.srv.Handler(), "POST", "/api/settings", newSettings)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("POST base=%d status = %d body=%s", base, rr.Code, rr.Body.String())
+		}
+		rr = doJSON(t, h.srv.Handler(), "GET", "/api/settings", nil)
+		var got Settings
+		json.Unmarshal(rr.Body.Bytes(), &got)
+		if got.UniverseBase != base {
+			t.Errorf("round-tripped UniverseBase = %d, want %d", got.UniverseBase, base)
+		}
+	}
+
+	bad := Settings{PollIntervalMS: 3000, CaptureLimit: 1000, TimeoutProfiles: map[string]string{}, UniverseBase: 2}
+	rr := doJSON(t, h.srv.Handler(), "POST", "/api/settings", bad)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("POST invalid UniverseBase=2 status = %d, want 400", rr.Code)
+	}
+}
+
 func TestCaptureSnapshot(t *testing.T) {
 	h := newHarness(t)
 	h.srv.Capture.Add(capture.Entry{Kind: "ArtDmx", Universe: 3, Size: 20})

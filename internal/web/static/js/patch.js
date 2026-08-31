@@ -33,6 +33,22 @@ const PatchScreen = (() => {
   let editingEntry = null; // null | 'new' | entry id being edited
   let entryDraft = null;
 
+  // Multi-select state (task ask, item 4): entryId -> true for every
+  // checked row. Independent of editingEntry — selecting rows never
+  // disturbs a single-entry edit in progress except that once 2+ rows are
+  // selected the floating editor's bulk-edit mode takes over the panel
+  // (single-edit resumes automatically once selection drops back below 2).
+  // lastClickedEntryId anchors shift-click range selection against
+  // whatever order the table is CURRENTLY sorted/filtered into (task ask:
+  // "shift-click range selection if cheap").
+  let selectedIds = {};
+  let lastClickedEntryId = null;
+  let bulkDraft = { universe: '', position: '' };
+  let bulkApplying = false;
+
+  function selectedCount() { return Object.keys(selectedIds).filter(id => selectedIds[id]).length; }
+  function clearSelection() { selectedIds = {}; lastClickedEntryId = null; }
+
   // MVR import state (Apply-to-confirm: parsing a file only builds a
   // preview; nothing is sent to the server until the preview's own
   // "Import (merge/replace patch)" button is clicked — same contract as
@@ -60,6 +76,10 @@ const PatchScreen = (() => {
       if (active) Api.rigCheckStopBeacon();
     });
     ensureMvrFileInput();
+    // Universe base changed on the Settings screen — re-render every
+    // universe number currently on screen (notation only, no data refetch
+    // needed: patchData already holds the true 0-based values).
+    window.addEventListener('b5-universe-base-changed', () => { if (active) render(); });
   }
 
   // ensureMvrFileInput: created once and kept off-screen (never rebuilt on
@@ -227,13 +247,14 @@ const PatchScreen = (() => {
         <div class="b5-panel__body--flush">
           <table class="b5-table b5-table--responsive" id="patchEntriesTable">
             <thead><tr>
+              <th><label class="b5-visually-hidden" for="patchSelectAll">Select all in view</label><input type="checkbox" id="patchSelectAll" aria-label="Select all in view"></th>
               <th>Universe</th><th>Address</th><th>Name</th><th>Fixture type</th><th>Fixture #</th><th>RDM match</th><th>Actions</th>
             </tr></thead>
             <tbody></tbody>
           </table>
         </div>
       </div>
-      <div id="patchEntryEditor" style="margin-top:var(--b5-space-4)"></div>
+      <div id="patchEntryEditor" class="b5-patch-editor"></div>
     `;
     document.getElementById('patchSort').value = sortMode;
 
@@ -297,7 +318,7 @@ const PatchScreen = (() => {
               <tbody>
                 ${entries.map(e => `
                   <tr>
-                    <td data-label="Universe">${e.universe || 0}</td>
+                    <td data-label="Universe">${UI.formatUniverse(e.universe)}</td>
                     <td data-label="Address">${e.startAddress || '—'}</td>
                     <td data-label="Name">${escapeHtml(e.name || '—')}</td>
                     <td data-label="Fixture type">${escapeHtml(e.fixtureType || '—')}</td>
@@ -410,8 +431,15 @@ const PatchScreen = (() => {
     const findingsByEntry = indexFindingsByEntry(collisions);
     const filtered = filterEntries(entries, filterText);
     const sorted = sortEntries(filtered, sortMode);
+    // Selection can only ever reference entries that still exist (a
+    // deleted/replaced entry's id must not linger and silently count
+    // toward "N selected").
+    const liveIds = new Set(entries.map(x => x.id));
+    Object.keys(selectedIds).forEach(id => { if (!liveIds.has(id)) delete selectedIds[id]; });
     if (!sorted.length) {
-      tbody.innerHTML = `<tr><td colspan="7"><div class="b5-empty">${UI.icon('nav-devices')}<span class="b5-empty__title">${entries.length ? 'No entries match the filter' : 'No entries yet'}</span><span class="b5-empty__body">${entries.length ? 'Try a different filter.' : 'Add entry, or Adopt the discovered rig.'}</span></div></td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8"><div class="b5-empty">${UI.icon('nav-devices')}<span class="b5-empty__title">${entries.length ? 'No entries match the filter' : 'No entries yet'}</span><span class="b5-empty__body">${entries.length ? 'Try a different filter.' : 'Add entry, or Adopt the discovered rig.'}</span></div></td></tr>`;
+      updateSelectAllCheckbox([]);
+      renderEntryEditor();
       return;
     }
     tbody.innerHTML = sorted.map(e => renderEntryRow(e, findingsByEntry[e.id] || [])).join('');
@@ -419,6 +447,49 @@ const PatchScreen = (() => {
     tbody.querySelectorAll('[data-delete]').forEach(btn => btn.addEventListener('click', () => deleteEntry(btn.dataset.delete, entries)));
     tbody.querySelectorAll('[data-move-up]').forEach(btn => btn.addEventListener('click', () => moveEntry(btn.dataset.moveUp, -1, entries)));
     tbody.querySelectorAll('[data-move-down]').forEach(btn => btn.addEventListener('click', () => moveEntry(btn.dataset.moveDown, 1, entries)));
+    tbody.querySelectorAll('[data-row-select]').forEach(cb => cb.addEventListener('click', (evt) => onRowSelectClick(evt, sorted)));
+    updateSelectAllCheckbox(sorted);
+    renderEntryEditor();
+  }
+
+  // onRowSelectClick: plain click toggles just this row; shift-click
+  // selects the whole range between the last row clicked (in the CURRENT
+  // sorted/filtered view order) and this one — the "shift-click range
+  // selection if cheap" ask. Click, not change, so shiftKey is visible.
+  function onRowSelectClick(evt, sortedInView) {
+    const id = evt.currentTarget.dataset.rowSelect;
+    if (evt.shiftKey && lastClickedEntryId) {
+      const ids = sortedInView.map(x => x.id);
+      const a = ids.indexOf(lastClickedEntryId);
+      const b = ids.indexOf(id);
+      if (a >= 0 && b >= 0) {
+        const [lo, hi] = a < b ? [a, b] : [b, a];
+        const checked = evt.currentTarget.checked;
+        for (let i = lo; i <= hi; i++) {
+          if (checked) selectedIds[ids[i]] = true; else delete selectedIds[ids[i]];
+        }
+        renderEntriesTableBody();
+        return;
+      }
+    }
+    if (evt.currentTarget.checked) selectedIds[id] = true; else delete selectedIds[id];
+    lastClickedEntryId = id;
+    updateSelectAllCheckbox(sortedInView);
+    renderEntryEditor();
+  }
+
+  function updateSelectAllCheckbox(sortedInView) {
+    const all = document.getElementById('patchSelectAll');
+    if (!all) return;
+    const total = sortedInView.length;
+    const checkedCount = sortedInView.filter(e => selectedIds[e.id]).length;
+    all.checked = total > 0 && checkedCount === total;
+    all.indeterminate = checkedCount > 0 && checkedCount < total;
+    all.onclick = () => {
+      if (all.checked) sortedInView.forEach(e => { selectedIds[e.id] = true; });
+      else sortedInView.forEach(e => { delete selectedIds[e.id]; });
+      renderEntriesTableBody();
+    };
   }
 
   function renderEntryRow(e, findings) {
@@ -426,9 +497,11 @@ const PatchScreen = (() => {
     const match = e.confirmedUid
       ? UI.badge('ok', 'Confirmed')
       : (e.matchState === 'rejected' ? UI.badge('warning', 'Rejected candidates') : '<span class="b5-text-muted b5-text-sm">Unresolved</span>');
+    const selected = !!selectedIds[e.id];
     return `
-      <tr data-entry-id="${escapeHtml(e.id)}">
-        <td data-label="Universe">${e.universe}</td>
+      <tr data-entry-id="${escapeHtml(e.id)}" class="${selected ? 'b5-patch-row--selected' : ''}">
+        <td data-label="Select"><label class="b5-visually-hidden" for="sel-${escapeHtml(e.id)}">Select ${escapeHtml(e.name || e.fixtureType || e.id)}</label><input type="checkbox" id="sel-${escapeHtml(e.id)}" data-row-select="${escapeHtml(e.id)}" ${selected ? 'checked' : ''} aria-label="Select ${escapeHtml(e.name || e.fixtureType || e.id)}"></td>
+        <td data-label="Universe">${UI.formatUniverse(e.universe)}</td>
         <td data-label="Address" class="b5-table__mono">${escapeHtml(Api.formatAddressRange(e.startAddress, e.footprint, true))}${issue}</td>
         <td data-label="Name">${escapeHtml(e.name || '—')}</td>
         <td data-label="Fixture type">${escapeHtml(e.fixtureType || '—')}</td>
@@ -471,6 +544,7 @@ const PatchScreen = (() => {
   // only; nothing is sent to the server until Save is clicked) -----------
 
   function openNewEntry() {
+    clearSelection();
     editingEntry = 'new';
     entryDraft = { name: '', fixtureType: '', mode: '', footprint: 0, universe: 0, startAddress: 1, position: '', fixtureNumber: '', notes: '' };
     renderEntryEditor();
@@ -493,23 +567,52 @@ const PatchScreen = (() => {
     renderEntryEditor();
   }
 
+  // setPatchEditorOpen: toggles the body-level class the CSS reserve rule
+  // (app.css, mirroring --b5-walk-bar-reserve) keys off of, so the fixed
+  // floating panel never covers content with nothing left to scroll to
+  // reach it — the exact regression app.css's own walk-bar comment warns
+  // about ("previously bitten by fixed bars covering content").
+  function setPatchEditorOpen(open) {
+    document.body.classList.toggle('b5-patch-editor-open', open);
+  }
+
+  // renderEntryEditor: ONE floating panel (#patchEntryEditor, fixed —
+  // see app.css) that renders one of three things depending on state:
+  //   - 2+ rows selected  -> bulk-edit mode (wins over a single edit in
+  //     progress, since selecting a second row while editing entry A is
+  //     read as "actually, I want to bulk-edit these")
+  //   - editingEntry set  -> single add/edit form (existing functionality,
+  //     unchanged, just now living in a floating panel instead of the
+  //     bottom of the page)
+  //   - neither           -> empty/closed, no space reserved
   function renderEntryEditor() {
     const container = document.getElementById('patchEntryEditor');
     if (!container) return;
-    if (editingEntry === null) {
-      container.innerHTML = '';
+    if (selectedCount() >= 2) {
+      setPatchEditorOpen(true);
+      renderBulkEditor(container);
       return;
     }
+    if (editingEntry === null) {
+      container.innerHTML = '';
+      setPatchEditorOpen(false);
+      return;
+    }
+    setPatchEditorOpen(true);
     const d = entryDraft;
+    const ua = UI.universeInputAttrs();
     container.innerHTML = `
-      <div class="b5-panel">
-        <div class="b5-panel__header"><h3 class="b5-panel__title">${editingEntry === 'new' ? 'Add entry' : 'Edit entry'}</h3></div>
+      <div class="b5-panel b5-patch-editor__panel">
+        <div class="b5-panel__header">
+          <h3 class="b5-panel__title">${editingEntry === 'new' ? 'Add entry' : 'Edit entry'}</h3>
+          <button id="peClose" class="b5-btn b5-btn--sm b5-btn--ghost" aria-label="Close editor">Close</button>
+        </div>
         <div class="b5-panel__body b5-grid-2">
           <div class="b5-field"><label class="b5-field__label" for="peName">Name</label><input id="peName" class="b5-input" type="text" maxlength="64"></div>
           <div class="b5-field"><label class="b5-field__label" for="peType">Fixture type</label><input id="peType" class="b5-input" type="text" maxlength="80" placeholder="e.g. Chauvet Rogue Outcast 2X Wash"></div>
           <div class="b5-field"><label class="b5-field__label" for="peMode">Mode / personality</label><input id="peMode" class="b5-input" type="text" maxlength="40"></div>
           <div class="b5-field"><label class="b5-field__label" for="peFootprint">Footprint (DMX channels)</label><input id="peFootprint" class="b5-input" type="number" min="0" max="512"></div>
-          <div class="b5-field"><label class="b5-field__label" for="peUniverse">Universe (Port-Address)</label><input id="peUniverse" class="b5-input" type="number" min="0" max="32767"></div>
+          <div class="b5-field"><label class="b5-field__label" for="peUniverse">Universe (${UI.universeBaseLabel()})</label><input id="peUniverse" class="b5-input" type="number" min="${ua.min}" max="${ua.max}"></div>
           <div class="b5-field"><label class="b5-field__label" for="peAddress">Start address</label><input id="peAddress" class="b5-input" type="number" min="1" max="512"></div>
           <div class="b5-field"><label class="b5-field__label" for="pePosition">Position</label><input id="pePosition" class="b5-input" type="text" maxlength="60" placeholder="e.g. US Truss 3"></div>
           <div class="b5-field"><label class="b5-field__label" for="peFixtureNumber">Fixture number</label><input id="peFixtureNumber" class="b5-input" type="text" maxlength="20" placeholder="console channel/FixtureID"></div>
@@ -533,13 +636,20 @@ const PatchScreen = (() => {
     bind('peType', 'fixtureType', false);
     bind('peMode', 'mode', false);
     bind('peFootprint', 'footprint', true);
-    bind('peUniverse', 'universe', true);
     bind('peAddress', 'startAddress', true);
     bind('pePosition', 'position', false);
     bind('peFixtureNumber', 'fixtureNumber', false);
     bind('peNotes', 'notes', false);
+    // Universe is the one field whose ON-SCREEN value is display-base
+    // converted (UI.formatUniverse) while entryDraft.universe stays the
+    // true 0-based wire value at all times — every other reader of
+    // entryDraft (peSave below, bulk editor) sees the canonical number.
+    const uniEl = document.getElementById('peUniverse');
+    uniEl.value = UI.formatUniverse(d.universe);
+    uniEl.addEventListener('input', () => { d.universe = UI.parseUniverse(uniEl.value); });
 
     document.getElementById('peCancel').addEventListener('click', closeEntryEditor);
+    document.getElementById('peClose').addEventListener('click', closeEntryEditor);
     document.getElementById('peSave').addEventListener('click', async () => {
       const errEl = document.getElementById('peError');
       if (!d.startAddress || d.startAddress < 1 || d.startAddress > 512) {
@@ -560,6 +670,106 @@ const PatchScreen = (() => {
         errEl.innerHTML = UI.icon('status-error') + ('error: ' + escapeHtml(e.message));
       }
     });
+  }
+
+  // --- bulk edit (task ask, item 4: "the motivating case: move 4
+  // fixtures to universe 13 at once") — Apply-to-confirm: each field has
+  // its own Apply button, and Apply always shows a native confirm()
+  // stating exactly what will change before looping PUT
+  // /api/patch/entries/{id} once per selected entry (no batch endpoint —
+  // the brief allows a client-side loop, and at patch-list scale this is
+  // cheap and gives per-entry error isolation for free). Start addresses
+  // are never touched by bulk edit. ------------------------------------
+
+  function renderBulkEditor(container) {
+    const p = patchData.active ? patchData.patch : null;
+    const entries = (p && p.entries) || [];
+    const ids = Object.keys(selectedIds).filter(id => selectedIds[id]);
+    const selected = ids.map(id => entries.find(e => e.id === id)).filter(Boolean);
+    const n = selected.length;
+    const ua = UI.universeInputAttrs();
+    container.innerHTML = `
+      <div class="b5-panel b5-patch-editor__panel">
+        <div class="b5-panel__header">
+          <h3 class="b5-panel__title">Bulk edit — ${n} entries selected</h3>
+          <button id="bulkClose" class="b5-btn b5-btn--sm b5-btn--ghost" aria-label="Close editor">Close</button>
+        </div>
+        <div class="b5-panel__body b5-stack">
+          <p class="b5-text-sm b5-text-muted">${selected.map(e => escapeHtml(e.name || e.fixtureType || e.id)).join(', ')}</p>
+          <div class="b5-field">
+            <label class="b5-field__label" for="bulkUniverse">Move to universe (${UI.universeBaseLabel()})</label>
+            <div class="b5-field__row">
+              <input id="bulkUniverse" class="b5-input" type="number" min="${ua.min}" max="${ua.max}" placeholder="unchanged" value="${escapeHtml(bulkDraft.universe)}">
+              <span class="b5-field__actions"><button id="bulkApplyUniverse" class="b5-btn b5-btn--sm b5-btn--primary" ${bulkApplying ? 'disabled' : ''}>${UI.icon('apply')}Apply</button></span>
+            </div>
+            <span class="b5-field__hint">Start addresses are left unchanged — only the universe moves.</span>
+          </div>
+          <div class="b5-field">
+            <label class="b5-field__label" for="bulkPosition">Set position label</label>
+            <div class="b5-field__row">
+              <input id="bulkPosition" class="b5-input" type="text" maxlength="60" placeholder="unchanged" value="${escapeHtml(bulkDraft.position)}">
+              <span class="b5-field__actions"><button id="bulkApplyPosition" class="b5-btn b5-btn--sm b5-btn--primary" ${bulkApplying ? 'disabled' : ''}>${UI.icon('apply')}Apply</button></span>
+            </div>
+          </div>
+          <div class="b5-row">
+            <button id="bulkClearSelection" class="b5-btn b5-btn--sm b5-btn--ghost" ${bulkApplying ? 'disabled' : ''}>Clear selection</button>
+            ${bulkApplying ? `<span class="b5-inline-wait">${UI.spinner()}Applying…</span>` : ''}
+          </div>
+          <span class="b5-field__error" id="bulkError"></span>
+        </div>
+      </div>
+    `;
+    document.getElementById('bulkClose').addEventListener('click', () => { clearSelection(); renderEntriesTableBody(); });
+    document.getElementById('bulkClearSelection').addEventListener('click', () => { clearSelection(); renderEntriesTableBody(); });
+    document.getElementById('bulkUniverse').addEventListener('input', (e) => { bulkDraft.universe = e.target.value; });
+    document.getElementById('bulkPosition').addEventListener('input', (e) => { bulkDraft.position = e.target.value; });
+    document.getElementById('bulkApplyUniverse').addEventListener('click', () => runBulkApply('universe', selected));
+    document.getElementById('bulkApplyPosition').addEventListener('click', () => runBulkApply('position', selected));
+  }
+
+  async function runBulkApply(field, selected) {
+    const errEl = document.getElementById('bulkError');
+    errEl.innerHTML = '';
+    const n = selected.length;
+    let confirmMsg, mutate;
+    if (field === 'universe') {
+      const raw = bulkDraft.universe;
+      if (raw === '' || raw === null || raw === undefined) { errEl.innerHTML = UI.icon('status-error') + 'enter a universe'; return; }
+      const canonical = UI.parseUniverse(raw);
+      confirmMsg = `Move ${n} entries to universe ${UI.formatUniverse(canonical)}? Start addresses stay unchanged.`;
+      mutate = (draft) => { draft.universe = canonical; };
+    } else {
+      const pos = bulkDraft.position;
+      if (!pos.trim()) { errEl.innerHTML = UI.icon('status-error') + 'enter a position'; return; }
+      confirmMsg = `Set position to "${pos}" for ${n} entries?`;
+      mutate = (draft) => { draft.position = pos; };
+    }
+    if (!confirm(confirmMsg)) return;
+    bulkApplying = true;
+    renderEntryEditor();
+    const errors = [];
+    for (const e of selected) {
+      const draft = {
+        name: e.name || '', fixtureType: e.fixtureType || '', mode: e.mode || '',
+        footprint: e.footprint || 0, universe: e.universe || 0, startAddress: e.startAddress || 1,
+        position: e.position || '', fixtureNumber: e.fixtureNumber || '', notes: e.notes || '',
+      };
+      mutate(draft);
+      try {
+        patchData = await Api.updatePatchEntry(e.id, draft);
+      } catch (err) {
+        errors.push((e.name || e.fixtureType || e.id) + ': ' + err.message);
+      }
+    }
+    bulkApplying = false;
+    bulkDraft = { universe: '', position: '' };
+    setStatus(errors.length ? `applied to ${n - errors.length} of ${n}, ${errors.length} error(s)` : `applied to ${n} entries`);
+    // Collision detection is server-side; re-fetch so the banner reflects
+    // the just-applied bulk change (task ask, item 4: "collision
+    // detection ... just ensure the UI refreshes the collision banner").
+    try { collisions = patchData.active ? await Api.getPatchCollisions() : []; } catch (e) { /* best-effort */ }
+    if (errors.length) errEl.innerHTML = UI.icon('status-error') + errors.join('; ');
+    render();
   }
 
   // ============================================================
@@ -815,11 +1025,12 @@ const PatchScreen = (() => {
     const wrap = document.getElementById('rcScopeValueWrap');
     if (!wrap) return;
     if (rcScopeKind === 'universe') {
-      wrap.innerHTML = `<label class="b5-visually-hidden" for="rcScopeUniverse">Universe</label><input type="number" id="rcScopeUniverse" class="b5-input" style="width:10em" min="0" max="32767" value="${rcScopeUniverse}" placeholder="Universe">`;
-      document.getElementById('rcScopeUniverse').addEventListener('input', (e) => { rcScopeUniverse = Number(e.target.value); });
+      const ua = UI.universeInputAttrs();
+      wrap.innerHTML = `<label class="b5-visually-hidden" for="rcScopeUniverse">Universe</label><input type="number" id="rcScopeUniverse" class="b5-input" style="width:10em" min="${ua.min}" max="${ua.max}" value="${UI.formatUniverse(rcScopeUniverse)}" placeholder="Universe">`;
+      document.getElementById('rcScopeUniverse').addEventListener('input', (e) => { rcScopeUniverse = UI.parseUniverse(e.target.value); });
     } else if (rcScopeKind === 'selection') {
       wrap.innerHTML = `<div class="b5-stack" style="margin-top:var(--b5-space-2)">${entries.map(e => `
-        <label class="b5-checkbox"><input type="checkbox" data-rc-select="${escapeHtml(e.id)}" ${rcSelection[e.id] ? 'checked' : ''}>${escapeHtml(e.name || e.fixtureType || e.id)} (U${e.universe}/${e.startAddress})</label>
+        <label class="b5-checkbox"><input type="checkbox" data-rc-select="${escapeHtml(e.id)}" ${rcSelection[e.id] ? 'checked' : ''}>${escapeHtml(e.name || e.fixtureType || e.id)} (U${UI.formatUniverse(e.universe)}/${e.startAddress})</label>
       `).join('') || '<span class="b5-text-muted b5-text-sm">no entries</span>'}</div>`;
       wrap.querySelectorAll('[data-rc-select]').forEach(cb => cb.addEventListener('change', (e) => {
         rcSelection[cb.dataset.rcSelect] = e.target.checked;

@@ -66,13 +66,21 @@
   // with a stale localStorage value from before this change.
   let initial = localStorage.getItem('benny512.tab') || 'nodes';
   if (initial === 'fixtures') initial = 'devices';
-  activate(initial);
 
-  NodesScreen.init();
-  DevicesScreen.init();
-  PatchScreen.init();
-  AnalyzerScreen.init();
-  SendScreen.init();
-  WalkScreen.init();
-  SettingsScreen.init();
+  // UI.universeBase must be settled BEFORE any screen's first render — a
+  // stale default-1 paint that flips to the real value a moment later
+  // would read as the numbers "jumping" on load. GET /api/settings is
+  // fast (in-memory on the server) and best-effort: any failure just keeps
+  // the built-in default of 1 rather than blocking the whole app on it.
+  Api.getSettings().then(s => UI.setUniverseBase(s.universeBase)).catch(() => {}).then(() => {
+    activate(initial);
+
+    NodesScreen.init();
+    DevicesScreen.init();
+    PatchScreen.init();
+    AnalyzerScreen.init();
+    SendScreen.init();
+    WalkScreen.init();
+    SettingsScreen.init();
+  });
 })();

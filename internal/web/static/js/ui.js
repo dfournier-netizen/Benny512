@@ -29,6 +29,53 @@ const UI = (() => {
 
   function spinner() { return '<span class="b5-spinner"></span>'; }
 
+  // --- universe display base (notation-only; never touches wire/stored
+  // values) ----------------------------------------------------------------
+  // Every universe number this app stores or transmits is the 0-based
+  // Art-Net Port-Address (Entry.Universe, artnet.PortAddress, walk's
+  // PortAddress — see internal/patch/entry.go and internal/walk/walk.go).
+  // Some techs think in that same 0-based "Art-Net native" numbering;
+  // others (Obsidian EN4 gateways, Vectorworks) number universes starting
+  // at 1. universeBase is Settings.universeBase (0 or 1, default 1) — a
+  // pure display/notation choice. formatUniverse/parseUniverse are the ONE
+  // place that +/- happens; every screen that shows or accepts a universe
+  // number goes through these two functions instead of scattering its own
+  // +1/-1. app.js sets this once at startup (after GET /api/settings
+  // resolves, before the first screen renders) and again whenever Settings
+  // saves a new value (dispatching 'b5-universe-base-changed' so every
+  // open screen can re-render its universe displays in place).
+  let universeBase = 1;
+  function getUniverseBase() { return universeBase; }
+  function setUniverseBase(v) {
+    v = (v === 0 || v === 1) ? v : 1;
+    if (v === universeBase) return;
+    universeBase = v;
+    window.dispatchEvent(new CustomEvent('b5-universe-base-changed', { detail: { base: v } }));
+  }
+  // formatUniverse: wire/stored 0-based value -> what to display.
+  function formatUniverse(raw) {
+    const n = Number(raw) || 0;
+    return String(n + universeBase);
+  }
+  // parseUniverse: a displayed/typed value -> the 0-based value to store.
+  // Never returns negative (a displayed 0 under base 1 has no valid
+  // wire equivalent — clamp to 0 rather than send -1).
+  function parseUniverse(displayed) {
+    const n = Number(displayed) || 0;
+    return Math.max(0, n - universeBase);
+  }
+  // universeInputAttrs: {min,max} for a raw <input type=number> that edits
+  // a universe number in DISPLAYED terms (wire range is 0-32767).
+  function universeInputAttrs() {
+    return { min: universeBase, max: 32767 + universeBase };
+  }
+  // universeBaseLabel: short trailing note ("(0-based)"/"(1-based)") a
+  // caller can append next to a "Universe" field label so the active
+  // notation is never ambiguous at the point of entry.
+  function universeBaseLabel() {
+    return universeBase === 0 ? 'Art-Net native, 0-based' : 'industry standard, 1-based';
+  }
+
   // --- generic Apply-to-confirm field (DOM builder) --------------------------
   // buildApplyField returns {wrap, input, applyBtn, revertBtn, status}. wrap
   // is a complete .b5-field (label + input row + Apply/Revert actions +
@@ -162,5 +209,8 @@ const UI = (() => {
     return refresh;
   }
 
-  return { icon, badge, tag, spinner, buildApplyField, wireApplyField };
+  return {
+    icon, badge, tag, spinner, buildApplyField, wireApplyField,
+    getUniverseBase, setUniverseBase, formatUniverse, parseUniverse, universeInputAttrs, universeBaseLabel,
+  };
 })();
