@@ -129,6 +129,14 @@ const MvrImport = (() => {
       const descBytes = await innerZip.read(descName);
       const descXml = new TextDecoder('utf-8').decode(descBytes);
       const result = GdtfParse.parseDescriptionXml(descXml);
+      // Geometry-resolution warnings (a reference cycle, a multi-break
+      // reference, an unresolvable geometry name) are a property of the
+      // GDTF FILE, not of any one fixture instance — surfaced once here,
+      // tagged with the resolved file name, rather than once per fixture
+      // that happens to reference it (a show can repeat the same fixture
+      // type dozens of times; the cache above already ensures this file is
+      // only ever parsed once).
+      (result.warnings || []).forEach(w => warnings.push(`GDTF "${resolvedName}": ${w}`));
       gdtfCache.set(resolvedName, result);
       return result;
     }

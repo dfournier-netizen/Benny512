@@ -198,10 +198,21 @@ const PatchScreen = (() => {
     try {
       const buf = await file.arrayBuffer();
       const parsed = await MvrImport.parseGdtfFile(buf);
-      const matches = computeGdtfMatches(parsed);
-      gdtfPreview = { fileName: file.name, parsed, selectedModeIndex: 0, matches };
+      const candidateGroups = computeGdtfMatchGroups(parsed);
+      gdtfPreview = {
+        fileName: file.name, parsed, selectedModeIndex: 0,
+        candidateGroups,
+        // Auto-selected only when there's exactly one distinct matching
+        // fixture-type group — 0 or 2+ always require an explicit choice
+        // (0: nothing to choose; 2+: ambiguous, never auto-picked — see
+        // computeGdtfMatchGroups' doc comment).
+        selectedGroupIndex: candidateGroups.length === 1 ? 0 : null,
+      };
+      const totalMatches = candidateGroups.reduce((n, g) => n + g.entries.length, 0);
+      const warnSuffix = (parsed.warnings || []).length ? ` — ${parsed.warnings.length} geometry warning${parsed.warnings.length === 1 ? '' : 's'}` : '';
       setStatus(`parsed "${parsed.fixtureType || '(unnamed fixture type)'}" from ${file.name} — ` +
-        `${parsed.modes.length} mode${parsed.modes.length === 1 ? '' : 's'}, ${matches.length} matching patch entr${matches.length === 1 ? 'y' : 'ies'}`);
+        `${parsed.modes.length} mode${parsed.modes.length === 1 ? '' : 's'}, ${totalMatches} matching patch entr${totalMatches === 1 ? 'y' : 'ies'}` +
+        `${candidateGroups.length > 1 ? ` across ${candidateGroups.length} distinct fixture types — pick one below` : ''}${warnSuffix}`);
       render();
     } catch (err) {
       gdtfPreview = null;
@@ -212,22 +223,107 @@ const PatchScreen = (() => {
     }
   }
 
-  // computeGdtfMatches: every current patch entry whose fixtureType matches
-  // the GDTF's "Manufacturer Model" string, trimmed/case-insensitive (task
-  // ask: "at minimum to all entries whose fixtureType matches" — the
-  // fallback entry a failed MVR import produces uses the fixture's own MVR
-  // <name> as fixtureType (see mvrimport.js's buildFallbackEntry), and
-  // fixtureType is free text per entry.go's doc comment, so an exact
-  // case-sensitive match would miss real-world capitalization drift; a
-  // trimmed case-insensitive compare is the same leniency match.js already
-  // uses for RDM-reconcile fuzzy matching, just not tokenized — this is a
-  // "the same type" identity match, not a fuzzy-confidence one).
-  function computeGdtfMatches(parsed) {
+  // --- GDTF <-> patch fixture-type matching (Bug 2: "let's make it so GDTF
+  // imports match fixtures in the patch more easily") ---------------------
+  //
+  // internal/patch/match.go already has an asymmetric token-containment
+  // fuzzy matcher for patch<->RDM reconcile (normalizeTokens +
+  // tokenContainment there). This ports that SAME design to the browser
+  // rather than inventing a second, divergent notion of "similar name" —
+  // Go code isn't callable from this client-side import flow, so it's a
+  // deliberate hand-port, not a shared import, but the algorithm is
+  // identical: lowercase, treat every run of non-alphanumeric characters as
+  // a separator (so case/spacing/`-`/`_`/`.` never matter), and compare by
+  // token-set containment rather than raw string equality.
+  //
+  // One addition beyond match.go's normalizeTokens, needed for this task's
+  // examples ("JDC1" == "JDC 1" == "JDC-1", "ERA800" == "ERA 800"): split
+  // at every letter<->digit boundary too, so "jdc1" tokenizes to "jdc","1"
+  // the same as "jdc 1" does. match.go's own normalizeTokens has been
+  // extended with the identical split (see that file) so RDM-reconcile
+  // fuzzy matching benefits from the same leniency, keeping the two
+  // matchers' notion of "same token" in sync even though they're separate
+  // implementations.
+  function fuzzyTokenSet(s) {
+    const norm = String(s || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/([a-z])(\d)/g, '$1 $2')
+      .replace(/(\d)([a-z])/g, '$1 $2')
+      .trim();
+    return norm === '' ? new Set() : new Set(norm.split(/\s+/));
+  }
+
+  // tokenContainment: fraction of ref's tokens that also appear in text —
+  // same asymmetric definition as match.go's tokenContainment (a superset
+  // side isn't penalized for extra words the other side lacks).
+  function tokenContainment(text, ref) {
+    if (ref.size === 0) return 0;
+    let hit = 0;
+    ref.forEach(t => { if (text.has(t)) hit++; });
+    return hit / ref.size;
+  }
+
+  // MIN_SUBSET_TOKENS: a subset match additionally requires the shorter
+  // side to carry at least this many tokens, so a single generic word
+  // ("Strobe") can never by itself count as "the same fixture" — the
+  // critical design constraint from the task brief: a loose match that
+  // silently picks the WRONG fixture type is far worse than a miss (wrong
+  // footprint + wrong channel map applied to a real fixture).
+  const MIN_SUBSET_TOKENS = 2;
+
+  // matchGdtfFixtureType: true when gdtfType and entryType are "the same
+  // fixture" per the owner's tolerant-matching ask — exact match after
+  // normalization, OR one side's full token set is contained in the
+  // other's (a shorter name matching a longer one: "JDC 1" inside "GLP
+  // JDC1 Strobe", "Era800" inside "ERA 800 Performance"). Returns a reason
+  // string (for the "what matched and why" UI) or null for no match.
+  function matchGdtfFixtureType(gdtfType, entryType) {
+    const a = fuzzyTokenSet(gdtfType);
+    const b = fuzzyTokenSet(entryType);
+    if (a.size === 0 || b.size === 0) return null;
+    if (tokenContainment(a, b) === 1 && tokenContainment(b, a) === 1) {
+      return 'exact match (case/spacing/punctuation ignored)';
+    }
+    const [smaller, smallerLabel, larger] = a.size <= b.size ? [a, 'GDTF', b] : [b, 'patch entry', a];
+    if (smaller.size < MIN_SUBSET_TOKENS) return null;
+    if (tokenContainment(larger, smaller) === 1) {
+      return `${smallerLabel} name "${Array.from(smaller).join(' ')}" is a subset of the other`;
+    }
+    return null;
+  }
+
+  // computeGdtfMatchGroups: groups current patch entries by their DISTINCT
+  // (verbatim) fixtureType string, tests each distinct group against the
+  // parsed GDTF's fixtureType via matchGdtfFixtureType, and returns every
+  // group that matched — [{ fixtureType, reason, entries }]. Deliberately
+  // grouped rather than a flat entry list: the loose matcher above can
+  // legitimately find MORE THAN ONE distinct fixture-type string matching
+  // the same GDTF (e.g. a rig with both "JDC 1" and, mistakenly, an
+  // unrelated "JDC 12 RGB" patched) — auto-applying to all of them would
+  // silently apply the wrong footprint/channel map to real fixtures, which
+  // the task brief calls out as worse than missing a match entirely. The
+  // caller (onGdtfFileChosen/renderGdtfImportPreview) surfaces >1 group as
+  // an explicit "which fixture is this?" choice rather than ever merging
+  // them.
+  function computeGdtfMatchGroups(parsed) {
     const p = patchData.active ? patchData.patch : null;
     const entries = (p && p.entries) || [];
-    const want = (parsed.fixtureType || '').trim().toLowerCase();
-    if (!want) return [];
-    return entries.filter(e => (e.fixtureType || '').trim().toLowerCase() === want);
+    const want = parsed.fixtureType || '';
+    if (!want.trim()) return [];
+    const byType = new Map(); // verbatim fixtureType -> entries[]
+    entries.forEach(e => {
+      const ft = e.fixtureType || '';
+      if (!ft.trim()) return;
+      if (!byType.has(ft)) byType.set(ft, []);
+      byType.get(ft).push(e);
+    });
+    const groups = [];
+    byType.forEach((es, ft) => {
+      const reason = matchGdtfFixtureType(want, ft);
+      if (reason) groups.push({ fixtureType: ft, reason, entries: es });
+    });
+    return groups;
   }
 
   function onEnterScreen() {
@@ -510,10 +606,12 @@ const PatchScreen = (() => {
       container.innerHTML = '';
       return;
     }
-    const { fileName, parsed, selectedModeIndex, matches } = gdtfPreview;
+    const { fileName, parsed, selectedModeIndex, candidateGroups, selectedGroupIndex } = gdtfPreview;
     const modes = parsed.modes || [];
     const mode = modes[selectedModeIndex] || null;
     const fixtureType = parsed.fixtureType || '(unnamed fixture type)';
+    const selectedGroup = selectedGroupIndex != null ? candidateGroups[selectedGroupIndex] : null;
+    const matches = selectedGroup ? selectedGroup.entries : [];
 
     let body;
     if (!modes.length) {
@@ -524,17 +622,42 @@ const PatchScreen = (() => {
           <p class="b5-text-sm">The file parsed, but "${escapeHtml(fixtureType)}" has no &lt;DMXMode&gt; entries — there is nothing to apply.</p></div>
         </div>
       `;
-    } else if (!matches.length) {
+    } else if (!candidateGroups.length) {
       body = `
         <div class="b5-alert b5-alert--caution">
           ${UI.icon('status-warning')}
           <div><p class="b5-alert__title">No patch entries match this fixture type</p>
-          <p class="b5-text-sm">No entry in the current patch has fixture type "${escapeHtml(fixtureType)}" exactly (case-insensitive). Nothing to apply — check the entry's "Fixture type" field matches this GDTF's manufacturer/model.</p></div>
+          <p class="b5-text-sm">No entry's fixture type resembles "${escapeHtml(fixtureType)}" (case, spacing, "-"/"_"/"." and digit-joining are all ignored — "JDC1"/"JDC 1"/"JDC-1" all count as the same). Nothing to apply — check the entry's "Fixture type" field.</p></div>
+        </div>
+      `;
+    } else if (candidateGroups.length > 1 && !selectedGroup) {
+      // Ambiguous: more than one DISTINCT patch fixture-type string loosely
+      // matches this GDTF. Never auto-apply to all of them (task brief:
+      // "loose matching that silently picks the WRONG fixture type is far
+      // worse than a miss") — show the candidates and require an explicit
+      // pick before anything below becomes available.
+      body = `
+        <div class="b5-alert b5-alert--caution">
+          ${UI.icon('status-warning')}
+          <div><p class="b5-alert__title">${candidateGroups.length} different fixture types in the patch resemble "${escapeHtml(fixtureType)}"</p>
+          <p class="b5-text-sm">Pick which one this GDTF actually describes — applying to the wrong one would give those fixtures the wrong footprint and channel map.</p></div>
+        </div>
+        <div class="b5-stack">
+          ${candidateGroups.map((g, i) => `
+            <label class="b5-checkbox" style="align-items:flex-start">
+              <input type="radio" name="gdtfGroupPick" value="${i}">
+              <span>
+                <strong>"${escapeHtml(g.fixtureType)}"</strong> — ${g.entries.length} entr${g.entries.length === 1 ? 'y' : 'ies'}<br>
+                <span class="b5-text-sm b5-text-muted">Matched via: ${escapeHtml(g.reason)}</span>
+              </span>
+            </label>
+          `).join('')}
         </div>
       `;
     } else {
       body = `
-        <p class="b5-text-sm">${matches.length} patch entr${matches.length === 1 ? 'y matches' : 'ies match'} fixture type "${escapeHtml(fixtureType)}".</p>
+        <p class="b5-text-sm">${matches.length} patch entr${matches.length === 1 ? 'y matches' : 'ies match'} fixture type "${escapeHtml(selectedGroup.fixtureType)}" <span class="b5-text-muted">(matched via: ${escapeHtml(selectedGroup.reason)})</span>.</p>
+        ${candidateGroups.length > 1 ? `<button id="gdtfChangeGroup" class="b5-btn b5-btn--sm b5-btn--ghost">Choose a different fixture type&hellip;</button>` : ''}
         ${modes.length > 1 ? `
           <div class="b5-field">
             <label class="b5-field__label" for="gdtfModeSelect">DMX mode to apply</label>
@@ -571,8 +694,17 @@ const PatchScreen = (() => {
         <div class="b5-panel__header"><h3 class="b5-panel__title">Import GDTF — ${escapeHtml(fileName)}</h3></div>
         <div class="b5-panel__body b5-stack">
           <p class="b5-text-sm b5-text-muted">${escapeHtml(parsed.manufacturer || '—')} / ${escapeHtml(parsed.model || '—')}</p>
+          ${(parsed.warnings || []).length ? `
+            <div class="b5-alert b5-alert--caution">
+              ${UI.icon('status-warning')}
+              <div><p class="b5-alert__title">${parsed.warnings.length} geometry warning${parsed.warnings.length === 1 ? '' : 's'}</p>
+              <ul style="margin:var(--b5-space-2) 0 0; padding-left:1.2em">
+                ${parsed.warnings.map(w => `<li class="b5-text-sm">${escapeHtml(w)}</li>`).join('')}
+              </ul></div>
+            </div>
+          ` : ''}
           ${body}
-          ${(!matches.length || !modes.length) ? `<div class="b5-row"><button id="gdtfCancel" class="b5-btn b5-btn--sm b5-btn--ghost">Close</button></div>` : ''}
+          ${(!matches.length || !modes.length) && !(candidateGroups.length > 1 && !selectedGroup) ? `<div class="b5-row"><button id="gdtfCancel" class="b5-btn b5-btn--sm b5-btn--ghost">Close</button></div>` : ''}
         </div>
       </div>
     `;
@@ -585,13 +717,24 @@ const PatchScreen = (() => {
       gdtfPreview = null;
       renderGdtfImportPreview();
     }));
+    document.querySelectorAll('input[name="gdtfGroupPick"]').forEach(r => r.addEventListener('change', (e) => {
+      gdtfPreview.selectedGroupIndex = Number(e.target.value);
+      renderGdtfImportPreview();
+    }));
+    const changeGroupBtn = document.getElementById('gdtfChangeGroup');
+    if (changeGroupBtn) changeGroupBtn.addEventListener('click', () => {
+      gdtfPreview.selectedGroupIndex = null;
+      renderGdtfImportPreview();
+    });
     const applyBtn = document.getElementById('gdtfApply');
     if (applyBtn) applyBtn.addEventListener('click', runGdtfApply);
   }
 
   async function runGdtfApply() {
     if (!gdtfPreview) return;
-    const { parsed, selectedModeIndex, matches } = gdtfPreview;
+    const { parsed, selectedModeIndex, candidateGroups, selectedGroupIndex } = gdtfPreview;
+    const selectedGroup = selectedGroupIndex != null ? candidateGroups[selectedGroupIndex] : null;
+    const matches = selectedGroup ? selectedGroup.entries : [];
     const mode = (parsed.modes || [])[selectedModeIndex];
     if (!mode || !matches.length) return;
     const n = matches.length;
@@ -1645,6 +1788,42 @@ const PatchScreen = (() => {
     document.querySelectorAll('#fcAttrTree > details[data-group]').forEach(d => { openGroups[d.dataset.group] = d.open; });
     const scrollY = window.scrollY;
 
+    // Bug 3 fix: "Rig Check finds no attributes at all" traced to entries
+    // whose ChannelFunctions map is genuinely empty — most commonly a patch
+    // built/imported before this project's function-aware Rig Check
+    // foundation existed (a v1 patch file migrates every entry to an empty,
+    // never-nil ChannelFunctions map — see entry.go's
+    // normalizeChannelFunctions — there is no backfill path for those
+    // entries short of re-importing or applying a GDTF). The MVR/single-GDTF
+    // import paths themselves DO populate and persist ChannelFunctions
+    // correctly end to end (verified against the real Schaeffler show file:
+    // imported entries came back from GET /api/patch and GET
+    // /api/patch/attributes with populated groups) — so the six-group
+    // accordion silently reading "no fixture in scope has a ... function"
+    // for every group, with no explanation, was the actual UX bug: nothing
+    // told the tech WHY it was empty or what to do about it.
+    const fcWithChannelData = scoped.filter(e => e.channelFunctions && Object.keys(e.channelFunctions).length > 0).length;
+    let noDataBanner = '';
+    if (scoped.length > 0 && fcWithChannelData === 0) {
+      noDataBanner = `
+        <div class="b5-alert b5-alert--caution" style="margin-bottom:var(--b5-space-4)">
+          ${UI.icon('status-warning')}
+          <div>
+            <p class="b5-alert__title">None of the ${scoped.length} fixture${scoped.length === 1 ? '' : 's'} in scope have channel-function data</p>
+            <p class="b5-text-sm">Rig Check's Function check needs each fixture's resolved channel functions (from a GDTF import, or RDM SLOT_INFO) — these entries have none, most likely because they were patched before this existed, or were hand-added without a GDTF match. Re-import via MVR, or use "Import GDTF&hellip;" on the Entries tab to apply a GDTF mode to these fixture types.</p>
+            <button id="fcGoToEntries" class="b5-btn b5-btn--sm" style="margin-top:var(--b5-space-2)">Go to Entries</button>
+          </div>
+        </div>
+      `;
+    } else if (scoped.length > 0 && fcWithChannelData < scoped.length) {
+      noDataBanner = `
+        <div class="b5-alert b5-alert--caution" style="margin-bottom:var(--b5-space-4)">
+          ${UI.icon('status-warning')}
+          <div><p class="b5-alert__body">${scoped.length - fcWithChannelData} of ${scoped.length} fixtures in scope have no channel-function data yet, so they're absent from every group below — re-import via MVR or apply a GDTF to those fixture types for full coverage.</p></div>
+        </div>
+      `;
+    }
+
     container.innerHTML = `
       <div class="b5-fc-stopbar">
         <span class="b5-text-sm b5-fc-stopbar__status">${running ? UI.badge('warning', 'Pattern running') : UI.badge('pending', 'Idle')}</span>
@@ -1669,9 +1848,13 @@ const PatchScreen = (() => {
         <span class="b5-filterbar__summary">${scoped.length} fixture${scoped.length === 1 ? '' : 's'} in scope</span>
       </div>
       <div id="fcActiveWrap">${running ? renderFunctionCheckActive(patternState) : ''}</div>
+      ${noDataBanner}
       <div class="b5-accordion" id="fcAttrTree"></div>
       <div id="fcActionPanel" style="margin-top:var(--b5-space-4)"></div>
     `;
+
+    const goToEntriesBtn = document.getElementById('fcGoToEntries');
+    if (goToEntriesBtn) goToEntriesBtn.addEventListener('click', () => setView('entries'));
 
     const scopeSel = document.getElementById('fcScopeKind');
     scopeSel.value = fcScopeKind;

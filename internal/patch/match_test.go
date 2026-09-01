@@ -44,6 +44,39 @@ func TestTokenContainment(t *testing.T) {
 	}
 }
 
+func TestNormalizeTokens_LetterDigitBoundarySplit(t *testing.T) {
+	// "JDC1"/"JDC-1"/"JDC 1" must all tokenize identically — letter<->digit
+	// boundaries are separators too, not just punctuation/whitespace (Bug 2:
+	// GDTF-import fixture-type matching leniency, ported to this matcher so
+	// RDM-reconcile benefits the same way a device MODEL of "JDC1" should
+	// still corroborate a patch FixtureType of "JDC 1").
+	want := map[string]struct{}{"jdc": {}, "1": {}}
+	for _, s := range []string{"JDC1", "JDC-1", "JDC 1", "jdc_1", "Jdc.1"} {
+		got := normalizeTokens(s)
+		if len(got) != len(want) {
+			t.Fatalf("normalizeTokens(%q) = %v, want %v", s, got, want)
+		}
+		for k := range want {
+			if _, ok := got[k]; !ok {
+				t.Errorf("normalizeTokens(%q) = %v, missing token %q", s, got, k)
+			}
+		}
+	}
+	// A run of digits must NOT be split internally — "1960" stays one token,
+	// not "1","9","6","0".
+	if got := normalizeTokens("Proteus Rayzor 1960"); len(got) != 3 {
+		t.Errorf("normalizeTokens(%q) = %v, want 3 tokens (proteus, rayzor, 1960)", "Proteus Rayzor 1960", got)
+	} else if _, ok := got["1960"]; !ok {
+		t.Errorf("normalizeTokens(%q) = %v, want a single \"1960\" token", "Proteus Rayzor 1960", got)
+	}
+	// ERA800 == ERA 800 (the task brief's other worked example).
+	era1 := normalizeTokens("ERA800")
+	era2 := normalizeTokens("ERA 800 Performance")
+	if got := tokenContainment(era2, era1); got < 0.99 {
+		t.Errorf("tokenContainment(%v, %v) = %v, want ~1.0 (ERA800 tokens all present in ERA 800 Performance)", era2, era1, got)
+	}
+}
+
 func TestReconcile_SimpleAddressMatch(t *testing.T) {
 	entries := []Entry{{ID: "e1", Name: "Wash 1", FixtureType: "Chauvet Rogue Outcast 2X Wash", Universe: 0, StartAddress: 1, Footprint: 20}}
 	devices := []DiscoveredDevice{{UID: "1900:00000001", Universe: 0, StartAddress: 1, AddressKnown: true, Footprint: 20, FootprintKnown: true, Manufacturer: "Chauvet", Model: "Rogue Outcast 2X Wash"}}

@@ -296,14 +296,28 @@ func scorePair(e Entry, d DiscoveredDevice, entryTokens map[string]struct{}) (fl
 // normalizeTokens lowercases s, treats every run of non-alphanumeric
 // characters as a separator (so punctuation/whitespace differences never
 // matter — task ask: "case/punctuation/whitespace-insensitive, token-
-// based"), and returns the resulting word set.
+// based"), ALSO splits at every letter<->digit boundary (so "JDC1"
+// tokenizes identically to "JDC 1" or "JDC-1" — same fixture-naming
+// leniency the GDTF-import matcher needs, see gdtfparse-driven patch.js's
+// fuzzyTokenSet, a hand-port of this exact function for the browser side
+// where match.go itself isn't reachable), and returns the resulting word
+// set. A run of letters or a run of digits is never split internally — only
+// the letter/digit BOUNDARY is a break point, so "2x" still splits into
+// "2","x" (two different characters classes) while "1960" stays one token.
 func normalizeTokens(s string) map[string]struct{} {
 	var b strings.Builder
+	var prevDigit, havePrev bool
 	for _, r := range strings.ToLower(s) {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			isDigit := unicode.IsDigit(r)
+			if havePrev && isDigit != prevDigit {
+				b.WriteRune(' ')
+			}
 			b.WriteRune(r)
+			prevDigit, havePrev = isDigit, true
 		} else {
 			b.WriteRune(' ')
+			havePrev = false
 		}
 	}
 	fields := strings.Fields(b.String())

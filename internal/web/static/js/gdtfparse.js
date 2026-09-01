@@ -19,13 +19,40 @@
 //     </DMXMode></DMXModes>
 //   </FixtureType></GDTF>
 //
-// Footprint rule (deliberate simplification, task ask): footprint for a mode
-// = the maximum numeric offset appearing across all its DMXChannel Offset
-// lists, ignoring the literal "None" (a channel with no DMX footprint
-// impact). Full GDTF geometry-tree resolution for repeated/multi-instance
-// geometries is explicitly out of scope this phase — this is exactly what a
-// naive DMXChannel-list read gives you, which is correct for the common
-// case.
+// Footprint rule: footprint for a mode = the maximum RESOLVED offset across
+// all its channel placements, where "resolved" accounts for GDTF's
+// geometry-reference replication mechanism (pixel arrays / repeated cells),
+// not just the literal <DMXChannel> list.
+//
+// Why the literal list alone under-counts: GDTF lets a fixture define a
+// geometry once (a "template", e.g. one RGBW pixel cell) and instantiate it
+// many times via <GeometryReference Geometry="TemplateName"><Break
+// DMXBreak="1" DMXOffset="N"/></GeometryReference> — one per physical
+// instance, each at its own DMX offset. The template's own channel
+// definitions appear ONCE in the mode's <DMXChannels> list (Geometry=
+// "TemplateName"), using offsets that are LOCAL to one instance (1, 2, 3...
+// for an RGBW cell's R/G/B/W bytes) — they are never real placements by
+// themselves. Every actual instance's real offset is (that GeometryReference's
+// <Break DMXOffset> - 1) + (the template channel's local offset). A naive
+// max-of-literal-offsets read never looks at <GeometryReference>/<Break> at
+// all, so it both (a) misses every replicated instance beyond whichever one
+// happens to be the template's own local numbering, drastically under-
+// counting footprint for any fixture with pixel arrays or repeated cells,
+// and (b) can even let two unrelated geometries collide at the same small
+// literal offset (a template's own 1/2 numbering stepping on a real
+// geometry's actual channels 1/2 elsewhere in the same mode).
+//
+// resolveGeometryChannels below walks the <Geometries> tree starting from
+// each mode's own root geometry (DMXMode/@Geometry), recursing through
+// plain child geometries at a fixed offset and through each
+// <GeometryReference> hop at an accumulated offset (composing nested
+// references), and reads a geometry name's channel *definition* from the
+// mode's own <DMXChannels> list only when the walk actually reaches that
+// name — so a template name never contributes at its own bare literal
+// offset unless the walk reaches it there directly (the common, correct
+// case for a fixture with no <GeometryReference> elements at all, which
+// this degrades to byte-for-byte). See that function's doc comment for the
+// full algorithm and the cycle/depth guard.
 //
 // channelFunctions rule (Task 1, function-aware Rig Check foundation —
 // deliberate simplification, same spirit as the footprint rule above): each
@@ -180,42 +207,285 @@ const GdtfParse = (() => {
     };
   }
 
-  function parseMode(modeEl) {
+  // GEOMETRY_REFERENCE_TAG: the one tag in <Geometries> that isn't a
+  // geometry itself but a pointer at one, elsewhere in the tree.
+  const GEOMETRY_REFERENCE_TAG = 'GeometryReference';
+
+  // buildGeometryIndex: Name -> element for every geometry node under
+  // <Geometries>, at any depth, EXCLUDING <GeometryReference> nodes
+  // themselves (a reference's own Name, e.g. "RGBW Pixel 20", is never
+  // looked up — only the template its Geometry attribute points at is).
+  // First element with a given Name wins (GDTF requires unique geometry
+  // names within a fixture type; a malformed file that violates this just
+  // gets whichever occurrence buildGeometryIndex saw first, not an error —
+  // consistent with this module's "never crash, degrade" posture).
+  function buildGeometryIndex(geometriesEl) {
+    const index = new Map();
+    if (!geometriesEl) return index;
+    const stack = [geometriesEl];
+    while (stack.length) {
+      const cur = stack.pop();
+      for (let i = 0; i < cur.children.length; i++) {
+        const c = cur.children[i];
+        const tag = c.tagName || c.localName;
+        const nm = c.getAttribute('Name');
+        if (tag !== GEOMETRY_REFERENCE_TAG && nm && !index.has(nm)) index.set(nm, c);
+        stack.push(c);
+      }
+    }
+    return index;
+  }
+
+  // MAX_GEOMETRY_DEPTH: recursion-depth backstop for the geometry-tree walk
+  // below. A real fixture never nests more than a handful of levels deep;
+  // this exists purely so a malformed/cyclic GDTF can never hang or
+  // stack-overflow the browser tab even if the visited-name cycle guard
+  // somehow doesn't catch it (e.g. a reference chain that keeps
+  // introducing new names without ever truly repeating one).
+  const MAX_GEOMETRY_DEPTH = 200;
+
+  // resolveGeometryChannels: walks the geometry tree reachable from rootEl
+  // (a mode's DMXMode/@Geometry, looked up in geometryIndex by the caller)
+  // and returns every { offset, ch } placement this mode's fixture actually
+  // uses — including every instance a <GeometryReference> replicates (see
+  // this file's top doc comment for why that's necessary and how offsets
+  // compose).
+  //
+  // channelsByGeometryName is this mode's own literal <DMXChannel> list,
+  // grouped by the Geometry name each entry declares. Whether a given name's
+  // channels end up being a real, once-only placement (the mode's root
+  // geometry, or a plain descendant reached by direct child traversal, both
+  // at offsetBase 0) or a template replicated N times (reached only via one
+  // or more <GeometryReference> hops, offsetBase = the accumulated
+  // (breakOffset-1) sum) is decided ENTIRELY by how this walk reaches that
+  // name — nothing needs to classify a name as "a template" up front. A
+  // geometry that's never referenced anywhere just gets contributed once, at
+  // offsetBase 0, wherever the direct-child walk finds it: byte-for-byte the
+  // pre-fix behavior for a fixture with no <GeometryReference> elements at
+  // all.
+  //
+  // Multi-break: a <GeometryReference> with more than one <Break> (a
+  // multi-universe fixture, one break per DMX universe the geometry spans)
+  // picks DMXBreak="1" if present, else the lowest numeric break — same
+  // "lowest break" convention mvrparse.js's address resolution already uses
+  // for a fixture's own <Addresses>, kept coherent here rather than
+  // inventing a second rule — and records a warning naming the ones it
+  // didn't use. None of this project's 5 real sample GDTFs exercise
+  // multi-break GeometryReferences (checked directly against the ground
+  // truth), so this path is implemented per the GDTF spec and kept coherent
+  // with the existing convention, but is UNVERIFIED against a real
+  // multi-break file.
+  //
+  // Cycle guard: a Set of geometry names already in the current reference
+  // chain is threaded through the recursion; a <GeometryReference> whose
+  // target is already an ancestor in that chain is skipped (with a warning)
+  // rather than followed — see MAX_GEOMETRY_DEPTH above for the backstop.
+  //
+  // Pure-array-container guard (regression fix — see this file's top doc
+  // comment history): a <Geometry> node can legitimately be BOTH (a) a pixel/
+  // element-array container whose ENTIRE content is <GeometryReference>
+  // children replicating one template (the pattern this whole function
+  // exists to expand — see e.g. "RGBW Cells" below), AND (b) itself carry a
+  // literal <DMXChannel> entry of its own in this mode, when the mode wants
+  // to expose that array as ONE unified group control (a strobe/dimmer
+  // module for the whole array) rather than per-instance addressing.
+  // Checked against a real vendor GDTF (Elation Proteus Rayzor 1960,
+  // "Extended Pan540/Tilt270" mode): "Spark LED Strobe Module" carries its
+  // own literal Shutter1/Dimmer <DMXChannel> entries (real offsets 98, 99-
+  // 100) and its only children are 76 <GeometryReference> elements to a
+  // per-LED "Spark LED Pixel" template that ALSO has its own literal
+  // <DMXChannel> entry (offset 1, local). Expanding those 76 references
+  // pushes the resolved footprint out to 176; the fixture's actual DMX
+  // address spacing in a real show (independently measured from Vectorworks'
+  // back-to-back patch addressing) is 100 — the module-level group control
+  // IS the real, addressed control surface for this mode, and the per-LED
+  // template's own channel entry is leftover GDTF metadata (needed by this
+  // fixture's separate pixel-mapping "Pixels" mode, which addresses this
+  // same template through a different, non-wrapped reference) rather than a
+  // second, independently-addressed layer for THIS mode.
+  //
+  // The signal that distinguishes this from a genuine array-needs-expanding
+  // case (e.g. this same fixture's "RGBW Cells", which has no literal
+  // channel of its own and must be expanded, or its "Standard" mode's
+  // "SparkLEDs_Standard" reference, whose direct parent "Head_Standard" has
+  // its own literal channels too but is NOT a pure array container — it also
+  // holds an unrelated <Beam> child, so its one <GeometryReference> is left
+  // to expand normally) is structural, not name-based: a node blocks its OWN
+  // <GeometryReference> children from expanding only when BOTH (1) it
+  // contributed at least one real (non-"None") placement of its own in this
+  // mode, AND (2) every one of its children is a <GeometryReference> — i.e.
+  // it has no role in the tree other than being a replication wrapper, so a
+  // real channel declared on it is unambiguously a claim on the whole
+  // wrapped group, not a sibling detail alongside other unrelated geometry.
+  function resolveGeometryChannels(rootEl, channelsByGeometryName, geometryIndex, warnings) {
+    const resolved = [];
+
+    // contribute: pushes name's literal channels (if this mode declares
+    // any) at offsetBase, and reports whether it actually pushed a real
+    // (non-"None"/non-empty) placement — the signal the pure-array-
+    // container guard above needs; a name with only a "None"-offset entry
+    // (e.g. a virtual/relation-master channel) reports false, same as a
+    // name with no entry at all.
+    function contribute(name, offsetBase) {
+      const chs = channelsByGeometryName.get(name);
+      if (!chs) return false;
+      let contributedReal = false;
+      chs.forEach(ch => {
+        ch.offsets.forEach(localOffset => {
+          resolved.push({ offset: localOffset + offsetBase, ch });
+          contributedReal = true;
+        });
+      });
+      return contributedReal;
+    }
+
+    function chooseBreak(refEl, breaks) {
+      let chosen = breaks.find(b => b.brk === '1');
+      if (!chosen) {
+        const sorted = breaks.slice().sort((a, b) => {
+          const an = parseInt(a.brk, 10), bn = parseInt(b.brk, 10);
+          return (Number.isFinite(an) ? an : Infinity) - (Number.isFinite(bn) ? bn : Infinity);
+        });
+        chosen = sorted[0];
+        if (breaks.length > 1) {
+          warnings.push(
+            `GeometryReference "${refEl.getAttribute('Name') || '(unnamed)'}": multiple <Break> elements ` +
+            `(breaks ${breaks.map(b => b.brk).join(', ')}) — used the lowest break (${chosen.brk}) for footprint ` +
+            `resolution, matching the MVR importer's own lowest-break convention.`
+          );
+        }
+      }
+      return chosen;
+    }
+
+    function walk(el, offsetBase, visited, depth) {
+      if (depth > MAX_GEOMETRY_DEPTH) {
+        warnings.push(`geometry tree exceeds ${MAX_GEOMETRY_DEPTH} levels at "${el.getAttribute('Name') || '(unnamed)'}" — stopped descending (possible malformed/cyclic GDTF).`);
+        return;
+      }
+      const name = el.getAttribute('Name');
+      const contributedReal = name ? contribute(name, offsetBase) : false;
+
+      // pure-array-container guard: only engages when this node itself has
+      // real channels of its own AND every child is a <GeometryReference> —
+      // see the doc comment above resolveGeometryChannels for the real-file
+      // case this fixes and why the check is this specific.
+      let blockReferenceChildren = false;
+      if (contributedReal && el.children.length > 0) {
+        blockReferenceChildren = true;
+        for (let i = 0; i < el.children.length; i++) {
+          const t = el.children[i].tagName || el.children[i].localName;
+          if (t !== GEOMETRY_REFERENCE_TAG) { blockReferenceChildren = false; break; }
+        }
+        if (blockReferenceChildren) {
+          warnings.push(
+            `Geometry "${name}" has its own DMX channel(s) in this mode and is a pure ` +
+            `per-instance array container (every child is a <GeometryReference>) — treated as a ` +
+            `single addressed group; its ${el.children.length} replicated instance(s) were not expanded ` +
+            `for footprint/channelFunctions (matches real DMX address spacing).`
+          );
+        }
+      }
+
+      for (let i = 0; i < el.children.length; i++) {
+        const c = el.children[i];
+        const tag = c.tagName || c.localName;
+        if (tag !== GEOMETRY_REFERENCE_TAG) {
+          walk(c, offsetBase, visited, depth + 1);
+          continue;
+        }
+        if (blockReferenceChildren) continue;
+        const refName = c.getAttribute('Geometry') || '';
+        const breakEls = childrenByTag(c, 'Break');
+        if (!breakEls.length) continue; // no placement info for this reference — nothing to resolve
+        const breaks = breakEls.map(b => ({ brk: b.getAttribute('DMXBreak') || '', off: b.getAttribute('DMXOffset') || '' }));
+        const chosen = chooseBreak(c, breaks);
+        const breakOffsetNum = parseInt(chosen.off, 10);
+        if (!Number.isFinite(breakOffsetNum)) continue;
+        if (visited.has(refName)) {
+          warnings.push(`GeometryReference "${c.getAttribute('Name') || '(unnamed)'}" -> "${refName}": reference cycle detected — skipped.`);
+          continue;
+        }
+        const target = geometryIndex.get(refName);
+        if (!target) {
+          warnings.push(`GeometryReference "${c.getAttribute('Name') || '(unnamed)'}" targets unknown geometry "${refName}" — skipped.`);
+          continue;
+        }
+        const nextVisited = new Set(visited);
+        nextVisited.add(refName);
+        walk(target, offsetBase + (breakOffsetNum - 1), nextVisited, depth + 1);
+      }
+    }
+
+    if (rootEl) walk(rootEl, 0, new Set(), 0);
+    return resolved;
+  }
+
+  function parseMode(modeEl, geometryIndex, fixtureWarnings) {
     const name = modeEl.getAttribute('Name') || '';
     const channelsContainer = childByTag(modeEl, 'DMXChannels');
     const channelEls = channelsContainer ? childrenByTag(channelsContainer, 'DMXChannel') : [];
     const channels = channelEls.map(parseDmxChannel);
 
+    // channelsByGeometryName: this mode's own literal DMXChannel list,
+    // grouped by the Geometry name each entry declares — the data
+    // resolveGeometryChannels reads a name's channel definition from,
+    // whichever offsetBase the tree walk reaches that name at.
+    const channelsByGeometryName = new Map();
+    channelEls.forEach((chEl, i) => {
+      const geomName = chEl.getAttribute('Geometry') || '';
+      if (!channelsByGeometryName.has(geomName)) channelsByGeometryName.set(geomName, []);
+      channelsByGeometryName.get(geomName).push(channels[i]);
+    });
+
+    const modeWarnings = [];
+    const rootGeomName = modeEl.getAttribute('Geometry') || '';
+    const rootEl = rootGeomName ? geometryIndex.get(rootGeomName) : null;
+
+    let placements;
+    if (rootEl) {
+      placements = resolveGeometryChannels(rootEl, channelsByGeometryName, geometryIndex, modeWarnings);
+    } else {
+      // No usable geometry tree for this mode (missing <Geometries>
+      // altogether, or DMXMode/@Geometry doesn't resolve to anything in
+      // it) — fall back to the pre-fix behavior: every literal DMXChannel
+      // entry at its own absolute offset, no replication. Still exactly
+      // correct for a fixture with no <GeometryReference> elements at all;
+      // just unable to expand pixel-array-style replication without a
+      // geometry tree to walk.
+      if (rootGeomName) {
+        modeWarnings.push(`mode "${name}": root geometry "${rootGeomName}" not found in <Geometries> — falling back to the literal DMXChannel list (no replication resolved).`);
+      }
+      placements = [];
+      channels.forEach(ch => { ch.offsets.forEach(off => placements.push({ offset: off, ch })); });
+    }
+
     let footprint = 0;
-    channels.forEach(ch => {
-      ch.offsets.forEach(off => { if (off > footprint) footprint = off; });
-    });
+    placements.forEach(p => { if (p.offset > footprint) footprint = p.offset; });
 
-    // channelFunctions: keyed by offset (matches patch.Entry.ChannelFunctions
-    // 1:1 — see the file doc comment's channelFunctions rule). An
-    // attribute-less resolution (resolveChannelFunction returned null, or
-    // resolved with an empty attribute) contributes nothing — this map only
-    // ever holds real, resolved GDTF data, never a placeholder "absent"
-    // entry (patch.Entry's map itself represents "absent" as a missing key,
-    // not a zero-valued one — see ChannelFunctionSource's doc comment).
+    // channelFunctions: keyed by RESOLVED offset (matches
+    // patch.Entry.ChannelFunctions 1:1 — see the file doc comment's
+    // channelFunctions rule). An attribute-less resolution
+    // (resolveChannelFunction returned null, or resolved with an empty
+    // attribute) contributes nothing — this map only ever holds real,
+    // resolved GDTF data, never a placeholder "absent" entry.
     const channelFunctions = {};
-    channels.forEach(ch => {
-      const resolved = resolveChannelFunction(ch.logicalChannels);
+    placements.forEach(p => {
+      const resolved = resolveChannelFunction(p.ch.logicalChannels);
       if (!resolved || !resolved.attribute) return;
-      ch.offsets.forEach(off => {
-        channelFunctions[off] = {
-          source: 'gdtf',
-          attribute: resolved.attribute,
-          functionName: resolved.functionName,
-          dmxFrom: resolved.dmxFrom,
-          dmxTo: resolved.dmxTo,
-          physicalFrom: resolved.physicalFrom,
-          physicalTo: resolved.physicalTo,
-          channelSets: resolved.channelSets,
-        };
-      });
+      channelFunctions[p.offset] = {
+        source: 'gdtf',
+        attribute: resolved.attribute,
+        functionName: resolved.functionName,
+        dmxFrom: resolved.dmxFrom,
+        dmxTo: resolved.dmxTo,
+        physicalFrom: resolved.physicalFrom,
+        physicalTo: resolved.physicalTo,
+        channelSets: resolved.channelSets,
+      };
     });
 
+    if (modeWarnings.length) fixtureWarnings.push(...modeWarnings);
     return { name, footprint, channels, channelFunctions };
   }
 
@@ -243,11 +513,19 @@ const GdtfParse = (() => {
     const model = (fixtureTypeEl.getAttribute('Name') || '').trim();
     const fixtureType = (manufacturer + ' ' + model).trim();
 
+    const geometriesEl = childByTag(fixtureTypeEl, 'Geometries');
+    const geometryIndex = buildGeometryIndex(geometriesEl);
+
     const dmxModesEl = childByTag(fixtureTypeEl, 'DMXModes');
     const modeEls = dmxModesEl ? childrenByTag(dmxModesEl, 'DMXMode') : [];
-    const modes = modeEls.map(parseMode);
+    const warnings = [];
+    const modes = modeEls.map(modeEl => parseMode(modeEl, geometryIndex, warnings));
 
-    return { manufacturer, model, fixtureType, modes };
+    // warnings: geometry-resolution notes collected across every mode (a
+    // reference cycle, a multi-break reference, an unresolvable root/target
+    // geometry name) — never fatal, always additive to whatever the caller
+    // (mvrimport.js / patch.js) already surfaces for this fixture.
+    return { manufacturer, model, fixtureType, modes, warnings };
   }
 
   return { parseDescriptionXml };
