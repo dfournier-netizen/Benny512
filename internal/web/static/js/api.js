@@ -255,6 +255,28 @@ const Api = (() => {
     patchExportUrl: (format) => '/api/patch/export?format=' + format,
     patchReconcileExportUrl: (format) => '/api/patch/reconcile/export?format=' + format,
 
+    // --- Phase 2b: function-aware Rig Check (attribute-group patterns) ---
+    // getPatchAttributes: resolved attribute groups/functions/offsets +
+    // provenance ("gdtf" vs "rdm-inferred") + "N of M fixtures" counts for
+    // a set of patch entries, from the Go-side GDTF/RDM-inferred channel
+    // function data already attached to each entry. `ids` is an array of
+    // entry ids to scope the summary to (e.g. the current scope's
+    // entries) — omit/empty for every entry in the patch.
+    getPatchAttributes: (ids) => req('GET', '/api/patch/attributes' + (ids && ids.length ? '?ids=' + ids.map(encodeURIComponent).join(',') : '')),
+    // patternStart/patternAdjust/getPattern: the attribute-group pattern
+    // engine (a running pattern is exclusive with the classic per-entry
+    // rig check above and with a second pattern — see server 409s).
+    // patternAdjust is a whole-value replace of the tunable fields (rateHz/
+    // min/max/target/direction/value/on) — kind cannot change; the caller
+    // must stop+start to switch kind. getPattern is also this pattern's
+    // watchdog heartbeat: the engine blacks out and stops a running
+    // pattern after ~5s without a start/adjust/GET-pattern touch, so
+    // patch.js polls this well inside that window for as long as a
+    // pattern is running (see ensurePatternHeartbeat in patch.js).
+    patternStart: (body) => req('POST', '/api/patch/rigcheck/pattern/start', body),
+    patternAdjust: (body) => req('POST', '/api/patch/rigcheck/pattern/adjust', body),
+    getPattern: () => req('GET', '/api/patch/rigcheck/pattern'),
+
     getRigCheckState: () => req('GET', '/api/patch/rigcheck'),
     rigCheckStart: (body) => req('POST', '/api/patch/rigcheck/start', body),
     rigCheckStop: () => req('POST', '/api/patch/rigcheck/stop'),

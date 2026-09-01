@@ -91,14 +91,47 @@ const PatchScreen = (() => {
   let rcLevel = 255;
   let rcStarting = false;
 
+  // Function Check (Phase 2b) state — the attribute-group pattern engine,
+  // additive alongside the classic per-entry rig check above (task ask:
+  // "keep today's channel-level rig check working and reachable"). A
+  // separate sub-tab (rcSubView) inside the Rig Check screen so neither
+  // mode's state/DOM interferes with the other's.
+  let rcSubView = sessionStorage.getItem('benny512.patch.rcSubView') || 'classic'; // 'classic' | 'function'
+  let fcScopeKind = sessionStorage.getItem('benny512.patch.fcScopeKind') || 'all'; // all|universe|position|selection
+  let fcScopeUniverse = 0;
+  let fcScopePosition = '';
+  let fcSelection = {}; // entryId -> bool, scopeKind 'selection'
+  let fcGroup = sessionStorage.getItem('benny512.patch.fcGroup') || 'dimmer';
+  // fcKindByGroup: last-chosen pattern kind per group, so switching groups
+  // and back doesn't lose the pick.
+  let fcKindByGroup = { dimmer: 'dimmer_sine', position: 'ballyhoo', colour: 'colour_wheel_step', beam: 'frost', focus: 'manual_value', shaper: 'shaper_individual' };
+  // fcParams: the draft tunables for the NEXT start (or the next adjust of
+  // a running pattern) — oninput mutates this only, per the file's
+  // standing oninput/onchange contract; onchange (or the explicit Start/
+  // Apply click) is what actually calls the server.
+  let fcParams = { rateHz: 0.5, min: 0, max: 255, target: '', direction: 'cw', value: 128 };
+  let fcStarting = false;
+  let fcAttrData = null; // last GET /api/patch/attributes result, scoped to the current scope's entry ids
+  let fcAttrLoading = false;
+  // patternState: last known GET/POST .../pattern response. null until the
+  // Function Check sub-tab has loaded once.
+  let patternState = null;
+  let patternPollTimer = null;
+
   // --- lifecycle ------------------------------------------------------------
 
   function init() {
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden' && active) Api.rigCheckStopBeacon();
+      if (document.visibilityState === 'hidden' && active) {
+        Api.rigCheckStopBeacon();
+        stopPatternHeartbeat();
+      }
     });
     window.addEventListener('pagehide', () => {
-      if (active) Api.rigCheckStopBeacon();
+      if (active) {
+        Api.rigCheckStopBeacon();
+        stopPatternHeartbeat();
+      }
     });
     ensureMvrFileInput();
     ensureGdtfFileInput();
@@ -204,10 +237,13 @@ const PatchScreen = (() => {
 
   function onLeaveScreen() {
     active = false;
+    stopPatternHeartbeat();
     // Best-effort, always — whether or not the Rig Check sub-view was the
     // one on screen, the running check must never keep lighting the rig
     // after the tech has navigated away (task ask: "never leave the rig
-    // lit"). A no-op server-side if nothing is running.
+    // lit"). A no-op server-side if nothing is running — covers both the
+    // classic per-entry check AND a running function-pattern (POST
+    // .../rigcheck/stop stops either, per the pattern engine's contract).
     Api.rigCheckStop().catch(() => {});
   }
 
@@ -239,9 +275,23 @@ const PatchScreen = (() => {
     try {
       rigCheckState = await Api.getRigCheckState();
     } catch (e) { /* best-effort */ }
+    // patternState is fetched regardless of which Rig Check sub-view is on
+    // screen — the Channel check sub-view needs to know a pattern is
+    // running too, so it can warn rather than let a click surface a raw
+    // 409 (task ask: "handle gracefully rather than showing a raw
+    // error"). The heartbeat poll itself only runs while the Function
+    // check sub-view is the one visible (ensurePatternHeartbeat/
+    // stopPatternHeartbeat around sub-tab switches) — this one-off GET is
+    // also a valid heartbeat touch but isn't relied on as one.
+    try {
+      patternState = await Api.getPattern();
+      if (patternState.running && rcSubView === 'function') ensurePatternHeartbeat();
+    } catch (e) { /* best-effort */ }
+    if (rcSubView === 'function') await refreshFunctionCheckAttributes();
   }
 
   function setView(v) {
+    if (v !== 'rigcheck') stopPatternHeartbeat();
     view = v;
     render();
     if (v === 'reconcile' && !reconcile) refreshReconcile().then(render);
@@ -1189,16 +1239,68 @@ const PatchScreen = (() => {
   // Rig Check view
   // ============================================================
 
+  // renderRigCheck: the Rig Check screen's own sub-tab switcher between the
+  // original channel-level check ("Channel check", unchanged) and the new
+  // attribute-group pattern engine ("Function check", Phase 2b — task ask:
+  // additive, not a replacement). A plain button pair rather than the
+  // b5-tabs kit component: b5-tabs is reserved for the outer
+  // Entries/Reconcile/Rig Check switcher one level up, and nesting the same
+  // component two deep reads as confusing in the kit's own styling.
   function renderRigCheck(body) {
+    body.innerHTML = `
+      <div class="b5-row" style="margin-bottom:var(--b5-space-3)" role="tablist" aria-label="Rig check mode">
+        <button id="rcSubClassic" class="b5-btn b5-btn--sm ${rcSubView === 'classic' ? 'b5-btn--primary' : ''}" role="tab" aria-selected="${rcSubView === 'classic'}">Channel check</button>
+        <button id="rcSubFunction" class="b5-btn b5-btn--sm ${rcSubView === 'function' ? 'b5-btn--primary' : ''}" role="tab" aria-selected="${rcSubView === 'function'}">Function check</button>
+      </div>
+      <div id="rcSubBody"></div>
+    `;
+    document.getElementById('rcSubClassic').addEventListener('click', () => setRcSubView('classic'));
+    document.getElementById('rcSubFunction').addEventListener('click', () => setRcSubView('function'));
+    const sub = document.getElementById('rcSubBody');
+    if (rcSubView === 'function') renderFunctionCheck(sub);
+    else renderClassicRigCheck(sub);
+  }
+
+  function setRcSubView(v) {
+    if (v === rcSubView) return;
+    if (v !== 'function') stopPatternHeartbeat();
+    rcSubView = v;
+    sessionStorage.setItem('benny512.patch.rcSubView', v);
+    render();
+    if (v === 'function') {
+      Api.getPattern().then(st => { patternState = st; if (st.running) ensurePatternHeartbeat(); renderRigCheck(document.getElementById('patchViewBody')); }).catch(() => {});
+      refreshFunctionCheckAttributes().then(() => renderRigCheck(document.getElementById('patchViewBody')));
+    }
+  }
+
+  function renderClassicRigCheck(body) {
     const p = patchData.active ? patchData.patch : null;
     const entries = (p && p.entries) || [];
     const st = rigCheckState || { running: false, mode: rcMode, level: rcLevel };
+    // A running Function-check pattern and the classic per-entry check are
+    // mutually exclusive server-side (POST .../rigcheck/mode|level|next
+    // 409s while a pattern runs — verified against the live server, not
+    // assumed). Rather than let a click surface that as a raw error (task
+    // ask: "handle gracefully"), the classic controls are disabled up
+    // front with an explanatory banner and a direct Stop-the-pattern
+    // button whenever one is running.
+    const patternRunning = !!(patternState && patternState.running);
 
     body.innerHTML = `
+      ${patternRunning ? `
+        <div class="b5-alert b5-alert--caution" style="margin-bottom:var(--b5-space-4)">
+          ${UI.icon('status-warning')}
+          <div>
+            <p class="b5-alert__title">A Function check pattern is running</p>
+            <p class="b5-alert__body">Stop it before using the channel-level check — they can't run at the same time.</p>
+            <button id="rcStopPatternFromClassic" class="b5-btn b5-btn--sm b5-btn--danger" style="margin-top:var(--b5-space-2)">Stop pattern</button>
+          </div>
+        </div>
+      ` : ''}
       <div class="b5-filterbar">
         <div class="b5-filterbar__group">
           <label class="b5-visually-hidden" for="rcScopeKind">Scope</label>
-          <select id="rcScopeKind" class="b5-select" style="width:auto">
+          <select id="rcScopeKind" class="b5-select" style="width:auto" ${patternRunning ? 'disabled' : ''}>
             <option value="all">Scope: Whole patch</option>
             <option value="universe">Scope: One universe</option>
             <option value="selection">Scope: Selection</option>
@@ -1209,18 +1311,18 @@ const PatchScreen = (() => {
       <div class="b5-filterbar">
         <div class="b5-filterbar__group">
           <label class="b5-visually-hidden" for="rcMode">Mode</label>
-          <select id="rcMode" class="b5-select" style="width:auto">
+          <select id="rcMode" class="b5-select" style="width:auto" ${patternRunning ? 'disabled' : ''}>
             <option value="highlight">Mode: Highlight (this fixture up, rest dark)</option>
             <option value="all_channels">Mode: All channels to level</option>
             <option value="step_channel">Mode: Step one channel</option>
           </select>
           <label class="b5-text-sm" style="display:flex;align-items:center;gap:8px">Level
-            <input type="range" id="rcLevel" class="b5-range-touch" min="0" max="255" value="${st.level || rcLevel}">
+            <input type="range" id="rcLevel" class="b5-range-touch" min="0" max="255" value="${st.level || rcLevel}" ${patternRunning ? 'disabled' : ''}>
             <span class="b5-text-mono" id="rcLevelVal">${st.level || rcLevel}</span>
           </label>
           ${st.running
         ? '<button id="rcStop" class="b5-btn b5-btn--sm b5-btn--danger">Stop</button>'
-        : `<button id="rcStart" class="b5-btn b5-btn--sm b5-btn--primary" ${rcStarting ? 'disabled' : ''}>${rcStarting ? UI.spinner() + 'Starting…' : 'Start'}</button>`}
+        : `<button id="rcStart" class="b5-btn b5-btn--sm b5-btn--primary" ${rcStarting || patternRunning ? 'disabled' : ''}>${rcStarting ? UI.spinner() + 'Starting…' : 'Start'}</button>`}
           <button id="rcBlackout" class="b5-btn b5-btn--sm b5-btn--danger">Blackout</button>
         </div>
       </div>
@@ -1230,6 +1332,11 @@ const PatchScreen = (() => {
       </div>
       <div id="rcActiveWrap">${st.running ? renderRigCheckActive(st) : `<div class="b5-empty">${UI.icon('status-pending')}<span class="b5-empty__title">Not running</span><span class="b5-empty__body">Choose a scope and mode, then Start.</span></div>`}</div>
     `;
+
+    const stopPatternBtn = document.getElementById('rcStopPatternFromClassic');
+    if (stopPatternBtn) stopPatternBtn.addEventListener('click', async () => {
+      try { await Api.rigCheckStop(); patternState = null; setStatus('function test stopped'); render(); } catch (e) { setStatus('error: ' + e.message); }
+    });
 
     const scopeKindSel = document.getElementById('rcScopeKind');
     scopeKindSel.value = rcScopeKind;
@@ -1348,6 +1455,610 @@ const PatchScreen = (() => {
     const chNext = document.getElementById('rcChNext');
     if (chPrev) chPrev.addEventListener('click', async () => { try { rigCheckState = await Api.rigCheckChannel(-1); renderRigCheckActiveInPlace(); } catch (e) { setStatus('error: ' + e.message); } });
     if (chNext) chNext.addEventListener('click', async () => { try { rigCheckState = await Api.rigCheckChannel(1); renderRigCheckActiveInPlace(); } catch (e) { setStatus('error: ' + e.message); } });
+  }
+
+  // ============================================================
+  // Function Check (Phase 2b): attribute-group pattern engine UI.
+  // ============================================================
+  //
+  // Owner's three settled decisions (task brief) drive the whole design:
+  //   1. Strict safe mode — a pattern only ever touches the group/kind the
+  //      tech explicitly started; nothing here ever "helpfully" raises a
+  //      dimmer or moves an axis to make a test visible.
+  //   2. Mixed rigs — scope can include fixtures without the tested
+  //      function; those are skipped server-side and the skip is always
+  //      shown ("N of M fixtures"), never hidden.
+  //   3. RDM-inferred attribute data is visible, never presented as
+  //      authoritative — every function/entry carries its source, and the
+  //      per-entry inferred flag on a running pattern is surfaced.
+  //
+  // The backend's granularity is GROUP+KIND, not per-function: one running
+  // pattern always drives every fixture in scope that has ANY function in
+  // the pattern's attribute group (server-computed — see `group` on
+  // patternStatusJSON). There is no wire field to say "touch Pan but not
+  // Tilt" except where a kind's own `target` grammar already expresses
+  // that choice (move_extreme's axis, frost's light/heavy, manual_value's
+  // focus/zoom). So "toggles for individual functions" is implemented
+  // two ways, both honest about what the toggle actually does:
+  //   - For a target-bearing kind, the function toggles ARE the target
+  //     picker (single-select — the wire only carries one target at a
+  //     time).
+  //   - For every other kind, the group's functions are listed with their
+  //     own "N of M" counts and provenance so the tech can see exactly
+  //     what a Start click is about to touch before committing — informational,
+  //     since e.g. shaper_all vs shaper_individual (not a function
+  //     checkbox) is how "one at a time" vs "all together" is actually
+  //     chosen for that group.
+
+  const FC_GROUPS = [
+    { id: 'dimmer', label: 'Dimmer' },
+    { id: 'position', label: 'Position' },
+    { id: 'colour', label: 'Colour' },
+    { id: 'beam', label: 'Beam' },
+    { id: 'focus', label: 'Focus' },
+    { id: 'shaper', label: 'Shaper' },
+  ];
+
+  // FC_KINDS: every pattern kind the backend accepts, grouped, with just
+  // enough shape metadata to drive the generic control renderer below
+  // (hasRate/hasRange/hasDirection/hasValue/targets). Labels are the tech-
+  // facing description; kind ids are the exact wire values.
+  const FC_KINDS = {
+    dimmer: [
+      { id: 'dimmer_sine', label: 'Sine pulse', hint: 'Smooth breathing between min and max.', hasRate: true, hasRange: true },
+      { id: 'dimmer_snap', label: 'Snap on/off', hint: 'Hard cut between min and max — good for finding a flickering dimmer.', hasRate: true, hasRange: true },
+      { id: 'dimmer_toggle', label: 'Slow toggle', hint: 'Slow on/off, easier to watch across a whole rig.', hasRate: true, hasRange: true },
+    ],
+    position: [
+      { id: 'ballyhoo', label: 'Ballyhoo sweep', hint: 'Continuous figure-8 pan/tilt sweep.', hasRate: true },
+      {
+        id: 'move_extreme', label: 'Move to extreme', hint: 'Drive one axis to a fixed extreme — hold to check range/travel.',
+        hasTarget: true, targetLabel: 'Axis and extreme',
+        targets: [
+          { id: 'pan_max', label: 'Pan max' }, { id: 'pan_min', label: 'Pan min' }, { id: 'pan_centre', label: 'Pan centre' },
+          { id: 'tilt_max', label: 'Tilt max' }, { id: 'tilt_min', label: 'Tilt min' }, { id: 'tilt_centre', label: 'Tilt centre' },
+        ],
+      },
+    ],
+    colour: [
+      { id: 'colour_wheel_step', label: 'Colour wheel — step slots', hint: 'Steps through each named colour-wheel slot in turn.', hasRate: true },
+      { id: 'colour_mix_sweep', label: 'RGB mix — sweep', hint: 'Sweeps the RGB mix channels between min and max together.', hasRate: true, hasRange: true },
+      { id: 'colour_fade', label: 'RGB mix — fade through hues', hint: 'Fades RGB mix through a hue cycle.', hasRate: true },
+    ],
+    beam: [
+      {
+        id: 'frost', label: 'Frost', hint: 'Sets frost to a fixed level so you can eyeball beam softening.',
+        hasTarget: true, targetLabel: 'Frost level',
+        targets: [{ id: '', label: 'Clear (off)' }, { id: 'light', label: 'Light' }, { id: 'heavy', label: 'Heavy' }],
+      },
+      { id: 'prism_in_out', label: 'Prism in/out', hint: 'Toggles prism between open and in.', hasRate: true },
+      { id: 'prism_spin', label: 'Prism rotate', hint: 'Spins the prism continuously.', hasRate: true, hasDirection: true },
+      { id: 'animation_spin', label: 'Animation wheel spin', hint: 'Spins the animation/effects wheel continuously.', hasRate: true, hasDirection: true },
+    ],
+    focus: [
+      {
+        id: 'manual_value', label: 'Manual focus/zoom', hint: 'Holds focus or zoom at a fixed value you set.',
+        hasTarget: true, targetLabel: 'Channel', hasValue: true,
+        targets: [{ id: 'focus', label: 'Focus' }, { id: 'zoom', label: 'Zoom' }],
+      },
+    ],
+    shaper: [
+      { id: 'shaper_individual', label: 'Shapers — one at a time', hint: 'Cycles each shaper blade individually — the single-parameter test.', hasRate: true },
+      { id: 'shaper_all', label: 'Shapers — all together', hint: 'Moves every shaper blade at once — the several-at-once test.', hasRate: true },
+      { id: 'shaper_rotate', label: 'Shaper assembly rotate', hint: 'Rotates the whole shaper assembly.', hasRate: true, hasDirection: true },
+    ],
+  };
+
+  function fcKindMeta(kindId) {
+    for (const g of FC_GROUPS) {
+      const found = (FC_KINDS[g.id] || []).find(k => k.id === kindId);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  function fcScopedEntries(allEntries) {
+    switch (fcScopeKind) {
+      case 'universe': return allEntries.filter(e => (e.universe || 0) === fcScopeUniverse);
+      case 'position': return allEntries.filter(e => (e.position || '') === fcScopePosition);
+      case 'selection': return allEntries.filter(e => fcSelection[e.id]);
+      case 'all':
+      default: return allEntries;
+    }
+  }
+
+  function fcPositions(allEntries) {
+    const set = new Set();
+    allEntries.forEach(e => { if (e.position) set.add(e.position); });
+    return Array.from(set).sort();
+  }
+
+  async function refreshFunctionCheckAttributes() {
+    const p = patchData.active ? patchData.patch : null;
+    const entries = (p && p.entries) || [];
+    const scoped = fcScopedEntries(entries);
+    // An empty scope (e.g. a universe with nothing patched in it, or no
+    // fixtures ticked in Selection scope) must show zero counts everywhere
+    // — NOT the whole patch's counts. Api.getPatchAttributes treats an
+    // empty ids array the same as "omitted" (server default: every
+    // entry), so a truly empty scope is short-circuited here rather than
+    // sent to the server at all.
+    if (!scoped.length) {
+      fcAttrData = { entries: [], summary: { totalFixtures: 0, groups: [] } };
+      return;
+    }
+    fcAttrLoading = true;
+    try {
+      fcAttrData = await Api.getPatchAttributes(scoped.map(e => e.id));
+    } catch (e) {
+      fcAttrData = null;
+    }
+    fcAttrLoading = false;
+  }
+
+  // --- watchdog heartbeat -------------------------------------------------
+  // The pattern engine blacks out and stops a running pattern after ~5s
+  // without a start/adjust/GET-pattern touch (server safety net so a
+  // closed browser can never leave a rig lit or a head swinging). Polling
+  // GET .../rigcheck/pattern IS that touch, so this poll must run well
+  // inside 5s for as long as a pattern is running — 2s gives a wide
+  // margin even if a request is slow. The poll is also how the UI learns
+  // a pattern ended (elsewhere: STOP click, another tab, or the watchdog
+  // itself) and updates the status panel in place.
+  const FC_HEARTBEAT_MS = 2000;
+  function ensurePatternHeartbeat() {
+    if (patternPollTimer) return;
+    patternPollTimer = setInterval(async () => {
+      if (!active || rcSubView !== 'function') { stopPatternHeartbeat(); return; }
+      try {
+        patternState = await Api.getPattern();
+      } catch (e) {
+        return; // best-effort — a transient fetch failure doesn't kill the heartbeat loop itself, next tick retries
+      }
+      if (!patternState.running) {
+        stopPatternHeartbeat();
+        if (patternState.lastEndReason === 'watchdog') {
+          setStatus('Function test stopped automatically: the safety watchdog ended it after ~5s with no response from this page (rig is now blacked out).');
+        }
+        renderRigCheck(document.getElementById('patchViewBody'));
+        return;
+      }
+      renderFunctionCheckActiveInPlace();
+    }, FC_HEARTBEAT_MS);
+  }
+  function stopPatternHeartbeat() {
+    if (patternPollTimer) { clearInterval(patternPollTimer); patternPollTimer = null; }
+  }
+
+  // --- render --------------------------------------------------------------
+
+  function renderFunctionCheck(container) {
+    const p = patchData.active ? patchData.patch : null;
+    const allEntries = (p && p.entries) || [];
+    const scoped = fcScopedEntries(allEntries);
+    const running = !!(patternState && patternState.running);
+
+    // Preserve which accordion groups were open across a full re-render
+    // (scroll/focus preservation, task ask — a re-render otherwise blows
+    // away every open <details>).
+    const openGroups = {};
+    document.querySelectorAll('#fcAttrTree > details[data-group]').forEach(d => { openGroups[d.dataset.group] = d.open; });
+    const scrollY = window.scrollY;
+
+    container.innerHTML = `
+      <div class="b5-fc-stopbar">
+        <span class="b5-text-sm b5-fc-stopbar__status">${running ? UI.badge('warning', 'Pattern running') : UI.badge('pending', 'Idle')}</span>
+        <button id="fcStop" class="b5-btn b5-btn--danger" ${running ? '' : 'disabled'}>${UI.icon('status-error')}STOP</button>
+        <button id="fcBlackout" class="b5-btn b5-btn--danger b5-btn--ghost">Blackout</button>
+      </div>
+      <div class="b5-alert b5-alert--info" style="margin-bottom:var(--b5-space-4)">
+        ${UI.icon('status-pending')}
+        <div><p class="b5-alert__body">Safe mode: only the group and function you start below are touched — nothing is auto-raised to "make it visible." Leaving this screen, closing the tab, or 5s of no response from this page always stops and blacks out.</p></div>
+      </div>
+      <div class="b5-filterbar">
+        <div class="b5-filterbar__group">
+          <label class="b5-visually-hidden" for="fcScopeKind">Scope</label>
+          <select id="fcScopeKind" class="b5-select" style="width:auto" ${running ? 'disabled' : ''}>
+            <option value="all">Scope: Whole rig</option>
+            <option value="universe">Scope: One universe</option>
+            <option value="position">Scope: One position</option>
+            <option value="selection">Scope: Selected fixtures</option>
+          </select>
+          <div id="fcScopeValueWrap"></div>
+        </div>
+        <span class="b5-filterbar__summary">${scoped.length} fixture${scoped.length === 1 ? '' : 's'} in scope</span>
+      </div>
+      <div id="fcActiveWrap">${running ? renderFunctionCheckActive(patternState) : ''}</div>
+      <div class="b5-accordion" id="fcAttrTree"></div>
+      <div id="fcActionPanel" style="margin-top:var(--b5-space-4)"></div>
+    `;
+
+    const scopeSel = document.getElementById('fcScopeKind');
+    scopeSel.value = fcScopeKind;
+    scopeSel.addEventListener('change', async (e) => {
+      fcScopeKind = e.target.value;
+      sessionStorage.setItem('benny512.patch.fcScopeKind', fcScopeKind);
+      renderFcScopeValue(allEntries);
+      await refreshFunctionCheckAttributes();
+      renderFcAttrTree(fcScopedEntries(allEntries).length, openGroups);
+      renderFcActionPanel();
+    });
+    renderFcScopeValue(allEntries);
+
+    document.getElementById('fcStop').addEventListener('click', onFcStop);
+    document.getElementById('fcBlackout').addEventListener('click', async () => {
+      try { await Api.rigCheckBlackout(); setStatus('blackout'); stopPatternHeartbeat(); patternState = null; renderRigCheck(document.getElementById('patchViewBody')); } catch (e) { setStatus('error: ' + e.message); }
+    });
+
+    renderFcAttrTree(scoped.length, openGroups);
+    renderFcActionPanel();
+    if (running) wireFunctionCheckActiveHandlers();
+
+    window.scrollTo(0, scrollY);
+  }
+
+  function renderFcScopeValue(allEntries) {
+    const wrap = document.getElementById('fcScopeValueWrap');
+    if (!wrap) return;
+    const running = !!(patternState && patternState.running);
+    if (fcScopeKind === 'universe') {
+      const ua = UI.universeInputAttrs();
+      wrap.innerHTML = `<label class="b5-visually-hidden" for="fcScopeUniverse">Universe</label><input type="number" id="fcScopeUniverse" class="b5-input" style="width:10em" min="${ua.min}" max="${ua.max}" value="${UI.formatUniverse(fcScopeUniverse)}" placeholder="Universe" ${running ? 'disabled' : ''}>`;
+      document.getElementById('fcScopeUniverse').addEventListener('change', async (e) => {
+        fcScopeUniverse = UI.parseUniverse(e.target.value);
+        await refreshFunctionCheckAttributes();
+        renderRigCheck(document.getElementById('patchViewBody'));
+      });
+    } else if (fcScopeKind === 'position') {
+      const positions = fcPositions(allEntries);
+      wrap.innerHTML = `<label class="b5-visually-hidden" for="fcScopePosition">Position</label><select id="fcScopePosition" class="b5-select" style="width:auto" ${running ? 'disabled' : ''}>
+        ${positions.length ? positions.map(pos => `<option value="${escapeHtml(pos)}" ${pos === fcScopePosition ? 'selected' : ''}>${escapeHtml(pos)}</option>`).join('') : '<option value="">(no positions patched)</option>'}
+      </select>`;
+      if (!fcScopePosition && positions.length) fcScopePosition = positions[0];
+      const sel = document.getElementById('fcScopePosition');
+      sel.value = fcScopePosition;
+      sel.addEventListener('change', async (e) => {
+        fcScopePosition = e.target.value;
+        await refreshFunctionCheckAttributes();
+        renderRigCheck(document.getElementById('patchViewBody'));
+      });
+    } else if (fcScopeKind === 'selection') {
+      wrap.innerHTML = `<div class="b5-stack" style="margin-top:var(--b5-space-2)">${allEntries.map(e => `
+        <label class="b5-checkbox"><input type="checkbox" data-fc-select="${escapeHtml(e.id)}" ${fcSelection[e.id] ? 'checked' : ''} ${running ? 'disabled' : ''}>${escapeHtml(e.name || e.fixtureType || e.id)} (U${UI.formatUniverse(e.universe)}/${e.startAddress})</label>
+      `).join('') || '<span class="b5-text-muted b5-text-sm">no entries</span>'}</div>`;
+      wrap.querySelectorAll('[data-fc-select]').forEach(cb => cb.addEventListener('change', async (e) => {
+        fcSelection[cb.dataset.fcSelect] = e.target.checked;
+        await refreshFunctionCheckAttributes();
+        renderRigCheck(document.getElementById('patchViewBody'));
+      }));
+    } else {
+      wrap.innerHTML = '';
+    }
+  }
+
+  // renderFcAttrTree: the six-group attribute menu (task ask). Each group
+  // is a native <details>/.b5-accordion__trigger item (keyboard/AT support
+  // for free, matching the established Reconcile-view pattern); its
+  // summary line always states the "N of M fixtures" count so a mixed rig
+  // is legible before any group is even opened.
+  function renderFcAttrTree(scopeTotal, openGroups) {
+    const tree = document.getElementById('fcAttrTree');
+    if (!tree) return;
+    if (fcAttrLoading || !fcAttrData) {
+      tree.innerHTML = `<span class="b5-inline-wait">${UI.spinner()}Loading attributes…</span>`;
+      return;
+    }
+    const summaryByGroup = {};
+    (fcAttrData.summary.groups || []).forEach(g => { summaryByGroup[g.group] = g; });
+    tree.innerHTML = FC_GROUPS.map(g => {
+      const gs = summaryByGroup[g.id];
+      const count = gs ? gs.count : 0;
+      const kinds = FC_KINDS[g.id] || [];
+      const funcs = gs ? gs.functions : [];
+      return `
+        <details class="b5-accordion__item" data-group="${g.id}" ${openGroups[g.id] ? 'open' : ''}>
+          <summary class="b5-accordion__trigger">
+            <span>${escapeHtml(g.label)} — ${count} of ${scopeTotal} fixture${scopeTotal === 1 ? '' : 's'}</span>
+            ${UI.icon('chevron-expand')}
+          </summary>
+          <div class="b5-accordion__panel b5-stack">
+            ${count === 0 ? `<p class="b5-text-muted b5-text-sm">No fixture in scope has a ${escapeHtml(g.label)} function.</p>` : `
+              <ul class="b5-fc-funclist">
+                ${funcs.map(f => `<li>${escapeHtml(f.attribute)} <span class="b5-text-muted b5-text-xs">— ${f.count} of ${scopeTotal}</span>${fcFunctionProvenanceBadges(g.id, f.attribute)}</li>`).join('')}
+              </ul>
+              <div class="b5-row" role="radiogroup" aria-label="${escapeHtml(g.label)} test">
+                ${kinds.map(k => `<button type="button" class="b5-btn b5-btn--sm ${fcKindByGroup[g.id] === k.id ? 'b5-btn--primary' : ''}" data-fc-kind="${g.id}:${k.id}" aria-pressed="${fcKindByGroup[g.id] === k.id}">${escapeHtml(k.label)}</button>`).join('')}
+              </div>
+            `}
+          </div>
+        </details>
+      `;
+    }).join('');
+    tree.querySelectorAll('[data-fc-kind]').forEach(btn => btn.addEventListener('click', () => {
+      const [groupId, kindId] = btn.dataset.fcKind.split(':');
+      fcGroup = groupId;
+      fcKindByGroup[groupId] = kindId;
+      sessionStorage.setItem('benny512.patch.fcGroup', fcGroup);
+      const meta = fcKindMeta(kindId);
+      fcParams.target = meta && meta.targets ? meta.targets[0].id : '';
+      renderFcActionPanel();
+    }));
+  }
+
+  // fcFunctionProvenanceBadges: per attribute, whether ANY entry in scope
+  // supplies it via RDM-inferred data (task ask, item 3 — "that must be
+  // visible, never passing as authoritative"). Text-labelled badge, never
+  // color alone.
+  function fcFunctionProvenanceBadges(groupId, attribute) {
+    if (!fcAttrData || !fcAttrData.entries) return '';
+    let inferred = false;
+    fcAttrData.entries.forEach(e => (e.groups || []).forEach(g => {
+      if (g.group !== groupId) return;
+      (g.functions || []).forEach(f => { if (f.attribute === attribute && f.source === 'rdm-inferred') inferred = true; });
+    }));
+    return inferred ? ' ' + UI.badge('unknown', 'RDM-inferred') : '';
+  }
+
+  // renderFcActionPanel: the tunables for the currently-picked group+kind
+  // (rate/range/direction/target/value, whichever the kind declares) plus
+  // the Start button. oninput mutates fcParams only; the value commits on
+  // Start (or, for a running pattern, on each control's onchange via
+  // patternAdjust — a whole-value replace per the pattern contract, so
+  // every adjust call resends the complete current fcParams).
+  function renderFcActionPanel() {
+    const panel = document.getElementById('fcActionPanel');
+    if (!panel) return;
+    const kindId = fcKindByGroup[fcGroup];
+    const meta = fcKindMeta(kindId);
+    const running = !!(patternState && patternState.running);
+    const runningThisKind = running && patternState.kind === kindId;
+    if (!meta) { panel.innerHTML = ''; return; }
+
+    if (running && !runningThisKind) {
+      panel.innerHTML = `
+        <div class="b5-alert b5-alert--caution">
+          ${UI.icon('status-warning')}
+          <div><p class="b5-alert__body">"${escapeHtml((fcKindMeta(patternState.kind) || {}).label || patternState.kind)}" is running. Stop it before starting a different test.</p></div>
+        </div>
+      `;
+      return;
+    }
+
+    panel.innerHTML = `
+      <div class="b5-panel">
+        <div class="b5-panel__header"><h3 class="b5-panel__title">${escapeHtml(meta.label)}</h3></div>
+        <div class="b5-panel__body b5-stack">
+          <p class="b5-text-sm b5-text-muted">${escapeHtml(meta.hint || '')}</p>
+          ${meta.hasTarget ? `
+            <div class="b5-field">
+              <span class="b5-field__label">${escapeHtml(meta.targetLabel || 'Target')}</span>
+              <div class="b5-row" role="radiogroup" aria-label="${escapeHtml(meta.targetLabel || 'Target')}">
+                ${meta.targets.map(t => `<button type="button" class="b5-btn b5-btn--sm ${fcParams.target === t.id ? 'b5-btn--primary' : ''}" data-fc-target="${escapeHtml(t.id)}" aria-pressed="${fcParams.target === t.id}">${escapeHtml(t.label)}</button>`).join('')}
+              </div>
+            </div>
+          ` : ''}
+          ${meta.hasValue ? `
+            <div class="b5-field">
+              <label class="b5-field__label" for="fcValue">Value</label>
+              <div class="b5-row" style="align-items:center;gap:8px">
+                <input type="range" id="fcValue" class="b5-range-touch" min="0" max="255" value="${fcParams.value}">
+                <span class="b5-text-mono" id="fcValueOut">${fcParams.value}</span>
+              </div>
+            </div>
+          ` : ''}
+          ${meta.hasRate ? `
+            <div class="b5-field">
+              <label class="b5-field__label" for="fcRate">Rate (Hz)</label>
+              <div class="b5-row" style="align-items:center;gap:8px">
+                <input type="range" id="fcRate" class="b5-range-touch" min="0.05" max="5" step="0.05" value="${fcParams.rateHz}">
+                <span class="b5-text-mono" id="fcRateOut">${Number(fcParams.rateHz).toFixed(2)} Hz</span>
+              </div>
+            </div>
+          ` : ''}
+          ${meta.hasRange ? `
+            <div class="b5-field">
+              <label class="b5-field__label" for="fcMin">Min level</label>
+              <div class="b5-row" style="align-items:center;gap:8px">
+                <input type="range" id="fcMin" class="b5-range-touch" min="0" max="255" value="${fcParams.min}">
+                <span class="b5-text-mono" id="fcMinOut">${fcParams.min}</span>
+              </div>
+            </div>
+            <div class="b5-field">
+              <label class="b5-field__label" for="fcMax">Max level</label>
+              <div class="b5-row" style="align-items:center;gap:8px">
+                <input type="range" id="fcMax" class="b5-range-touch" min="0" max="255" value="${fcParams.max}">
+                <span class="b5-text-mono" id="fcMaxOut">${fcParams.max}</span>
+              </div>
+            </div>
+          ` : ''}
+          ${meta.hasDirection ? `
+            <div class="b5-field">
+              <span class="b5-field__label">Direction</span>
+              <div class="b5-row" role="radiogroup" aria-label="Direction">
+                <button type="button" class="b5-btn b5-btn--sm ${fcParams.direction === 'cw' ? 'b5-btn--primary' : ''}" data-fc-direction="cw" aria-pressed="${fcParams.direction === 'cw'}">Clockwise</button>
+                <button type="button" class="b5-btn b5-btn--sm ${fcParams.direction === 'ccw' ? 'b5-btn--primary' : ''}" data-fc-direction="ccw" aria-pressed="${fcParams.direction === 'ccw'}">Counter-clockwise</button>
+              </div>
+            </div>
+          ` : ''}
+          <div class="b5-row">
+            ${runningThisKind
+        ? `<span class="b5-text-sm b5-text-muted">Running — adjust a control above and it applies live.</span>`
+        : `<button id="fcStart" class="b5-btn b5-btn--primary" ${fcStarting ? 'disabled' : ''}>${fcStarting ? UI.spinner() + 'Starting…' : UI.icon('apply') + 'Start test'}</button>`}
+          </div>
+          <span class="b5-field__error" id="fcError"></span>
+        </div>
+      </div>
+    `;
+
+    panel.querySelectorAll('[data-fc-target]').forEach(btn => btn.addEventListener('click', () => {
+      fcParams.target = btn.dataset.fcTarget;
+      if (runningThisKind) { onFcAdjust(); } else { renderFcActionPanel(); }
+    }));
+    panel.querySelectorAll('[data-fc-direction]').forEach(btn => btn.addEventListener('click', () => {
+      fcParams.direction = btn.dataset.fcDirection;
+      if (runningThisKind) { onFcAdjust(); } else { renderFcActionPanel(); }
+    }));
+    const valueInput = document.getElementById('fcValue');
+    if (valueInput) {
+      valueInput.addEventListener('input', (e) => { fcParams.value = Number(e.target.value); document.getElementById('fcValueOut').textContent = String(fcParams.value); });
+      valueInput.addEventListener('change', () => { if (runningThisKind) onFcAdjust(); });
+    }
+    const rateInput = document.getElementById('fcRate');
+    if (rateInput) {
+      rateInput.addEventListener('input', (e) => { fcParams.rateHz = Number(e.target.value); document.getElementById('fcRateOut').textContent = Number(fcParams.rateHz).toFixed(2) + ' Hz'; });
+      rateInput.addEventListener('change', () => { if (runningThisKind) onFcAdjust(); });
+    }
+    const minInput = document.getElementById('fcMin');
+    const maxInput = document.getElementById('fcMax');
+    if (minInput) {
+      minInput.addEventListener('input', (e) => { fcParams.min = Number(e.target.value); document.getElementById('fcMinOut').textContent = String(fcParams.min); });
+      minInput.addEventListener('change', () => { if (runningThisKind) onFcAdjust(); });
+    }
+    if (maxInput) {
+      maxInput.addEventListener('input', (e) => { fcParams.max = Number(e.target.value); document.getElementById('fcMaxOut').textContent = String(fcParams.max); });
+      maxInput.addEventListener('change', () => { if (runningThisKind) onFcAdjust(); });
+    }
+    const startBtn = document.getElementById('fcStart');
+    if (startBtn) startBtn.addEventListener('click', onFcStart);
+  }
+
+  // onFcStart: starting a pattern moves real fixtures (task ask: "make
+  // starting deliberate"). A native confirm() naming the exact scope and
+  // test, mirroring every other apply-to-confirm action in this file.
+  async function onFcStart() {
+    const p = patchData.active ? patchData.patch : null;
+    const allEntries = (p && p.entries) || [];
+    const scoped = fcScopedEntries(allEntries);
+    const kindId = fcKindByGroup[fcGroup];
+    const meta = fcKindMeta(kindId);
+    if (!meta) return;
+    const errEl = document.getElementById('fcError');
+    if (errEl) errEl.innerHTML = '';
+    if (!scoped.length) {
+      if (errEl) errEl.innerHTML = UI.icon('status-error') + 'nothing in scope — widen the scope first';
+      return;
+    }
+    const scopeLabel = fcScopeKind === 'all' ? 'the whole rig'
+      : fcScopeKind === 'universe' ? `universe ${UI.formatUniverse(fcScopeUniverse)}`
+        : fcScopeKind === 'position' ? `position "${fcScopePosition}"`
+          : `${scoped.length} selected fixture${scoped.length === 1 ? '' : 's'}`;
+    if (!confirm(`Start "${meta.label}" (${fcGroup}) on ${scopeLabel}? This moves real fixture output now. Only fixtures with a ${fcGroup} function are touched — everything else is left untouched.`)) return;
+
+    const body = {
+      scopeKind: fcScopeKind, kind: kindId,
+      rateHz: fcParams.rateHz, min: fcParams.min, max: fcParams.max,
+      target: fcParams.target, direction: fcParams.direction, value: fcParams.value,
+    };
+    if (fcScopeKind === 'universe') body.universe = fcScopeUniverse;
+    if (fcScopeKind === 'position') body.position = fcScopePosition;
+    if (fcScopeKind === 'selection') body.entryIds = scoped.map(e => e.id);
+
+    fcStarting = true;
+    renderFcActionPanel();
+    try {
+      patternState = await Api.patternStart(body);
+      fcStarting = false;
+      ensurePatternHeartbeat();
+      renderRigCheck(document.getElementById('patchViewBody'));
+    } catch (e) {
+      fcStarting = false;
+      if (errEl) errEl.innerHTML = UI.icon('status-error') + escapeHtml(e.message);
+      else setStatus('error: ' + e.message);
+      renderFcActionPanel();
+    }
+  }
+
+  // onFcAdjust: a running pattern's tunables are a whole-value replace
+  // (patternAdjust contract — kind cannot change this way). Every control
+  // change resends the complete current fcParams so nothing is silently
+  // reset to a default the tech didn't choose.
+  async function onFcAdjust() {
+    try {
+      patternState = await Api.patternAdjust({
+        rateHz: fcParams.rateHz, min: fcParams.min, max: fcParams.max,
+        target: fcParams.target, direction: fcParams.direction, value: fcParams.value,
+      });
+      renderFunctionCheckActiveInPlace();
+    } catch (e) {
+      setStatus('error: ' + e.message);
+    }
+  }
+
+  async function onFcStop() {
+    try {
+      await Api.rigCheckStop();
+      stopPatternHeartbeat();
+      patternState = null;
+      setStatus('function test stopped');
+      renderRigCheck(document.getElementById('patchViewBody'));
+    } catch (e) { setStatus('error: ' + e.message); }
+  }
+
+  // renderFunctionCheckActive: the running-pattern status card — always
+  // shows applied/skipped counts against the scope total (task ask, item
+  // 2: "show the count"), the RDM-inferred count (item 3), and the
+  // missing-ChannelSet-detail count (a colour wheel/gobo wheel with no
+  // ChannelSet data is sweeping a numeric range rather than stepping real
+  // named slots — the tech should know that's what "step" means here).
+  function renderFunctionCheckActive(st) {
+    const meta = fcKindMeta(st.kind) || { label: st.kind };
+    const elapsedS = ((st.elapsedMs || 0) / 1000).toFixed(1);
+    return `
+      <div class="b5-card">
+        <div class="b5-row" style="justify-content:space-between;flex-wrap:wrap">
+          <strong>${escapeHtml(meta.label)}</strong>
+          <span class="b5-text-muted b5-text-sm">${elapsedS}s elapsed</span>
+        </div>
+        <div class="b5-row" style="margin-top:var(--b5-space-2);flex-wrap:wrap;gap:8px">
+          ${UI.badge('ok', `${st.appliedCount} of ${st.totalScope} fixtures applied`)}
+          ${st.skippedCount ? UI.badge('warning', `${st.skippedCount} skipped (no ${escapeHtml(st.group || fcGroup)} function)`) : ''}
+          ${st.inferredCount ? UI.badge('unknown', `${st.inferredCount} RDM-inferred (approximate)`) : ''}
+          ${st.missingDetailCount ? UI.badge('warning', `${st.missingDetailCount} sweeping a range — no named slot data`) : ''}
+        </div>
+        <p class="b5-text-sm b5-text-muted" style="margin-top:var(--b5-space-2)">rate ${st.rateHz} Hz${st.target ? ` &middot; target ${escapeHtml(st.target)}` : ''}${meta.hasValue ? ` &middot; value ${st.value}` : ''}${meta.hasRange ? ` &middot; ${st.min}&ndash;${st.max}` : ''}${meta.hasDirection ? ` &middot; ${st.direction === 'ccw' ? 'counter-clockwise' : 'clockwise'}` : ''}</p>
+        ${st.entries && st.entries.length ? `
+          <details class="b5-accordion__item" style="margin-top:var(--b5-space-2)">
+            <summary class="b5-accordion__trigger"><span>Per-fixture detail (${st.entries.length})</span>${UI.icon('chevron-expand')}</summary>
+            <div class="b5-accordion__panel">
+              <ul class="b5-fc-funclist">
+                ${st.entries.map(en => fcEntryStatusLine(en)).join('')}
+              </ul>
+            </div>
+          </details>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  function fcEntryStatusLine(en) {
+    const p = patchData.active ? patchData.patch : null;
+    const entries = (p && p.entries) || [];
+    const e = entries.find(x => x.id === en.entryId);
+    const label = e ? (e.name || e.fixtureType || e.id) : en.entryId;
+    const status = en.applied ? UI.badge('ok', 'Applied') : UI.badge('pending', 'Skipped');
+    const inferred = en.inferred ? ' ' + UI.badge('unknown', 'RDM-inferred') : '';
+    const missing = en.detailMissing ? ' ' + UI.badge('warning', 'No slot data') : '';
+    return `<li>${escapeHtml(label)} — ${status}${inferred}${missing}</li>`;
+  }
+
+  function renderFunctionCheckActiveInPlace() {
+    const wrap = document.getElementById('fcActiveWrap');
+    if (!wrap) return;
+    if (!patternState || !patternState.running) { wrap.innerHTML = ''; return; }
+    wrap.innerHTML = renderFunctionCheckActive(patternState);
+    wireFunctionCheckActiveHandlers();
+    // Refresh the stop bar's status badge in place too, without touching
+    // scroll/focus elsewhere on the panel.
+    const statusEl = document.querySelector('.b5-fc-stopbar__status');
+    if (statusEl) statusEl.innerHTML = UI.badge('warning', 'Pattern running');
+  }
+
+  function wireFunctionCheckActiveHandlers() {
+    // Currently no interactive controls inside the active-status card
+    // itself (Stop/Blackout live in the sticky stop bar, adjust controls
+    // live in the action panel) — kept as a named hook, mirroring
+    // wireRigCheckActiveHandlers, so future per-fixture actions (e.g.
+    // Identify on a skipped fixture) have an obvious place to wire up.
   }
 
   return { init, onEnterScreen, onLeaveScreen };

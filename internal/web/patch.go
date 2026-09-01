@@ -36,6 +36,9 @@
 //	POST   /api/patch/rigcheck/mode               <- rigCheckModeRequest  -> rigCheckStateJSON
 //	POST   /api/patch/rigcheck/level              <- rigCheckLevelRequest -> rigCheckStateJSON
 //	POST   /api/patch/rigcheck/channel            <- rigCheckChannelRequest -> rigCheckStateJSON
+//	POST   /api/patch/rigcheck/pattern/start      <- patternStartRequest  -> patternStatusJSON (stage 2 test-pattern engine — see internal/patch/testpattern.go)
+//	POST   /api/patch/rigcheck/pattern/adjust     <- patternAdjustRequest -> patternStatusJSON
+//	GET    /api/patch/rigcheck/pattern            -> patternStatusJSON (also the pattern's client-liveness watchdog heartbeat — see its section below)
 package web
 
 import (
@@ -979,16 +982,26 @@ func (s *Server) handleGetRigCheckState(w http.ResponseWriter, r *http.Request) 
 }
 
 type rigCheckStartRequest struct {
-	// ScopeKind: "" / "all" | "universe" | "selection" (task ask, item 4:
-	// "whole patch, one universe, or a selection").
+	// ScopeKind: "" / "all" | "universe" | "position" | "selection" (task
+	// ask, item 4: "whole patch, one universe, or a selection"; "position"
+	// added for stage 2's test-pattern engine — task brief: "whole rig /
+	// one universe / one position / an explicit set of fixtures" — and
+	// shared here since it's equally meaningful for the classic
+	// channel-level walk).
 	ScopeKind string   `json:"scopeKind"`
 	Universe  uint16   `json:"universe"`
+	Position  string   `json:"position"`
 	EntryIDs  []string `json:"entryIds"`
 	Mode      string   `json:"mode"`
 	Level     byte     `json:"level"`
 }
 
-func (s *Server) rigCheckScopeEntries(p patch.Patch, kind string, universe uint16, entryIDs []string) ([]patch.Entry, error) {
+// rigCheckScopeEntries resolves ScopeKind into the ordered []patch.Entry
+// both the classic walk (handleRigCheckStart) and the stage 2 pattern
+// engine (handleRigCheckPatternStart) drive over — one scope-resolution
+// implementation so the two surfaces' "whole rig / one universe / one
+// position / a selection" options can never quietly diverge in meaning.
+func (s *Server) rigCheckScopeEntries(p patch.Patch, kind string, universe uint16, position string, entryIDs []string) ([]patch.Entry, error) {
 	switch kind {
 	case "", "all":
 		return p.Entries, nil
@@ -996,6 +1009,14 @@ func (s *Server) rigCheckScopeEntries(p patch.Patch, kind string, universe uint1
 		var out []patch.Entry
 		for _, e := range p.Entries {
 			if e.Universe == universe {
+				out = append(out, e)
+			}
+		}
+		return out, nil
+	case "position":
+		var out []patch.Entry
+		for _, e := range p.Entries {
+			if e.Position == position {
 				out = append(out, e)
 			}
 		}
@@ -1013,7 +1034,7 @@ func (s *Server) rigCheckScopeEntries(p patch.Patch, kind string, universe uint1
 		}
 		return out, nil
 	default:
-		return nil, fmt.Errorf("scopeKind must be all|universe|selection, got %q", kind)
+		return nil, fmt.Errorf("scopeKind must be all|universe|position|selection, got %q", kind)
 	}
 }
 
@@ -1028,7 +1049,7 @@ func (s *Server) handleRigCheckStart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("no active patch"))
 		return
 	}
-	entries, err := s.rigCheckScopeEntries(p, req.ScopeKind, req.Universe, req.EntryIDs)
+	entries, err := s.rigCheckScopeEntries(p, req.ScopeKind, req.Universe, req.Position, req.EntryIDs)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -1136,11 +1157,197 @@ func (s *Server) handleRigCheckChannel(w http.ResponseWriter, r *http.Request) {
 
 func writeRigCheckError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, patch.ErrRigCheckNotRunning):
+	case errors.Is(err, patch.ErrRigCheckNotRunning), errors.Is(err, patch.ErrRigCheckPatternRunning), errors.Is(err, patch.ErrRigCheckNoPatternRunning):
 		writeError(w, http.StatusConflict, err)
 	case errors.Is(err, patch.ErrRigCheckEmptyScope):
 		writeError(w, http.StatusUnprocessableEntity, err)
 	default:
 		writeError(w, http.StatusBadRequest, err)
+	}
+}
+
+// --- rig check: stage 2 attribute-level test-pattern engine ---------------
+//
+// Endpoints (see internal/patch/testpattern.go for the pattern engine
+// itself, and its package doc comment for the design decisions behind the
+// contract below):
+//
+//	POST /api/patch/rigcheck/pattern/start  <- patternStartRequest  -> patternStatusJSON
+//	POST /api/patch/rigcheck/pattern/adjust <- patternAdjustRequest -> patternStatusJSON
+//	GET  /api/patch/rigcheck/pattern        -> patternStatusJSON
+//
+// Stop/blackout are NOT separate endpoints: the existing
+// POST /api/patch/rigcheck/stop and POST /api/patch/rigcheck/blackout apply
+// equally to a running pattern (RigCheck.Stop/Blackout are pattern-aware —
+// see rigcheck.go) — one Stop button, one Blackout button, regardless of
+// which engine is currently driving output. A caller does not need to know
+// which mode is active to hit either.
+//
+// GET .../rigcheck/pattern is not just a read — see patternStatusJSON's
+// LastEndReason field and testpattern.go's client-liveness-watchdog doc
+// comment: every call to it (success or not) refreshes the running
+// pattern's liveness deadline exactly like StartPattern/AdjustPattern do.
+// The UI MUST poll this at an interval comfortably under
+// patch.PatternWatchdogTimeout (5s) for as long as a pattern is meant to
+// keep running — stop polling (tab closed, navigated away, crashed) and the
+// pattern blackout-and-stops itself within that window with no further
+// action from the UI required.
+
+type patternStartRequest struct {
+	// Scope — identical vocabulary to rigCheckStartRequest above (now
+	// including "position").
+	ScopeKind string   `json:"scopeKind"`
+	Universe  uint16   `json:"universe"`
+	Position  string   `json:"position"`
+	EntryIDs  []string `json:"entryIds"`
+
+	// Kind is one of the patch.PatternKind string constants (testpattern.go)
+	// — e.g. "dimmer_sine", "ballyhoo", "move_extreme", "colour_wheel_step",
+	// "frost", "prism_spin", "manual_value", "shaper_individual". An unknown
+	// Kind is a 400.
+	Kind string `json:"kind"`
+
+	// Params — see patch.PatternParams' doc comment for what each field
+	// means for a given Kind (an unused field for that Kind is ignored).
+	RateHz    float64 `json:"rateHz"`
+	Min       byte    `json:"min"`
+	Max       byte    `json:"max"`
+	Target    string  `json:"target"`
+	Direction string  `json:"direction"`
+	Value     byte    `json:"value"`
+	On        bool    `json:"on"`
+}
+
+func patternParamsFromRequest(rateHz float64, min, max byte, target, direction string, value byte, on bool) patch.PatternParams {
+	return patch.PatternParams{RateHz: rateHz, Min: min, Max: max, Target: target, Direction: direction, Value: value, On: on}
+}
+
+// handleRigCheckPatternStart starts a stage 2 test pattern over a scope —
+// task ask: "starting a pattern that moves fixtures should be a deliberate
+// action" (unlike the existing rig-check faders' signed-off Apply-to-confirm
+// exception): this endpoint always requires an explicit POST naming both a
+// scope and a Kind, never an implicit continuation of anything else.
+func (s *Server) handleRigCheckPatternStart(w http.ResponseWriter, r *http.Request) {
+	var req patternStartRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	p, ok := s.PatchStore.Get()
+	if !ok {
+		writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("no active patch"))
+		return
+	}
+	entries, err := s.rigCheckScopeEntries(p, req.ScopeKind, req.Universe, req.Position, req.EntryIDs)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	spec := patch.PatternSpec{
+		Kind:   patch.PatternKind(req.Kind),
+		Params: patternParamsFromRequest(req.RateHz, req.Min, req.Max, req.Target, req.Direction, req.Value, req.On),
+	}
+	st, err := s.RigCheck.StartPattern(entries, spec)
+	if err != nil {
+		writeRigCheckError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toPatternStatusJSON(st))
+}
+
+type patternAdjustRequest struct {
+	RateHz    float64 `json:"rateHz"`
+	Min       byte    `json:"min"`
+	Max       byte    `json:"max"`
+	Target    string  `json:"target"`
+	Direction string  `json:"direction"`
+	Value     byte    `json:"value"`
+	On        bool    `json:"on"`
+}
+
+// handleRigCheckPatternAdjust replaces the running pattern's Params
+// wholesale (same whole-value-replace convention as POST .../rigcheck/level)
+// — 409 if no pattern is currently running.
+func (s *Server) handleRigCheckPatternAdjust(w http.ResponseWriter, r *http.Request) {
+	var req patternAdjustRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	st, err := s.RigCheck.AdjustPattern(patternParamsFromRequest(req.RateHz, req.Min, req.Max, req.Target, req.Direction, req.Value, req.On))
+	if err != nil {
+		writeRigCheckError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toPatternStatusJSON(st))
+}
+
+// handleRigCheckPatternStatus is GET .../rigcheck/pattern — see this
+// section's doc comment above for why this read is also the client-liveness
+// watchdog's heartbeat.
+func (s *Server) handleRigCheckPatternStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, toPatternStatusJSON(s.RigCheck.PatternStatus()))
+}
+
+type patternEntryStatusJSON struct {
+	EntryID string `json:"entryId"`
+	// Applied/Inferred/DetailMissing: see patch.PatternEntryStatus's doc
+	// comment (testpattern.go) — mixed-rig counting (decision 2) and
+	// RDM-inferred provenance (decision 3) at per-entry granularity.
+	// Deliberately no `omitempty` on any of the three: false is real,
+	// meaningful data (an un-applied/GDTF-sourced/fully-detailed entry),
+	// not an absent value — same rule as every other bool in this codebase.
+	Applied       bool `json:"applied"`
+	Inferred      bool `json:"inferred"`
+	DetailMissing bool `json:"detailMissing"`
+}
+
+// patternStatusJSON is GET .../rigcheck/pattern's (and both POST
+// .../rigcheck/pattern/start and .../adjust's) response shape.
+type patternStatusJSON struct {
+	Running bool `json:"running"`
+	// Kind/Target/Direction/Group/LastEndReason are omitempty like every
+	// other optional/not-currently-meaningful string field in this
+	// codebase (e.g. rigCheckStateJSON.Mode above) — "" genuinely means
+	// "not applicable"/"none yet", not a distinct meaningful value.
+	Kind string `json:"kind,omitempty"`
+	// RateHz/Min/Max/Value/On are the running pattern's CURRENT effective
+	// Params (echoing what StartPattern/AdjustPattern resolved, including
+	// the default RateHz actually in effect when the caller sent 0 — see
+	// patch.PatternParams' doc comment). No `omitempty` on any of these:
+	// 0/0/0/0/false are every one of them real, legitimate values (rate
+	// zero never reaches here since 0 is resolved to a default before
+	// this is built; Min/Max/Value 0 and On false are all meaningful
+	// pattern configurations), not absent data.
+	RateHz             float64                  `json:"rateHz"`
+	Min                byte                     `json:"min"`
+	Max                byte                     `json:"max"`
+	Target             string                   `json:"target,omitempty"`
+	Direction          string                   `json:"direction,omitempty"`
+	Value              byte                     `json:"value"`
+	On                 bool                     `json:"on"`
+	Group              string                   `json:"group,omitempty"`
+	ElapsedMS          int64                    `json:"elapsedMs"`
+	TotalScope         int                      `json:"totalScope"`
+	AppliedCount       int                      `json:"appliedCount"`
+	SkippedCount       int                      `json:"skippedCount"`
+	InferredCount      int                      `json:"inferredCount"`
+	MissingDetailCount int                      `json:"missingDetailCount"`
+	LastEndReason      string                   `json:"lastEndReason,omitempty"`
+	Entries            []patternEntryStatusJSON `json:"entries"`
+}
+
+func toPatternStatusJSON(st patch.PatternStatus) patternStatusJSON {
+	entries := make([]patternEntryStatusJSON, 0, len(st.Entries))
+	for _, e := range st.Entries {
+		entries = append(entries, patternEntryStatusJSON{EntryID: e.EntryID, Applied: e.Applied, Inferred: e.Inferred, DetailMissing: e.DetailMissing})
+	}
+	return patternStatusJSON{
+		Running: st.Running, Kind: string(st.Kind),
+		RateHz: st.Params.RateHz, Min: st.Params.Min, Max: st.Params.Max,
+		Target: st.Params.Target, Direction: st.Params.Direction, Value: st.Params.Value, On: st.Params.On,
+		Group: string(st.Group), ElapsedMS: st.ElapsedMS, TotalScope: st.TotalScope,
+		AppliedCount: st.AppliedCount, SkippedCount: st.SkippedCount, InferredCount: st.InferredCount,
+		MissingDetailCount: st.MissingDetailCount, LastEndReason: st.LastEndReason, Entries: entries,
 	}
 }

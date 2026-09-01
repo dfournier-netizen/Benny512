@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/netip"
 	"sync"
+	"time"
 
 	"benny512/internal/artnet"
 	"benny512/internal/session"
@@ -66,7 +67,43 @@ const DefaultLevel byte = 255
 var (
 	ErrRigCheckNotRunning = errors.New("patch: rig check is not running")
 	ErrRigCheckEmptyScope = errors.New("patch: rig check scope has no entries")
+	// ErrRigCheckPatternRunning is returned by every CLASSIC (channel-level)
+	// mutator — SetMode/SetLevel/Jump/Next/Previous/StepChannel — while a
+	// stage 2 test pattern (testpattern.go) is driving output. The two
+	// engines share this RigCheck instance's frame-recompute machinery and
+	// its started-universe bookkeeping but are mutually exclusive at any
+	// instant (both would otherwise race to decide what a shared universe's
+	// buffer holds): starting a pattern always stops any classic run first
+	// (StartPattern -> stopLocked, mirroring Start's own "always start
+	// clean" rule), and a classic action while a pattern is running must
+	// fail loudly rather than silently corrupt the pattern's frame with a
+	// stale r.mode-driven recompute. Call Stop (or start a classic run via
+	// Start, which itself stops the pattern first) to get back to classic
+	// mode.
+	ErrRigCheckPatternRunning = errors.New("patch: a test pattern is running — stop it first")
+	// ErrRigCheckNoPatternRunning is returned by AdjustPattern/StopPattern
+	// (the pattern-only half of the surface's own guard, mirroring
+	// ErrRigCheckNotRunning above) when no pattern is currently running.
+	ErrRigCheckNoPatternRunning = errors.New("patch: no test pattern is running")
 )
+
+// PatternWatchdogTimeout is the test-pattern engine's client-liveness
+// watchdog window — see testpattern.go's package-section doc comment ("what
+// happens if the HTTP client disappears mid-pattern") for the full reasoning.
+// A ballyhoo or spin pattern is driven entirely by this RigCheck's own
+// internal clock/ticker, NOT by incoming HTTP requests, so a browser tab
+// that crashes or a laptop that loses network mid-pattern would otherwise
+// leave a moving head sweeping (or a strobe/frost/dimmer pattern flashing)
+// forever with no client left to send the Stop that every other safety path
+// in this file relies on. Every pattern-surface call that proves a client is
+// still there and paying attention — StartPattern, AdjustPattern, AND a
+// plain PatternStatus read (GET .../rigcheck/pattern, which the UI must poll
+// regularly to render live state anyway) — refreshes r.lastTouch; if the
+// pattern ticker ever finds more than this window has elapsed since the
+// last touch, it blackout-and-stops itself, exactly as if a human had
+// pressed Stop. See internal/web/patch.go's endpoint doc comment for the
+// poll-interval contract this implies for callers.
+const PatternWatchdogTimeout = 5 * time.Second
 
 // State is a snapshot of RigCheck's current status, safe to serialize
 // directly to JSON.
@@ -78,6 +115,15 @@ type State struct {
 	EntryIDs       []string `json:"entryIds,omitempty"`
 	ChannelOffset  int      `json:"channelOffset"`
 	CurrentChannel uint16   `json:"currentChannel,omitempty"` // absolute DMX address being driven, ModeStepChannel only
+	// PatternRunning is true while a stage 2 test pattern (testpattern.go)
+	// is driving output instead of this classic channel-level walk — every
+	// field above (Mode/Level/EntryIndex/ChannelOffset/CurrentChannel) is
+	// then stale/frozen at whatever it held the instant StartPattern took
+	// over (see StartPattern's doc comment); read PatternStatus for the
+	// real, live detail. Deliberately no `omitempty`: false (no pattern
+	// running, the overwhelmingly common case) is real, meaningful data a
+	// client must be able to tell apart from a key that's merely missing.
+	PatternRunning bool `json:"patternRunning"`
 }
 
 // RigCheck steps through an ordered, scoped list of patch entries, driving
@@ -86,7 +132,8 @@ type State struct {
 // discarding whatever was running before (always blackout-and-stop first,
 // so a fresh Start never inherits stale lit channels from a previous scope).
 type RigCheck struct {
-	dmx *session.DMXOutputEngine
+	dmx   *session.DMXOutputEngine
+	clock session.Clock // same Clock dmx was built with — see Clock's doc comment (session/dmxout.go) and testpattern.go's package doc comment
 
 	mu      sync.Mutex
 	entries []Entry
@@ -96,6 +143,12 @@ type RigCheck struct {
 	idx     int
 	chOff   int
 	running bool
+
+	// --- stage 2: attribute-level test-pattern engine (testpattern.go) ---
+	pattern        *patternRun
+	patternTimer   session.Timer // self-rescheduling AfterFunc chain driving patternTick, mirrors DMXOutputEngine's own tick()/scheduleLocked()
+	lastTouch      time.Time     // last StartPattern/AdjustPattern/PatternStatus call — see PatternWatchdogTimeout
+	lastPatternEnd string        // "" (never run) | "manual" | "restarted" | "watchdog" — see PatternStatus.LastEndReason
 }
 
 // NewRigCheck builds a RigCheck driving dmx. dmx is required and typically
@@ -103,9 +156,12 @@ type RigCheck struct {
 // only ever touches the specific universes its scope covers, per-universe
 // (StartUniverse/StopUniverse), never DMX.Start()/DMX.Stop() globally, so
 // running a rig check never disturbs unrelated universes another screen
-// might be driving.
+// might be driving. The stage 2 pattern engine (testpattern.go) reuses
+// dmx.Clock() — never a separate RealClock — specifically so a test's one
+// FakeClock deterministically drives both the DMX retransmit tick and every
+// pattern's own value recomputation.
 func NewRigCheck(dmx *session.DMXOutputEngine) *RigCheck {
-	return &RigCheck{dmx: dmx, started: map[uint16]bool{}, level: DefaultLevel}
+	return &RigCheck{dmx: dmx, clock: dmx.Clock(), started: map[uint16]bool{}, level: DefaultLevel}
 }
 
 // Start begins a new rig check over entries (already ordered/scoped by the
@@ -120,7 +176,7 @@ func (r *RigCheck) Start(entries []Entry, mode Mode, level byte) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.stopLocked() // always start clean — no stale universes left driving from a previous scope
+	r.stopLocked("restarted") // always start clean — no stale universes left driving from a previous scope, and this supersedes any running pattern too
 
 	r.entries = append([]Entry(nil), entries...)
 	r.mode = normalizeMode(mode)
@@ -166,10 +222,17 @@ func normalizeMode(m Mode) Mode {
 func (r *RigCheck) Stop() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.stopLocked()
+	r.stopLocked("manual")
 }
 
-func (r *RigCheck) stopLocked() {
+// stopLocked is the one choke point every path out of a running rig
+// check — classic or pattern — goes through, so the blackout discipline
+// (this file's doc comment) and the pattern ticker's cleanup can never be
+// forgotten on any of them. reason is recorded as lastPatternEnd ONLY when a
+// pattern was actually running (see PatternStatus.LastEndReason); it is
+// ignored otherwise, so this stays the ordinary, reason-agnostic Stop path
+// classic-mode callers already expect.
+func (r *RigCheck) stopLocked(reason string) {
 	r.blackoutLocked()
 	for u := range r.started {
 		if pa, err := artnet.PortAddressFromRaw(u); err == nil {
@@ -178,6 +241,7 @@ func (r *RigCheck) stopLocked() {
 	}
 	r.started = map[uint16]bool{}
 	r.running = false
+	r.cancelPatternLocked(reason)
 }
 
 // Blackout zeroes every currently-touched universe's buffer and pushes it
@@ -188,6 +252,22 @@ func (r *RigCheck) stopLocked() {
 func (r *RigCheck) Blackout() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.pattern != nil {
+		// A running pattern re-asserts its own frame on every tick (see
+		// testpattern.go's tick-source doc comment — roughly every 25ms at
+		// the default 40Hz), so this method's classic-mode contract above
+		// ("Running stays true... WITHOUT ending the run") would make
+		// Blackout a one-frame flicker here, not the "hard all-off that
+		// always works" panic button its doc comment promises. Ending the
+		// pattern — not just zeroing its current frame — is the only way
+		// this call can keep that promise while a pattern is live. A
+		// deliberate, documented divergence from the classic-mode
+		// behaviour above: report this as "manual" (same as a direct
+		// Stop), not a distinct reason, since from the caller's point of
+		// view it IS a deliberate stop.
+		r.stopLocked("manual")
+		return
+	}
 	r.blackoutLocked()
 }
 
@@ -210,6 +290,9 @@ func (r *RigCheck) SetMode(mode Mode) error {
 	if !r.running {
 		return ErrRigCheckNotRunning
 	}
+	if r.pattern != nil {
+		return ErrRigCheckPatternRunning
+	}
 	r.mode = normalizeMode(mode)
 	r.chOff = 0
 	r.recomputeLocked()
@@ -225,6 +308,9 @@ func (r *RigCheck) SetLevel(level byte) error {
 	if !r.running {
 		return ErrRigCheckNotRunning
 	}
+	if r.pattern != nil {
+		return ErrRigCheckPatternRunning
+	}
 	r.level = level
 	r.recomputeLocked()
 	return nil
@@ -238,6 +324,9 @@ func (r *RigCheck) Jump(index int) error {
 	defer r.mu.Unlock()
 	if !r.running {
 		return ErrRigCheckNotRunning
+	}
+	if r.pattern != nil {
+		return ErrRigCheckPatternRunning
 	}
 	if index < 0 || index >= len(r.entries) {
 		return fmt.Errorf("patch: rig check index %d out of range [0,%d)", index, len(r.entries))
@@ -262,6 +351,9 @@ func (r *RigCheck) stepEntry(delta int) error {
 	defer r.mu.Unlock()
 	if !r.running {
 		return ErrRigCheckNotRunning
+	}
+	if r.pattern != nil {
+		return ErrRigCheckPatternRunning
 	}
 	next := r.idx + delta
 	if next < 0 {
@@ -289,6 +381,9 @@ func (r *RigCheck) StepChannel(delta int) error {
 	if !r.running {
 		return ErrRigCheckNotRunning
 	}
+	if r.pattern != nil {
+		return ErrRigCheckPatternRunning
+	}
 	cur, ok := r.currentEntryLocked()
 	if !ok || cur.Footprint == 0 {
 		return nil
@@ -309,7 +404,10 @@ func (r *RigCheck) StepChannel(delta int) error {
 func (r *RigCheck) State() State {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	st := State{Running: r.running, Mode: r.mode, Level: r.level, EntryIndex: r.idx, ChannelOffset: r.chOff}
+	st := State{
+		Running: r.running, Mode: r.mode, Level: r.level, EntryIndex: r.idx, ChannelOffset: r.chOff,
+		PatternRunning: r.pattern != nil,
+	}
 	for _, e := range r.entries {
 		st.EntryIDs = append(st.EntryIDs, e.ID)
 	}

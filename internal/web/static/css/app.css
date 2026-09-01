@@ -453,3 +453,65 @@ td[data-label="Input enabled"] .b5-checkbox { margin-right: var(--b5-space-2); }
    equivalent and must show on every viewport, same reasoning as
    #walkAccordion. */
 #nodesAccordion.b5-accordion { display: block; }
+
+/* ============================================================
+   Function Check (Phase 2b, patch.js's Rig Check screen). Additions
+   appended at the end of the file per the ownership split for this piece
+   of work — everything below is new, nothing above this block was
+   touched.
+   ============================================================ */
+
+/* #fcAttrTree is the six-group attribute menu (Dimmer/Position/Colour/
+   Beam/Focus/Shaper) — same reasoning as #nodesAccordion above: it must
+   show on every viewport, not just the kit's mobile-only accordion
+   fallback. */
+#fcAttrTree.b5-accordion { display: block; }
+
+/* b5-fc-stopbar: the "prominent, always-visible STOP" the task calls for.
+   Sticky rather than fixed — fixed bars have bitten this app before (see
+   the walk-bar/patch-editor reserve-space comments elsewhere in this
+   file); sticky needs no body-class reserve dance and still stays on
+   screen as the tech scrolls the attribute tree on a phone. Kept simple:
+   always rendered (Stop only enabled while a pattern is running;
+   Blackout always is, matching the classic rig check's own always-on
+   Blackout button), status badge is text+icon (never color alone). */
+.b5-fc-stopbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: var(--b5-space-3);
+  flex-wrap: wrap;
+  padding: var(--b5-space-2) var(--b5-space-3);
+  margin-bottom: var(--b5-space-3);
+  background: var(--b5-color-bg-surface-raised);
+  border: 1px solid var(--b5-color-border-default);
+  border-radius: var(--b5-radius-md, 6px);
+}
+.b5-fc-stopbar__status { margin-right: auto; }
+/* Touch-safe minimum (task ask: "touch targets >=44px on phones") — the
+   kit's own .b5-btn is already close but STOP is the one control on this
+   screen that must never be fumbled. */
+.b5-fc-stopbar .b5-btn { min-height: 44px; min-width: 44px; }
+
+/* b5-fc-funclist: the per-function listing inside an open attribute-group
+   panel ("N of M fixtures" + provenance badge per function) and the
+   per-fixture applied/skipped/inferred breakdown on a running pattern's
+   status card. Plain list, generous touch-height rows since this is used
+   at a rig, often on a phone. */
+.b5-fc-funclist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--b5-space-2);
+}
+.b5-fc-funclist li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 32px;
+}

@@ -162,6 +162,14 @@ var attributeTaxonomy = []attributePrefixEntry{
 	{"Douser", GroupBeam, false},
 	{"BeamEffect", GroupBeam, false},
 	{"Effects", GroupBeam, false},
+	// Added for stage 2's test-pattern engine (internal/patch/
+	// testpattern.go, PatternAnimationSpin): an animation/effects wheel's
+	// rotate/index attribute. UNVERIFIED — not present in either real GDTF
+	// sample file this package's other entries are CONFIRMED against (see
+	// file doc comment); this package's best reading of the public GDTF
+	// standard attribute list ("AnimationWheel1", "AnimationIndexRotate",
+	// etc, all sharing this prefix).
+	{"Animation", GroupBeam, false},
 
 	// --- Focus -----------------------------------------------------------
 	{"Zoom", GroupFocus, true}, // CONFIRMED: real GDTF sample, Feature="Focus.Focus"

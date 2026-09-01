@@ -94,6 +94,17 @@ func NewDMXOutputEngine(cfg DMXConfig) *DMXOutputEngine {
 // Interval reports the effective tick period.
 func (e *DMXOutputEngine) Interval() time.Duration { return e.interval }
 
+// Clock returns the Clock this engine was built with. Added for the
+// function-aware Rig Check test-pattern engine (internal/patch/
+// testpattern.go): a time-varying pattern (sine fade, ballyhoo, wheel
+// stepping, a spin) needs its own tick source, and reusing this exact
+// Clock — rather than constructing a second RealClock — is what makes a
+// test's single FakeClock deterministically drive BOTH the DMX engine's own
+// retransmit ticks and the pattern engine's value recomputation in lockstep
+// (see patch.NewRigCheck's doc comment). Never nil: NewDMXOutputEngine
+// always defaults cfg.Clock to RealClock{} before storing it.
+func (e *DMXOutputEngine) Clock() Clock { return e.cfg.Clock }
+
 // TickCount reports how many ticks have fired.
 func (e *DMXOutputEngine) TickCount() uint64 {
 	e.mu.Lock()

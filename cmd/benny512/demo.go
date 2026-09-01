@@ -724,6 +724,33 @@ func buildDemoPatch(port1, port2 artnet.PortAddress) patch.Patch {
 	spotDescriptions := map[uint16]string{5: "Gobo Wheel 1"} // this one slot's SLOT_DESCRIPTION was fetched; the rest fall back to their symbolic Slot Label ID name
 	spotChannels := web.BuildRDMInferredChannelFunctions(spotSlots, spotDescriptions)
 
+	// Beam FX 1 (GDTF-derived): a synthetic fixture whose sole purpose is
+	// making every stage 2 test-pattern group exercisable in --demo (task
+	// brief: "make every pattern exercisable in --demo") — CF2 48 and Spot
+	// 1 above only cover Dimmer/Colour(mix)/Position between them, so
+	// nothing in the demo rig otherwise has Focus, Beam, or Shaper
+	// functions a pattern could drive. ChannelSets are attached to
+	// ColorWheel and Prism1 so PatternColourWheelStep/PatternPrismInOut
+	// have real slot detail to exercise (rather than only ever hitting the
+	// missing-detail degrade path in demo mode); every other function here
+	// deliberately has none, so the degrade-to-raw-sweep path (prism/
+	// animation spin, shaper rotate) is ALSO exercisable in demo without a
+	// second fixture.
+	beamFXChannels := map[uint16]patch.ChannelFunction{
+		1:  {Source: patch.SourceGDTF, Attribute: "Focus", FunctionName: "Focus", DMXFrom: 0, DMXTo: 255, ChannelSets: make([]patch.ChannelSet, 0)},
+		2:  {Source: patch.SourceGDTF, Attribute: "Zoom", FunctionName: "Zoom", DMXFrom: 0, DMXTo: 255, ChannelSets: make([]patch.ChannelSet, 0)},
+		3:  {Source: patch.SourceGDTF, Attribute: "Frost1", FunctionName: "Frost Light", DMXFrom: 0, DMXTo: 255, ChannelSets: make([]patch.ChannelSet, 0)},
+		4:  {Source: patch.SourceGDTF, Attribute: "Frost2", FunctionName: "Frost Heavy", DMXFrom: 0, DMXTo: 255, ChannelSets: make([]patch.ChannelSet, 0)},
+		5:  {Source: patch.SourceGDTF, Attribute: "Prism1", FunctionName: "Prism", DMXFrom: 0, DMXTo: 255, ChannelSets: []patch.ChannelSet{{Name: "Open", DMXFrom: 0}, {Name: "Prism In", DMXFrom: 128}}},
+		6:  {Source: patch.SourceGDTF, Attribute: "Prism1Rot", FunctionName: "Prism Rotate", DMXFrom: 0, DMXTo: 255, ChannelSets: make([]patch.ChannelSet, 0)},
+		7:  {Source: patch.SourceGDTF, Attribute: "Animation1", FunctionName: "Animation Wheel", DMXFrom: 0, DMXTo: 255, ChannelSets: make([]patch.ChannelSet, 0)},
+		8:  {Source: patch.SourceGDTF, Attribute: "ColorWheel", FunctionName: "Colour Wheel", DMXFrom: 0, DMXTo: 255, ChannelSets: []patch.ChannelSet{{Name: "Open", DMXFrom: 0}, {Name: "Red", DMXFrom: 32}, {Name: "Green", DMXFrom: 64}, {Name: "Blue", DMXFrom: 96}}},
+		9:  {Source: patch.SourceGDTF, Attribute: "Blade1A", FunctionName: "Shaper 1 Insert", DMXFrom: 0, DMXTo: 255, ChannelSets: make([]patch.ChannelSet, 0)},
+		10: {Source: patch.SourceGDTF, Attribute: "Blade2A", FunctionName: "Shaper 2 Insert", DMXFrom: 0, DMXTo: 255, ChannelSets: make([]patch.ChannelSet, 0)},
+		11: {Source: patch.SourceGDTF, Attribute: "Blade1Rot", FunctionName: "Shaper Assembly Rotate", DMXFrom: 0, DMXTo: 255, ChannelSets: make([]patch.ChannelSet, 0)},
+		12: {Source: patch.SourceGDTF, Attribute: "Blade2Rot", FunctionName: "Shaper Assembly Rotate", DMXFrom: 0, DMXTo: 255, ChannelSets: make([]patch.ChannelSet, 0)},
+	}
+
 	p := patch.Patch{
 		Name: "Demo Show",
 		Entries: []patch.Entry{
@@ -733,10 +760,12 @@ func buildDemoPatch(port1, port2 artnet.PortAddress) patch.Patch {
 			entry("Missing Fixture", "High End Systems SolaFrame 750", "Rear Truss", "104", port1, 200, 20),
 			entry("Practical 1", "Practical LED", "", "201", practicalsUniverse, 100, 10),
 			entry("Practical 2", "Practical LED", "", "202", practicalsUniverse, 105, 10),
+			entry("Beam FX 1", "Demo Beam FX Fixture", "US Truss 1", "105", port1, 150, 12),
 		},
 	}
-	p.Entries[0].ChannelFunctions = cf2Channels  // CF2 48: GDTF-derived
-	p.Entries[2].ChannelFunctions = spotChannels // Spot 1: RDM-inferred
+	p.Entries[0].ChannelFunctions = cf2Channels    // CF2 48: GDTF-derived
+	p.Entries[2].ChannelFunctions = spotChannels   // Spot 1: RDM-inferred
+	p.Entries[6].ChannelFunctions = beamFXChannels // Beam FX 1: GDTF-derived (synthetic — see above)
 	// Par 1, Missing Fixture, Practical 1/2: left with a nil
 	// ChannelFunctions (the "absent"/"neither" case) — normalized to a
 	// non-nil empty map once this Patch is installed via patch.Store,

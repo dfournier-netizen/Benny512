@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"benny512/internal/artnet"
 	"benny512/internal/patch"
@@ -347,6 +348,152 @@ func TestRigCheck_StartStopViaREST(t *testing.T) {
 	rr = doJSON(t, h2.srv.Handler(), "POST", "/api/patch/rigcheck/start", rigCheckStartRequest{ScopeKind: "all"})
 	if rr.Code != http.StatusUnprocessableEntity {
 		t.Errorf("start with no patch = %d, want 422", rr.Code)
+	}
+}
+
+// TestRigCheckPattern_StartStatusStopViaREST is the stage 2 test-pattern
+// engine's end-to-end REST contract: start a pattern over a scope, read its
+// live status, and confirm Stop applies to it exactly like the classic walk.
+func TestRigCheckPattern_StartStatusStopViaREST(t *testing.T) {
+	h := newHarness(t)
+	pa := mustPort(t)
+	rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", entryRequest{
+		Name: "Dimmer 1", Universe: pa.RawValue(), StartAddress: 1, Footprint: 1, Position: "US Truss 1",
+		ChannelFunctions: map[string]channelFunctionRequest{
+			"1": {Source: "gdtf", Attribute: "Dimmer", ChannelSets: []channelSetRequest{}},
+		},
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("create entry: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	rr = doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/start", patternStartRequest{
+		ScopeKind: "position", Position: "US Truss 1", Kind: "dimmer_sine", RateHz: 1, Max: 255,
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("pattern start: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var st patternStatusJSON
+	mustUnmarshal(t, rr, &st)
+	if !st.Running || st.Kind != "dimmer_sine" || st.TotalScope != 1 || st.AppliedCount != 1 || st.SkippedCount != 0 {
+		t.Fatalf("pattern status after start = %+v", st)
+	}
+	if len(st.Entries) != 1 || !st.Entries[0].Applied {
+		t.Fatalf("Entries = %+v, want one Applied entry", st.Entries)
+	}
+
+	h.clock.Advance(300 * time.Millisecond)
+
+	rr = doJSON(t, h.srv.Handler(), "GET", "/api/patch/rigcheck/pattern", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("pattern status: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	mustUnmarshal(t, rr, &st)
+	if !st.Running || st.ElapsedMS < 300 {
+		t.Fatalf("pattern status after advance = %+v", st)
+	}
+
+	// Stop (the EXISTING classic endpoint) must apply to the pattern too —
+	// there is no separate pattern-stop endpoint by design.
+	rr = doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/stop", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("stop: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	rr = doJSON(t, h.srv.Handler(), "GET", "/api/patch/rigcheck/pattern", nil)
+	mustUnmarshal(t, rr, &st)
+	if st.Running {
+		t.Error("expected Running=false after POST /rigcheck/stop")
+	}
+	if st.LastEndReason != "manual" {
+		t.Errorf("LastEndReason = %q, want %q", st.LastEndReason, "manual")
+	}
+}
+
+// TestRigCheckPattern_JSONShape_NoOmittedZeros pins this codebase's hard
+// JSON rules directly on the wire: a numeric/boolean field whose zero is
+// real data must still appear in the marshalled bytes, and Entries must be
+// `[]`, never `null`, for a pattern that (deliberately, via an empty
+// selection scope) applies to nothing.
+func TestRigCheckPattern_JSONShape_NoOmittedZeros(t *testing.T) {
+	h := newHarness(t)
+	pa := mustPort(t)
+	doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", entryRequest{Name: "No functions", Universe: pa.RawValue(), StartAddress: 1, Footprint: 1})
+
+	rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/start", patternStartRequest{
+		ScopeKind: "all", Kind: "dimmer_snap", // Min/Max/Value/On/RateHz all left at their zero values on purpose
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("pattern start: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	for _, want := range []string{
+		`"min":0`, `"max":0`, `"value":0`, `"on":false`,
+		`"appliedCount":0`, `"skippedCount":1`, `"inferredCount":0`, `"missingDetailCount":0`,
+		`"entries":[{`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("pattern status JSON missing %s; got %s", want, body)
+		}
+	}
+	if strings.Contains(body, "null") {
+		t.Errorf("pattern status JSON must never contain null: %s", body)
+	}
+
+	// A scope that resolves to zero entries must still emit `"entries":[]`
+	// (an empty array), never `null`.
+	rr2 := doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/start", patternStartRequest{
+		ScopeKind: "position", Position: "Nowhere", Kind: "dimmer_sine",
+	})
+	if rr2.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("pattern start over an empty scope: status=%d body=%s, want 422", rr2.Code, rr2.Body.String())
+	}
+}
+
+// TestRigCheckPattern_AdjustAndValidation exercises AdjustPattern's REST
+// surface and the unknown-Kind/no-pattern-running error paths.
+func TestRigCheckPattern_AdjustAndValidation(t *testing.T) {
+	h := newHarness(t)
+	pa := mustPort(t)
+	doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", entryRequest{
+		Name: "Mover", Universe: pa.RawValue(), StartAddress: 1, Footprint: 4,
+		ChannelFunctions: map[string]channelFunctionRequest{
+			"1": {Source: "gdtf", Attribute: "Pan", ChannelSets: []channelSetRequest{}},
+			"3": {Source: "gdtf", Attribute: "Tilt", ChannelSets: []channelSetRequest{}},
+		},
+	})
+
+	// Unknown kind -> 400, nothing started.
+	rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/start", patternStartRequest{ScopeKind: "all", Kind: "not_a_kind"})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("unknown kind: status=%d body=%s, want 400", rr.Code, rr.Body.String())
+	}
+
+	// Adjust with nothing running -> 409.
+	rr = doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/adjust", patternAdjustRequest{Target: "pan_max"})
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("adjust with no pattern running: status=%d body=%s, want 409", rr.Code, rr.Body.String())
+	}
+
+	rr = doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/start", patternStartRequest{ScopeKind: "all", Kind: "move_extreme", Target: "pan_max"})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("pattern start: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	rr = doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/adjust", patternAdjustRequest{Target: "tilt_min"})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("adjust: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var st patternStatusJSON
+	mustUnmarshal(t, rr, &st)
+	if st.Target != "tilt_min" {
+		t.Errorf("Target after adjust = %q, want tilt_min", st.Target)
+	}
+
+	// A classic rig-check mutator against a running pattern -> 409, not a
+	// silent no-op.
+	rr = doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/level", rigCheckLevelRequest{Level: 100})
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("classic level change while pattern running: status=%d body=%s, want 409", rr.Code, rr.Body.String())
 	}
 }
 
