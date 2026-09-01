@@ -47,7 +47,15 @@ import (
 // "old files must always open" is a hard rule carried over from the
 // project's other codebase (see the file's package doc comment and
 // CLAUDE.md's "tolerant reader" convention).
-const CurrentSchemaVersion = 1
+//
+// Version 2 (function-aware Rig Check, foundation phase): added
+// Entry.ChannelFunctions (per-DMX-offset attribute resolution — see
+// ChannelFunction's doc comment below). A v1 file simply has no
+// "channelFunctions" key on any entry, which unmarshals to a nil map —
+// migrate() below turns that nil into an explicit empty map so every entry,
+// old or new, always has a non-nil ChannelFunctions a caller can range over
+// or marshal without a special nil case (see TestMigrate_NilChannelFunctionsBecomesEmptyMap).
+const CurrentSchemaVersion = 2
 
 // MatchState records a patch entry's reconciliation state, persisted so a
 // user-confirmed pairing is never re-litigated across sessions (task ask:
@@ -149,6 +157,116 @@ type Entry struct {
 	// dependency — internal/web parses/formats it at the boundary.
 	ConfirmedUID string     `json:"confirmedUid,omitempty"`
 	MatchState   MatchState `json:"matchState,omitempty"`
+
+	// ChannelFunctions is the function-aware Rig Check foundation (see
+	// taxonomy.go's package-level doc comment for the feature this
+	// supports). Keyed by DMX offset 1-based WITHIN THIS ENTRY'S FOOTPRINT
+	// (offset 1 is the entry's first channel, at StartAddress — same
+	// convention GDTF's own <DMXChannel Offset="..."> attribute uses, and
+	// deliberately NOT an absolute universe address, so the map stays valid
+	// across a start-address edit). Deliberately no `omitempty`: a present-
+	// but-empty map is a real, meaningful state (channel functions were
+	// resolved and none were found — as distinct from field never having
+	// been populated at all on an old file, which unmarshals to nil and is
+	// normalized to an empty, non-nil map by migrate()). Every ChannelFunction
+	// this map holds carries its own Source, so provenance is never a
+	// per-entry side-fact that can drift out of sync with what the map
+	// actually contains — see ChannelFunction's doc comment.
+	ChannelFunctions map[uint16]ChannelFunction `json:"channelFunctions"`
+}
+
+// ChannelFunctionSource records how a ChannelFunction's attribute mapping
+// was determined. This is the field the owner's hard constraint on RDM slot
+// inference (task brief, decision 3) is built around: an inferred mapping
+// must be structurally impossible to mistake for an authoritative one.
+// Every ChannelFunction carries this field, there is no separate "trust me"
+// path, and the zero value (SourceAbsent) is never emitted for a slot the
+// map actually has an entry for — an absent slot simply has no map entry at
+// all (see ResolveEntryAttributes in taxonomy.go, which never invents an
+// entry to say "absent").
+type ChannelFunctionSource string
+
+// Sources. SourceAbsent is the zero value — reachable only via a
+// zero-valued ChannelFunction a caller constructed by hand (e.g. a
+// zero-value default in a test); real producers (GDTF import, RDM slot
+// inference) always set one of the other two explicitly.
+const (
+	SourceAbsent      ChannelFunctionSource = ""
+	SourceGDTF        ChannelFunctionSource = "gdtf"
+	SourceRDMInferred ChannelFunctionSource = "rdm-inferred"
+)
+
+// ChannelSet is one named value sub-range within a ChannelFunction — GDTF's
+// <ChannelSet> (e.g. a gobo wheel's individual gobo choices, each with its
+// own DMX range and physical/name label). Never present for an RDM-inferred
+// ChannelFunction: RDM's SLOT_INFO/SLOT_DESCRIPTION has no equivalent
+// concept, only a single slot-wide text label (see ChannelFunction.RDMSlotLabel).
+type ChannelSet struct {
+	Name string `json:"name,omitempty"`
+	// DMXFrom is the raw DMX value (0-255 for an 8-bit channel; GDTF's own
+	// coarse-byte reading of its "x/y" DMXFrom notation) this named
+	// sub-range starts at. Deliberately no `omitempty`: a ChannelSet
+	// starting at DMX 0 (the common case — a wheel's first slot almost
+	// always starts at 0) is real, present data, not an absent value.
+	DMXFrom      uint32  `json:"dmxFrom"`
+	PhysicalFrom float64 `json:"physicalFrom,omitempty"`
+	PhysicalTo   float64 `json:"physicalTo,omitempty"`
+}
+
+// ChannelFunction is what one DMX offset within a patch entry's footprint
+// does: which taxonomy attribute it drives (taxonomy.go), GDTF's function
+// name and value-range data when available, or an RDM-inferred
+// approximation when it is not — see Source's doc comment for why the two
+// can never be confused.
+type ChannelFunction struct {
+	// Source is never omitted from the JSON (no `omitempty`) — an absent
+	// Source next to real Attribute/FunctionName data would be exactly the
+	// silent-guess failure mode decision (3) forbids; every consumer of
+	// this struct must look at Source before trusting anything else in it.
+	Source ChannelFunctionSource `json:"source"`
+	// Attribute is the resolved taxonomy attribute — a GDTF standard
+	// attribute name verbatim when Source==SourceGDTF (e.g. "Dimmer",
+	// "ColorAdd_R"), or this package's best-mapped equivalent name when
+	// Source==SourceRDMInferred (see taxonomy.go's RDM slot-label bridge in
+	// internal/web/patchattrs.go). Empty only for a genuinely unrecognized
+	// slot — still placed in the Other group by GroupForAttribute(""), per
+	// the task rule that an unmapped attribute is never silently dropped.
+	Attribute string `json:"attribute,omitempty"`
+	// FunctionName is GDTF's <ChannelFunction Name="...">, verbatim. Always
+	// empty for RDM-inferred entries — RDM's SLOT_INFO carries no function
+	// name, only a Slot Label ID (see RDMSlotLabel below for the nearest
+	// RDM equivalent, a free-text description, not a function name).
+	FunctionName string `json:"functionName,omitempty"`
+	// DMXFrom/DMXTo are the raw DMX value range this function is active
+	// over (GDTF's ChannelFunction DMXFrom, and the next function's DMXFrom
+	// minus one, or the channel's top value for the last function).
+	// Deliberately no `omitempty` on DMXFrom: a function starting at DMX 0
+	// (extremely common — most fixtures' first ChannelFunction on a channel
+	// starts at 0) is real data.
+	DMXFrom uint32 `json:"dmxFrom"`
+	DMXTo   uint32 `json:"dmxTo"`
+	// PhysicalFrom/PhysicalTo are GDTF's PhysicalFrom/PhysicalTo (e.g. pan
+	// degrees, percentage) — omitempty is fine here: 0.0 is ambiguous with
+	// "not provided" for physical units anyway, and GDTF makes no promise
+	// these are always present, unlike DMXFrom which the spec always gives.
+	PhysicalFrom float64 `json:"physicalFrom,omitempty"`
+	PhysicalTo   float64 `json:"physicalTo,omitempty"`
+	// ChannelSets is GDTF's <ChannelSet> children of this ChannelFunction,
+	// if any. Deliberately `make([]ChannelSet, 0)`, never a nil slice, at
+	// every construction site in this codebase (gdtfparse.js's Go-side
+	// counterpart and the demo data both follow this) — see this package's
+	// "slices must be make([]T,0)" rule; a nil slice here would marshal to
+	// `null` and every JS caller would need a defensive `|| []` instead of
+	// being able to just call `.map()`/`.length` on it.
+	ChannelSets []ChannelSet `json:"channelSets"`
+	// RDMSlotType/RDMSlotLabel carry the raw RDM SLOT_INFO/SLOT_DESCRIPTION
+	// evidence this mapping was inferred from — present only when
+	// Source==SourceRDMInferred, always empty for GDTF-derived entries.
+	// Kept alongside the resolved Attribute specifically so a future UI can
+	// show the raw, weaker evidence next to the approximate mapping instead
+	// of hiding how little the inference is actually built on.
+	RDMSlotType  string `json:"rdmSlotType,omitempty"`
+	RDMSlotLabel string `json:"rdmSlotLabel,omitempty"`
 }
 
 // entryIDCounter guarantees NewEntryID uniqueness even when called twice
@@ -197,8 +315,43 @@ func migrate(p *Patch) {
 	if p.SchemaVersion <= 0 {
 		p.SchemaVersion = 1
 	}
-	// Future: switch p.SchemaVersion { case 1: ...; p.SchemaVersion = 2 }
+	// v1 -> v2: a v1 file has no "channelFunctions" key at all, so every
+	// entry unmarshals with a nil ChannelFunctions map (and every
+	// ChannelFunction — none exist yet on a v1 file, but the same
+	// normalization applies to any hand-edited/partial file that includes
+	// one with a missing "channelSets" key) with a nil ChannelSets slice.
+	// Normalize both to non-nil so no caller — this package's own
+	// marshaller included — ever has to special-case "map/slice is nil
+	// because the file predates this field" versus "map/slice is empty
+	// because resolution genuinely found nothing". See this package's
+	// "slices must be make([]T,0)" rule in the file doc comment.
+	normalizeChannelFunctions(p.Entries)
+	// Future: switch p.SchemaVersion { case 2: ...; p.SchemaVersion = 3 }
 	p.SchemaVersion = CurrentSchemaVersion
+}
+
+// normalizeChannelFunctions turns a nil Entry.ChannelFunctions (an entry
+// built by a caller that never touched the field — a plain
+// `patch.Entry{...}` literal from an older call site, or JSON-unmarshalled
+// from a v1 file) and any nil ChannelFunction.ChannelSets into their
+// non-nil empty equivalents, in place. Called from migrate() (the on-load
+// path) AND from every Store method that installs entries into the active
+// patch (Replace/Mutate/EnsureActive below) — load is not the only way a
+// nil map reaches this package; a fresh `patch.Entry{...}` literal from
+// internal/web never sets ChannelFunctions either, and that path never goes
+// through migrate(). Idempotent and cheap on already-normalized entries.
+func normalizeChannelFunctions(entries []Entry) {
+	for i := range entries {
+		if entries[i].ChannelFunctions == nil {
+			entries[i].ChannelFunctions = make(map[uint16]ChannelFunction)
+		}
+		for offset, cf := range entries[i].ChannelFunctions {
+			if cf.ChannelSets == nil {
+				cf.ChannelSets = make([]ChannelSet, 0)
+				entries[i].ChannelFunctions[offset] = cf
+			}
+		}
+	}
 }
 
 // IndexOf returns the index of the entry with the given ID, or -1.
@@ -293,6 +446,7 @@ func (st *Store) Replace(p Patch) Patch {
 	}
 	p.ModifiedAt = now
 	p.SchemaVersion = CurrentSchemaVersion
+	normalizeChannelFunctions(p.Entries)
 	st.patch = &p
 	st.persistLocked()
 	return clonePatch(*st.patch)
@@ -322,6 +476,7 @@ func (st *Store) Mutate(fn func(*Patch) error) (Patch, error) {
 		return Patch{}, err
 	}
 	st.patch.ModifiedAt = time.Now()
+	normalizeChannelFunctions(st.patch.Entries)
 	st.persistLocked()
 	return clonePatch(*st.patch), nil
 }

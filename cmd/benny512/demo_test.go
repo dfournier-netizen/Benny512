@@ -234,3 +234,83 @@ func TestDemoSensorWarningAndDeviceClass(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+// TestDemoPatch_ChannelFunctionProvenance guards Task 5's additive demo
+// data requirement (function-aware Rig Check foundation): the pre-loaded
+// demo patch must include one entry with GDTF-style channel functions
+// (CF2 48), one with only RDM-slot-info-inferred ones (Spot 1), and at
+// least one with neither (any of the rest) — all three provenance cases
+// exercisable without hardware, and — decision (3)'s hard constraint —
+// structurally distinguishable from each other by Source alone.
+func TestDemoPatch_ChannelFunctionProvenance(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	srv, start := buildDemo(ctx, false, false)
+	start()
+	go srv.Run(ctx)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/patch")
+	if err != nil {
+		t.Fatalf("GET /api/patch: %v", err)
+	}
+	defer resp.Body.Close()
+	var got struct {
+		Active bool `json:"active"`
+		Patch  struct {
+			Entries []struct {
+				Name             string `json:"name"`
+				ChannelFunctions map[string]struct {
+					Source    string `json:"source"`
+					Attribute string `json:"attribute"`
+				} `json:"channelFunctions"`
+			} `json:"entries"`
+		} `json:"patch"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !got.Active {
+		t.Fatal("expected an active demo patch")
+	}
+
+	var gdtfEntry, rdmEntry, absentEntry bool
+	for _, e := range got.Patch.Entries {
+		if len(e.ChannelFunctions) == 0 {
+			absentEntry = true
+			continue
+		}
+		allSame := true
+		var firstSource string
+		for i, cf := range e.ChannelFunctions {
+			if firstSource == "" {
+				firstSource = cf.Source
+			}
+			if cf.Source != firstSource {
+				allSame = false
+			}
+			_ = i
+		}
+		if !allSame {
+			t.Errorf("entry %q mixes channel-function sources within one entry: %+v", e.Name, e.ChannelFunctions)
+		}
+		switch firstSource {
+		case "gdtf":
+			gdtfEntry = true
+		case "rdm-inferred":
+			rdmEntry = true
+		default:
+			t.Errorf("entry %q has an unexpected channel-function source %q", e.Name, firstSource)
+		}
+	}
+	if !gdtfEntry {
+		t.Error("expected at least one demo entry with GDTF-derived channel functions")
+	}
+	if !rdmEntry {
+		t.Error("expected at least one demo entry with RDM-inferred channel functions")
+	}
+	if !absentEntry {
+		t.Error("expected at least one demo entry with no channel functions at all")
+	}
+}

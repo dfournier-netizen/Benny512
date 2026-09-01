@@ -10,7 +10,10 @@
 //     <DMXModes><DMXMode Name="...">
 //       <DMXChannels><DMXChannel Offset="1,2">
 //         <LogicalChannel Attribute="Pan">
-//           <ChannelFunction Name="Pan" Attribute="Pan"/>
+//           <ChannelFunction Name="Pan" Attribute="Pan" DMXFrom="0/1"
+//                             PhysicalFrom="0" PhysicalTo="540">
+//             <ChannelSet Name="Slot 1" DMXFrom="0/1"/>
+//           </ChannelFunction>
 //         </LogicalChannel>
 //       </DMXChannels>
 //     </DMXMode></DMXModes>
@@ -23,6 +26,25 @@
 // geometries is explicitly out of scope this phase — this is exactly what a
 // naive DMXChannel-list read gives you, which is correct for the common
 // case.
+//
+// channelFunctions rule (Task 1, function-aware Rig Check foundation —
+// deliberate simplification, same spirit as the footprint rule above): each
+// mode's channelFunctions map is keyed by DMX offset (matching a
+// patch.Entry.ChannelFunctions key 1:1 — see internal/patch/entry.go) and
+// resolved from ONLY the first <LogicalChannel> and, within it, the first
+// <ChannelFunction> of each <DMXChannel> — a channel with multiple
+// ChannelFunctions (different behavior over different DMX sub-ranges, e.g.
+// a mode-select control channel) collapses to that first function's
+// Attribute/Name/range/ChannelSet data for every offset the DMXChannel
+// spans (coarse AND any fine bytes get the same resolved attribute, mirroring
+// how internal/rdm/slotinfo.go's SLOT_INFO coarse+fine pairs work — both
+// paths feed the same taxonomy, see internal/patch/taxonomy.go). Every
+// offset in a multi-offset DMXChannel (16-bit+) gets an identical
+// ChannelFunction entry; the DMXTo bound for the channel's first function is
+// the next ChannelFunction's DMXFrom minus one when a second one exists, or
+// 255 (this module never reads a channel's actual bit depth from GDTF's
+// <DMXChannel> — that's a further-out-of-scope refinement, not a correctness
+// bug for the common single-ChannelFunction-per-channel case this covers).
 const GdtfParse = (() => {
   function parseXml(xmlString) {
     const doc = new DOMParser().parseFromString(xmlString, 'application/xml');
@@ -84,10 +106,41 @@ const GdtfParse = (() => {
       .filter(n => Number.isFinite(n));
   }
 
+  // parseDmxValue: GDTF's DMXFrom/Default attributes are written "X/Y"
+  // (raw DMX value / byte count), e.g. "0/1", "128/2". This module only
+  // resolves the raw value (X) — see the file doc comment's
+  // channelFunctions rule for why byte count/fine-byte resolution is out
+  // of scope.
+  function parseDmxValue(s) {
+    if (!s) return 0;
+    const slash = s.indexOf('/');
+    const n = parseInt(slash >= 0 ? s.slice(0, slash) : s, 10);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function parseFloatAttr(s) {
+    if (!s) return 0;
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function parseChannelSet(csEl) {
+    return {
+      name: csEl.getAttribute('Name') || '',
+      dmxFrom: parseDmxValue(csEl.getAttribute('DMXFrom')),
+      physicalFrom: parseFloatAttr(csEl.getAttribute('PhysicalFrom')),
+      physicalTo: parseFloatAttr(csEl.getAttribute('PhysicalTo')),
+    };
+  }
+
   function parseChannelFunction(cfEl) {
     return {
       name: cfEl.getAttribute('Name') || '',
       attribute: cfEl.getAttribute('Attribute') || '',
+      dmxFrom: parseDmxValue(cfEl.getAttribute('DMXFrom')),
+      physicalFrom: parseFloatAttr(cfEl.getAttribute('PhysicalFrom')),
+      physicalTo: parseFloatAttr(cfEl.getAttribute('PhysicalTo')),
+      channelSets: childrenByTag(cfEl, 'ChannelSet').map(parseChannelSet),
     };
   }
 
@@ -105,6 +158,28 @@ const GdtfParse = (() => {
     return { offsets, logicalChannels };
   }
 
+  // resolveChannelFunction: the channelFunctions simplification rule from
+  // this file's doc comment — first LogicalChannel, first ChannelFunction
+  // within it. Returns null when the DMXChannel has no LogicalChannel/
+  // ChannelFunction at all (a channel this module can say nothing about —
+  // callers must NOT invent a Source==gdtf entry for it, an absent slot
+  // stays absent per internal/patch/entry.go's ChannelFunctionSource rule).
+  function resolveChannelFunction(logicalChannels) {
+    const lc = logicalChannels[0];
+    if (!lc) return null;
+    const fn = (lc.functions && lc.functions[0]) || null;
+    const nextFn = (lc.functions && lc.functions[1]) || null;
+    return {
+      attribute: lc.attribute || (fn ? fn.attribute : ''),
+      functionName: fn ? fn.name : '',
+      dmxFrom: fn ? fn.dmxFrom : 0,
+      dmxTo: nextFn ? Math.max(nextFn.dmxFrom - 1, fn ? fn.dmxFrom : 0) : 255,
+      physicalFrom: fn ? fn.physicalFrom : 0,
+      physicalTo: fn ? fn.physicalTo : 0,
+      channelSets: fn ? fn.channelSets : [],
+    };
+  }
+
   function parseMode(modeEl) {
     const name = modeEl.getAttribute('Name') || '';
     const channelsContainer = childByTag(modeEl, 'DMXChannels');
@@ -116,7 +191,32 @@ const GdtfParse = (() => {
       ch.offsets.forEach(off => { if (off > footprint) footprint = off; });
     });
 
-    return { name, footprint, channels };
+    // channelFunctions: keyed by offset (matches patch.Entry.ChannelFunctions
+    // 1:1 — see the file doc comment's channelFunctions rule). An
+    // attribute-less resolution (resolveChannelFunction returned null, or
+    // resolved with an empty attribute) contributes nothing — this map only
+    // ever holds real, resolved GDTF data, never a placeholder "absent"
+    // entry (patch.Entry's map itself represents "absent" as a missing key,
+    // not a zero-valued one — see ChannelFunctionSource's doc comment).
+    const channelFunctions = {};
+    channels.forEach(ch => {
+      const resolved = resolveChannelFunction(ch.logicalChannels);
+      if (!resolved || !resolved.attribute) return;
+      ch.offsets.forEach(off => {
+        channelFunctions[off] = {
+          source: 'gdtf',
+          attribute: resolved.attribute,
+          functionName: resolved.functionName,
+          dmxFrom: resolved.dmxFrom,
+          dmxTo: resolved.dmxTo,
+          physicalFrom: resolved.physicalFrom,
+          physicalTo: resolved.physicalTo,
+          channelSets: resolved.channelSets,
+        };
+      });
+    });
+
+    return { name, footprint, channels, channelFunctions };
   }
 
   // parseDescriptionXml(xmlString) -> {
@@ -126,7 +226,11 @@ const GdtfParse = (() => {
   //                          // patch.go's handlePatchAdopt
   //                          // (fixtureType := strings.TrimSpace(mfr+" "+model))
   //   modes: [{ name, footprint, channels: [{ offsets: number[],
-  //             logicalChannels: [{ attribute, functions: [{name,attribute}] }] }] }]
+  //             logicalChannels: [{ attribute, functions: [{name,attribute,
+  //             dmxFrom,physicalFrom,physicalTo,channelSets}] }] }],
+  //             channelFunctions: { [offset]: {source:'gdtf',attribute,
+  //               functionName,dmxFrom,dmxTo,physicalFrom,physicalTo,
+  //               channelSets} } }]
   // }
   function parseDescriptionXml(xmlString) {
     const doc = parseXml(xmlString);

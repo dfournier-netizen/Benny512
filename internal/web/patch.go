@@ -16,6 +16,7 @@
 //	DELETE /api/patch/entries/{id}                -> patchResponse
 //	POST   /api/patch/reorder                     <- reorderRequest       -> patchResponse
 //	GET    /api/patch/collisions                  -> []patch.Finding
+//	GET    /api/patch/attributes?ids=e1,e2,...    -> patchAttributesResponse (function-aware Rig Check foundation, Task 4; ids omitted = whole active patch)
 //	GET    /api/patch/reconcile                   -> patch.Report
 //	POST   /api/patch/reconcile/{id}/confirm      <- reconcileConfirmRequest -> patchResponse
 //	POST   /api/patch/reconcile/{id}/reject       -> patchResponse
@@ -45,6 +46,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -95,7 +97,15 @@ func (s *Server) handleNewPatch(w http.ResponseWriter, r *http.Request) {
 
 // entryRequest is both the create and update payload — task ask's field
 // list verbatim (name, fixture type/model, mode, footprint, universe,
-// start address, position, fixture number, notes).
+// start address, position, fixture number, notes) plus ChannelFunctions
+// (function-aware Rig Check foundation, Task 1's "wire the import path"):
+// the MVR/GDTF import flows (patchimport.go, mvrimport.js/patch.js's
+// single-GDTF apply) are the only client callers that ever populate this;
+// a plain manual add/edit form submits it empty/absent, and
+// handleUpdatePatchEntry below preserves whatever the entry already had in
+// that case (see its doc comment) — the same "never disturb existing
+// resolved state on an unrelated field edit" rule ConfirmedUID/MatchState
+// already follow.
 type entryRequest struct {
 	Name          string `json:"name"`
 	FixtureType   string `json:"fixtureType"`
@@ -106,6 +116,79 @@ type entryRequest struct {
 	Position      string `json:"position"`
 	FixtureNumber string `json:"fixtureNumber"`
 	Notes         string `json:"notes"`
+
+	ChannelFunctions map[string]channelFunctionRequest `json:"channelFunctions"`
+}
+
+// channelFunctionRequest is entryRequest.ChannelFunctions' value shape,
+// keyed by DMX offset as a decimal string (JSON object keys are always
+// strings — see entryFromRequest's offset-parsing loop for where that gets
+// turned back into a uint16 matching patch.Entry.ChannelFunctions' key
+// type). Field-for-field mirrors patch.ChannelFunction; see that struct's
+// doc comment (internal/patch/entry.go) for what each field means.
+type channelFunctionRequest struct {
+	Source       string              `json:"source"`
+	Attribute    string              `json:"attribute"`
+	FunctionName string              `json:"functionName"`
+	DMXFrom      uint32              `json:"dmxFrom"`
+	DMXTo        uint32              `json:"dmxTo"`
+	PhysicalFrom float64             `json:"physicalFrom"`
+	PhysicalTo   float64             `json:"physicalTo"`
+	ChannelSets  []channelSetRequest `json:"channelSets"`
+	RDMSlotType  string              `json:"rdmSlotType"`
+	RDMSlotLabel string              `json:"rdmSlotLabel"`
+}
+
+type channelSetRequest struct {
+	Name         string  `json:"name"`
+	DMXFrom      uint32  `json:"dmxFrom"`
+	PhysicalFrom float64 `json:"physicalFrom"`
+	PhysicalTo   float64 `json:"physicalTo"`
+}
+
+// errBadChannelFunctionSource is returned by entryFromRequest when a
+// request's channelFunctions carries a Source value other than the two
+// this package ever legitimately produces. Decision (3)'s hard constraint
+// — an RDM-inferred mapping must never be able to pass for a GDTF one — is
+// enforced at the model layer (patch.ChannelFunctionSource is a closed,
+// documented set) but this is the boundary where an arbitrary client-
+// supplied string would otherwise be able to forge either label; rejecting
+// anything else outright (rather than silently coercing it to one of the
+// two, or to absent) means a client-side bug that mislabels provenance
+// fails loudly as a 400, not silently as bad data on disk.
+var errBadChannelFunctionSource = fmt.Errorf("channelFunctions source must be %q or %q", patch.SourceGDTF, patch.SourceRDMInferred)
+
+// channelFunctionsFromRequest converts entryRequest's wire shape into
+// patch.Entry.ChannelFunctions, or an error if any offset key isn't a valid
+// uint16 or any Source isn't one of the two real values (see
+// errBadChannelFunctionSource). A nil/empty input converts to a non-nil
+// empty map — entry.go's own normalizeChannelFunctions would catch a nil
+// one anyway, but building it non-nil here means every other function in
+// this file can treat the map as always-present without a nil check.
+func channelFunctionsFromRequest(in map[string]channelFunctionRequest) (map[uint16]patch.ChannelFunction, error) {
+	out := make(map[uint16]patch.ChannelFunction, len(in))
+	for offsetStr, cfr := range in {
+		offset, err := strconv.ParseUint(offsetStr, 10, 16)
+		if err != nil {
+			return nil, fmt.Errorf("channelFunctions key %q is not a valid DMX offset: %w", offsetStr, err)
+		}
+		source := patch.ChannelFunctionSource(cfr.Source)
+		if source != patch.SourceGDTF && source != patch.SourceRDMInferred {
+			return nil, errBadChannelFunctionSource
+		}
+		sets := make([]patch.ChannelSet, 0, len(cfr.ChannelSets))
+		for _, cs := range cfr.ChannelSets {
+			sets = append(sets, patch.ChannelSet{
+				Name: cs.Name, DMXFrom: cs.DMXFrom, PhysicalFrom: cs.PhysicalFrom, PhysicalTo: cs.PhysicalTo,
+			})
+		}
+		out[uint16(offset)] = patch.ChannelFunction{
+			Source: source, Attribute: cfr.Attribute, FunctionName: cfr.FunctionName,
+			DMXFrom: cfr.DMXFrom, DMXTo: cfr.DMXTo, PhysicalFrom: cfr.PhysicalFrom, PhysicalTo: cfr.PhysicalTo,
+			ChannelSets: sets, RDMSlotType: cfr.RDMSlotType, RDMSlotLabel: cfr.RDMSlotLabel,
+		}
+	}
+	return out, nil
 }
 
 func (s *Server) handleCreatePatchEntry(w http.ResponseWriter, r *http.Request) {
@@ -114,9 +197,14 @@ func (s *Server) handleCreatePatchEntry(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	entry, err := entryFromRequest(patch.NewEntryID(), req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	s.PatchStore.EnsureActive()
 	updated, err := s.PatchStore.Mutate(func(pp *patch.Patch) error {
-		pp.Entries = append(pp.Entries, entryFromRequest(patch.NewEntryID(), req))
+		pp.Entries = append(pp.Entries, entry)
 		return nil
 	})
 	if err != nil {
@@ -133,13 +221,30 @@ func (s *Server) handleUpdatePatchEntry(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	entry, err := entryFromRequest(id, req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	updated, err := s.PatchStore.Mutate(func(pp *patch.Patch) error {
 		idx := pp.IndexOf(id)
 		if idx < 0 {
 			return fmt.Errorf("unknown patch entry %q", id)
 		}
 		confirmedUID, matchState := pp.Entries[idx].ConfirmedUID, pp.Entries[idx].MatchState
-		pp.Entries[idx] = entryFromRequest(id, req)
+		// A plain field edit (fixing a typo, adjusting Notes) submits an
+		// entryRequest with no channelFunctions at all — preserve whatever
+		// this entry already had rather than wiping out (possibly
+		// expensively resolved) GDTF/RDM-inferred data on an unrelated
+		// edit. An explicit re-import (single-GDTF apply, patchimport.go's
+		// merge path) always sends a non-empty channelFunctions and DOES
+		// mean to replace it — same "only an explicit action changes
+		// resolved state" rule ConfirmedUID/MatchState already follow
+		// below.
+		if len(req.ChannelFunctions) == 0 {
+			entry.ChannelFunctions = pp.Entries[idx].ChannelFunctions
+		}
+		pp.Entries[idx] = entry
 		// A plain field edit (fixing a typo, adjusting Notes) must not
 		// silently discard a confirmed RDM pairing — only an explicit
 		// reconcile confirm/reject/fix action changes ConfirmedUID/
@@ -156,12 +261,17 @@ func (s *Server) handleUpdatePatchEntry(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, toPatchResponse(updated))
 }
 
-func entryFromRequest(id string, req entryRequest) patch.Entry {
+func entryFromRequest(id string, req entryRequest) (patch.Entry, error) {
+	cf, err := channelFunctionsFromRequest(req.ChannelFunctions)
+	if err != nil {
+		return patch.Entry{}, err
+	}
 	return patch.Entry{
 		ID: id, Name: req.Name, FixtureType: req.FixtureType, Mode: req.Mode,
 		Footprint: req.Footprint, Universe: req.Universe, StartAddress: req.StartAddress,
 		Position: req.Position, FixtureNumber: req.FixtureNumber, Notes: req.Notes,
-	}
+		ChannelFunctions: cf,
+	}, nil
 }
 
 func (s *Server) handleDeletePatchEntry(w http.ResponseWriter, r *http.Request) {

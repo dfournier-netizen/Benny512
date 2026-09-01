@@ -84,6 +84,13 @@ const MvrImport = (() => {
       position: fixture.position,
       fixtureNumber: fixture.fixtureId,
       notes: noteParts.join('; '),
+      // No GDTF (or no matching mode) resolved for this fixture — an empty
+      // object, never omitted, so the server side's entryRequest always
+      // sees an explicit (if empty) channelFunctions and never has to
+      // guess whether "missing key" meant "this importer predates the
+      // field" versus "genuinely nothing resolved" (task 1's "absent"
+      // provenance case, made explicit rather than implied by omission).
+      channelFunctions: {},
     };
   }
 
@@ -153,17 +160,19 @@ const MvrImport = (() => {
       warnings.push(...(fixture.warnings || []));
 
       const mode = (gdtf.modes || []).find(m => m.name === fixture.gdtfMode);
-      let footprint, notes;
+      let footprint, notes, channelFunctions;
       const ownNotes = (fixture.warnings || []).slice();
       if (mode) {
         footprint = mode.footprint;
         notes = ownNotes.join('; ');
+        channelFunctions = mode.channelFunctions || {};
       } else {
         footprint = 0;
         const reason = `Fixture "${label}": DMX mode "${fixture.gdtfMode}" not found in GDTF file`;
         warnings.push(reason);
         ownNotes.push(reason);
         notes = ownNotes.join('; ');
+        channelFunctions = {};
       }
 
       entries.push({
@@ -176,6 +185,7 @@ const MvrImport = (() => {
         position: fixture.position,
         fixtureNumber: fixture.fixtureId,
         notes,
+        channelFunctions,
       });
     }
 

@@ -684,7 +684,47 @@ func buildDemoPatch(port1, port2 artnet.PortAddress) patch.Patch {
 	if err != nil {
 		practicalsUniverse = port1 // demo-only fallback; 5 is always a valid raw Port-Address
 	}
-	return patch.Patch{
+
+	// --- Task 5, function-aware Rig Check foundation: at least one demo
+	// entry of each provenance the taxonomy has to distinguish (task
+	// brief's hard constraint on decision 3 — GDTF-derived and RDM-inferred
+	// must never look alike, and this demo data is the easiest place for
+	// that to be checked by eye). Every other entry below is left with no
+	// ChannelFunctions at all (the third, "neither" case) — normalized to
+	// a non-nil empty map once installed via patch.Store, same as any
+	// hand-entered entry that's never touched a GDTF/RDM import.
+
+	// CF2 48 (GDTF-derived): a small, realistic slice of what
+	// gdtfparse.js's channelFunctions rule would resolve for a 4-channel
+	// Dimmer+RGB colour mode — Source==SourceGDTF throughout.
+	cf2Channels := map[uint16]patch.ChannelFunction{
+		1: {Source: patch.SourceGDTF, Attribute: "Dimmer", FunctionName: "Dimmer", DMXFrom: 0, DMXTo: 255, ChannelSets: make([]patch.ChannelSet, 0)},
+		2: {Source: patch.SourceGDTF, Attribute: "ColorAdd_R", FunctionName: "Red", DMXFrom: 0, DMXTo: 255, ChannelSets: make([]patch.ChannelSet, 0)},
+		3: {Source: patch.SourceGDTF, Attribute: "ColorAdd_G", FunctionName: "Green", DMXFrom: 0, DMXTo: 255, ChannelSets: make([]patch.ChannelSet, 0)},
+		4: {Source: patch.SourceGDTF, Attribute: "ColorAdd_B", FunctionName: "Blue", DMXFrom: 0, DMXTo: 255, ChannelSets: make([]patch.ChannelSet, 0)},
+	}
+
+	// Spot 1 (RDM-inferred): built the same way a real live SLOT_INFO GET
+	// would be — via web.BuildRDMInferredChannelFunctions, the exact
+	// function stage 2's UI-facing code path uses — so the demo rig is
+	// honest evidence this path produces Source==SourceRDMInferred, not a
+	// hand-typed shortcut that happens to look similar. 16-bit pan/tilt
+	// (coarse+fine) plus a rotating gobo wheel with its two secondary
+	// modifier slots, matching E1.20-2025 §10.6.4's own worked example
+	// (see internal/rdm/slotinfo_test.go's TestDecodeSlotInfo_MovingHeadExample).
+	spotSlots := []rdm.SlotInfoEntry{
+		{Offset: 1, Type: rdm.SlotTypePrimary, Value: uint16(rdm.SDPan)},
+		{Offset: 2, Type: rdm.SlotTypeSecondaryFine, Value: 1},
+		{Offset: 3, Type: rdm.SlotTypePrimary, Value: uint16(rdm.SDTilt)},
+		{Offset: 4, Type: rdm.SlotTypeSecondaryFine, Value: 3},
+		{Offset: 5, Type: rdm.SlotTypePrimary, Value: uint16(rdm.SDRotoGoboWheel)},
+		{Offset: 6, Type: rdm.SlotTypeSecondaryControl, Value: 5},
+		{Offset: 7, Type: rdm.SlotTypeSecondaryQuantumRotate, Value: 5},
+	}
+	spotDescriptions := map[uint16]string{5: "Gobo Wheel 1"} // this one slot's SLOT_DESCRIPTION was fetched; the rest fall back to their symbolic Slot Label ID name
+	spotChannels := web.BuildRDMInferredChannelFunctions(spotSlots, spotDescriptions)
+
+	p := patch.Patch{
 		Name: "Demo Show",
 		Entries: []patch.Entry{
 			entry("CF2 48", "Chroma-Q Color Force II 48", "US Truss 1", "101", port2, 1, 20),
@@ -695,6 +735,13 @@ func buildDemoPatch(port1, port2 artnet.PortAddress) patch.Patch {
 			entry("Practical 2", "Practical LED", "", "202", practicalsUniverse, 105, 10),
 		},
 	}
+	p.Entries[0].ChannelFunctions = cf2Channels  // CF2 48: GDTF-derived
+	p.Entries[2].ChannelFunctions = spotChannels // Spot 1: RDM-inferred
+	// Par 1, Missing Fixture, Practical 1/2: left with a nil
+	// ChannelFunctions (the "absent"/"neither" case) — normalized to a
+	// non-nil empty map once this Patch is installed via patch.Store,
+	// exactly like any hand-entered entry that's never seen an import.
+	return p
 }
 
 // buildDemoDevices returns the ten pre-scripted demoDevices. Each literal's

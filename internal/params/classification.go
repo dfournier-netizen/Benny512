@@ -125,6 +125,17 @@ var pidTiers = map[rdm.ParameterID]PIDTier{
 	rdm.PIDTiltInvert:  TierPromoted,
 	rdm.PIDPanTiltSwap: TierPromoted,
 
+	// SLOT_INFO/SLOT_DESCRIPTION (E1.20 §10.6.4/§10.6.5) — the function-
+	// aware Rig Check foundation's RDM-inference path (decision 3, task
+	// brief) for a fixture with no GDTF data: see internal/rdm/slotinfo.go
+	// and internal/web/patchattrs.go. Promoted rather than left to default
+	// to Standard because these are exactly the two PIDs that feed a
+	// dedicated structured surface (patch.ChannelFunction, Source==
+	// SourceRDMInferred), the same reasoning TierPromoted already applies
+	// to DMX_PERSONALITY/DMX_START_ADDRESS above.
+	rdm.PIDSlotInfo:        TierPromoted,
+	rdm.PIDSlotDescription: TierPromoted,
+
 	// Display settings.
 	rdm.PIDDisplayInvert: TierPromoted,
 	rdm.PIDDisplayLevel:  TierPromoted,

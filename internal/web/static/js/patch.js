@@ -562,6 +562,10 @@ const PatchScreen = (() => {
         name: e.name || '', fixtureType: e.fixtureType || '', mode: mode.name || '',
         footprint: mode.footprint || 0, universe: e.universe || 0, startAddress: e.startAddress || 1,
         position: e.position || '', fixtureNumber: e.fixtureNumber || '', notes: e.notes || '',
+        // Apply this GDTF mode's channel functions too — a re-import is
+        // exactly the case that SHOULD replace whatever channel-function
+        // data (if any) the entry had before, same as it replaces footprint.
+        channelFunctions: mode.channelFunctions || {},
       };
       try {
         patchData = await Api.updatePatchEntry(e.id, draft);

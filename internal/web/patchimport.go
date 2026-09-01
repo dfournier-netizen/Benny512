@@ -52,7 +52,12 @@ func (s *Server) handlePatchImport(w http.ResponseWriter, r *http.Request) {
 
 	converted := make([]patch.Entry, 0, len(req.Entries))
 	for _, er := range req.Entries {
-		converted = append(converted, entryFromRequest(patch.NewEntryID(), er))
+		entry, err := entryFromRequest(patch.NewEntryID(), er)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		converted = append(converted, entry)
 	}
 
 	if req.Mode == "fresh" {
@@ -76,6 +81,12 @@ func (s *Server) handlePatchImport(w http.ResponseWriter, r *http.Request) {
 			if found >= 0 {
 				// Descriptive fields only — ID, ConfirmedUID and MatchState
 				// are left exactly as they were (see doc comment above).
+				// ChannelFunctions IS overwritten here (unlike the plain
+				// hand-edit form's PUT, which preserves it — see
+				// handleUpdatePatchEntry's doc comment): a fresh MVR/GDTF
+				// import at the same address is exactly the case that
+				// SHOULD refresh resolved channel-function data, the same
+				// way it already refreshes Footprint.
 				pp.Entries[found].Name = ne.Name
 				pp.Entries[found].FixtureType = ne.FixtureType
 				pp.Entries[found].Mode = ne.Mode
@@ -83,6 +94,7 @@ func (s *Server) handlePatchImport(w http.ResponseWriter, r *http.Request) {
 				pp.Entries[found].Position = ne.Position
 				pp.Entries[found].FixtureNumber = ne.FixtureNumber
 				pp.Entries[found].Notes = ne.Notes
+				pp.Entries[found].ChannelFunctions = ne.ChannelFunctions
 				continue
 			}
 			pp.Entries = append(pp.Entries, ne)
