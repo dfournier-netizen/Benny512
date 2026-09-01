@@ -192,6 +192,231 @@ const RAYZOR_STANDARD_XML = gdtfDoc(
   `</DMXChannels></DMXMode>`
 );
 
+// ---- fixture 7: GLP JDC1 (real vendor file, GLPJDC1_Strobetest1.gdtf) —
+// the regression's actual trigger. Reproduces, at the SAME literal offsets
+// and SAME geometry shape as the real file (re-extracted description.xml
+// from the .gdtf, diffed structurally — see task report), the 6 declared
+// modes. Ground truth for each mode's footprint is the fixture's OWN
+// declared channel count in its mode name ("Mode 1 Compressed Pro (14ch)"
+// -> 14), independently corroborated for Mode 4 by the owner's fixture
+// manual and by real DMX addressing (back-to-back placement: next fixture
+// starts at 63, i.e. this one spans 62). This is an INDEPENDENT oracle from
+// the parser's own output, per this project's rule against fixtures built
+// on the code's own assumptions.
+//
+// The real file's geometry tree: Base Yoke M<n> -> Axis Head M<n> ->
+// <GeometryReference> children pointing at shared template geometries
+// ("Beam Module", "Plate Module", "Background Plate", "All White Pixel") —
+// NOT a replicated array (each ref targets a DIFFERENT template), just
+// ordinary composition-via-reference, reused across all 6 head variants.
+// Modes 3 and 4 additionally nest a genuine per-pixel array under Head M3/
+// M4 ("Single Back Plate M<n>" x12 refs -> "Plate Pixel", "Single White
+// Beam M<n>" x12 refs -> "Beam Pixel") — reduced to 2 refs each here
+// (first/last real Break DMXOffset, same convention as the Rayzor fixture
+// above), since footprint only depends on the max resolved offset.
+//
+// This is exactly the shape that exposed the regression: Head M1/M2/M5/M6
+// have real literal channels of their own AND every child is a
+// <GeometryReference> — the OLD "pure array container" guard blocked them
+// (wrongly, since the references target different geometries, not one
+// replicated template), dropping Beam Module/Plate Module/Background
+// Plate/All White Pixel's real channels entirely. ----
+
+const JDC1_REAL_GEOMETRIES = (
+  `<Geometry Name="Base Yoke M1"><Axis Name="Head M1">` +
+  geometryReference('Beam Module M1', 'Beam Module', 1) +
+  geometryReference('Plate Module M1', 'Plate Module', 1) +
+  `</Axis></Geometry>` +
+  `<Geometry Name="Base Yoke M2"><Axis Name="Head M2">` +
+  geometryReference('Beam Module M2', 'Beam Module', 1) +
+  geometryReference('Plate Module M2', 'Plate Module', 1) +
+  geometryReference('Background Plate M2', 'Background Plate', 1) +
+  `</Axis></Geometry>` +
+  `<Geometry Name="Base Yoke M3"><Axis Name="Head M3">` +
+  geometryReference('Beam Module M3', 'Beam Module', 1) +
+  geometryReference('Plate Module M3', 'Plate Module', 1) +
+  `<Geometry Name="Single Back Plate M3">` +
+  geometryReference('M3 Single Plate 1', 'Plate Pixel', 1) +
+  geometryReference('M3 Single Plate 12', 'Plate Pixel', 34) +
+  `</Geometry>` +
+  `<Geometry Name="Single White Beam M3">` +
+  geometryReference('M3 Single Beam 1', 'Beam Pixel', 1) +
+  geometryReference('M3 Single Beam 12', 'Beam Pixel', 12) +
+  `</Geometry>` +
+  `</Axis></Geometry>` +
+  `<Geometry Name="Base Yoke M4"><Axis Name="Head M4">` +
+  geometryReference('Beam Module M4', 'Beam Module', 1) +
+  geometryReference('Plate Module M4', 'Plate Module', 1) +
+  `<Geometry Name="Single Back Plate M4">` +
+  geometryReference('M4 Single Plate 1', 'Plate Pixel', 1) +
+  geometryReference('M4 Single Plate 12', 'Plate Pixel', 34) +
+  `</Geometry>` +
+  `<Geometry Name="Single White Beam M4">` +
+  geometryReference('M4 Single Beam 1', 'Beam Pixel', 1) +
+  geometryReference('M4 Single Beam 12', 'Beam Pixel', 12) +
+  `</Geometry>` +
+  `</Axis></Geometry>` +
+  `<Geometry Name="Base Yoke M5"><Axis Name="Head M5">` +
+  geometryReference('Beam Module M5', 'Beam Module', 1) +
+  geometryReference('Plate Module M5', 'Plate Module', 1) +
+  geometryReference('Background Plate M5', 'Background Plate', 1) +
+  `</Axis></Geometry>` +
+  `<Geometry Name="Base Yoke M6"><Axis Name="Head M6">` +
+  geometryReference('Beam Module M6', 'Beam Module', 1) +
+  geometryReference('Plate Module M6', 'Plate Module', 1) +
+  geometryReference('All Pixel White', 'All White Pixel', 1) +
+  `</Axis></Geometry>` +
+  `<Beam Name="Beam Module"/><Beam Name="Plate Module"/>` +
+  `<Beam Name="Background Plate"/><Beam Name="Plate Pixel"/>` +
+  `<Beam Name="Beam Pixel"/><Beam Name="All White Pixel"/>`
+);
+
+function jdc1Mode1Channels() {
+  return (
+    dmxChannel('Head M1', '1,2', 'Tilt') +
+    dmxChannel('Beam Module', 3, 'Dimmer') +
+    dmxChannel('Beam Module', 4, 'StrobeDuration') +
+    dmxChannel('Beam Module', 5, 'StrobeRate') +
+    dmxChannel('Beam Module', 6, 'StrobeModeStrobe') +
+    dmxChannel('Head M1', 7, 'Control1') +
+    dmxChannel('Plate Module', 8, 'Dimmer') +
+    dmxChannel('Plate Module', 9, 'StrobeDuration') +
+    dmxChannel('Plate Module', 10, 'StrobeRate') +
+    dmxChannel('Plate Module', 11, 'StrobeModeStrobe') +
+    dmxChannel('Plate Module', 12, 'ColorAdd_R') +
+    dmxChannel('Plate Module', 13, 'ColorAdd_G') +
+    dmxChannel('Plate Module', 14, 'ColorAdd_B')
+  );
+}
+
+function jdc1Mode2Channels() {
+  return (
+    dmxChannel('Head M2', '1,2', 'Tilt') +
+    dmxChannel('Beam Module', 3, 'Dimmer') +
+    dmxChannel('Beam Module', 4, 'StrobeDuration') +
+    dmxChannel('Beam Module', 5, 'StrobeRate') +
+    dmxChannel('Beam Module', 6, 'StrobeModeStrobe') +
+    dmxChannel('Head M2', 7, 'Control1') +
+    dmxChannel('Plate Module', 8, 'Dimmer') +
+    dmxChannel('Plate Module', 9, 'StrobeDuration') +
+    dmxChannel('Plate Module', 10, 'StrobeRate') +
+    dmxChannel('Plate Module', 11, 'StrobeModeStrobe') +
+    dmxChannel('Plate Module', 12, 'ColorAdd_R') +
+    dmxChannel('Plate Module', 13, 'ColorAdd_G') +
+    dmxChannel('Plate Module', 14, 'ColorAdd_B') +
+    dmxChannel('Head M2', 15, 'Pattern Crossfade') +
+    dmxChannel('Plate Module', 16, 'Pattern Step / Speed') +
+    dmxChannel('Plate Module', 17, 'Pattern Selection') +
+    dmxChannel('Beam Module', 18, 'Pattern Step / Speed') +
+    dmxChannel('Beam Module', 19, 'Pattern Selection') +
+    dmxChannel('Background Plate', 20, 'Dimmer') +
+    dmxChannel('Background Plate', 21, 'ColorAdd_R') +
+    dmxChannel('Background Plate', 22, 'ColorAdd_G') +
+    dmxChannel('Background Plate', 23, 'ColorAdd_B')
+  );
+}
+
+function jdc1Mode3Channels() {
+  return (
+    dmxChannel('Plate Pixel', null, 'Dimmer') +
+    dmxChannel('Head M3', '1,2', 'Tilt') +
+    dmxChannel('Beam Module', 3, 'Dimmer') +
+    dmxChannel('Beam Module', 4, 'StrobeDuration') +
+    dmxChannel('Beam Module', 5, 'StrobeRate') +
+    dmxChannel('Beam Module', 6, 'StrobeModeStrobe') +
+    dmxChannel('Head M3', 7, 'Control1') +
+    dmxChannel('Plate Module', 8, 'Dimmer') +
+    dmxChannel('Plate Module', 9, 'StrobeDuration') +
+    dmxChannel('Plate Module', 10, 'StrobeRate') +
+    dmxChannel('Plate Module', 11, 'StrobeModeStrobe') +
+    dmxChannel('Plate Module', 12, 'ColorAdd_R') +
+    dmxChannel('Plate Module', 13, 'ColorAdd_G') +
+    dmxChannel('Plate Module', 14, 'ColorAdd_B') +
+    dmxChannel('Head M3', 15, 'Pattern Crossfade') +
+    dmxChannel('Plate Module', 16, 'Pattern Step / Speed') +
+    dmxChannel('Plate Module', 17, 'Pattern Selection') +
+    dmxChannel('Beam Module', 18, 'Pattern Step / Speed') +
+    dmxChannel('Beam Module', 19, 'Pattern Selection') +
+    dmxChannel('Single Back Plate M3', 20, 'Dimmer') +
+    dmxChannel('Plate Pixel', 21, 'ColorAdd_R') +
+    dmxChannel('Plate Pixel', 22, 'ColorAdd_G') +
+    dmxChannel('Plate Pixel', 23, 'ColorAdd_B') +
+    dmxChannel('Beam Pixel', 57, 'Dimmer')
+  );
+}
+
+function jdc1Mode4Channels() {
+  return (
+    dmxChannel('Plate Pixel', null, 'Dimmer') +
+    dmxChannel('Head M4', '1,2', 'Tilt') +
+    dmxChannel('Beam Module', 3, 'Dimmer') +
+    dmxChannel('Beam Module', 4, 'StrobeDuration') +
+    dmxChannel('Beam Module', 5, 'StrobeRate') +
+    dmxChannel('Beam Module', 6, 'StrobeModeStrobe') +
+    dmxChannel('Head M4', 7, 'Control1') +
+    dmxChannel('Plate Module', 8, 'Dimmer') +
+    dmxChannel('Plate Module', 9, 'StrobeDuration') +
+    dmxChannel('Plate Module', 10, 'StrobeRate') +
+    dmxChannel('Plate Module', 11, 'StrobeModeStrobe') +
+    dmxChannel('Plate Module', 12, 'ColorAdd_R') +
+    dmxChannel('Plate Module', 13, 'ColorAdd_G') +
+    dmxChannel('Plate Module', 14, 'ColorAdd_B') +
+    dmxChannel('Plate Pixel', 15, 'ColorAdd_R') +
+    dmxChannel('Plate Pixel', 16, 'ColorAdd_G') +
+    dmxChannel('Plate Pixel', 17, 'ColorAdd_B') +
+    dmxChannel('Beam Pixel', 51, 'Dimmer')
+  );
+}
+
+function jdc1Mode5Channels() {
+  return (
+    dmxChannel('Background Plate', null, 'Dimmer') +
+    dmxChannel('Head M5', '1,2', 'Tilt') +
+    dmxChannel('Beam Module', 3, 'Dimmer') +
+    dmxChannel('Beam Module', 4, 'StrobeDuration') +
+    dmxChannel('Beam Module', 5, 'StrobeRate') +
+    dmxChannel('Beam Module', 6, 'StrobeModeStrobe') +
+    dmxChannel('Head M5', 7, 'Control1') +
+    dmxChannel('Plate Module', 8, 'Dimmer') +
+    dmxChannel('Plate Module', 9, 'StrobeDuration') +
+    dmxChannel('Plate Module', 10, 'StrobeRate') +
+    dmxChannel('Plate Module', 11, 'StrobeModeStrobe') +
+    dmxChannel('Plate Module', 12, 'ColorAdd_R') +
+    dmxChannel('Plate Module', 13, 'ColorAdd_G') +
+    dmxChannel('Plate Module', 14, 'ColorAdd_B') +
+    dmxChannel('Background Plate', 15, 'ColorAdd_R') +
+    dmxChannel('Background Plate', 16, 'ColorAdd_G') +
+    dmxChannel('Background Plate', 17, 'ColorAdd_B')
+  );
+}
+
+function jdc1Mode6Channels() {
+  return (
+    dmxChannel('Head M6', '1,2', 'Tilt') +
+    dmxChannel('Head M6', 3, 'Dimmer') +
+    dmxChannel('Head M6', 4, 'StrobeDuration') +
+    dmxChannel('Head M6', 5, 'StrobeRate') +
+    dmxChannel('Head M6', 6, 'StrobeModeStrobe') +
+    dmxChannel('Head M6', 7, 'Control1') +
+    dmxChannel('Plate Module', 8, 'ColorAdd_R') +
+    dmxChannel('Plate Module', 9, 'ColorAdd_G') +
+    dmxChannel('Plate Module', 10, 'ColorAdd_B') +
+    dmxChannel('Plate Module', null, 'Dimmer') +
+    dmxChannel('All White Pixel', 11, 'Dimmer')
+  );
+}
+
+const JDC1_REAL_XML = gdtfDoc(
+  'GLP', 'JDC1',
+  JDC1_REAL_GEOMETRIES,
+  `<DMXMode Name="Mode 1 Compressed Pro (14ch)" Geometry="Base Yoke M1"><DMXChannels>${jdc1Mode1Channels()}</DMXChannels></DMXMode>` +
+  `<DMXMode Name="Mode 2 Normal (23ch)" Geometry="Base Yoke M2"><DMXChannels>${jdc1Mode2Channels()}</DMXChannels></DMXMode>` +
+  `<DMXMode Name="Mode 3 SPix (68ch)" Geometry="Base Yoke M3"><DMXChannels>${jdc1Mode3Channels()}</DMXChannels></DMXMode>` +
+  `<DMXMode Name="Mode 4 SPix PRO (62ch)" Geometry="Base Yoke M4"><DMXChannels>${jdc1Mode4Channels()}</DMXChannels></DMXMode>` +
+  `<DMXMode Name="Mode 5 1Pix Pro (17ch)" Geometry="Base Yoke M5"><DMXChannels>${jdc1Mode5Channels()}</DMXChannels></DMXMode>` +
+  `<DMXMode Name="Mode 6 Easy (11ch)" Geometry="Base Yoke M6"><DMXChannels>${jdc1Mode6Channels()}</DMXChannels></DMXMode>`
+);
+
 // ---- run ---------------------------------------------------------------
 
 function main() {
@@ -260,6 +485,52 @@ function main() {
     rayzorStandard.channelFunctions[24] && rayzorStandard.channelFunctions[24].attribute, 'Shutter1');
   check('Rayzor Standard offset 25 attribute (resolved SparkLED Mod Dimmer)',
     rayzorStandard.channelFunctions[25] && rayzorStandard.channelFunctions[25].attribute, 'Dimmer');
+
+  // ---- GLP JDC1 (real vendor file) — the actual regression trigger. Each
+  // mode name declares its own channel count as an independent oracle; Mode
+  // 4 is separately corroborated by the fixture manual and real addressing
+  // (see fixture 7's doc comment above). ----
+  const jdc1Modes = GdtfParse.parseDescriptionXml(JDC1_REAL_XML).modes;
+  function jdc1Mode(name) {
+    const mode = jdc1Modes.find(m => m.name === name);
+    if (!mode) throw new Error(`mode "${name}" not found`);
+    return mode;
+  }
+  check('JDC1 "Mode 1 Compressed Pro (14ch)" footprint', jdc1Mode('Mode 1 Compressed Pro (14ch)').footprint, 14);
+  check('JDC1 "Mode 2 Normal (23ch)" footprint', jdc1Mode('Mode 2 Normal (23ch)').footprint, 23);
+  check('JDC1 "Mode 3 SPix (68ch)" footprint', jdc1Mode('Mode 3 SPix (68ch)').footprint, 68);
+  check('JDC1 "Mode 4 SPix PRO (62ch)" footprint', jdc1Mode('Mode 4 SPix PRO (62ch)').footprint, 62);
+  check('JDC1 "Mode 5 1Pix Pro (17ch)" footprint', jdc1Mode('Mode 5 1Pix Pro (17ch)').footprint, 17);
+  check('JDC1 "Mode 6 Easy (11ch)" footprint', jdc1Mode('Mode 6 Easy (11ch)').footprint, 11);
+
+  // channelFunctions spot-check: a PLAIN mode (Mode 2 — composition via
+  // <GeometryReference> to distinct shared templates, no replication) and a
+  // REPLICATED mode (Mode 4 — genuine per-pixel array expansion), per the
+  // task brief's requirement to verify the resolved per-offset attribute
+  // map, not just the footprint number.
+  const jdc1Mode2 = jdc1Mode('Mode 2 Normal (23ch)');
+  check('JDC1 Mode 2 offset 1 attribute (Head M2 Tilt, reached directly)',
+    jdc1Mode2.channelFunctions[1] && jdc1Mode2.channelFunctions[1].attribute, 'Tilt');
+  check('JDC1 Mode 2 offset 3 attribute (Beam Module Dimmer, reached via reference)',
+    jdc1Mode2.channelFunctions[3] && jdc1Mode2.channelFunctions[3].attribute, 'Dimmer');
+  check('JDC1 Mode 2 offset 14 attribute (Plate Module ColorAdd_B, reached via reference)',
+    jdc1Mode2.channelFunctions[14] && jdc1Mode2.channelFunctions[14].attribute, 'ColorAdd_B');
+  check('JDC1 Mode 2 offset 20 attribute (Background Plate Dimmer, reached via reference)',
+    jdc1Mode2.channelFunctions[20] && jdc1Mode2.channelFunctions[20].attribute, 'Dimmer');
+  check('JDC1 Mode 2 offset 23 attribute (Background Plate ColorAdd_B, reached via reference)',
+    jdc1Mode2.channelFunctions[23] && jdc1Mode2.channelFunctions[23].attribute, 'ColorAdd_B');
+
+  const jdc1Mode4 = jdc1Mode('Mode 4 SPix PRO (62ch)');
+  check('JDC1 Mode 4 offset 3 attribute (Beam Module Dimmer, reached via reference)',
+    jdc1Mode4.channelFunctions[3] && jdc1Mode4.channelFunctions[3].attribute, 'Dimmer');
+  check('JDC1 Mode 4 offset 15 attribute (Plate Pixel instance 1 ColorAdd_R, array-expanded)',
+    jdc1Mode4.channelFunctions[15] && jdc1Mode4.channelFunctions[15].attribute, 'ColorAdd_R');
+  check('JDC1 Mode 4 offset 48 attribute (Plate Pixel instance 12 ColorAdd_R, array-expanded)',
+    jdc1Mode4.channelFunctions[48] && jdc1Mode4.channelFunctions[48].attribute, 'ColorAdd_R');
+  check('JDC1 Mode 4 offset 51 attribute (Beam Pixel instance 1 Dimmer, array-expanded)',
+    jdc1Mode4.channelFunctions[51] && jdc1Mode4.channelFunctions[51].attribute, 'Dimmer');
+  check('JDC1 Mode 4 offset 62 attribute (Beam Pixel instance 12 Dimmer, array-expanded — the mode footprint)',
+    jdc1Mode4.channelFunctions[62] && jdc1Mode4.channelFunctions[62].attribute, 'Dimmer');
 
   if (failures > 0) {
     console.error(`\n${failures} check(s) failed.`);

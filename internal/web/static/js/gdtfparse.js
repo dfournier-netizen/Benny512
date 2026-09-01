@@ -367,15 +367,44 @@ const GdtfParse = (() => {
       const contributedReal = name ? contribute(name, offsetBase) : false;
 
       // pure-array-container guard: only engages when this node itself has
-      // real channels of its own AND every child is a <GeometryReference> —
-      // see the doc comment above resolveGeometryChannels for the real-file
+      // real channels of its own AND every child is a <GeometryReference>
+      // AND (regression fix — see doc comment history) there is more than
+      // one such reference and they all target the SAME geometry name — see
+      // the doc comment above resolveGeometryChannels for the real-file
       // case this fixes and why the check is this specific.
+      //
+      // Why the same-target/count check was added: "every child is a
+      // <GeometryReference>" alone is NOT enough to mean "this is a
+      // replicated array". GLP JDC1's own vendor file (Mode 1/2/5/6 —
+      // ground truth from the fixture's declared channel counts) composes
+      // its head geometry ("Head M1" etc.) purely out of <GeometryReference>
+      // children too, but each one targets a DIFFERENT shared template
+      // ("Beam Module", "Plate Module", "Background Plate" — reused across
+      // the fixture's 6 head variants rather than being duplicated). That's
+      // plain tree composition via indirection, not per-instance
+      // replication, and blocking it dropped those templates' real literal
+      // channels entirely (Mode 1 collapsed from 14ch to 7ch, Mode 2 from
+      // 23ch to 15ch, etc. — this was the regression). A genuine replicated
+      // array (Rayzor's 76 "Spark LED Strobe Module" refs, JDC1's own 12
+      // "Single Back Plate"/"Single White Beam" pixel refs) always has
+      // multiple references to the *same* target name — that's the actual,
+      // structural signal for "array", not merely "all children are
+      // references".
       let blockReferenceChildren = false;
       if (contributedReal && el.children.length > 0) {
         blockReferenceChildren = true;
+        let sameTargetCount = 0;
+        let firstTarget = null;
         for (let i = 0; i < el.children.length; i++) {
-          const t = el.children[i].tagName || el.children[i].localName;
+          const childEl = el.children[i];
+          const t = childEl.tagName || childEl.localName;
           if (t !== GEOMETRY_REFERENCE_TAG) { blockReferenceChildren = false; break; }
+          const tgt = childEl.getAttribute('Geometry') || '';
+          if (firstTarget === null) firstTarget = tgt;
+          if (tgt === firstTarget) sameTargetCount++;
+        }
+        if (blockReferenceChildren && (sameTargetCount !== el.children.length || el.children.length < 2)) {
+          blockReferenceChildren = false;
         }
         if (blockReferenceChildren) {
           warnings.push(
@@ -462,6 +491,24 @@ const GdtfParse = (() => {
 
     let footprint = 0;
     placements.forEach(p => { if (p.offset > footprint) footprint = p.offset; });
+
+    // INVARIANT (regression backstop — see this file's top doc comment and
+    // the task report this was written against): geometry resolution may
+    // only ever ADD to the footprint, never remove from it. A literal
+    // <DMXChannel Offset="N"> in the mode's own list is a stated fact from
+    // the file — the fixture unambiguously uses DMX byte N in this mode —
+    // and no amount of tree-walking (a walk that fails to reach a channel's
+    // declared Geometry name, a guard that wrongly blocks a reference, a
+    // future bug of the same shape) may cause the resolved footprint to
+    // fall below it. This is a floor, not a substitute for a correct walk:
+    // it protects the footprint NUMBER, but a walk that drops channels
+    // still corrupts channelFunctions (Rig Check's per-offset attribute
+    // map) for the dropped channels even while this floor keeps the
+    // overall footprint looking right — see resolveGeometryChannels' doc
+    // comment for the actual walk fix this regression needed.
+    let maxLiteralOffset = 0;
+    channels.forEach(ch => { ch.offsets.forEach(off => { if (off > maxLiteralOffset) maxLiteralOffset = off; }); });
+    if (maxLiteralOffset > footprint) footprint = maxLiteralOffset;
 
     // channelFunctions: keyed by RESOLVED offset (matches
     // patch.Entry.ChannelFunctions 1:1 — see the file doc comment's
