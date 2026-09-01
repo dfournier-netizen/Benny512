@@ -169,6 +169,11 @@ func (s *ArtNetSession) SetPortAddressesAndNames(ctx context.Context, key NodeKe
 		Command:         update.Command,
 		ShortName:       shortName,
 		LongName:        longName,
+		// AcnPriority (wire offset 105) is sACN priority, not a spare byte
+		// — leaving this at Go's zero value (0) would ask a real node to
+		// reprogram its sACN priority to 0 on every call. 255 means "no
+		// change" per the Art-Net 4 spec.
+		AcnPriority: artnet.AcnPriorityNoChange,
 	}
 	for i := 0; i < 4; i++ {
 		p.SwIn[i] = switchEntryFor(update.SwIn[i])
@@ -190,6 +195,7 @@ func (s *ArtNetSession) SetNodeNames(ctx context.Context, key NodeKey, shortName
 		ShortName:       shortName,
 		LongName:        longName,
 		Command:         artnet.AcNone,
+		AcnPriority:     artnet.AcnPriorityNoChange,
 	}
 	for i := range p.SwIn {
 		p.SwIn[i] = artnet.NoChangeSwitch
@@ -214,23 +220,28 @@ func (s *ArtNetSession) SetInputEnabled(ctx context.Context, key NodeKey, enable
 }
 
 // ProgramIP issues ArtIpProg to remotely reconfigure a node's IPv4 address,
-// subnet mask, and DHCP mode, and waits for its ArtIpProgReply (which,
-// like ArtPollReply, is treated as confirmation via the same waiter
-// mechanism — a node is expected to also emit a fresh ArtPollReply after
-// an IP change since its address just moved).
+// subnet mask, default gateway, and DHCP mode, and waits for its
+// ArtIpProgReply (which, like ArtPollReply, is treated as confirmation via
+// the same waiter mechanism — a node is expected to also emit a fresh
+// ArtPollReply after an IP change since its address just moved).
 //
-// gateway is accepted for API-shape parity with the task's asked-for
-// signature, but internal/artnet's ArtIpProg (this session's best reading
-// of the packet, UNVERIFIED against a primary source) has no default-
-// gateway field — most real nodes expose gateway only via their own web
-// UI, or (for RDM-capable network devices) via E1.37-2's
-// IPV4_DEFAULT_ROUTE PID (see package rdm's PIDIPv4DefaultRoute and
-// package params' generic Get/Set path). When gateway is a valid address,
-// ProgramIP still performs the IP/mask/DHCP change but returns
-// Warning set to explain the gateway was not sent.
+// Command-bit construction here was the site of a real bench-confirmed bug
+// (RDM-LOG19, 2026-09-01): the previous artnet.IpProgProgramIP/
+// IpProgSetDefault constants were on the wrong bits (a spec-transcription
+// error, not a bug in this function), so every call here built a Command
+// byte that told a real Netron EN4 to "program subnet mask + program UDP
+// port to 0" while never actually asking it to change its IP. That is now
+// fixed at the constant definitions (internal/artnet/nodeconfig.go) — this
+// function's logic (set the bit, fill the field, only for values the caller
+// actually supplied) was already correct and needed no change beyond adding
+// gateway support below.
+//
+// Never programs the deprecated UDP-port field (bit 0) — this build does
+// not offer port programming at all, per the Art-Net 4 spec marking it
+// deprecated.
 func (s *ArtNetSession) ProgramIP(ctx context.Context, key NodeKey, ip, mask, gateway netip.Addr, dhcp bool) (ConfigResult, error) {
 	cmd := artnet.IpProgEnable
-	var progIP, progSM [4]byte
+	var progIP, progSM, progGW [4]byte
 	if dhcp {
 		cmd |= artnet.IpProgEnableDHCP
 	} else {
@@ -242,12 +253,15 @@ func (s *ArtNetSession) ProgramIP(ctx context.Context, key NodeKey, ip, mask, ga
 			progSM = mask.As4()
 			cmd |= artnet.IpProgProgramSubnetMask
 		}
+		if gateway.Is4() {
+			progGW = gateway.As4()
+			cmd |= artnet.IpProgProgramGateway
+		}
 	}
-	p := artnet.IpProg{ProtocolVersion: s.cfg.ProtocolVersion, Command: cmd, ProgIP: progIP, ProgSubnetMask: progSM}
+	p := artnet.IpProg{
+		ProtocolVersion: s.cfg.ProtocolVersion, Command: cmd,
+		ProgIP: progIP, ProgSubnetMask: progSM, ProgGateway: progGW,
+	}
 	wire := artnet.Encode(artnet.Packet{Kind: artnet.KindIpProg, IpProg: p})
-	res, err := s.sendAndAwaitConfirm(ctx, key, wire, 0)
-	if err == nil && gateway.IsValid() {
-		res.Warning = "gateway was not sent: ArtIpProg has no gateway field in this build's wire-format reading; configure gateway via the node's own web UI, or via E1.37-2 IPV4_DEFAULT_ROUTE for RDM-capable devices"
-	}
-	return res, err
+	return s.sendAndAwaitConfirm(ctx, key, wire, 0)
 }

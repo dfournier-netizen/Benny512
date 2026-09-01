@@ -1057,6 +1057,17 @@ func installDemoResponder(tport *session.FakeTransport, ctrl *session.RDMControl
 	}
 }
 
+// demoIpProgCurrentSubnet/demoIpProgCurrentGateway are the simulated demo
+// nodes' unprogrammed subnet mask and gateway — the gateway value matches
+// RDM-LOG19's real captured ArtIpProgReply trailing bytes
+// (`...19360000a9fe6b010000` decodes to gateway 169.254.107.1, a link-local
+// address a node with no gateway configured reports) so --demo mode
+// reproduces the exact bench evidence this fix was verified against.
+var (
+	demoIpProgCurrentSubnet  = [4]byte{255, 255, 0, 0}
+	demoIpProgCurrentGateway = [4]byte{169, 254, 107, 1}
+)
+
 // installDemoNodeConfigResponder makes the two demo nodes "answer" ArtAddress/
 // ArtInput/ArtIpProg the way a real node would (a follow-up ArtPollReply, or
 // ArtIpProgReply for IP changes), so /api/node/{ip}/address, /input and
@@ -1102,7 +1113,30 @@ func installDemoNodeConfigResponder(tport *session.FakeTransport, nodes *session
 				return
 			}
 			p := sp.Packet.IpProg
-			reply := artnet.IpProgReply{CurrentIP: p.ProgIP, CurrentSubnet: p.ProgSubnetMask, CurrentPort: session.ArtNetUDPPort}
+			// Gate each field on its own Command bit, the way a real node
+			// does — echoing back whatever bytes were in the request
+			// regardless of the bits would make this simulator pass a
+			// request built with the wrong bits (exactly RDM-LOG19's bug:
+			// Command=0x83, ProgIP set but its bit never on) instead of
+			// reproducing the real node's "current IP unchanged" reply.
+			// That is precisely the failure mode a golden fixture/demo
+			// built from the same assumption as the encoder would hide —
+			// see internal/artnet/nodeconfig.go's file doc comment.
+			reply := artnet.IpProgReply{
+				CurrentIP:      ip.As4(),
+				CurrentSubnet:  demoIpProgCurrentSubnet,
+				CurrentPort:    session.ArtNetUDPPort,
+				CurrentGateway: demoIpProgCurrentGateway,
+			}
+			if p.Command&artnet.IpProgProgramIP != 0 {
+				reply.CurrentIP = p.ProgIP
+			}
+			if p.Command&artnet.IpProgProgramSubnetMask != 0 {
+				reply.CurrentSubnet = p.ProgSubnetMask
+			}
+			if p.Command&artnet.IpProgProgramGateway != 0 {
+				reply.CurrentGateway = p.ProgGateway
+			}
 			if p.Command&artnet.IpProgEnableDHCP != 0 {
 				reply.Status = artnet.IpProgReplyDHCPEnabled
 			}

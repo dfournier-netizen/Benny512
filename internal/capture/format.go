@@ -156,13 +156,13 @@ func writeNodeConfigDetailText(b *strings.Builder, d *NodeConfigDetail) {
 		fmt.Fprintf(b, "  ArtInput  bindIndex=%d\n", d.BindIndex)
 		fmt.Fprintf(b, "  input=%s  disabled=%v\n", hexBytesLabel(d.InputRaw[:]), d.InputDisabled)
 	case "IpProg":
-		fmt.Fprintf(b, "  ArtIpProg  command=0x%02X (enable=%s enableDHCP=%s setDefault=%s programSubnetMask=%s programIP=%s)\n",
+		fmt.Fprintf(b, "  ArtIpProg  command=0x%02X (enable=%s enableDHCP=%s setDefault=%s programGateway=%s programSubnetMask=%s programIP=%s)\n",
 			d.IpProgCommandRaw, boolLabel(d.Enable), boolLabel(d.EnableDHCP), boolLabel(d.SetDefault),
-			boolLabel(d.ProgramSubnetMask), boolLabel(d.ProgramIP))
-		fmt.Fprintf(b, "  progIP=%s  progSubnetMask=%s  progPort=%d\n", d.ProgIP, d.ProgSubnetMask, d.ProgPort)
+			boolLabel(d.ProgramGateway), boolLabel(d.ProgramSubnetMask), boolLabel(d.ProgramIP))
+		fmt.Fprintf(b, "  progIP=%s  progSubnetMask=%s  progGateway=%s\n", d.ProgIP, d.ProgSubnetMask, d.ProgGateway)
 	case "IpProgReply":
 		fmt.Fprintf(b, "  ArtIpProgReply  status=0x%02X (dhcpEnabled=%s)\n", d.StatusRaw, boolLabel(d.DHCPEnabled))
-		fmt.Fprintf(b, "  currentIP=%s  currentSubnet=%s  currentPort=%d\n", d.CurrentIP, d.CurrentSubnet, d.ProgPort)
+		fmt.Fprintf(b, "  currentIP=%s  currentSubnet=%s  currentGateway=%s  currentPort=%d\n", d.CurrentIP, d.CurrentSubnet, d.CurrentGateway, d.CurrentPort)
 	default:
 		fmt.Fprintf(b, "  unrecognized NodeConfig SubKind %q\n", d.SubKind)
 	}

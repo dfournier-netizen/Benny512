@@ -257,8 +257,13 @@ func TestDecodeEntry_IpProgDetail(t *testing.T) {
 	if d == nil {
 		t.Fatal("NodeConfig detail is nil")
 	}
-	if !d.Enable || !d.ProgramIP || !d.ProgramSubnetMask || d.EnableDHCP || d.SetDefault {
+	if !d.Enable || !d.ProgramIP || !d.ProgramSubnetMask || d.EnableDHCP || d.SetDefault || d.ProgramGateway {
 		t.Errorf("decoded command bits = %+v, want enable/programIP/programSubnetMask true, rest false", d)
+	}
+	// Byte-exact: the RDM-LOG19 bug byte (0x83) must never be what this
+	// packet's Command encodes to for a program-IP-and-mask request.
+	if d.IpProgCommandRaw != 0x86 {
+		t.Errorf("IpProgCommandRaw = 0x%02X, want 0x86 (0x80 enable | 0x04 program-IP | 0x02 program-mask)", d.IpProgCommandRaw)
 	}
 	if d.ProgIP != "10.10.10.5" {
 		t.Errorf("ProgIP = %q, want 10.10.10.5", d.ProgIP)
@@ -277,6 +282,7 @@ func TestDecodeEntry_IpProgReplyDetail(t *testing.T) {
 	p := artnet.IpProgReply{
 		CurrentIP: [4]byte{10, 10, 10, 5}, CurrentSubnet: [4]byte{255, 255, 255, 0},
 		CurrentPort: 6454, Status: artnet.IpProgReplyDHCPEnabled,
+		CurrentGateway: [4]byte{10, 10, 10, 1},
 	}
 	raw := artnet.Encode(artnet.Packet{Kind: artnet.KindIpProgReply, IpProgReply: p})
 	e := DecodeEntry(DirIn, testPeer, raw)
@@ -292,6 +298,9 @@ func TestDecodeEntry_IpProgReplyDetail(t *testing.T) {
 	}
 	if d.CurrentIP != "10.10.10.5" || d.CurrentSubnet != "255.255.255.0" {
 		t.Errorf("CurrentIP/CurrentSubnet = %q/%q, want 10.10.10.5/255.255.255.0", d.CurrentIP, d.CurrentSubnet)
+	}
+	if d.CurrentGateway != "10.10.10.1" {
+		t.Errorf("CurrentGateway = %q, want 10.10.10.1", d.CurrentGateway)
 	}
 }
 

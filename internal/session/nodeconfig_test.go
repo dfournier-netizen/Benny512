@@ -214,7 +214,12 @@ func TestSetInputEnabled(t *testing.T) {
 	}
 }
 
-func TestProgramIPStaticAddressAndGatewayWarning(t *testing.T) {
+// TestProgramIPStaticAddressAndGateway replaces the previous
+// "...AndGatewayWarning" test — ProgramIP no longer returns a "gateway not
+// sent" warning; the Art-Net 4 spec confirms ArtIpProg has bit 4
+// ("Program default gateway") and a dedicated ProgGateway field, so a real
+// gateway address supplied here is now actually sent on the wire.
+func TestProgramIPStaticAddressAndGateway(t *testing.T) {
 	s, _, tr := newSession(t, ArtNetConfig{})
 	key := seedNode(t, s, "10.0.0.24")
 	tr.OnSend = func(sp SentPacket) {
@@ -235,8 +240,8 @@ func TestProgramIPStaticAddressAndGatewayWarning(t *testing.T) {
 	if !res.Confirmed {
 		t.Fatal("expected Confirmed true")
 	}
-	if res.Warning == "" {
-		t.Fatal("expected a gateway-not-sent warning")
+	if res.Warning != "" {
+		t.Fatalf("expected no warning now that gateway programming is implemented, got %q", res.Warning)
 	}
 
 	var got artnet.IpProg
@@ -251,8 +256,15 @@ func TestProgramIPStaticAddressAndGatewayWarning(t *testing.T) {
 	if got.ProgSubnetMask != [4]byte{255, 255, 255, 0} {
 		t.Fatalf("ProgSubnetMask = %v", got.ProgSubnetMask)
 	}
-	if got.Command&artnet.IpProgEnable == 0 || got.Command&artnet.IpProgProgramIP == 0 || got.Command&artnet.IpProgProgramSubnetMask == 0 {
-		t.Fatalf("Command = %v, missing expected bits", got.Command)
+	if got.ProgGateway != [4]byte{10, 0, 0, 1} {
+		t.Fatalf("ProgGateway = %v, want the requested gateway to actually be sent", got.ProgGateway)
+	}
+	if got.Command&artnet.IpProgEnable == 0 || got.Command&artnet.IpProgProgramIP == 0 ||
+		got.Command&artnet.IpProgProgramSubnetMask == 0 || got.Command&artnet.IpProgProgramGateway == 0 {
+		t.Fatalf("Command = 0x%02X, missing expected bits", byte(got.Command))
+	}
+	if byte(got.Command) != 0x80|0x10|0x04|0x02 {
+		t.Fatalf("Command = 0x%02X, want 0x96 (enable|program-gateway|program-IP|program-mask)", byte(got.Command))
 	}
 	if got.Command&artnet.IpProgEnableDHCP != 0 {
 		t.Fatal("DHCP bit should not be set for a static-IP request")

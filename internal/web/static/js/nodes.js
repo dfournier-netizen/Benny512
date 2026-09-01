@@ -455,8 +455,8 @@ const NodesScreen = (() => {
       <div class="b5-alert b5-alert--caution">
         ${UI.icon('status-warning')}
         <div>
-          <p class="b5-alert__title">Node configuration — unverified against real hardware</p>
-          <p class="b5-alert__body">ArtAddress/ArtInput/ArtIpProg wire formats here have not been confirmed against a real node's own capture. Verify results on the node's own display/web UI before relying on any change made here.</p>
+          <p class="b5-alert__title">Node configuration — partially verified against real hardware</p>
+          <p class="b5-alert__body">ArtIpProg's Command bits and gateway field were corrected and confirmed against a real node capture (RDM-LOG19) and the Art-Net 4 spec. ArtAddress and ArtInput wire formats have not been confirmed the same way — ArtInput in particular is sourced from a single secondary reference, not a primary spec fetch or capture this session. Verify results on the node's own display/web UI before relying on any change made here.</p>
           <button id="btnReloadConfig" type="button" class="b5-btn b5-btn--sm" style="margin-top:var(--b5-space-2)">${UI.icon('refresh')}Reload current values</button>
         </div>
       </div>

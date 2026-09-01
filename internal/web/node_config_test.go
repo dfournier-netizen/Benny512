@@ -109,8 +109,11 @@ func TestNodeIPConfigEndpoint(t *testing.T) {
 	if !got.Confirmed {
 		t.Fatalf("expected Confirmed true: %+v", got)
 	}
-	if got.Warning == "" {
-		t.Fatal("expected gateway-not-sent warning")
+	// Gateway programming is now implemented (ArtIpProg bit 4 + ProgGateway
+	// field, confirmed against the Art-Net 4 spec) — no more "gateway not
+	// sent" warning for a request that supplied one.
+	if got.Warning != "" {
+		t.Fatalf("expected no warning now that gateway programming is implemented, got %q", got.Warning)
 	}
 }
 

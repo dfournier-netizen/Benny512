@@ -118,17 +118,20 @@ type NodeConfigDetail struct {
 	Enable            bool   `json:"enable,omitempty"`            // IpProg only
 	EnableDHCP        bool   `json:"enableDHCP,omitempty"`        // IpProg only
 	SetDefault        bool   `json:"setDefault,omitempty"`        // IpProg only
+	ProgramGateway    bool   `json:"programGateway,omitempty"`    // IpProg only
 	ProgramSubnetMask bool   `json:"programSubnetMask,omitempty"` // IpProg only
 	ProgramIP         bool   `json:"programIP,omitempty"`         // IpProg only
 	ProgIP            string `json:"progIP,omitempty"`            // IpProg only
 	ProgSubnetMask    string `json:"progSubnetMask,omitempty"`    // IpProg only
-	ProgPort          uint16 `json:"progPort,omitempty"`          // IpProg & IpProgReply
+	ProgGateway       string `json:"progGateway,omitempty"`       // IpProg only
 
 	// --- ArtIpProgReply ---
-	CurrentIP     string `json:"currentIP,omitempty"`     // IpProgReply only
-	CurrentSubnet string `json:"currentSubnet,omitempty"` // IpProgReply only
-	StatusRaw     byte   `json:"statusRaw,omitempty"`     // IpProgReply only
-	DHCPEnabled   bool   `json:"dhcpEnabled,omitempty"`   // IpProgReply only
+	CurrentIP      string `json:"currentIP,omitempty"`      // IpProgReply only
+	CurrentSubnet  string `json:"currentSubnet,omitempty"`  // IpProgReply only
+	CurrentGateway string `json:"currentGateway,omitempty"` // IpProgReply only
+	CurrentPort    uint16 `json:"currentPort,omitempty"`    // IpProgReply only (deprecated field, shown as-received)
+	StatusRaw      byte   `json:"statusRaw,omitempty"`      // IpProgReply only
+	DHCPEnabled    bool   `json:"dhcpEnabled,omitempty"`    // IpProgReply only
 }
 
 // attachNodeConfigDetail populates e.Poll/e.PollReply/e.NodeConfig for the
@@ -221,22 +224,24 @@ func buildIpProgDetail(p artnet.IpProg) *NodeConfigDetail {
 		Enable:            p.Command&artnet.IpProgEnable != 0,
 		EnableDHCP:        p.Command&artnet.IpProgEnableDHCP != 0,
 		SetDefault:        p.Command&artnet.IpProgSetDefault != 0,
+		ProgramGateway:    p.Command&artnet.IpProgProgramGateway != 0,
 		ProgramSubnetMask: p.Command&artnet.IpProgProgramSubnetMask != 0,
 		ProgramIP:         p.Command&artnet.IpProgProgramIP != 0,
 		ProgIP:            formatIPv4(p.ProgIP),
 		ProgSubnetMask:    formatIPv4(p.ProgSubnetMask),
-		ProgPort:          p.ProgPort,
+		ProgGateway:       formatIPv4(p.ProgGateway),
 	}
 }
 
 func buildIpProgReplyDetail(p artnet.IpProgReply) *NodeConfigDetail {
 	return &NodeConfigDetail{
-		SubKind:       "IpProgReply",
-		CurrentIP:     formatIPv4(p.CurrentIP),
-		CurrentSubnet: formatIPv4(p.CurrentSubnet),
-		ProgPort:      p.CurrentPort,
-		StatusRaw:     byte(p.Status),
-		DHCPEnabled:   p.Status.DHCPEnabled(),
+		SubKind:        "IpProgReply",
+		CurrentIP:      formatIPv4(p.CurrentIP),
+		CurrentSubnet:  formatIPv4(p.CurrentSubnet),
+		CurrentGateway: formatIPv4(p.CurrentGateway),
+		CurrentPort:    p.CurrentPort,
+		StatusRaw:      byte(p.Status),
+		DHCPEnabled:    p.Status.DHCPEnabled(),
 	}
 }
 
