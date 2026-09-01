@@ -37,6 +37,17 @@
 // unsubscribed on every reselect before the new selection is recorded, and
 // (re)subscribed only once settle fires with sensors in view.
 const DeviceDetail = (() => {
+  // SHELVED (owner, 2026-09-01): bench-confirmed that setting a gateway's
+  // own IP works over Art-Net (ArtIpProg — see internal/session/
+  // nodeconfig.go's ProgramIP), so the E1.37-2 RDM route to the same goal
+  // is no longer needed for that case. Everything behind this panel stays
+  // in place and working (server routes, params.Client, capture decoding,
+  // this renderer) — many lighting fixtures/other devices still only have
+  // network interfaces reachable this way, so it may earn its keep again.
+  // Flip this back to true to unshelve — the panel, its Apply/arm/confirm
+  // flow, and its own caution banner are otherwise untouched.
+  const NETWORK_CONFIG_UI_ENABLED = false;
+
   // RDM PARAMETER_DESCRIPTION data_type byte values (report §5.1 / rdm.DataType).
   const DS = {
     BIT_FIELD: 0x01, ASCII: 0x02, UBYTE: 0x03, SBYTE: 0x04,
@@ -836,7 +847,12 @@ const DeviceDetail = (() => {
     ensureServiceLife(uid, gen);
     ensureActions(uid, gen);
     ensureDeviceControl(uid, gen);
-    ensureNetwork(uid, gen);
+    // Shelved (NETWORK_CONFIG_UI_ENABLED, top of file): skip the background
+    // GET /network probe too while the panel it feeds is hidden — no point
+    // spending an RDM round-trip on every device select for a panel nobody
+    // sees. The fetch path itself (ensureNetwork/Api.getNetwork) and the
+    // server endpoint behind it are untouched and still directly callable.
+    if (NETWORK_CONFIG_UI_ENABLED) ensureNetwork(uid, gen);
 
     // Cached descriptors (no wire traffic — matches the pre-existing
     // "Introspect is user-triggered, not automatic" rule, task ask: "never
@@ -1674,6 +1690,7 @@ const DeviceDetail = (() => {
   // that hasn't answered yet, NACKed, or plainly doesn't implement E1.37-2
   // (the overwhelming majority of fixtures) shows nothing here at all.
   function renderNetworkSection(outerContainer, uid, deviceLabel, statusSetter) {
+    if (!NETWORK_CONFIG_UI_ENABLED) return; // see NETWORK_CONFIG_UI_ENABLED's doc comment above
     const st = networkCache[uid];
     if (!st || (!st.loaded && !st.error) || !st.supported) return;
     const es = networkEditState[uid];

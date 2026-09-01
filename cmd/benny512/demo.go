@@ -557,7 +557,7 @@ func buildDemo(ctx context.Context, legacyRdmStartCode bool, logNodes bool) (*we
 	}
 
 	installDemoResponder(tport, rdmc, devices, tap, legacyRdmStartCode)
-	installDemoNodeConfigResponder(tport, nodes, en4IP, wirelessIP, tap)
+	installDemoNodeConfigResponder(tport, nodes, en4IP, wirelessIP, realEN4IP, realEN4PortReplies, tap)
 
 	// start is deferred to the caller — see this function's doc comment.
 	// Nothing above this point sends or delivers a single packet.
@@ -1075,7 +1075,49 @@ var (
 // agent... can exercise everything with no hardware"). It chains onto
 // whatever OnSend hook is already installed (installDemoResponder's RDM
 // handling) rather than replacing it.
-func installDemoNodeConfigResponder(tport *session.FakeTransport, nodes *session.ArtNetSession, en4IP, wirelessIP netip.Addr, tap func(dir capture.Direction, peer netip.AddrPort, data []byte) capture.Entry) {
+// demoNodeSlot identifies which of the three demo Art-Net node identities a
+// sent packet's destination currently resolves to — installDemoNode
+// ConfigResponder tracks each one's live address separately (see that
+// func's doc comment).
+type demoNodeSlot int
+
+const (
+	demoNodeNone demoNodeSlot = iota
+	demoNodeEN4
+	demoNodeWireless
+	demoNodeRealEN4
+)
+
+func installDemoNodeConfigResponder(tport *session.FakeTransport, nodes *session.ArtNetSession, en4IP, wirelessIP, realEN4IP netip.Addr, realEN4PortReplies []artnet.PollReply, tap func(dir capture.Direction, peer netip.AddrPort, data []byte) capture.Entry) {
+	// curEN4/curWireless/curRealEN4 track where each demo node actually
+	// lives right now. They start at the seeded en4IP/wirelessIP/realEN4IP
+	// and move when a simulated ArtIpProg reprograms a node's own static IP
+	// (Command's Program-IP bit set, DHCP not requested) — mirroring bench
+	// reality (RDM-LOG20): a real EN4 programmed from 2.11.90.4 to
+	// 2.11.90.12 (this exact demo's realEN4IP address) answered the very
+	// same ArtIpProg from its NEW address, and went on living there for
+	// every packet after. Only these three demo nodes' own Art-Net
+	// node-config identity moves this way — their RDM fixtures stay
+	// addressed by the *original* en4IP/wirelessIP (buildDemoDevices'
+	// nodeIP), since the task this simulates is specifically "does the
+	// Nodes-screen table and follow-up node-config commands follow the
+	// node," not a full re-routing of RDM traffic through a changed gateway
+	// address.
+	curEN4, curWireless, curRealEN4 := en4IP, wirelessIP, realEN4IP
+
+	resolve := func(sp session.SentPacket) (ip netip.Addr, slot demoNodeSlot, ok bool) {
+		switch sp.Dst.Addr() {
+		case curEN4:
+			return curEN4, demoNodeEN4, true
+		case curWireless:
+			return curWireless, demoNodeWireless, true
+		case curRealEN4:
+			return curRealEN4, demoNodeRealEN4, true
+		default:
+			return netip.Addr{}, demoNodeNone, false
+		}
+	}
+
 	prev := tport.OnSend
 	tport.OnSend = func(sp session.SentPacket) {
 		if prev != nil {
@@ -1086,7 +1128,7 @@ func installDemoNodeConfigResponder(tport *session.FakeTransport, nodes *session
 		}
 		switch sp.Packet.Kind {
 		case artnet.KindAddress:
-			ip, ok := demoTargetIP(sp, en4IP, wirelessIP)
+			ip, _, ok := resolve(sp)
 			if !ok {
 				return
 			}
@@ -1099,7 +1141,7 @@ func installDemoNodeConfigResponder(tport *session.FakeTransport, nodes *session
 				deliverPollReply(nodes, tap, reply, netip.AddrPortFrom(ip, session.ArtNetUDPPort))
 			})
 		case artnet.KindInput:
-			ip, ok := demoTargetIP(sp, en4IP, wirelessIP)
+			ip, _, ok := resolve(sp)
 			if !ok {
 				return
 			}
@@ -1108,7 +1150,7 @@ func installDemoNodeConfigResponder(tport *session.FakeTransport, nodes *session
 				deliverPollReply(nodes, tap, reply, netip.AddrPortFrom(ip, session.ArtNetUDPPort))
 			})
 		case artnet.KindIpProg:
-			ip, ok := demoTargetIP(sp, en4IP, wirelessIP)
+			ip, slot, ok := resolve(sp)
 			if !ok {
 				return
 			}
@@ -1128,8 +1170,28 @@ func installDemoNodeConfigResponder(tport *session.FakeTransport, nodes *session
 				CurrentPort:    session.ArtNetUDPPort,
 				CurrentGateway: demoIpProgCurrentGateway,
 			}
+			// replyFrom is where the reply is sent FROM. It starts as the
+			// address the request was sent to, and moves to the newly
+			// programmed address below — RDM-LOG20's bench evidence,
+			// reproduced (see rekeyNodeLocked/handleIPProgReply in
+			// internal/session/artnetsession.go, the fix this exercises).
+			replyFrom := ip
+			var movedTo netip.Addr
 			if p.Command&artnet.IpProgProgramIP != 0 {
 				reply.CurrentIP = p.ProgIP
+				if newIP, ok := netip.AddrFromSlice(p.ProgIP[:]); ok {
+					newIP = newIP.Unmap()
+					replyFrom = newIP
+					movedTo = newIP
+					switch slot {
+					case demoNodeEN4:
+						curEN4 = newIP
+					case demoNodeWireless:
+						curWireless = newIP
+					case demoNodeRealEN4:
+						curRealEN4 = newIP
+					}
+				}
 			}
 			if p.Command&artnet.IpProgProgramSubnetMask != 0 {
 				reply.CurrentSubnet = p.ProgSubnetMask
@@ -1141,13 +1203,29 @@ func installDemoNodeConfigResponder(tport *session.FakeTransport, nodes *session
 				reply.Status = artnet.IpProgReplyDHCPEnabled
 			}
 			pkt := artnet.Encode(artnet.Packet{Kind: artnet.KindIpProgReply, IpProgReply: reply})
-			addr := netip.AddrPortFrom(ip, session.ArtNetUDPPort)
+			addr := netip.AddrPortFrom(replyFrom, session.ArtNetUDPPort)
 			time.AfterFunc(5*time.Millisecond, func() {
 				// Route through tap first (so the capture rings/disk log see
 				// the ArtIpProgReply exactly as real wire traffic would),
 				// then fold it into the node session same as production.
 				tap(capture.DirIn, addr, pkt)
 				nodes.HandleInbound(session.Inbound{Data: pkt, From: addr})
+
+				// realEN4IP reports itself over three separate bind-index
+				// ArtPollReplies (see realEN4PortReplies' own doc comment) —
+				// a genuine address change means all three now answer from
+				// the new IP, so re-deliver each at movedTo the way a real
+				// node emitting its "config changed" unsolicited ArtPollReply
+				// per bind would. Ordered after the ArtIpProgReply above,
+				// same as ProgramIP's own doc comment expects a node to
+				// follow up.
+				if slot == demoNodeRealEN4 && movedTo.IsValid() {
+					for _, portReply := range realEN4PortReplies {
+						moved := portReply
+						moved.IPAddress = movedTo.As4()
+						deliverPollReply(nodes, tap, moved, netip.AddrPortFrom(movedTo, session.ArtNetUDPPort))
+					}
+				}
 			})
 		}
 	}
@@ -1169,17 +1247,6 @@ func deliverPollReply(nodes *session.ArtNetSession, tap func(dir capture.Directi
 	pkt := artnet.Encode(artnet.Packet{Kind: artnet.KindPollReply, PollReply: reply})
 	tap(capture.DirIn, addr, pkt)
 	nodes.HandleInbound(session.Inbound{Data: pkt, From: addr})
-}
-
-func demoTargetIP(sp session.SentPacket, en4IP, wirelessIP netip.Addr) (netip.Addr, bool) {
-	switch sp.Dst.Addr() {
-	case en4IP:
-		return en4IP, true
-	case wirelessIP:
-		return wirelessIP, true
-	default:
-		return netip.Addr{}, false
-	}
 }
 
 func responseClassFor(cc rdm.CommandClass) rdm.CommandClass {

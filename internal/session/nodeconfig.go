@@ -62,6 +62,25 @@ func (s *ArtNetSession) unregisterConfigWaiter(key NodeKey, ch chan Node) {
 	s.mu.Unlock()
 }
 
+// registerIPProgTarget/unregisterIPProgTarget record, for the duration of
+// one ProgramIP call, the specific new static address (if any) that call
+// asked the node to move to — see ArtNetSession.ipProgTargets' doc comment
+// and handleIPProgReply.
+func (s *ArtNetSession) registerIPProgTarget(key NodeKey, target netip.Addr) {
+	if !target.IsValid() {
+		return
+	}
+	s.mu.Lock()
+	s.ipProgTargets[key] = target
+	s.mu.Unlock()
+}
+
+func (s *ArtNetSession) unregisterIPProgTarget(key NodeKey) {
+	s.mu.Lock()
+	delete(s.ipProgTargets, key)
+	s.mu.Unlock()
+}
+
 // notifyConfigWaitersLocked delivers node to every pending waiter for key.
 // Must be called with s.mu held (it's invoked from within HandlePollReply's
 // locked section).
@@ -263,5 +282,14 @@ func (s *ArtNetSession) ProgramIP(ctx context.Context, key NodeKey, ip, mask, ga
 		ProgIP: progIP, ProgSubnetMask: progSM, ProgGateway: progGW,
 	}
 	wire := artnet.Encode(artnet.Packet{Kind: artnet.KindIpProg, IpProg: p})
+
+	// A static-IP request that supplies a new address is the one case where
+	// the node's confirming reply may legitimately arrive from somewhere
+	// other than key.IP (see handleIPProgReply) — record the target so that
+	// reply is still recognised as confirmation, not silence.
+	if !dhcp && ip.Is4() {
+		s.registerIPProgTarget(key, ip)
+		defer s.unregisterIPProgTarget(key)
+	}
 	return s.sendAndAwaitConfirm(ctx, key, wire, 0)
 }

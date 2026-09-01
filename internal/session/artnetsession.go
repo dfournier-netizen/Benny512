@@ -244,6 +244,19 @@ type ArtNetSession struct {
 	// see nodeconfig.go.
 	configWaiters map[NodeKey][]chan Node
 
+	// ipProgTargets holds, for each NodeKey with an in-flight ProgramIP call
+	// requesting a specific new static address, that requested address —
+	// so handleIPProgReply can recognise a reply arriving FROM that new
+	// address as confirmation of THIS waiter (registered under the node's
+	// OLD key), not just a reply from the address the request was sent to.
+	// Bench evidence (RDM-LOG20): a real EN4 programmed to a new IP replies
+	// to ArtIpProg from its new address, since it has already moved — only
+	// matching on the old key's IP silently discarded that reply. Populated/
+	// cleared around ProgramIP's sendAndAwaitConfirm call (nodeconfig.go);
+	// absent (or zero) for every other config call, which never move a
+	// node's own address.
+	ipProgTargets map[NodeKey]netip.Addr
+
 	events chan NodeEvent
 }
 
@@ -271,6 +284,7 @@ func NewArtNetSession(cfg ArtNetConfig) *ArtNetSession {
 		cfg:           cfg,
 		nodes:         make(map[NodeKey]*Node),
 		configWaiters: make(map[NodeKey][]chan Node),
+		ipProgTargets: make(map[NodeKey]netip.Addr),
 		events:        make(chan NodeEvent, cfg.EventBuffer),
 	}
 }
@@ -413,21 +427,46 @@ func (s *ArtNetSession) HandleInbound(in Inbound) {
 	}
 }
 
-// handleIPProgReply notifies any pending ProgramIP waiter for the node at
-// in.From's address. It does not create or update a Node table entry —
-// ArtIpProgReply doesn't carry a Node's full advertised shape — so the
-// delivered Node is whatever this session already has on file for that
-// address (zero value if none), which is sufficient for ConfigResult's
+// handleIPProgReply notifies any pending ProgramIP waiter for the node this
+// reply confirms, and — when the reply shows the node now living at a
+// different address than its table entry's key — follows it there (see
+// rekeyNodeLocked). It does not otherwise create or update a Node table
+// entry — ArtIpProgReply doesn't carry a Node's full advertised shape — so
+// the delivered Node is whatever this session already has on file for the
+// (possibly just-moved) key, which is sufficient for ConfigResult's
 // Confirmed:true signal even if Updated ends up mostly empty.
+//
+// Matching a reply to its waiter: a waiter registered under key matches a
+// reply arriving from either key.IP (the address the request was unicast
+// to — the common case: DHCP, or a node that hasn't moved yet) or
+// ipProgTargets[key] (the specific new static address that request asked
+// for, if any — RDM-LOG20's case: the node already moved and is answering
+// from there). ArtIpProgReply carries no other correlator on the wire, so
+// this is as precise as the protocol allows.
 func (s *ArtNetSession) handleIPProgReply(reply artnet.IpProgReply, from netip.AddrPort) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// The node's now-current IP as this reply itself reports it. CurrentIP
+	// is authoritative when present; fall back to the reply's own UDP
+	// source address otherwise (mirrors nodeFromPollReply's identical
+	// fallback for ArtPollReply's IPAddress field).
+	currentIP := netip.AddrFrom4(reply.CurrentIP)
+	if !currentIP.IsValid() || currentIP.IsUnspecified() {
+		currentIP = from.Addr()
+	}
+
 	for key, waiters := range s.configWaiters {
-		if key.IP != from.Addr() {
+		target, hasTarget := s.ipProgTargets[key]
+		if key.IP != from.Addr() && !(hasTarget && target == from.Addr()) {
 			continue
 		}
+		s.rekeyNodeLocked(key, currentIP)
+		lookupKey := NodeKey{IP: currentIP, BindIndex: key.BindIndex}
 		node := Node{}
-		if existing, ok := s.nodes[key]; ok {
+		if existing, ok := s.nodes[lookupKey]; ok {
+			node = *existing
+		} else if existing, ok := s.nodes[key]; ok {
 			node = *existing
 		}
 		for _, ch := range waiters {
@@ -436,6 +475,61 @@ func (s *ArtNetSession) handleIPProgReply(reply artnet.IpProgReply, from netip.A
 			default:
 			}
 		}
+	}
+}
+
+// rekeyNodeLocked moves every node table entry at oldKey.IP to the same
+// BindIndex under newIP when the address has genuinely changed, preserving
+// each entry's other fields (ports, names, MAC, …) rather than waiting for
+// a fresh ArtPollReply to repopulate them. It moves ALL bind indices at
+// that IP together, not just oldKey's own — ArtIpProg reprograms a whole
+// physical device's IP, and BindIndex only distinguishes that one device's
+// several logical port-groups (Art-Net nodes with multiple bound port
+// groups emit one ArtPollReply per group, all from the same IP — see
+// NodeKey's doc comment), so every bind index sharing the old IP moves with
+// it even though only oldKey's own ProgramIP call had a pending waiter to
+// confirm the change. (An earlier version of this rekeyed oldKey alone,
+// which correctly moved bind 1 but left binds 2/3 of a 3-bind-index EN4
+// stranded at the old IP — silently swallowing commands sent to them, and
+// then duplicating once ArtPoll rediscovered them at the new address: both
+// of the failure modes this function exists to avoid, just on the binds
+// that weren't the one specific waiter's key.)
+//
+// Two failure modes this exists to avoid: leaving a stale entry in place,
+// which would go on being the target of future commands sent into the void
+// exactly as RDM-LOG20 bench-confirmed (two ArtIpProg retries addressed to
+// the node's old, now-unreachable, IP got no reply at all); and ending up
+// with a node listed twice — once stale at the old IP, once fresh at the
+// new one once ArtPoll rediscovers it. Must be called with s.mu held.
+func (s *ArtNetSession) rekeyNodeLocked(oldKey NodeKey, newIP netip.Addr) {
+	oldIP := oldKey.IP
+	if !newIP.IsValid() || newIP == oldIP {
+		return
+	}
+	if _, ok := s.nodes[oldKey]; !ok {
+		return
+	}
+	now := s.cfg.Clock.Now()
+	for key, old := range s.nodes {
+		if key.IP != oldIP {
+			continue
+		}
+		newKey := NodeKey{IP: newIP, BindIndex: key.BindIndex}
+		delete(s.nodes, key)
+		if existing, exists := s.nodes[newKey]; exists {
+			// A fresh ArtPollReply from the new address already beat this
+			// confirmation in for this bind index — that data is more
+			// current than what we'd copy from the old entry, so just drop
+			// the now-deleted stale one and leave the newer one as-is.
+			s.emitLocked(NodeEvent{Kind: NodeUpdated, Node: *existing, At: now})
+			continue
+		}
+		moved := *old
+		moved.Key = newKey
+		moved.Addr = netip.AddrPortFrom(newIP, ArtNetUDPPort)
+		moved.LastSeen = now
+		s.nodes[newKey] = &moved
+		s.emitLocked(NodeEvent{Kind: NodeUpdated, Node: moved, At: now})
 	}
 }
 
