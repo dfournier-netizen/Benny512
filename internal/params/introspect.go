@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 
 	"benny512/internal/rdm"
@@ -62,16 +63,22 @@ func paramDescriptorFromPD(pd rdm.ParameterDescription) ParamDescriptor {
 // answers "does this PID already have a dedicated UI field" — see
 // isEditorTarget.
 //
-// PIDProxiedDevices/PIDProxiedDeviceCount (0x0010/0x0011) are deliberately
-// NOT in this set (task ask, item 2: "keep PROXIED_DEVICES/
-// PROXIED_DEVICE_COUNT reachable via the generic parameter editor" — the
-// UI dropped its dedicated proxy-status callout, so the *only* remaining
-// way to inspect either PID is Introspect's normal editor-target walk).
-// Both PIDs still get an editor row (isEditorTarget), but — being standard,
-// not manufacturer-specific — resolveDescriptor never actually sends
-// PARAMETER_DESCRIPTION for them; they surface as non-self-describing rows
-// straight away, falling back to the raw-hex editor (report §1.1 item 4's
-// universal fallback) with no wire traffic spent finding that out.
+// PIDProxiedDevices/PIDProxiedDeviceCount (0x0010/0x0011) used to be
+// deliberately left OUT of this set (an earlier task's ask: "keep
+// PROXIED_DEVICES/PROXIED_DEVICE_COUNT reachable via the generic parameter
+// editor", because the UI had at the time dropped its dedicated
+// proxy-status callout). Phase D task 1 reverses that: the owner wants them
+// hidden as parameter rows again now that the callout is coming back as
+// structured data (fixtureJSON.ProxiedDeviceCount et al., populated by
+// registry.reclassify — see internal/registry/registry.go and
+// internal/web/server.go). Rather than re-adding them to this set (which
+// would only be correct for the "already has a dedicated field" reason this
+// set exists for — proxy status doesn't, in the sense that no typed
+// params.Client method reads it, only registry's independent ToD-driven
+// cache), they're hidden via classification.go's Tier instead — see
+// isEditorTarget below. That keeps "does X have a dedicated field" and
+// "should X ever be a generic-editor row" as the two separate questions
+// they actually are, rather than overloading this one map for both.
 var knownDecodedESTAPIDs = map[rdm.ParameterID]bool{
 	rdm.PIDDiscUniqueBranch: true, rdm.PIDDiscMute: true, rdm.PIDDiscUnMute: true,
 	rdm.PIDQueuedMessage: true, rdm.PIDStatusMessages: true, rdm.PIDStatusIDDescription: true,
@@ -91,6 +98,29 @@ var knownDecodedESTAPIDs = map[rdm.ParameterID]bool{
 	rdm.PIDOutputResponseTime: true, rdm.PIDOutputResponseTimeDescription: true,
 	rdm.PIDModulationFrequency: true, rdm.PIDModulationFrequencyDescription: true,
 	rdm.PIDMinimumLevel: true, rdm.PIDMaximumLevel: true, rdm.PIDIdentifyMode: true,
+
+	// Phase D task 2's "service life" family and destructive actions —
+	// internal/params/servicelife.go now has typed Client methods for all
+	// six, so none of them should get a redundant raw-hex editor row either.
+	// RESET_DEVICE in particular MUST NOT reach the generic editor: it is
+	// SET_COMMAND only (E1.20 §10.11.2 defines no GET form at all), and the
+	// generic editor's bulk "GET every descriptor's current value" pass
+	// (devicedetail.js, client-driven) would otherwise send it a doomed GET
+	// on every device that advertises it — see getRaw's own defensive
+	// RESET_DEVICE guard in params.go for the second, wire-level line of
+	// defense against that same bug reaching the wire by any other path.
+	rdm.PIDDeviceHours: true, rdm.PIDLampHours: true, rdm.PIDLampStrikes: true,
+	rdm.PIDLampState: true, rdm.PIDDevicePowerCycles: true,
+	rdm.PIDFactoryDefaults: true, rdm.PIDResetDevice: true,
+
+	// SLOT_DESCRIPTION (0x0121) needs a request payload (a 2-byte slot
+	// number, E1.20 §10.7.2) the generic editor's index-free GET can't
+	// supply, the same reason CURVE_DESCRIPTION et al. are excluded above.
+	// This package has no dedicated per-slot UI for it yet (SLOT_INFO would
+	// supply the slot count a future pass could iterate), so excluding it
+	// here is strictly a bug fix (stop the malformed PDL=0 GET), not a
+	// feature — see params.go's getRaw for the matching defensive guard.
+	rdm.PIDSlotDescription: true,
 }
 
 // isDescribable reports whether PARAMETER_DESCRIPTION may legally be sent
@@ -122,7 +152,26 @@ func isEditorTarget(pid rdm.ParameterID) bool {
 	if pid.IsManufacturerSpecific() {
 		return true
 	}
-	return !knownDecodedESTAPIDs[pid]
+	if knownDecodedESTAPIDs[pid] {
+		return false
+	}
+	// Phase D task 1: a PID classification.go marks TierHidden never gets a
+	// generic-editor row, full stop — this is what actually implements
+	// "hide them as rows" for PROXIED_DEVICES/PROXIED_DEVICE_COUNT and the
+	// rest of the Hidden-tier list (DISC_*, the STATUS_* queue family,
+	// SUPPORTED_PARAMETERS/PARAMETER_DESCRIPTION and their E1.20-2025
+	// enhanced-introspection siblings, DEVICE_INFO, PRODUCT_DETAIL_ID_LIST,
+	// SENSOR_DEFINITION/RECORD_SENSORS, the E1.37-2/E1.33/E1.37-7 PIDs —
+	// see classification.go's pidTiers for the full, explicit list). Most
+	// of those PIDs were already excluded above via knownDecodedESTAPIDs
+	// for an unrelated reason (a dedicated field already exists); this
+	// catches the rest, uniformly, from one table instead of growing this
+	// function's own bespoke exclusion list every time the owner asks for
+	// another PID hidden. TierPromoted and TierStandard PIDs are treated
+	// identically here — Tier only affects ordering/prominence
+	// (paramDescriptorJSON.Tier, internal/web/device.go), never whether a
+	// row exists.
+	return Tier(pid) != TierHidden
 }
 
 // --- shared descriptor cache -------------------------------------------
@@ -187,6 +236,32 @@ type uidState struct {
 	// one wasted NACK per distinct PID before the per-PID cache had a chance
 	// to help.
 	paramDescUnsupported bool
+
+	// --- Phase D task 3: speculative-probe gating ------------------------
+	//
+	// supportedSet/supportedKnown/supportedAttempted cache this UID's
+	// SUPPORTED_PARAMETERS list so getRaw's speculative-PID gate (see
+	// isSpeculativePID/ensureAdvertised below, consulted from params.go's
+	// getRaw) doesn't re-fetch it for every gated GET, and so Introspect and
+	// any other caller share one cache instead of each issuing their own
+	// GET SUPPORTED_PARAMETERS. supportedAttempted is tracked separately
+	// from supportedKnown so a device that NACKs/times out on
+	// SUPPORTED_PARAMETERS itself (legal — some responders simply don't
+	// implement even required PIDs correctly) is asked at most once per
+	// process, not once per gated PID, while still falling back to "allow
+	// the probe" (today's behavior) rather than ever blocking such a device
+	// outright — see ensureAdvertised's doc comment.
+	supportedSet       map[rdm.ParameterID]bool
+	supportedKnown     bool
+	supportedAttempted bool
+
+	// unsupportedPIDs records, per speculative PID, that a live GET has
+	// already come back NACK UNKNOWN_PID for this UID — independent of
+	// supportedSet, so it still helps a device whose SUPPORTED_PARAMETERS
+	// couldn't be resolved (unknown/NACKed) avoid repeating the exact same
+	// failed probe on every subsequent call. Cleared by ForgetDevice like
+	// every other per-UID cache here.
+	unsupportedPIDs map[rdm.ParameterID]bool
 }
 
 var (
@@ -661,4 +736,173 @@ func encodeByDataType(value any, dt rdm.DataType, pdlSize byte) ([]byte, error) 
 		}
 		return raw, nil
 	}
+}
+
+// --- Phase D task 3: speculative-probe gating -----------------------------
+//
+// A bench capture against three real Elation Proteus Rayzor 1960 fixtures
+// (516 responses, 223 NACKs) found the great majority of those NACKs came
+// from Benny512 GET-probing PIDs the fixture never advertised in
+// SUPPORTED_PARAMETERS at all: the E1.37-1 dimmer set, IDENTIFY_MODE,
+// PROXIED_DEVICE_COUNT and PRODUCT_DETAIL_ID_LIST. Every one of those is a
+// legitimately optional PID (none is in E1.20 Table A-3's "Required"
+// columns), and per §10.4.1's own text, "PIDs that are included in the
+// minimum support list ... shall not be reported [in SUPPORTED_PARAMETERS]"
+// — the converse holds too: an optional PID a device implements MUST be
+// listed. So once SUPPORTED_PARAMETERS is known, "not listed" is not a
+// heuristic guess that a probe will fail, it is the device stating that
+// fact outright, and asking anyway is just spending a transaction (and, on
+// a bandwidth-constrained wireless link, real time) to relearn something
+// already known.
+//
+// isSpeculativePID below names exactly the optional/probe-only PIDs this
+// gate applies to — deliberately NOT every PID getRaw ever sends, so a
+// device with incomplete or absent SUPPORTED_PARAMETERS support never has a
+// CORE field (DEVICE_INFO, DEVICE_LABEL, DMX_START_ADDRESS, ...) silently
+// blocked; see the isSpeculativePID doc comment for the exact set and why
+// each member is in it. STATUS_MESSAGES is deliberately NOT included: its
+// wire traffic goes through DeviceStatus's own repeat-GET drain loop
+// (status.go), not through getRaw, and it's already client-gated (fetched
+// only when the UI's Status tab is open, not on every device-detail load),
+// so gating it here would touch a different, higher-risk code path for a
+// PID that isn't part of the bench-observed problem.
+
+// isSpeculativePID reports whether pid is one of the "ask only if
+// advertised" probe-only PIDs getRaw gates via ensureAdvertised. Every
+// member here is optional per E1.20 Table A-3 (never required), and every
+// one appeared in the bench capture's blind-probe NACKs (see this section's
+// doc comment) — RESET_DEVICE is deliberately NOT here: it needs its own
+// unconditional getRaw guard (ErrResetDeviceHasNoGet in params.go) because
+// it has no GET form at all, regardless of advertisement.
+func isSpeculativePID(pid rdm.ParameterID) bool {
+	switch pid {
+	case rdm.PIDCurve, rdm.PIDCurveDescription,
+		rdm.PIDOutputResponseTime, rdm.PIDOutputResponseTimeDescription,
+		rdm.PIDModulationFrequency, rdm.PIDModulationFrequencyDescription,
+		rdm.PIDMinimumLevel, rdm.PIDMaximumLevel, rdm.PIDIdentifyMode,
+		rdm.PIDProductDetailIDList, rdm.PIDProxiedDeviceCount, rdm.PIDProxiedDevices,
+		rdm.PIDDeviceHours, rdm.PIDLampHours, rdm.PIDLampStrikes, rdm.PIDLampState,
+		rdm.PIDDevicePowerCycles, rdm.PIDFactoryDefaults:
+		return true
+	default:
+		return false
+	}
+}
+
+// resolveSupportedSet returns this UID's SUPPORTED_PARAMETERS set,
+// resolving and caching it (at most once per UID per process, via
+// supportedAttempted) if not already known. known=false means the device's
+// support status could not be determined at all (SUPPORTED_PARAMETERS
+// itself NACKed, timed out, or a prior attempt already failed) — callers
+// must treat that as "don't know", never as "nothing is supported".
+func (c *Client) resolveSupportedSet(ctx context.Context) (set map[rdm.ParameterID]bool, known bool) {
+	st := stateFor(c.uid)
+	st.mu.RLock()
+	if st.supportedKnown {
+		set, known = st.supportedSet, true
+		st.mu.RUnlock()
+		return set, known
+	}
+	attempted := st.supportedAttempted
+	st.mu.RUnlock()
+	if attempted {
+		return nil, false
+	}
+
+	data, err := c.getRaw(ctx, rdm.PIDSupportedParameters, nil)
+
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.supportedAttempted = true
+	if err == nil {
+		if pids, decErr := rdm.DecodeSupportedParameters(data); decErr == nil {
+			m := make(map[rdm.ParameterID]bool, len(pids))
+			for _, p := range pids {
+				m[p] = true
+			}
+			st.supportedSet = m
+			st.supportedKnown = true
+		}
+	}
+	return st.supportedSet, st.supportedKnown
+}
+
+// ensureAdvertised is getRaw's speculative-PID gate: it returns
+// ErrPIDNotAdvertised when pid is a speculative PID this UID has already
+// been confirmed NOT to support (either a fresh/cached SUPPORTED_PARAMETERS
+// omits it, or a past live GET for it already NACKed UNKNOWN_PID), and nil
+// otherwise — including, deliberately, when support could not be
+// determined at all. A device that doesn't implement SUPPORTED_PARAMETERS
+// (or NACKs/times out on it) must keep working exactly as it did before
+// this gate existed: every speculative PID falls back to "go ahead and
+// ask", never "assume unsupported and block".
+func (c *Client) ensureAdvertised(ctx context.Context, pid rdm.ParameterID) error {
+	st := stateFor(c.uid)
+	st.mu.RLock()
+	learnedUnsupported := st.unsupportedPIDs[pid]
+	st.mu.RUnlock()
+	if learnedUnsupported {
+		return fmt.Errorf("%w: 0x%04X (a prior GET already came back NACK UNKNOWN_PID)", ErrPIDNotAdvertised, uint16(pid))
+	}
+
+	set, known := c.resolveSupportedSet(ctx)
+	if known && !set[pid] {
+		return fmt.Errorf("%w: 0x%04X", ErrPIDNotAdvertised, uint16(pid))
+	}
+	return nil
+}
+
+// rememberUnsupported records that a live GET for pid came back NACK
+// UNKNOWN_PID for this UID, so ensureAdvertised can short-circuit any later
+// call for the same PID without spending another transaction — the
+// speculative-PID analogue of paramDescUnsupported above, generalized past
+// PARAMETER_DESCRIPTION to every gated PID. Safe to call for a non-
+// speculative PID too (getRaw only calls it for speculative ones, but
+// nothing here depends on that).
+func (c *Client) rememberUnsupported(pid rdm.ParameterID) {
+	st := stateFor(c.uid)
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.unsupportedPIDs == nil {
+		st.unsupportedPIDs = map[rdm.ParameterID]bool{}
+	}
+	st.unsupportedPIDs[pid] = true
+}
+
+// IsAdvertised reports whether pid is present in this UID's
+// SUPPORTED_PARAMETERS, resolving (and caching) the list on demand via the
+// same cache getRaw's gate uses if it isn't already known. known=false
+// means support could not be determined (SUPPORTED_PARAMETERS unanswered)
+// — callers (e.g. the /api/device/{uid}/actions capability endpoint) MUST
+// treat that as "don't know" and must never present it to a user as
+// "confirmed unsupported". Exported for internal/web/device.go's
+// destructive-action capability surface (Phase D task 2: "offer both [warm
+// and cold reset] when 0x1001 is advertised; never claim to know more").
+func (c *Client) IsAdvertised(ctx context.Context, pid rdm.ParameterID) (supported, known bool) {
+	set, known := c.resolveSupportedSet(ctx)
+	if !known {
+		return false, false
+	}
+	return set[pid], true
+}
+
+// SupportedParameters returns this UID's full SUPPORTED_PARAMETERS set
+// (resolving and caching it on demand, exactly like IsAdvertised), sorted
+// ascending for a stable JSON encoding. known=false means the device's
+// support status could not be determined — callers must return an empty/
+// omitted list in that case, never an empty list that reads as "advertises
+// nothing". Exported for internal/web/device.go's
+// GET /api/device/{uid}/supported-parameters (Phase D task 3: "expose what
+// the client needs" for a future client-side probe gate).
+func (c *Client) SupportedParameters(ctx context.Context) (pids []rdm.ParameterID, known bool) {
+	set, known := c.resolveSupportedSet(ctx)
+	if !known {
+		return nil, false
+	}
+	pids = make([]rdm.ParameterID, 0, len(set))
+	for p := range set {
+		pids = append(pids, p)
+	}
+	sort.Slice(pids, func(i, j int) bool { return pids[i] < pids[j] })
+	return pids, true
 }

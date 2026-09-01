@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
@@ -260,5 +261,22 @@ func TestDevicesClear_DoesNotTouchCaptureDescriptorCacheOrPatch(t *testing.T) {
 	}
 	if len(patchResp.Patch.Entries) != 1 {
 		t.Fatalf("patch after devices/clear = %+v, want 1 entry retained", patchResp.Patch)
+	}
+}
+
+// TestDevicesClearResponse_PortAddressZeroMarshalsExplicit guards the same
+// defect class as Entry.Universe: a "port" scope clear on Port-Address
+// (universe) 0 — a real, ordinary universe, not an absent value — must
+// echo "portAddress":0 explicitly rather than omitting the key. Asserting
+// a struct field equals 0 would be vacuous; this asserts the marshalled
+// bytes.
+func TestDevicesClearResponse_PortAddressZeroMarshalsExplicit(t *testing.T) {
+	resp := devicesClearResponse{Scope: "port", IP: "10.0.0.5", PortAddress: 0, Cleared: 1, TodCleared: 1}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if got := string(data); !strings.Contains(got, `"portAddress":0`) {
+		t.Errorf("marshalled devices/clear response missing \"portAddress\":0; got %s", got)
 	}
 }

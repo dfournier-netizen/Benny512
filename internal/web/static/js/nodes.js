@@ -1,12 +1,23 @@
-// nodes.js — Nodes screen: table + detail pane + editable node/network
-// configuration (Phase 1c+: ArtAddress/ArtInput/ArtIpProg via
-// internal/web/node_config.go).
+// nodes.js — Nodes screen: device-grouped accordion + detail pane +
+// editable node/network configuration (Phase 1c+: ArtAddress/ArtInput/
+// ArtIpProg via internal/web/node_config.go).
+//
+// Device grouping + sorting (this round): owner's original ask — "let's
+// start grouping ports on the same device into a drop down or some other
+// logical block. e.g. our EN4 has 4 ports, so link them all together. Maybe
+// even make our inspector pane select per device, with the ability to pick
+// which port is targeted" — first landed on the Devices screen, then the
+// owner clarified it belongs here instead ("apply that same sorting and
+// feature set... to the nodes tab, not devices... revert the changes to the
+// device tab"). See deviceGroups() below for the IP-grouping rationale
+// (shared with devices.js's now-reverted picker) and compareIPNumeric() for
+// the numeric-vs-lexicographic sort fix.
 //
 // Rules (architecture rev 5 §4, adopted from Rackmaster's pitfalls, and the
 // task brief's MANDATORY UI rules):
 //  - oninput mutates state only; full re-render happens on onchange/explicit
 //    refresh.
-//  - re-render preserves the selected row and scroll position.
+//  - re-render preserves the selected row/port and scroll position.
 //  - the *editable config section* is built once per node selection and is
 //    NOT touched by the periodic (WS-triggered) node-list refresh — only
 //    the read-only info/ports block re-renders on every poll tick. This is
@@ -14,8 +25,17 @@
 //    out from under Dom every ~3s by the node's own ArtPollReply traffic.
 const NodesScreen = (() => {
   let nodes = [];
-  let selectedKey = null;   // "ip|bindIndex"
+  let selectedKey = null;   // "ip|bindIndex" — the NodeKey currently backing the inspector
+  let selectedIP = null;    // IP of the currently focused device group (accordion selection)
   let detailBuiltFor = null; // key whose config section is currently in the DOM
+  // expandedGroups tracks which device-group <details> the user has opened,
+  // keyed by IP, surviving the accordion's own re-renders (same pattern
+  // devices.js used for its now-reverted picker, and walk.js's
+  // expandedSections) — a re-render must not silently collapse a group the
+  // tech just opened, and periodic refresh() rebuilds this accordion every
+  // ~3s (WS 'node' events), so this matters far more here than a
+  // one-shot picker.
+  let expandedGroups = {};
 
   // Per-node editable config, keyed by node key. Populated once per
   // selection from the node's current known values; mutated in place by
@@ -29,25 +49,101 @@ const NodesScreen = (() => {
 
   function keyOf(n) { return n.ip + '|' + n.bindIndex; }
 
+  // --- Device grouping (IP) + numeric sort ---------------------------------
+  // An Art-Net node's ports all share one physical box. Some gateways (e.g.
+  // Obsidian's EN4, per the bench capture reproduced in demo.go's
+  // realEN4PortReplies) advertise that box as several ArtPollReply "nodes"
+  // at the SAME IP, one per physical port, each its own BindIndex — so
+  // grouping on NodeKey (IP, BindIndex), which is what distinguishes
+  // genuinely separate node identities elsewhere in this app (see
+  // internal/session/artnetsession.go), would still split that box into
+  // several top-level entries. IP alone is the key that reunites both
+  // shapes: a single-reply, NumPorts=4-style node (one nodes[] entry, many
+  // ports — demo.go's en4Reply at 2.11.90.2) and a bind-per-port node (many
+  // nodes[] entries at one IP, one port each — realEN4PortReplies at
+  // 2.11.90.4) both collapse to one device group either way. Two distinct
+  // physical nodes coincidentally sharing an IP is not a real Art-Net
+  // scenario (nodes address a LAN individually), so this is safe.
+  function deviceGroups() {
+    const order = [];
+    const byIP = {};
+    nodes.forEach(n => {
+      if (!byIP[n.ip]) { byIP[n.ip] = { ip: n.ip, entries: [] }; order.push(n.ip); }
+      byIP[n.ip].entries.push(n);
+    });
+    const groups = order.map(ip => {
+      const g = byIP[ip];
+      const ports = [];
+      g.entries.forEach(n => {
+        (n.ports || []).forEach(p => {
+          ports.push({
+            key: keyOf(n), ip: n.ip, bindIndex: n.bindIndex, index: p.index,
+            // Sort key only — the flat port-address (net/sub/universe packed
+            // into one number), not the display nibble. Numeric, never
+            // string-compared (see compareIPNumeric's doc comment on the
+            // sibling bug this guards against).
+            portAddress: p.output ? p.outputAddress : (p.input ? p.inputAddress : 0),
+            raw: p,
+          });
+        });
+      });
+      ports.sort((a, b) => a.portAddress - b.portAddress);
+      return { ip: g.ip, entries: g.entries, ports, name: deviceGroupName(g.entries) };
+    });
+    groups.sort((a, b) => compareIPNumeric(a.ip, b.ip));
+    return groups;
+  }
+
+  // compareIPNumeric: sort dotted-quad IPs by their numeric octet values,
+  // NOT lexicographically. A plain string/array .sort() would put
+  // "2.11.90.10" before "2.11.90.2" (character '1' < '2'), exactly the
+  // sibling bug the owner already flagged on another screen ("string-
+  // sorting numbers"). Comparing octet-by-octet as integers instead makes
+  // .10 sort after .2, as a human expects.
+  function compareIPNumeric(a, b) {
+    const pa = a.split('.').map(Number);
+    const pb = b.split('.').map(Number);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const d = (pa[i] || 0) - (pb[i] || 0);
+      if (d) return d;
+    }
+    return 0;
+  }
+
+  // deviceGroupName prefers a name shared by every NodeKey contributing to
+  // this IP (the common case: one node, or a bind-per-port gateway that
+  // repeats its own long name on every reply — demo.go's realEN4PortReplies
+  // all report LongName "NETRON EN4" despite distinct per-port ShortNames).
+  // Falling back to the first entry's own name keeps a group labeled even
+  // when nothing agrees.
+  function deviceGroupName(entries) {
+    const longNames = Array.from(new Set(entries.map(n => n.longName).filter(Boolean)));
+    if (longNames.length === 1) return longNames[0];
+    const shortNames = Array.from(new Set(entries.map(n => n.shortName).filter(Boolean)));
+    if (shortNames.length === 1) return shortNames[0];
+    return entries[0].shortName || entries[0].longName || entries[0].ip;
+  }
+
+  // deviceStatusBadge/deviceLastSeen: device-group rollups of the same
+  // per-node facts nodeStatusBadge already reported (below) — a physical
+  // device is "stale" if any contributing NodeKey is (any port could be the
+  // one that stopped answering), "RDM" only if every contributing NodeKey
+  // reports RDM-capable.
+  function deviceStatusBadge(g) {
+    if (g.entries.some(n => n.stale)) return UI.badge('stale', 'Stale');
+    if (g.entries.every(n => n.rdmCapable)) return UI.badge('ok', 'RDM');
+    return UI.badge('unknown', 'No RDM');
+  }
+
+  function deviceLastSeen(g) {
+    const times = g.entries.map(n => n.lastSeen).filter(Boolean);
+    if (!times.length) return null;
+    return times.reduce((a, b) => (new Date(a) > new Date(b) ? a : b));
+  }
+
   async function refresh() {
     nodes = await Api.getNodes();
     render();
-  }
-
-  // portsUniverseSummary is a purely presentational rollup ("N ports · U1–U4")
-  // of the same n.ports data the old table already had (no new node state).
-  function portsUniverseSummary(n) {
-    const ports = n.ports || [];
-    if (!ports.length) return '0 ports';
-    const universes = [];
-    ports.forEach(p => {
-      if (p.output) universes.push(p.outputAddress & 0x0F);
-      else if (p.input) universes.push(p.inputAddress & 0x0F);
-    });
-    const countLabel = `${ports.length} port${ports.length === 1 ? '' : 's'}`;
-    if (!universes.length) return countLabel;
-    const lo = Math.min(...universes), hi = Math.max(...universes);
-    return `${countLabel} · ${lo === hi ? 'U' + lo : 'U' + lo + '–U' + hi}`;
   }
 
   // nodeStatusBadge combines the two facts the app already tracked
@@ -59,31 +155,17 @@ const NodesScreen = (() => {
     return UI.badge('unknown', 'No RDM');
   }
 
+  // --- Device accordion (grouped, sorted) ----------------------------------
+
   function render() {
-    const tbody = document.querySelector('#nodesTable tbody');
-    const scrollTop = tbody.parentElement.scrollTop;
-    tbody.innerHTML = '';
-    nodes.forEach(n => {
-      const tr = document.createElement('tr');
-      if (keyOf(n) === selectedKey) tr.classList.add('is-selected');
-      if (n.stale) tr.classList.add('is-stale');
-      tr.innerHTML = `
-        <td data-label="Name">${escapeHtml(n.shortName || n.longName || '(unnamed)')}</td>
-        <td data-label="IP" class="b5-table__mono">${escapeHtml(n.ip)}</td>
-        <td data-label="Ports / Universes">${escapeHtml(portsUniverseSummary(n))}</td>
-        <td data-label="Status">${nodeStatusBadge(n)}</td>
-        <td data-label="Last seen">${n.lastSeen ? new Date(n.lastSeen).toLocaleTimeString() : '—'}</td>
-      `;
-      tr.addEventListener('click', () => { selectedKey = keyOf(n); render(); });
-      tbody.appendChild(tr);
-    });
-    tbody.parentElement.scrollTop = scrollTop;
+    const groups = deviceGroups();
+    renderAccordion(groups);
 
     const el = document.getElementById('nodeDetail');
     const n = nodes.find(x => keyOf(x) === selectedKey);
     if (!n) {
       detailBuiltFor = null;
-      el.innerHTML = `<div class="b5-panel__body"><div class="b5-empty">${UI.icon('network-node')}<span class="b5-empty__title">No node selected</span><span class="b5-empty__body">Select a node to see its ports and universes.</span></div></div>`;
+      el.innerHTML = `<div class="b5-panel__body"><div class="b5-empty">${UI.icon('network-node')}<span class="b5-empty__title">No node selected</span><span class="b5-empty__body">Select a device to see its ports and universes.</span></div></div>`;
       return;
     }
     if (detailBuiltFor !== selectedKey) {
@@ -95,20 +177,164 @@ const NodesScreen = (() => {
     }
   }
 
+  function renderAccordion(groups) {
+    const el = document.getElementById('nodesAccordion');
+    if (!el) return;
+    const scrollTop = el.scrollTop;
+    // If the current selection no longer exists (a node disappeared) default
+    // to nothing selected rather than silently pointing at a stale key.
+    if (selectedKey && !groups.some(g => g.entries.some(n => keyOf(n) === selectedKey))) {
+      selectedKey = null;
+      selectedIP = null;
+    }
+    if (!groups.length) {
+      el.innerHTML = `<p class="b5-text-muted b5-text-sm" style="margin:var(--b5-space-3)">No nodes discovered yet.</p>`;
+      return;
+    }
+    const focusedKey = document.activeElement && document.activeElement.name === 'nodePortTarget' ? document.activeElement.value : null;
+    el.innerHTML = groups.map(renderDeviceGroup).join('');
+    // ROOT CAUSE (found verifying this round): per the HTML spec, a <details>
+    // element that is PARSED with the `open` attribute already present still
+    // queues a 'toggle' event — it is not limited to genuine user clicks or
+    // script setting .open on an already-connected element. render() re-parses
+    // every expanded group's `<details open>` from scratch via innerHTML on
+    // every call, so a 'toggle' listener that itself calls render() (the
+    // earlier version of this code did, to auto-default the inspector to a
+    // device's first port on expand) re-queues a fresh 'toggle' for every
+    // open group on every one of those re-renders — an unbounded cascade
+    // across all open groups that pegs the main thread (confirmed via a
+    // MutationObserver: >1800 render() calls inside 300ms with 4 groups
+    // open). This listener therefore only tracks open/closed state; it must
+    // never call render() (or anything that touches this <details>'s own
+    // markup) from inside 'toggle'. Picking a port (the explicit port-target
+    // control below) is what selects a device now — opening a group alone
+    // does not.
+    el.querySelectorAll('details.b5-accordion__item').forEach(d => {
+      d.addEventListener('toggle', () => { expandedGroups[d.dataset.ip] = d.open; });
+      // Opening a device with nothing targeted in it yet defaults the
+      // inspector to that device's first port — "select per device" (task
+      // ask) shouldn't require a second click on a port row too. Driven off
+      // 'click' on the summary (a genuine, trusted user gesture) rather than
+      // 'toggle' (see the ROOT CAUSE comment above for why 'toggle' itself
+      // must stay render()-free); setTimeout(0) lets the browser's own
+      // open/close default action land first so d.open reflects the click's
+      // actual result before this reads it.
+      const summary = d.querySelector('summary');
+      if (summary) {
+        summary.addEventListener('click', () => {
+          setTimeout(() => {
+            if (d.open && !(selectedKey && d.dataset.ip === selectedIP)) {
+              const g = groups.find(x => x.ip === d.dataset.ip);
+              if (g && g.ports.length) {
+                selectedKey = g.ports[0].key;
+                selectedIP = g.ip;
+                render();
+              }
+            }
+          }, 0);
+        });
+      }
+    });
+    el.querySelectorAll('input[name="nodePortTarget"]').forEach(r => {
+      r.addEventListener('change', () => {
+        selectedKey = r.value;
+        selectedIP = r.dataset.ip;
+        render();
+      });
+    });
+    if (focusedKey) {
+      const toRefocus = el.querySelector(`input[name="nodePortTarget"][value="${CSS.escape(focusedKey)}"]`);
+      if (toRefocus) toRefocus.focus();
+    }
+    el.scrollTop = scrollTop;
+  }
+
+  function renderDeviceGroup(g) {
+    const open = expandedGroups[g.ip] || g.ip === selectedIP;
+    const lastSeen = deviceLastSeen(g);
+    return `
+      <details class="b5-accordion__item" data-ip="${escapeHtml(g.ip)}" ${open ? 'open' : ''}>
+        <summary class="b5-accordion__trigger">
+          <span>${escapeHtml(g.name)} <span class="b5-text-muted b5-text-sm">(${escapeHtml(g.ip)})</span>
+            ${UI.tag(`${g.ports.length} port${g.ports.length === 1 ? '' : 's'}`)}
+            ${deviceStatusBadge(g)}
+            <span class="b5-text-muted b5-text-sm">${lastSeen ? 'last seen ' + new Date(lastSeen).toLocaleTimeString() : ''}</span>
+          </span>
+          ${UI.icon('chevron-expand')}
+        </summary>
+        <div class="b5-accordion__panel">
+          <table class="b5-table b5-table--responsive">
+            <thead><tr><th></th><th>Port</th><th>Direction</th><th>Universe</th><th>RDM</th></tr></thead>
+            <tbody>${g.ports.map(p => renderPortRow(g, p)).join('') || '<tr><td colspan="5">This device has no ports.</td></tr>'}</tbody>
+          </table>
+        </div>
+      </details>`;
+  }
+
+  // renderPortRow is the explicit "which port is targeted" control (owner's
+  // original ask). Its radio value is the port's owning NodeKey — a
+  // bind-per-port device (demo.go's realEN4PortReplies) has one NodeKey per
+  // port, so picking a port here switches which NodeKey backs the entire
+  // inspector below (names, addressing, merge, input-enable, IP config all
+  // apply to one NodeKey at a time — there is no finer-grained wire
+  // primitive to target). A single-reply multi-port node (demo.go's
+  // en4Reply) has one NodeKey for all its ports, so every row in that
+  // device shares one radio value/key — selecting any of them targets the
+  // same node, whose own ports table (renderConfigSection, unchanged)
+  // already edits each port's universe/merge/input individually.
+  function renderPortRow(g, p) {
+    const checked = selectedKey === p.key;
+    // Only worth calling out which NodeKey (bind index) a port came from
+    // when the group actually spans more than one — the bind-per-port
+    // gateway shape. A single-node group would just repeat "Port N" (the
+    // port's own name is already shown), which reads as noise rather than
+    // disambiguation.
+    const bindNote = g.entries.length > 1 ? ` (bind ${p.bindIndex})` : '';
+    return `
+      <tr class="${checked ? 'is-selected' : ''}">
+        <td data-label="Target"><label class="b5-checkbox"><input type="radio" name="nodePortTarget" value="${escapeHtml(p.key)}" data-ip="${escapeHtml(g.ip)}" ${checked ? 'checked' : ''}><span class="b5-visually-hidden">Target port ${p.index}${bindNote}</span></label></td>
+        <td data-label="Port">${p.index}${bindNote}</td>
+        <td data-label="Direction">${escapeHtml(portDirectionLabel(p.raw))}</td>
+        <td data-label="Universe">${escapeHtml(portUniverseLabel(p.raw))}</td>
+        <td data-label="RDM">${p.raw.rdmEnabled ? UI.badge('ok', 'Yes') : UI.badge('unknown', 'No')}</td>
+      </tr>`;
+  }
+
   // --- read-only info/ports block (rebuilt every refresh) -----------------
 
   function buildDetailShell(n) {
     const el = document.getElementById('nodeDetail');
+    const group = deviceGroups().find(g => g.ip === n.ip);
+    // devicePortPicker: when this physical device is more than one NodeKey
+    // (bind-per-port shape), surface the same port-target control inline in
+    // the inspector header too, so "which port" is visible without having
+    // to look back up at the accordion — selecting here just proxies to the
+    // same radios (same name, same value semantics).
+    const portPicker = (group && group.entries.length > 1) ? `
+      <div class="b5-field" style="margin-top:var(--b5-space-2)">
+        <label class="b5-field__label" for="nodeDetailPortTarget">Target port</label>
+        <select id="nodeDetailPortTarget" class="b5-select" style="max-width:20em">
+          ${group.ports.map(p => `<option value="${escapeHtml(p.key)}" ${p.key === selectedKey ? 'selected' : ''}>Port ${p.index} (bind ${p.bindIndex})</option>`).join('')}
+        </select>
+      </div>` : '';
     el.innerHTML = `
       <div class="b5-panel__header">
         <h2 class="b5-panel__title">${escapeHtml(n.longName || n.shortName)}</h2>
         ${nodeStatusBadge(n)}
       </div>
       <div class="b5-panel__body b5-stack">
+        ${portPicker}
         <div id="nodeInfoStatic"></div>
         <div id="nodeConfigSection"></div>
       </div>
     `;
+    const picker = document.getElementById('nodeDetailPortTarget');
+    if (picker) {
+      picker.addEventListener('change', (e) => {
+        selectedKey = e.target.value;
+        render();
+      });
+    }
     renderInfoStatic(n);
     renderConfigSection(n);
   }

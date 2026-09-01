@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 
 	"benny512/internal/artnet"
@@ -239,6 +240,25 @@ func TestPatchReconcileFixAll_PreviewThenApply(t *testing.T) {
 	mustUnmarshal(t, rr, &fa)
 	if fa.Applied != 1 {
 		t.Fatalf("Applied = %d, want 1: %+v", fa.Applied, fa)
+	}
+}
+
+// TestFixAllResponse_AppliedZeroMarshalsExplicit guards fixAllResponse.
+// Applied directly at the JSON-bytes level: patch.js's onFixAll reads
+// `result.applied` with no `|| 0` fallback to render "fixed N of M", so a
+// Confirm=true call where every SET attempt failed (Applied legitimately
+// 0, distinct from a Confirm=false preview) must still marshal an explicit
+// "applied":0 — an omitted key would render as "fixed undefined of M".
+// Asserting the struct field equals 0 (as the preview-branch check above
+// does) is vacuous against the `omitempty` bug; this checks the bytes.
+func TestFixAllResponse_AppliedZeroMarshalsExplicit(t *testing.T) {
+	fa := fixAllResponse{NeedsConfirm: false, Count: 2, Items: []fixAllItemJSON{}, Applied: 0}
+	data, err := json.Marshal(fa)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if got := string(data); !strings.Contains(got, `"applied":0`) {
+		t.Errorf("marshalled fix-all response missing \"applied\":0; got %s", got)
 	}
 }
 

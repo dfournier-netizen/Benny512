@@ -247,6 +247,15 @@ func TestClientDimmerPIDs(t *testing.T) {
 	uid := rdm.UID{ManufacturerID: 0x5370, DeviceID: 1}
 	ctrlRef := make([]*session.RDMController, 1)
 	tport := scriptedResponder(t, clock, &ctrlRef, uid, map[rdm.ParameterID][]byte{
+		// SUPPORTED_PARAMETERS must list every dimmer PID this test GETs —
+		// Phase D task 3's speculative-probe gate (introspect.go's
+		// isSpeculativePID) will otherwise refuse each of these calls
+		// without a matching SUPPORTED_PARAMETERS entry, exactly as a real
+		// device that never advertised them would be refused.
+		rdm.PIDSupportedParameters: rdm.EncodeSupportedParameters([]rdm.ParameterID{
+			rdm.PIDCurve, rdm.PIDCurveDescription, rdm.PIDOutputResponseTime,
+			rdm.PIDModulationFrequency, rdm.PIDMinimumLevel, rdm.PIDMaximumLevel, rdm.PIDIdentifyMode,
+		}),
 		rdm.PIDCurve:               {3, 5}, // current=3 of 5
 		rdm.PIDCurveDescription:    append([]byte{3}, []byte("S-Curve")...),
 		rdm.PIDOutputResponseTime:  {1, 2},

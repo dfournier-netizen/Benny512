@@ -279,3 +279,29 @@ func TestDetectCollisions_DeterministicOrder(t *testing.T) {
 		}
 	}
 }
+
+// TestDetectCollisions_UniverseZeroFindingMarshalsExplicitZero guards the
+// same defect class as Entry.Universe on Finding.Universe: patch.js's
+// composeFindingMessage reads f.universe directly (no `|| 0` fallback) to
+// compose an overlap finding's banner text, so `omitempty` here silently
+// fed it `undefined` for any overlap in universe 0. Asserting the struct
+// field equals 0 would be vacuous; this asserts the marshalled JSON key is
+// actually present.
+func TestDetectCollisions_UniverseZeroFindingMarshalsExplicitZero(t *testing.T) {
+	p := Patch{Entries: []Entry{
+		{ID: "a", Universe: 0, StartAddress: 1, Footprint: 10},
+		{ID: "b", Universe: 0, StartAddress: 5, Footprint: 10},
+	}}
+	findings := findingsOfKind(DetectCollisions(p), KindOverlap)
+	if len(findings) != 1 {
+		t.Fatalf("expected exactly 1 overlap finding, got %d: %+v", len(findings), findings)
+	}
+	data, err := json.Marshal(findings[0])
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	got := string(data)
+	if !strings.Contains(got, `"universe":0`) {
+		t.Errorf("marshalled finding missing \"universe\":0; got %s", got)
+	}
+}

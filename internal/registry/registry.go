@@ -99,6 +99,26 @@ type Fixture struct {
 	ProxyUnreachableSince time.Time
 	ProxyRetryAt          time.Time
 	ProxyRefusals         int
+
+	// ProxiedDeviceCount/ProxiedDeviceCountKnown/ProxiedListChanged cache
+	// this device's own PROXIED_DEVICE_COUNT (0x0011) report — Phase D task
+	// 1's "expose proxy status as structured data" ask, replacing
+	// PROXIED_DEVICE_COUNT's now-hidden (params.TierHidden) generic-editor
+	// row with a first-class field the UI can render as a device-level
+	// badge directly off the Devices/device-detail JSON, no extra fetch.
+	// ProxiedDeviceCountKnown is true once a GET for this PID has ACKed at
+	// least once (distinguishing "confirmed zero" from "never fetched",
+	// same convention as ManufacturerLabelKnown above); ProxiedDeviceCount
+	// is only meaningful when it's true. ProxiedListChanged mirrors the
+	// PID's own "list changed" flag (E1.20 §8.4.1) — true means the device
+	// is telling the controller its proxied-UID list has moved since last
+	// asked, i.e. GET PROXIED_DEVICES would return something new; nothing
+	// in this app currently acts on it (PROXIED_DEVICES is Hidden too, see
+	// classification.go), so it's carried here only so a future pass has
+	// it without another wire round-trip to relearn it.
+	ProxiedDeviceCount      uint16
+	ProxiedDeviceCountKnown bool
+	ProxiedListChanged      bool
 }
 
 // clone returns a deep-enough copy for safe hand-out across the mutex
@@ -414,12 +434,19 @@ func reclassify(f *Fixture, pid rdm.ParameterID, data []byte) {
 		}
 	case rdm.PIDProxiedDeviceCount:
 		// A non-empty proxied-device count is the report's strongest
-		// "acting as an RDM proxy" signal; PROXIED_DEVICE_COUNT's
-		// parameter data is a single UINT16 count (+ a "list changed"
-		// bool byte in some implementations) — only the count's
-		// non-zero-ness matters for classification here.
-		if len(data) >= 2 && (data[0] != 0 || data[1] != 0) {
-			f.IsWirelessProxy = true
+		// "acting as an RDM proxy" signal. PROXIED_DEVICE_COUNT's parameter
+		// data is the confirmed 3-byte shape (E1.20 §8.4.1: UINT16 count +
+		// 1-byte List Change flag — internal/rdm/proxy.go); decode it fully
+		// so the structured proxiedDeviceCount/proxiedDeviceCountKnown
+		// fields (Fixture, above) have real data, not just the classifier
+		// boolean this case used to stop at.
+		if pdc, err := rdm.DecodeProxiedDeviceCount(data); err == nil {
+			f.ProxiedDeviceCount = pdc.Count
+			f.ProxiedDeviceCountKnown = true
+			f.ProxiedListChanged = pdc.ListChanged
+			if pdc.Count > 0 {
+				f.IsWirelessProxy = true
+			}
 		}
 	case rdm.PIDManufacturerLabel:
 		f.ManufacturerLabel = string(data)

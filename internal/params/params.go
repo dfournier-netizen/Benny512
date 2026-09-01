@@ -93,16 +93,59 @@ func New(ctrl *session.RDMController, node session.NodeRef, uid rdm.UID) *Client
 	return &Client{ctrl: ctrl, node: node, uid: uid}
 }
 
+// ErrResetDeviceHasNoGet is returned by getRaw for any attempt to GET
+// RESET_DEVICE (0x1001) — E1.20 §10.11.2 defines SET_COMMAND only for this
+// PID, no GET form exists at all. This is a hard, spec-wide fact (unlike
+// the SUPPORTED_PARAMETERS-driven speculative gate below, it applies
+// whether or not the device advertises the PID), so it's checked first and
+// unconditionally: no GET for RESET_DEVICE ever reaches the wire through
+// this package, from any caller, by any path.
+var ErrResetDeviceHasNoGet = errors.New("params: RESET_DEVICE is SET_COMMAND only (E1.20 §10.11.2); GET is not defined")
+
+// ErrSlotDescriptionNeedsIndex is returned by getRaw for a SLOT_DESCRIPTION
+// (0x0121) GET whose request data isn't the required 2-byte slot number
+// (E1.20 §10.7.2) — sending PDL=0x00 to ask "the" slot description, the way
+// a bare GET_COMMAND with no payload does, is a malformed request every
+// real responder correctly NACKs FORMAT_ERROR for.
+var ErrSlotDescriptionNeedsIndex = errors.New("params: SLOT_DESCRIPTION GET requires a 2-byte slot number")
+
+// ErrPIDNotAdvertised is returned by getRaw when a speculative PID (see
+// isSpeculativePID in introspect.go) is known NOT to be in this device's own
+// SUPPORTED_PARAMETERS report — either because a fresh GET SUPPORTED_
+// PARAMETERS just confirmed that, or because a past live GET for this exact
+// PID already came back NACK UNKNOWN_PID. Phase D task 3: this is what stops
+// Benny512 from repeating a probe a device has already told it will always
+// fail. It is deliberately NOT returned when SUPPORTED_PARAMETERS itself is
+// unknown/unsupported — see ensureAdvertised's doc comment in introspect.go.
+var ErrPIDNotAdvertised = errors.New("params: PID not advertised in this device's SUPPORTED_PARAMETERS")
+
 // getRaw issues a GET and returns the raw ACK data, translating any
 // non-ACK result into an error (NackError for NACK, session's own typed
 // errors for timeout/deadline/etc).
 func (c *Client) getRaw(ctx context.Context, pid rdm.ParameterID, data []byte) ([]byte, error) {
+	if pid == rdm.PIDResetDevice {
+		return nil, ErrResetDeviceHasNoGet
+	}
+	if pid == rdm.PIDSlotDescription && len(data) != 2 {
+		return nil, ErrSlotDescriptionNeedsIndex
+	}
+	if isSpeculativePID(pid) {
+		if err := c.ensureAdvertised(ctx, pid); err != nil {
+			return nil, err
+		}
+	}
 	cmd := c.ctrl.Get(c.node, c.uid, pid, data)
 	res, err := cmd.Await(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if res.Kind != session.ResultAck {
+		if res.Kind == session.ResultNack && isSpeculativePID(pid) {
+			var nackErr *session.NackError
+			if errors.As(res.Err, &nackErr) && nackErr.Reason == rdm.NackUnknownPID {
+				c.rememberUnsupported(pid)
+			}
+		}
 		if res.Err != nil {
 			return nil, res.Err
 		}

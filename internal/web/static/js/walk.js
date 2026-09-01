@@ -68,6 +68,12 @@ const WalkScreen = (() => {
     window.addEventListener('pagehide', () => {
       if (active) Api.walkIdentifyOffBeacon();
     });
+    // Universe base changed on Settings — re-render so an open device
+    // card's "Node / port" line (devicedetail.js's shared Info section,
+    // now routed through UI.formatUniverse) reflects the new base
+    // immediately instead of showing a stale number until the next section
+    // update happens to redraw it.
+    window.addEventListener('b5-universe-base-changed', () => render());
     // scope names which section's data changed ('info'/'params'/'sensors'/
     // 'status', or undefined for "not sure, do a full render"). Rig Walk's
     // accordion can have several sections expanded at once, so — unlike the

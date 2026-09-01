@@ -168,6 +168,19 @@ const Api = (() => {
     resetDeviceSensors: (uid, sensor) => req('POST', `/api/device/${encodeURIComponent(uid)}/sensors/reset`, { sensor }),
     getDeviceStatus: (uid, filter) => req('GET', `/api/device/${encodeURIComponent(uid)}/status` + (filter ? `?filter=${filter}` : '')),
 
+    // --- Phase D: service life, destructive actions, supported-PID gate ---
+    getServiceLife: (uid) => req('GET', `/api/device/${encodeURIComponent(uid)}/service-life`),
+    setServiceLife: (uid, field, value) => req('POST', `/api/device/${encodeURIComponent(uid)}/service-life`, { field, value }),
+    getDeviceActions: (uid) => req('GET', `/api/device/${encodeURIComponent(uid)}/actions`),
+    getFactoryDefaults: (uid) => req('GET', `/api/device/${encodeURIComponent(uid)}/factory-defaults`),
+    // setFactoryDefaults/resetDevice always send the server's required
+    // {"confirm":"RESET"} tripwire themselves — the UI's own arm-then-
+    // confirm gate (devicedetail.js) is what actually protects the click,
+    // this is just the fixed wire contract the server demands regardless.
+    setFactoryDefaults: (uid) => req('POST', `/api/device/${encodeURIComponent(uid)}/factory-defaults`, { confirm: 'RESET' }),
+    resetDevice: (uid, mode) => req('POST', `/api/device/${encodeURIComponent(uid)}/reset`, { mode, confirm: 'RESET' }),
+    getSupportedParameters: (uid) => req('GET', `/api/device/${encodeURIComponent(uid)}/supported-parameters`),
+
     // --- Phase 1c+: node/network configuration ---
     setNodeAddress: (ip, body) => req('POST', `/api/node/${encodeURIComponent(ip)}/address`, body),
     setNodeIPConfig: (ip, body) => req('POST', `/api/node/${encodeURIComponent(ip)}/ipconfig`, body),

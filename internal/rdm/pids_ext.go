@@ -130,3 +130,23 @@ const (
 	PIDMetadataJSON    ParameterID = 0x0053
 	PIDMetadataJSONURL ParameterID = 0x0054
 )
+
+// --- E1.20-2025 §10.4.4-10.4.9: enhanced introspection PIDs (Table A-3) ---
+//
+// Unlike the OLA-derived constants elsewhere in this file, these six values
+// are transcribed directly from the ANSI E1.20-2025 PDF's own Table A-3
+// (Phase D backend pass, orchestrator-supplied primary source) — CONFIRMED,
+// not merely cross-referenced. They round out the RDM Information category
+// SUPPORTED_PARAMETERS/PARAMETER_DESCRIPTION (0x0050/0x0051) already declare
+// in message.go: a controller that already knows how to walk
+// SUPPORTED_PARAMETERS has no use for these (they exist for controllers with
+// tighter transaction budgets that want a packed/enumerated shortcut), so
+// this package classifies all six PIDTierHidden — see classification.go.
+const (
+	PIDSupportedParametersEnhanced ParameterID = 0x0055
+	PIDControllerFlagSupport       ParameterID = 0x0056
+	PIDNackDescription             ParameterID = 0x0057
+	PIDPackedPIDSub                ParameterID = 0x0058
+	PIDPackedPIDIndex              ParameterID = 0x0059
+	PIDEnumLabel                   ParameterID = 0x005A
+)

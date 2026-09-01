@@ -76,10 +76,17 @@ type Finding struct {
 	// Universe/ChannelStart/ChannelEnd describe the affected channel range,
 	// when applicable (zero value for findings that aren't channel-scoped,
 	// e.g. KindDuplicateFixtureNumber spans entries that may be in
-	// different universes entirely).
-	Universe     uint16 `json:"universe,omitempty"`
-	ChannelStart uint16 `json:"channelStart,omitempty"`
-	ChannelEnd   uint16 `json:"channelEnd,omitempty"`
+	// different universes entirely). Deliberately NO `omitempty` on any of
+	// the three: for the channel-scoped Kinds (overlap/overflow/zero-
+	// footprint/invalid-address) Universe 0 is a real, ordinary Art-Net
+	// universe, not an absent value — the same defect class as Entry.
+	// Universe in entry.go, and a LIVE instance of it: patch.js's
+	// composeFindingMessage reads f.universe directly (no `|| 0` guard)
+	// to compose the "overlap in universe N" banner text, so an omitted
+	// key here fed UI.formatUniverse(undefined) for a universe-0 overlap.
+	Universe     uint16 `json:"universe"`
+	ChannelStart uint16 `json:"channelStart"`
+	ChannelEnd   uint16 `json:"channelEnd"`
 }
 
 // DetectCollisions validates every entry in p and returns every Finding, in

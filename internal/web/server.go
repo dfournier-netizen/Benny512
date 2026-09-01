@@ -310,6 +310,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/device/{uid}/sensors/record", s.handleRecordDeviceSensors)
 	s.mux.HandleFunc("POST /api/device/{uid}/sensors/reset", s.handleResetDeviceSensors)
 	s.mux.HandleFunc("GET /api/device/{uid}/status", s.handleGetDeviceStatus)
+	s.mux.HandleFunc("GET /api/device/{uid}/service-life", s.handleGetServiceLife)
+	s.mux.HandleFunc("POST /api/device/{uid}/service-life", s.handleSetServiceLifeField)
+	s.mux.HandleFunc("GET /api/device/{uid}/actions", s.handleGetDeviceActions)
+	s.mux.HandleFunc("GET /api/device/{uid}/factory-defaults", s.handleGetFactoryDefaults)
+	s.mux.HandleFunc("POST /api/device/{uid}/factory-defaults", s.handleSetFactoryDefaults)
+	s.mux.HandleFunc("POST /api/device/{uid}/reset", s.handleResetDevice)
+	s.mux.HandleFunc("GET /api/device/{uid}/supported-parameters", s.handleGetSupportedParameters)
 
 	// --- Phase 1c+: node/network configuration ---
 	s.mux.HandleFunc("POST /api/node/{ip}/address", s.handleNodeAddress)
@@ -489,8 +496,13 @@ type fixtureJSON struct {
 	ManufacturerLabelKnown bool   `json:"manufacturerLabelKnown"`
 	ModelDescription       string `json:"modelDescription,omitempty"`
 	ModelDescriptionKnown  bool   `json:"modelDescriptionKnown"`
-	DeviceModelID          uint16 `json:"deviceModelId,omitempty"`
-	HasDeviceInfo          bool   `json:"hasDeviceInfo"`
+	// DeviceModelID deliberately has NO `omitempty`: HasDeviceInfo already
+	// distinguishes "not yet fetched" from "fetched", so once HasDeviceInfo
+	// is true, DeviceModelID==0 must still round-trip as the value
+	// actually reported rather than silently vanish from the wire — the
+	// same defect class as Entry.Universe.
+	DeviceModelID uint16 `json:"deviceModelId"`
+	HasDeviceInfo bool   `json:"hasDeviceInfo"`
 
 	// Unreachable / UnreachableNote / RetryAt state that Benny512 has
 	// stopped asking this device, and why.
@@ -510,6 +522,29 @@ type fixtureJSON struct {
 	Unreachable     bool       `json:"unreachable"`
 	UnreachableNote string     `json:"unreachableNote,omitempty"`
 	RetryAt         *time.Time `json:"retryAt,omitempty"`
+
+	// ProxiedDeviceCount/ProxiedDeviceCountKnown/ProxiedListChanged surface
+	// this device's own PROXIED_DEVICE_COUNT report as structured data
+	// (Phase D task 1) for a device-level "proxy" badge — the generic
+	// parameter editor no longer shows PROXIED_DEVICES/PROXIED_DEVICE_COUNT
+	// as rows at all (params.TierHidden), so this is now the ONLY way
+	// either fact reaches the UI. ProxiedDeviceCountKnown is false until at
+	// least one GET for the PID has ACKed for this device (e.g. via
+	// Introspect, or any UI action that happens to fetch it) — most demo/
+	// real devices that don't proxy anything will simply never have this
+	// populated, which the UI should render as "no badge", not "zero
+	// proxied devices". ProxiedListChanged mirrors the PID's own List
+	// Change flag (E1.20 §8.4.1); nothing server-side currently acts on it.
+	// ProxiedDeviceCount deliberately has NO `omitempty`: once
+	// ProxiedDeviceCountKnown is true, a proxy that currently has 0
+	// devices attached is real, distinct data from "never asked" — the
+	// same defect class as Entry.Universe. ProxiedListChanged keeps
+	// `omitempty` deliberately: it is a boolean where false ("no change")
+	// and "not yet known" render identically either way (there's no
+	// paired *Known flag for it to distinguish from), so nothing is lost.
+	ProxiedDeviceCount      uint16 `json:"proxiedDeviceCount"`
+	ProxiedDeviceCountKnown bool   `json:"proxiedDeviceCountKnown"`
+	ProxiedListChanged      bool   `json:"proxiedListChanged,omitempty"`
 }
 
 // unreachableNote is the one place the "we stopped asking" sentence is
@@ -566,6 +601,8 @@ func toFixtureJSON(f registry.Fixture) fixtureJSON {
 		ModelDescription: f.ModelDescription, ModelDescriptionKnown: f.ModelDescriptionKnown,
 		DeviceModelID: f.DeviceModelID, HasDeviceInfo: f.HasDeviceInfo,
 		Unreachable: f.ProxyUnreachable, UnreachableNote: unreachableNote(f),
+		ProxiedDeviceCount: f.ProxiedDeviceCount, ProxiedDeviceCountKnown: f.ProxiedDeviceCountKnown,
+		ProxiedListChanged: f.ProxiedListChanged,
 	}
 	if f.ProxyUnreachable && !f.ProxyRetryAt.IsZero() {
 		at := f.ProxyRetryAt

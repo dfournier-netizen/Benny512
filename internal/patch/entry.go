@@ -101,15 +101,38 @@ type Entry struct {
 	// Footprint is the number of DMX channels this entry occupies, starting
 	// at StartAddress. Zero is tolerated (a splitter/gateway/data device) —
 	// see DetectCollisions for how zero-footprint entries are flagged
-	// without being treated as a hard error.
-	Footprint uint16 `json:"footprint,omitempty"`
+	// without being treated as a hard error. Deliberately NO `omitempty`:
+	// zero is legitimate, meaningful data here (an unresolved GDTF import
+	// or a genuine data-device footprint, exactly what the collision
+	// detector's KindZeroFootprint reports on) — `omitempty` on a numeric
+	// field erases a real zero from the JSON rather than an absent value.
+	// An absent key still unmarshals to zero (see NewStore's "tolerant
+	// reader" comment), so dropping `omitempty` costs nothing for old/
+	// hand-written files and only fixes what a *present* zero looks like
+	// on the wire.
+	Footprint uint16 `json:"footprint"`
 	// Universe is the Art-Net Port-Address (raw value, 0-32767) this entry
 	// is patched into — matches the vocabulary/type every other screen in
 	// this app already uses for "universe" (see internal/walk.Device.
-	// PortAddress).
-	Universe uint16 `json:"universe,omitempty"`
+	// PortAddress). Deliberately NO `omitempty`: Universe 0 is the first,
+	// entirely ordinary Art-Net universe (displayed as "1" under the
+	// owner's default 1-based UniverseBase) — not an absent/unset
+	// sentinel. `omitempty` here previously erased every universe-0 entry
+	// from GET /api/patch's JSON, leaving `e.universe` `undefined`
+	// client-side; the sort comparator's `a.universe - b.universe` then
+	// produced NaN for those rows, and Array.prototype.sort's unspecified
+	// behavior on a NaN-returning comparator silently misplaced them (root
+	// cause of the "universes 1-3 intermingled" bug). This project hit
+	// this exact defect class before on sensorReadingJSON's range/normal-
+	// band fields (see internal/web/device.go) — do not reintroduce it.
+	Universe uint16 `json:"universe"`
 	// StartAddress is the 1-based DMX slot this entry starts at.
-	StartAddress uint16 `json:"startAddress,omitempty"`
+	// Deliberately NO `omitempty`: a hand-entered, not-yet-addressed entry
+	// legitimately has StartAddress==0 (DetectCollisions' KindInvalidAddress
+	// flags it, rather than treating a missing value specially), and that
+	// zero must round-trip as an explicit `"startAddress":0` for the same
+	// reason as Universe above.
+	StartAddress uint16 `json:"startAddress"`
 	// Position is a free-text location label (e.g. "US Truss 3", "SR Boom").
 	Position string `json:"position,omitempty"`
 	// FixtureNumber is the console channel/FixtureID concept — free text

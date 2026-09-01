@@ -44,16 +44,11 @@
         <h1 class="b5-page-header__title">Nodes</h1>
         <span class="b5-page-header__meta"><button id="btnRefreshNodes" class="b5-btn b5-btn--sm"><svg><use href="/icons/benny512-icons.svg#b5-icon-refresh"/></svg>Refresh</button></span>
       </div>
-      <p class="b5-text-muted b5-text-sm">Art-Net nodes on this network. RDM capability shown per node.</p>
+      <p class="b5-text-muted b5-text-sm">Art-Net nodes on this network, grouped by physical device (ports on the same box share one block) and sorted by IP. RDM capability shown per device.</p>
       <div class="b5-split">
         <div class="b5-panel">
           <div class="b5-panel__body--flush">
-            <table class="b5-table b5-table--responsive" id="nodesTable">
-              <thead><tr>
-                <th>Name</th><th class="b5-table__mono">IP</th><th>Ports / Universes</th><th>Status</th><th>Last seen</th>
-              </tr></thead>
-              <tbody></tbody>
-            </table>
+            <div class="b5-accordion" id="nodesAccordion"></div>
           </div>
         </div>
         <div class="b5-panel" id="nodeDetail">
@@ -70,11 +65,12 @@
       </div>
       <div class="b5-panel" id="devicePickerPanel" style="margin-bottom:var(--b5-space-4)">
         <div class="b5-panel__header">
-          <h2 class="b5-panel__title b5-text-sm">Target device / port</h2>
-          <span class="b5-text-muted b5-text-xs">Ports on the same physical device are grouped together — pick a device, then the port that Discover and port-scoped Clear act on.</span>
+          <h2 class="b5-panel__title b5-text-sm">Target node / port</h2>
+          <span class="b5-text-muted b5-text-xs">The node/port that Discover and port-scoped Clear act on.</span>
         </div>
-        <div class="b5-panel__body--flush">
-          <div class="b5-accordion" id="devicePickerAccordion"></div>
+        <div class="b5-panel__body">
+          <label class="b5-visually-hidden" for="fixtureNodeSelect">Node / port</label>
+          <select id="fixtureNodeSelect" class="b5-select"><option value="">No nodes discovered yet</option></select>
         </div>
       </div>
       <div class="b5-filterbar">

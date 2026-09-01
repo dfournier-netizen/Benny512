@@ -129,6 +129,10 @@ const (
 	PIDStatusIDDescription            ParameterID = 0x0031
 	PIDClearStatusID                  ParameterID = 0x0032
 	PIDSubDeviceStatusReportThreshold ParameterID = 0x0033
+	// PIDQueuedMessageSensorSubscribe rounds out the Status Collection
+	// category's PID block. Verified against the ANSI E1.20-2025 PDF's own
+	// Table A-3 (Phase D backend pass) — not previously declared here.
+	PIDQueuedMessageSensorSubscribe ParameterID = 0x0034
 
 	PIDSupportedParameters       ParameterID = 0x0050
 	PIDParameterDescription      ParameterID = 0x0051

@@ -636,6 +636,22 @@ const PatchScreen = (() => {
       .some(v => (v || '').toLowerCase().includes(q)));
   }
 
+  // uniOf/addrOf: coerce an entry's canonical universe/startAddress to a
+  // real number before any arithmetic comparison. The server now always
+  // sends both fields explicitly (entry.go's Universe/StartAddress dropped
+  // `omitempty`, fixing the bug where a canonical universe-0 entry had its
+  // "universe" key omitted entirely, e.universe arrived as `undefined`,
+  // and a bare `a.universe - b.universe` evaluated to NaN — sorting
+  // universe-0/display-"1" rows out of order while every other universe
+  // sorted fine). These helpers are kept anyway as defense in depth (this
+  // project's established practice — see sensorReadingJSON's HasRange/
+  // HasNormalBand precedent) against any future producer of entry-shaped
+  // data (an importer, a hand-crafted fixture, a stale cached response)
+  // that omits the key again. `|| 0` is safe here since 0 is the only
+  // falsy canonical value either field can legitimately hold.
+  function uniOf(e) { return e.universe || 0; }
+  function addrOf(e) { return e.startAddress || 0; }
+
   function sortEntries(entries, mode) {
     const out = entries.slice();
     const cmpStr = (a, b) => (a || '').localeCompare(b || '');
@@ -645,7 +661,7 @@ const PatchScreen = (() => {
       case 'fixtureNumber': out.sort((a, b) => cmpStr(a.fixtureNumber, b.fixtureNumber)); break;
       case 'address':
       default:
-        out.sort((a, b) => (a.universe - b.universe) || (a.startAddress - b.startAddress) || cmpStr(a.name, b.name));
+        out.sort((a, b) => (uniOf(a) - uniOf(b)) || (addrOf(a) - addrOf(b)) || cmpStr(a.name, b.name));
     }
     return out;
   }
@@ -942,19 +958,6 @@ const PatchScreen = (() => {
               <span class="b5-field__actions"><button id="bulkApplyPosition" class="b5-btn b5-btn--sm b5-btn--primary" ${bulkApplying ? 'disabled' : ''}>${UI.icon('apply')}Apply</button></span>
             </div>
           </div>
-          <div class="b5-field" style="border-top:1px solid var(--b5-border-subtle);padding-top:var(--b5-space-3)">
-            <label class="b5-field__label">Fix pre-fix MVR import (one-time correction)</label>
-            <span class="b5-field__hint">
-              Patches imported from MVR before the universe off-by-one fix were stored one
-              universe too high. Select ONLY the affected entries above, then shift them down
-              by exactly one universe. Start addresses are unchanged. Re-selecting and running
-              this again on already-corrected entries WILL shift them too far — check the
-              before/after list in the confirmation carefully.
-            </span>
-            <div class="b5-field__row" style="margin-top:var(--b5-space-2)">
-              <button id="bulkShiftDown" class="b5-btn b5-btn--sm" ${bulkApplying ? 'disabled' : ''}>Shift selected down one universe&hellip;</button>
-            </div>
-          </div>
           <div class="b5-row">
             <button id="bulkClearSelection" class="b5-btn b5-btn--sm b5-btn--ghost" ${bulkApplying ? 'disabled' : ''}>Clear selection</button>
             ${bulkApplying ? `<span class="b5-inline-wait">${UI.spinner()}Applying…</span>` : ''}
@@ -969,75 +972,6 @@ const PatchScreen = (() => {
     document.getElementById('bulkPosition').addEventListener('input', (e) => { bulkDraft.position = e.target.value; });
     document.getElementById('bulkApplyUniverse').addEventListener('click', () => runBulkApply('universe', selected));
     document.getElementById('bulkApplyPosition').addEventListener('click', () => runBulkApply('position', selected));
-    document.getElementById('bulkShiftDown').addEventListener('click', () => runShiftDownOneUniverse(selected));
-  }
-
-  // runShiftDownOneUniverse: the Task-1 migration action for patches that
-  // were imported from MVR before the universe off-by-one fix (see
-  // mvrparse.js's "CONVENTION MISMATCH" comment). Deliberately NOT an
-  // automatic startup migration — this app cannot reliably tell an
-  // MVR-imported entry apart from a hand-entered or adopt-from-RDM one
-  // (entryRequest/patch.Entry carry no provenance field), so silently
-  // reinterpreting every entry's universe on load risks shifting entries
-  // that were never wrong in the first place. Instead this is an explicit,
-  // user-aimed, selection-scoped action: the tech selects exactly the rows
-  // they know came from the affected MVR import (the existing multi-select
-  // checkboxes/shift-click range-select already built for bulk edit), the
-  // confirm() dialog lists every entry's exact old -> new universe so a
-  // mis-selection is visible before anything is sent, and a universe-0
-  // entry in the selection (which cannot shift down without going
-  // negative) aborts the WHOLE batch rather than silently clamping one
-  // entry — better to force the tech to look again than to leave a subset
-  // silently unshifted. Selection is cleared after a successful run so an
-  // accidental second click of this button (now with 0 selected) is a
-  // no-op instead of a silent double-shift.
-  async function runShiftDownOneUniverse(selected) {
-    const errEl = document.getElementById('bulkError');
-    errEl.innerHTML = '';
-    const n = selected.length;
-    if (!n) { errEl.innerHTML = UI.icon('status-error') + 'no entries selected'; return; }
-    const zeroUniverse = selected.filter(e => (e.universe || 0) === 0);
-    if (zeroUniverse.length) {
-      errEl.innerHTML = UI.icon('status-error') +
-        `${zeroUniverse.length} selected entr${zeroUniverse.length === 1 ? 'y is' : 'ies are'} already at universe ` +
-        `${UI.formatUniverse(0)} (cannot shift below universe 0) — deselect ${zeroUniverse.length === 1 ? 'it' : 'them'} ` +
-        `(${zeroUniverse.map(e => e.name || e.fixtureType || e.id).join(', ')}) and try again`;
-      return;
-    }
-    const lines = selected
-      .slice(0, 25)
-      .map(e => `  ${e.name || e.fixtureType || e.id}: universe ${UI.formatUniverse(e.universe)} → ${UI.formatUniverse(e.universe - 1)}`)
-      .join('\n');
-    const more = n > 25 ? `\n  ...and ${n - 25} more` : '';
-    if (!confirm(
-      `Shift ${n} selected entr${n === 1 ? 'y' : 'ies'} down by exactly one universe? Start addresses stay unchanged. ` +
-      `This is the one-time fix for entries imported from MVR before the universe numbering fix — running it on ` +
-      `entries that are already correct WILL make them wrong.\n\n${lines}${more}`
-    )) return;
-    bulkApplying = true;
-    renderEntryEditor();
-    const errors = [];
-    for (const e of selected) {
-      const draft = {
-        name: e.name || '', fixtureType: e.fixtureType || '', mode: e.mode || '',
-        footprint: e.footprint || 0, universe: (e.universe || 0) - 1, startAddress: e.startAddress || 1,
-        position: e.position || '', fixtureNumber: e.fixtureNumber || '', notes: e.notes || '',
-      };
-      try {
-        patchData = await Api.updatePatchEntry(e.id, draft);
-      } catch (err) {
-        errors.push((e.name || e.fixtureType || e.id) + ': ' + err.message);
-      }
-    }
-    bulkApplying = false;
-    setStatus(errors.length ? `shifted ${n - errors.length} of ${n}, ${errors.length} error(s)` : `shifted ${n} entries down one universe`);
-    try { collisions = patchData.active ? (await Api.getPatchCollisions() || []) : []; } catch (e) { /* best-effort */ }
-    if (!errors.length) clearSelection(); // no-op on an accidental second click
-    render();
-    if (errors.length) {
-      const err2 = document.getElementById('bulkError');
-      if (err2) err2.innerHTML = UI.icon('status-error') + errors.join('; ');
-    }
   }
 
   async function runBulkApply(field, selected) {

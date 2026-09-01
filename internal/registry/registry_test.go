@@ -485,6 +485,53 @@ func TestUnreachableDeviceIsStatedNotSilentlyIncomplete(t *testing.T) {
 	}
 }
 
+// TestReclassifyDecodesProxiedDeviceCountStructured guards Phase D task 1's
+// "expose proxy status as structured data" ask: a PROXIED_DEVICE_COUNT ACK
+// must populate Fixture's ProxiedDeviceCount/ProxiedDeviceCountKnown/
+// ProxiedListChanged fields fully (not just the pre-existing IsWirelessProxy
+// boolean), using the E1.20 §8.4.1-confirmed 3-byte wire shape
+// (internal/rdm/proxy.go) rather than the 2-byte guess this case used to
+// stop at.
+func TestReclassifyDecodesProxiedDeviceCountStructured(t *testing.T) {
+	f := &Fixture{}
+	data := rdm.EncodeProxiedDeviceCount(rdm.ProxiedDeviceCount{Count: 3, ListChanged: true})
+	reclassify(f, rdm.PIDProxiedDeviceCount, data)
+
+	if !f.ProxiedDeviceCountKnown {
+		t.Fatal("ProxiedDeviceCountKnown = false, want true after a PROXIED_DEVICE_COUNT ACK")
+	}
+	if f.ProxiedDeviceCount != 3 {
+		t.Errorf("ProxiedDeviceCount = %d, want 3", f.ProxiedDeviceCount)
+	}
+	if !f.ProxiedListChanged {
+		t.Error("ProxiedListChanged = false, want true")
+	}
+	if !f.IsWirelessProxy {
+		t.Error("IsWirelessProxy = false, want true (non-zero proxied count)")
+	}
+}
+
+// TestReclassifyZeroProxiedDeviceCountKnownButNotWireless proves a
+// confirmed-zero PROXIED_DEVICE_COUNT (a device that answers the PID but
+// currently proxies nothing) is recorded as Known without flipping
+// IsWirelessProxy — "answered, currently zero" must be distinguishable from
+// "never asked" downstream.
+func TestReclassifyZeroProxiedDeviceCountKnownButNotWireless(t *testing.T) {
+	f := &Fixture{}
+	data := rdm.EncodeProxiedDeviceCount(rdm.ProxiedDeviceCount{Count: 0})
+	reclassify(f, rdm.PIDProxiedDeviceCount, data)
+
+	if !f.ProxiedDeviceCountKnown {
+		t.Fatal("ProxiedDeviceCountKnown = false, want true")
+	}
+	if f.ProxiedDeviceCount != 0 {
+		t.Errorf("ProxiedDeviceCount = %d, want 0", f.ProxiedDeviceCount)
+	}
+	if f.IsWirelessProxy {
+		t.Error("IsWirelessProxy = true, want false for a confirmed-zero count")
+	}
+}
+
 // awaitFixture polls reg until uid's fixture satisfies cond. Registry.Run()
 // applies events on its own goroutine, so a command completing does not mean
 // the registry has caught up yet.

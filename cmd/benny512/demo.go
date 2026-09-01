@@ -184,9 +184,30 @@ func (d *demoDevice) handle(msg rdm.Message) (data []byte, nack bool, reason rdm
 		d.sensorVals[idx] = v
 		return nil, false, 0
 	case rdm.PIDProxiedDeviceCount:
-		b := make([]byte, 2)
-		binary.BigEndian.PutUint16(b, d.proxiedDeviceCount)
-		return b, false, 0
+		// 3-byte shape confirmed against the ANSI E1.20-2025 PDF (§8.4.1):
+		// UINT16 count + 1-byte List Change flag — see internal/rdm/proxy.go.
+		return rdm.EncodeProxiedDeviceCount(rdm.ProxiedDeviceCount{Count: d.proxiedDeviceCount}), false, 0
+	case rdm.PIDResetDevice:
+		// Phase D task 2/4: mirror real hardware's E1.20 §10.11.2 behavior
+		// exactly, rather than falling into the generic paramValues
+		// echo-back the default branch would otherwise give it (which would
+		// wrongly let a GET succeed): no GET form exists at all, and a SET
+		// is only legal with PD == Warm(0x01) or Cold(0xFF).
+		if msg.CommandClass == rdm.GetCommand {
+			return nil, true, rdm.NackUnsupportedCommandClass
+		}
+		if len(msg.ParameterData) != 1 || (msg.ParameterData[0] != byte(rdm.ResetWarm) && msg.ParameterData[0] != byte(rdm.ResetCold)) {
+			return nil, true, rdm.NackFormatError
+		}
+		return nil, false, 0
+	case rdm.PIDFactoryDefaults:
+		// GET returns the 1-byte boolean status; SET (PDL=0, no PD) is the
+		// "revert now" trigger and always succeeds in demo mode.
+		if msg.CommandClass == rdm.SetCommand {
+			d.paramValues[rdm.PIDFactoryDefaults] = []byte{0} // demo: reverting always lands on "not currently default" for realism
+			return nil, false, 0
+		}
+		return d.paramValues[rdm.PIDFactoryDefaults], false, 0
 	case rdm.PIDCurveDescription:
 		// Task ask: "a fake fixture exposes a curve PID with descriptions
 		// (so the labeled dropdown is exercisable)". CURVE itself (current +
@@ -560,11 +581,41 @@ func buildDemoDevices(en4IP, wirelessIP netip.Addr, port0, port1, port2 artnet.P
 	dmxAddr := func(v uint16) []byte { return []byte{byte(v >> 8), byte(v)} }
 
 	// --- five plain fixtures (kept from the original demo set) ---
+	//
+	// wash1 additionally exercises Phase D's whole PID set (task 4: "at
+	// least one demo device supporting the service-life PIDs, pan/tilt
+	// invert, display settings and RESET_DEVICE"): DEVICE_HOURS/LAMP_HOURS/
+	// LAMP_STRIKES/LAMP_STATE/DEVICE_POWER_CYCLES, PAN_INVERT/TILT_INVERT/
+	// PAN_TILT_SWAP, DISPLAY_INVERT/DISPLAY_LEVEL, FACTORY_DEFAULTS and
+	// RESET_DEVICE. wash2 is deliberately left as a plain fixture with NONE
+	// of these advertised (task 4's other half: "at least one that does
+	// NOT, to prove the UI degrades") — same manufacturer/model as wash1 so
+	// the only visible difference on the Devices screen is which Phase D
+	// fields actually resolve.
 	wash1 := &demoDevice{
 		uid: rdm.UID{ManufacturerID: 0x2222, DeviceID: 1}, label: "Wash 1", mfrLabel: "Robe", model: "Wash",
 		nodeIP: en4IP, port: port0, startAdr: 1,
-		deviceInfo:  basePV(rdm.CategoryFixtureMovingYoke, 20, 2, 0),
-		paramValues: map[rdm.ParameterID][]byte{rdm.PIDDMXStartAddress: dmxAddr(1), rdm.PIDDMXPersonality: {1, 2}, rdm.PIDIdentifyDevice: {0}},
+		deviceInfo: basePV(rdm.CategoryFixtureMovingYoke, 20, 2, 0),
+		supportedExtra: []rdm.ParameterID{
+			rdm.PIDDeviceHours, rdm.PIDLampHours, rdm.PIDLampStrikes, rdm.PIDLampState, rdm.PIDDevicePowerCycles,
+			rdm.PIDPanInvert, rdm.PIDTiltInvert, rdm.PIDPanTiltSwap,
+			rdm.PIDDisplayInvert, rdm.PIDDisplayLevel,
+			rdm.PIDFactoryDefaults, rdm.PIDResetDevice,
+		},
+		paramValues: map[rdm.ParameterID][]byte{
+			rdm.PIDDMXStartAddress: dmxAddr(1), rdm.PIDDMXPersonality: {1, 2}, rdm.PIDIdentifyDevice: {0},
+			rdm.PIDDeviceHours:       rdm.EncodeUint32Counter(2140),
+			rdm.PIDLampHours:         rdm.EncodeUint32Counter(430),
+			rdm.PIDLampStrikes:       rdm.EncodeUint32Counter(58),
+			rdm.PIDLampState:         rdm.EncodeLampState(rdm.LampOn),
+			rdm.PIDDevicePowerCycles: rdm.EncodeUint32Counter(112),
+			rdm.PIDPanInvert:         {0},
+			rdm.PIDTiltInvert:        {0},
+			rdm.PIDPanTiltSwap:       {0},
+			rdm.PIDDisplayInvert:     {0},
+			rdm.PIDDisplayLevel:      {255},
+			rdm.PIDFactoryDefaults:   {0}, // not currently at factory defaults
+		},
 	}
 	wash2 := &demoDevice{
 		uid: rdm.UID{ManufacturerID: 0x2222, DeviceID: 2}, label: "Wash 2", mfrLabel: "Robe", model: "Wash",

@@ -1,11 +1,110 @@
 package patch
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
+
+// TestEntry_MarshalJSON_ZeroUniverseStartAddressFootprintPresent guards the
+// root-cause bug: `omitempty` on a numeric field erases a legitimate zero
+// from the JSON. Asserting a struct field equals 0 after unmarshal would be
+// vacuous (it's the zero value either way, `omitempty` or not) — this
+// checks the actual marshalled BYTES contain the key with value 0, which is
+// exactly what fails when `omitempty` is present: a canonical universe-0
+// entry (display "1" under the app's default 1-based UniverseBase) would be
+// missing "universe" from GET /api/patch's JSON, leaving the client's
+// e.universe `undefined` and its sort comparator's `a.universe -
+// b.universe` producing NaN — the confirmed root cause of "universes 1-3
+// intermingled, universes >10 fine".
+func TestEntry_MarshalJSON_ZeroUniverseStartAddressFootprintPresent(t *testing.T) {
+	e := Entry{ID: "e1", Universe: 0, StartAddress: 0, Footprint: 0}
+	data, err := json.Marshal(e)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	got := string(data)
+	for _, want := range []string{`"universe":0`, `"startAddress":0`, `"footprint":0`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("marshalled entry missing %s; got %s", want, got)
+		}
+	}
+}
+
+// TestEntry_MarshalJSON_NonzeroValuesStillRoundTrip is the companion check:
+// removing `omitempty` must not change how a non-zero value round-trips.
+func TestEntry_MarshalJSON_NonzeroValuesStillRoundTrip(t *testing.T) {
+	e := Entry{ID: "e1", Universe: 3, StartAddress: 17, Footprint: 24}
+	data, err := json.Marshal(e)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var got Entry
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if got.Universe != 3 || got.StartAddress != 17 || got.Footprint != 24 {
+		t.Errorf("round-trip mismatch: got %+v", got)
+	}
+}
+
+// TestEntry_UnmarshalJSON_AbsentKeysStillZero confirms backward
+// compatibility: an old/hand-written patch file that never had "universe",
+// "startAddress" or "footprint" keys at all must still unmarshal them to
+// their zero value, exactly as before this fix (dropping `omitempty` only
+// changes what MARSHAL emits — encoding/json's Unmarshal never consulted
+// the `omitempty` option to begin with).
+func TestEntry_UnmarshalJSON_AbsentKeysStillZero(t *testing.T) {
+	var e Entry
+	if err := json.Unmarshal([]byte(`{"id":"e1","name":"old entry"}`), &e); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if e.Universe != 0 || e.StartAddress != 0 || e.Footprint != 0 {
+		t.Errorf("expected zero-valued numeric fields from absent keys, got %+v", e)
+	}
+	if e.Name != "old entry" {
+		t.Errorf("Name = %q, want %q", e.Name, "old entry")
+	}
+}
+
+// TestStore_RoundTripPersistsUniverseZero exercises the real on-disk path
+// (Store.persistLocked -> NewStore's tolerant read) end to end: a saved
+// patch entry at universe 0 must come back as universe 0, not silently
+// vanish, confirming the fix is backward- and forward-compatible with the
+// persisted benny512-patch.json format and migrate().
+func TestStore_RoundTripPersistsUniverseZero(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "benny512-patch.json")
+
+	st := NewStore(path)
+	p := st.EnsureActive()
+	p.Entries = []Entry{{ID: "e1", Name: "First universe fixture", Universe: 0, StartAddress: 1, Footprint: 4}}
+	st.Replace(p)
+
+	// Read the raw persisted file to confirm universe 0 is actually ON DISK
+	// as an explicit key, not merely reconstructible some other way.
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(string(raw), `"universe": 0`) {
+		t.Errorf("persisted file missing explicit universe:0; got:\n%s", raw)
+	}
+
+	// Reload via a fresh Store (mirrors a server restart) and confirm the
+	// entry survives with its universe intact.
+	st2 := NewStore(path)
+	got, ok := st2.Get()
+	if !ok {
+		t.Fatalf("Get() ok=false after reload")
+	}
+	if len(got.Entries) != 1 || got.Entries[0].Universe != 0 || got.Entries[0].ID != "e1" {
+		t.Errorf("reloaded patch = %+v, want one entry at universe 0", got.Entries)
+	}
+}
 
 func TestFormatAddressRange_EntryEndAddress(t *testing.T) {
 	cases := []struct {

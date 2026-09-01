@@ -408,7 +408,15 @@ type fixAllResponse struct {
 	NeedsConfirm bool             `json:"needsConfirm"`
 	Count        int              `json:"count"`
 	Items        []fixAllItemJSON `json:"items"`
-	Applied      int              `json:"applied,omitempty"`
+	// Applied deliberately has NO `omitempty`: 0 applied (every SET
+	// attempt errored) is real, meaningful data on a Confirm=true call,
+	// not an absent value — patch.js's onFixAll reads `result.applied`
+	// directly (no `|| 0` guard) to render "fixed N of M", so an omitted
+	// key here rendered as "fixed undefined of M" whenever every fix
+	// failed. Zero-valued on every Confirm=false preview response too,
+	// which is fine — NeedsConfirm:true already tells the client nothing
+	// was applied, independent of this field's value.
+	Applied int `json:"applied"`
 }
 
 // handlePatchReconcileFixAll previews (Confirm=false) or applies

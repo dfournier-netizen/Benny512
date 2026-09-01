@@ -253,9 +253,9 @@ svg {
 
 /* ---- Devices screen: clear-devices controls ------------------------------
    Scope buttons sit in the same filter bar row as the "Discover" button, and
-   both act on the port chosen in #devicePickerAccordion just above (the
-   device/port picker, Phase B) — so the "which port" choice driving Discover
-   is visually the same choice driving a scoped Clear (task ask). Danger-ghost
+   both act on the port chosen in #fixtureNodeSelect just above (the flat
+   node/port select) — so the "which port" choice driving Discover is
+   visually the same choice driving a scoped Clear (task ask). Danger-ghost
    by default; the arm-then-confirm
    step (js) swaps the armed button to solid .b5-btn--danger so "one more
    click deletes data" reads as a distinct, more alarming state than the
@@ -424,38 +424,32 @@ td[data-label="Input enabled"] .b5-checkbox { margin-right: var(--b5-space-2); }
 }
 .b5-patch-row--selected { background: rgba(58, 130, 217, 0.10); }
 
-/* ---- Devices: device/port picker (Phase B, grouping ports by physical
-   device — devices.js's renderDevicePicker/renderDeviceGroup/renderPortRow).
-   Each device group is a native <details>/<summary> (the established
-   .b5-accordion__item/.b5-accordion__trigger pattern, see patch.js/walk.js);
-   inside, one selectable row per port reuses the kit's .b5-checkbox
-   label+input layout (inline-flex, touch-sized) with a radio input instead
-   of a checkbox — accent-color styles either input type, so no new control
-   CSS was needed there. This block only adds the port-row layout (stacked,
-   not inline, since a port's badges wrap onto their own line on narrow
-   screens) and a visible "this is the current target" state that does NOT
-   rely on color alone: is-selected also gets a bordered outline, and the
+/* ---- Nodes: device accordion (grouping ports by physical device —
+   nodes.js's renderAccordion/renderDeviceGroup/renderPortRow). Moved here
+   from the Devices screen (Phase B originally landed there; owner
+   clarified "apply that same sorting and feature set... to the nodes tab,
+   not devices... revert the changes to the device tab" — the Devices
+   screen is back to a flat node/port <select>, see its own CSS elsewhere
+   in this file). Each device group is a native <details>/<summary> (the
+   established .b5-accordion__item/.b5-accordion__trigger pattern, see
+   patch.js/walk.js); inside, one selectable row per port reuses the kit's
+   .b5-checkbox label+input layout (inline-flex, touch-sized) with a radio
+   input instead of a checkbox — accent-color styles either input type, so
+   no new control CSS was needed there. is-selected on the row does NOT
+   rely on color alone: it also gets a bordered/background tint, and the
    selected/unselected state is additionally carried by the native radio's
    own checked appearance, which remains visible regardless of custom
    styling. ---- */
-.b5-port-pick {
-  display: flex;
-  width: 100%;
-  align-items: flex-start;
-  padding: var(--b5-space-2) var(--b5-space-3);
-  border-radius: var(--b5-radius-md);
-  border: var(--b5-border-width-thin) solid transparent;
-}
-.b5-port-pick + .b5-port-pick { margin-top: var(--b5-space-1); }
-.b5-port-pick:hover { background: var(--b5-color-bg-surface-raised); }
-.b5-port-pick.is-selected {
+#nodesAccordion .b5-accordion__panel { padding: 0 var(--b5-space-2) var(--b5-space-2); }
+#nodesAccordion tr.is-selected {
   background: rgba(58, 130, 217, 0.10);
-  border-color: var(--b5-color-accent-500);
 }
-.b5-port-pick span { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2); }
-#devicePickerAccordion .b5-accordion__panel { padding: var(--b5-space-2) var(--b5-space-4) var(--b5-space-4); }
+#nodesAccordion tr.is-selected td:first-child {
+  box-shadow: inset 3px 0 0 var(--b5-color-accent-500);
+}
 /* The kit hides .b5-accordion by default at >=768px (mobile-only fallback
    for the tab-strip pattern — see benny512-components.css / the existing
-   #walkAccordion override above). This picker has no tab-strip equivalent
-   and must show on every viewport, same reasoning as #walkAccordion. */
-#devicePickerAccordion.b5-accordion { display: block; }
+   #walkAccordion override above). This device grouping has no tab-strip
+   equivalent and must show on every viewport, same reasoning as
+   #walkAccordion. */
+#nodesAccordion.b5-accordion { display: block; }

@@ -232,19 +232,14 @@ func TestClearAllDeviceStateWipesPerUIDIntrospectionState(t *testing.T) {
 	}
 }
 
-// TestIntrospectReachesProxiedDevicePIDs guards task item 2 ("keep
-// PROXIED_DEVICES/PROXIED_DEVICE_COUNT reachable via the generic parameter
-// editor"): the Devices screen dropped its dedicated proxy-status callout
-// (0x0011 used to be fetched and rendered as a standalone "Proxied devices"
-// field), so Introspect's normal SUPPORTED_PARAMETERS walk is now the only
-// way either PID ever reaches the UI. Both PIDs are deliberately left out of
-// knownDecodedESTAPIDs so isEditorTarget still gives them a row — but
-// because they're standard, not manufacturer-specific, isDescribable must
-// keep resolveDescriptor from ever putting PARAMETER_DESCRIPTION for either
-// one on the wire (E1.20 §10.4.2 doesn't allow describing them, and RDM-LOG6
-// shows real hardware NACKs every such request anyway) — this test asserts
-// that silence directly, not just the descriptor shape it produces.
-func TestIntrospectReachesProxiedDevicePIDs(t *testing.T) {
+// TestIntrospectHidesProxiedDevicePIDs guards Phase D task 1's reversal of
+// an earlier task's ask: PROXIED_DEVICES/PROXIED_DEVICE_COUNT must NEVER
+// reach Introspect's descriptor list, even when a device advertises both in
+// SUPPORTED_PARAMETERS — classification.go's TierHidden (consulted by
+// isEditorTarget) is what makes that true now, not an editor-row special
+// case. Proxy status is surfaced elsewhere as structured data
+// (registry.Fixture.ProxiedDeviceCount, fed to fixtureJSON) instead.
+func TestIntrospectHidesProxiedDevicePIDs(t *testing.T) {
 	uid := rdm.UID{ManufacturerID: 0x6C74, DeviceID: 1}
 	supported := rdm.EncodeSupportedParameters([]rdm.ParameterID{rdm.PIDProxiedDevices, rdm.PIDProxiedDeviceCount})
 
@@ -269,18 +264,8 @@ func TestIntrospectReachesProxiedDevicePIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Introspect: %v", err)
 	}
-	if len(result.Descriptors) != 2 {
-		t.Fatalf("expected PROXIED_DEVICES and PROXIED_DEVICE_COUNT both reachable via Introspect, got %+v", result.Descriptors)
-	}
-	seen := map[rdm.ParameterID]bool{}
-	for _, d := range result.Descriptors {
-		seen[d.PID] = true
-		if d.SelfDescribing {
-			t.Errorf("PID 0x%04X: expected non-self-describing, got %+v", uint16(d.PID), d)
-		}
-	}
-	if !seen[rdm.PIDProxiedDevices] || !seen[rdm.PIDProxiedDeviceCount] {
-		t.Fatalf("descriptors=%+v, want both 0x0010 and 0x0011", result.Descriptors)
+	if len(result.Descriptors) != 0 {
+		t.Fatalf("expected PROXIED_DEVICES/PROXIED_DEVICE_COUNT hidden from Introspect entirely, got %+v", result.Descriptors)
 	}
 	if len(describedPIDs) != 0 {
 		t.Fatalf("PARAMETER_DESCRIPTION was sent for standard PIDs %v; both are out of E1.20's manufacturer-only PARAMETER_DESCRIPTION range", describedPIDs)
@@ -335,9 +320,33 @@ func TestIntrospectDoesNotProbeUndecodedStandardPIDs(t *testing.T) {
 	if len(describedPIDs) != 0 {
 		t.Fatalf("PARAMETER_DESCRIPTION sent for standard PIDs %v; only manufacturer-specific PIDs (0x8000-0xFFDF) may ever be described per E1.20 §10.4.2", describedPIDs)
 	}
-	if len(result.Descriptors) != len(standard) {
-		t.Fatalf("got %d descriptors, want %d (every standard PID should still surface, just without a live probe): %+v",
-			len(result.Descriptors), len(standard), result.Descriptors)
+	// Phase D task 1/2 have since given several of these PIDs either a
+	// dedicated typed field (knownDecodedESTAPIDs — the DEVICE_HOURS/LAMP_*/
+	// DEVICE_POWER_CYCLES/RESET_DEVICE/FACTORY_DEFAULTS family, servicelife.go)
+	// or a TierHidden classification (PROXIED_DEVICE_COUNT, COMMS_STATUS,
+	// CLEAR_STATUS_ID), so they no longer surface as generic-editor rows —
+	// see isEditorTarget. wantVisible excludes exactly those ten; the
+	// remaining fourteen are still plain "standard, no dedicated field, not
+	// hidden" PIDs that must still surface (this test's original point).
+	excludedNow := map[rdm.ParameterID]bool{
+		rdm.PIDProxiedDeviceCount: true, rdm.PIDCommsStatus: true, rdm.PIDClearStatusID: true,
+		rdm.PIDDeviceHours: true, rdm.PIDLampHours: true, rdm.PIDLampStrikes: true, rdm.PIDLampState: true,
+		rdm.PIDDevicePowerCycles: true, rdm.PIDResetDevice: true, rdm.PIDFactoryDefaults: true,
+	}
+	wantVisible := 0
+	for _, pid := range standard {
+		if !excludedNow[pid] {
+			wantVisible++
+		}
+	}
+	if len(result.Descriptors) != wantVisible {
+		t.Fatalf("got %d descriptors, want %d (every standard PID without a dedicated field or Hidden tier should still surface, just without a live probe): %+v",
+			len(result.Descriptors), wantVisible, result.Descriptors)
+	}
+	for _, d := range result.Descriptors {
+		if excludedNow[d.PID] {
+			t.Errorf("PID 0x%04X should have been excluded (dedicated field or Hidden tier) but got a descriptor row", uint16(d.PID))
+		}
 	}
 	for _, d := range result.Descriptors {
 		if d.SelfDescribing {
@@ -352,7 +361,13 @@ func TestIntrospectDoesNotProbeUndecodedStandardPIDs(t *testing.T) {
 // row, a PARAMETER_DESCRIPTION probe, or a GET target of any kind.
 func TestIntrospectDropsZeroPID(t *testing.T) {
 	uid := rdm.UID{ManufacturerID: 0x22A6, DeviceID: 0x004D09D1}
-	supported := rdm.EncodeSupportedParameters([]rdm.ParameterID{rdm.PIDDeviceHours, 0x0000})
+	// rdm.PIDRealTimeClock stands in for "an arbitrary standard PID with no
+	// dedicated field and no Hidden classification" — PIDDeviceHours no
+	// longer fits that description since Phase D task 2 gave it one (see
+	// TestIntrospectDoesNotProbeUndecodedStandardPIDs's excludedNow map),
+	// which would make this test's "want exactly one descriptor" assertion
+	// pass for the wrong reason.
+	supported := rdm.EncodeSupportedParameters([]rdm.ParameterID{rdm.PIDRealTimeClock, 0x0000})
 
 	var requestedPIDs []rdm.ParameterID
 	client, clock := newTestClient(t, uid, func(msg rdm.Message) ([]byte, bool, rdm.NackReason) {
@@ -374,8 +389,8 @@ func TestIntrospectDropsZeroPID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Introspect: %v", err)
 	}
-	if len(result.Descriptors) != 1 || result.Descriptors[0].PID != rdm.PIDDeviceHours {
-		t.Fatalf("descriptors=%+v, want exactly DEVICE_HOURS (0x0000 must be dropped)", result.Descriptors)
+	if len(result.Descriptors) != 1 || result.Descriptors[0].PID != rdm.PIDRealTimeClock {
+		t.Fatalf("descriptors=%+v, want exactly REAL_TIME_CLOCK (0x0000 must be dropped)", result.Descriptors)
 	}
 	for _, pid := range requestedPIDs {
 		if pid == 0 {

@@ -59,6 +59,19 @@ const DeviceDetail = (() => {
   const paramsCache = {};   // uid -> { lbl, di, pers, personalityDescs, identOn, dimmer:{...}, descriptors, values, introspecting, progress, loading }
   const sensorsCache = {};  // uid -> { readings, loading, error }
   const statusCache = {};   // uid -> { filter, messages, loading, error }
+  // serviceLifeCache/actionsCache: Phase D task 2/3's dedicated
+  // service-life fields and destructive-action capability surface — see
+  // ensureServiceLife/ensureActions below.
+  const serviceLifeCache = {}; // uid -> { loading, loaded, error, deviceHours, lampHours, lampStrikes, lampState, devicePowerCycles }
+  const actionsCache = {};     // uid -> { loading, loaded, error, resetDevice, factoryDefaults, lastNote }
+  // supportedCache: Phase D task 3's client-side probe gate — GET
+  // /supported-parameters resolved (and cached) once per uid, never
+  // refetched on a later render (task ask: "cache per device so you don't
+  // re-fetch on every render"), unlike infoCache/paramsCache's own base
+  // fields, which deliberately DO refresh on every ensureInfo/ensureParams
+  // call — SUPPORTED_PARAMETERS is a firmware-scoped fact for the life of
+  // this session, not something that changes render to render.
+  const supportedCache = {};   // uid -> { resolved, known, pids: Set<hex>, promise }
   // personalityDescCache: uid -> { [personalityIndex]: {Index, DMXFootprint,
   // Description} }, shared between the Info section (current personality
   // only, task ask: cheap default) and the Parameters section's dropdown /
@@ -98,6 +111,19 @@ const DeviceDetail = (() => {
   // falls back to it whenever activeElement isn't one of our own fields.
   let liveFieldState = null;
   let liveFieldTrackedContainer = null;
+  // destructiveArmed: Phase D task 3's arm-then-confirm gate for warm/cold
+  // RESET_DEVICE and FACTORY_DEFAULTS — same shape as the Devices screen's
+  // clear-devices arm/confirm (devices.js) and the node IP editor's
+  // Apply->Arm->Confirm gate (nodes.js), reimplemented here rather than
+  // shared because those two files are owned by other concurrent work.
+  // null | { uid, kind: 'warm'|'cold'|'factory' }. Auto-disarms after
+  // DESTRUCTIVE_ARM_TIMEOUT_MS of inactivity, and disarms immediately on
+  // any device reselect (see select() below) so a confirm click can never
+  // land on a device the tech has since navigated away from.
+  let destructiveArmed = null;
+  let destructiveBusy = false;
+  let destructiveArmTimer = null;
+  const DESTRUCTIVE_ARM_TIMEOUT_MS = 8000;
   // subscribers: (scope) => void, called after any async cache update.
   // scope names which section's data just changed — 'info' | 'params' |
   // 'sensors' | 'status' — so a caller showing only one of those at a time
@@ -200,6 +226,7 @@ const DeviceDetail = (() => {
     sections = sections || {};
     if (uid !== selectedUID) {
       unsubscribeSensors();
+      disarmDestructive(); // an armed warm/cold/factory-reset confirm belongs to the device it was armed against, never carried to the next selection
       selectedUID = uid;
       selectGen++;
       liveFieldState = null; // a draft belongs to the device it was typed against, never carried to the next selection
@@ -240,19 +267,178 @@ const DeviceDetail = (() => {
     sensorsSubscribedUID = null;
   }
 
+  // --- Phase D task 3: client-side speculative-probe gate -------------------
+  // The server already refuses to put a speculative PID on the wire when
+  // this UID's own SUPPORTED_PARAMETERS omits it (params.Client.getRaw's
+  // ensureAdvertised gate) — so RDM traffic itself was already protected
+  // before this file changed. What this section fixes is the browser side
+  // of the same bug (report bench finding: "191 wasted requests in one
+  // bench session"): devicedetail.js was still firing the HTTP request
+  // itself, unconditionally, for every optional PID on every device-detail
+  // load, and eating a guaranteed-fail round-trip for it. ensureSupportedSet
+  // resolves (and, unlike ensureInfo/ensureParams's own base fields, PERMANENTLY
+  // caches per uid — task ask: "cache per device so you don't re-fetch on
+  // every render") this UID's advertised-PID set so callers can skip the
+  // request entirely rather than send it and wait for a guaranteed error.
+  async function ensureSupportedSet(uid) {
+    let c = supportedCache[uid];
+    if (c && c.resolved) return c;
+    if (c && c.promise) return c.promise;
+    c = supportedCache[uid] = supportedCache[uid] || {};
+    c.promise = Api.getSupportedParameters(uid).then((res) => {
+      c.resolved = true;
+      c.known = !!res.known;
+      c.pids = new Set((res.pids || []).map((p) => p.toUpperCase()));
+      delete c.promise;
+      return c;
+    }, () => {
+      // The GET itself failing (network hiccup, etc.) is not the device
+      // telling us anything — fall back to "unknown", same as a device
+      // that NACKs/times out on SUPPORTED_PARAMETERS server-side.
+      c.resolved = true;
+      c.known = false;
+      c.pids = new Set();
+      delete c.promise;
+      return c;
+    });
+    return c.promise;
+  }
+
+  // pidProbeAllowed: false only when `supported` positively confirms pidHex
+  // is NOT in this UID's own SUPPORTED_PARAMETERS. Critical fallback (task
+  // brief, verbatim): "when known:false ... fall back to today's behavior
+  // — do not turn an optimization into a regression". A device whose
+  // SUPPORTED_PARAMETERS couldn't be resolved at all always returns true
+  // here, exactly like every PID did before this gate existed.
+  function pidProbeAllowed(supported, pidHex) {
+    if (!supported || !supported.known) return true;
+    return supported.pids.has(pidHex.toUpperCase());
+  }
+
+  // --- Phase D task 3: destructive-action arm-then-confirm ------------------
+
+  function armDestructive(uid, kind) {
+    destructiveArmed = { uid, kind };
+    clearTimeout(destructiveArmTimer);
+    destructiveArmTimer = setTimeout(disarmDestructive, DESTRUCTIVE_ARM_TIMEOUT_MS);
+    if (uid === selectedUID) notify('params');
+  }
+
+  function disarmDestructive() {
+    if (!destructiveArmed) return;
+    destructiveArmed = null;
+    clearTimeout(destructiveArmTimer);
+    destructiveArmTimer = null;
+    notify('params');
+  }
+
+  // confirmDestructive fires the armed action's actual write — mirrors
+  // devices.js's confirmClear(). Sends the server's required
+  // {"confirm":"RESET"} body (Api.resetDevice/setFactoryDefaults do this
+  // unconditionally; the arm step above is what actually protects the
+  // click on this side).
+  async function confirmDestructive(uid, statusSetter) {
+    if (!destructiveArmed || destructiveArmed.uid !== uid) return;
+    const kind = destructiveArmed.kind;
+    clearTimeout(destructiveArmTimer);
+    destructiveArmTimer = null;
+    destructiveBusy = true;
+    notify('params');
+    const ac = actionsCache[uid] || (actionsCache[uid] = {});
+    try {
+      const res = kind === 'factory' ? await Api.setFactoryDefaults(uid) : await Api.resetDevice(uid, kind);
+      ac.lastNote = res.note || 'Done.';
+      statusSetter(kind === 'factory' ? 'factory defaults sent' : `reset (${kind}) sent`);
+    } catch (e) {
+      ac.lastNote = 'Error: ' + e.message;
+      statusSetter('error: ' + e.message);
+    }
+    destructiveBusy = false;
+    destructiveArmed = null;
+    notify('params');
+  }
+
+  // --- Service life (Phase D task 2) ----------------------------------------
+  // Independently-optional per field (E1.20 §10.8's DEVICE_HOURS/LAMP_HOURS/
+  // LAMP_STRIKES/LAMP_STATE/DEVICE_POWER_CYCLES), same pattern the E1.37-1
+  // dimmer fields already use: one GET /service-life bundles all five
+  // best-effort server-side (see internal/web/device.go's serviceLifeJSON),
+  // so this needs no per-field client fan-out or gating of its own.
+  async function ensureServiceLife(uid, gen) {
+    const st = serviceLifeCache[uid] || (serviceLifeCache[uid] = {});
+    if (st.loading) return;
+    st.loading = true;
+    try {
+      const res = await Api.getServiceLife(uid);
+      if (!stillCurrent(uid, gen)) { st.loading = false; return; }
+      Object.assign(st, res, { loading: false, loaded: true, error: null });
+    } catch (e) {
+      if (!stillCurrent(uid, gen)) { st.loading = false; return; }
+      st.loading = false;
+      st.error = e.message;
+    }
+    if (stillCurrent(uid, gen)) notify('params');
+  }
+
+  async function saveServiceLifeField(uid, field, value, statusSetter) {
+    await Api.setServiceLife(uid, field, value);
+    statusSetter('applied ' + field);
+    const st = serviceLifeCache[uid];
+    if (st) st.loading = false; // allow ensureServiceLife to run again and re-baseline
+    if (uid === selectedUID) ensureServiceLife(uid, selectGen);
+  }
+
+  // --- Destructive-action capability surface (Phase D task 3) ---------------
+  // GET /actions resolves (and server-side caches) whether RESET_DEVICE/
+  // FACTORY_DEFAULTS are advertised at all. known:false MUST read as "don't
+  // know" here too — see deviceActionsJSON's doc comment — so a device this
+  // hasn't resolved for yet simply shows neither button rather than a false
+  // "not supported".
+  async function ensureActions(uid, gen) {
+    const st = actionsCache[uid] || (actionsCache[uid] = {});
+    if (st.loading) return;
+    st.loading = true;
+    try {
+      const res = await Api.getDeviceActions(uid);
+      if (!stillCurrent(uid, gen)) { st.loading = false; return; }
+      st.resetDevice = res.resetDevice;
+      st.factoryDefaults = res.factoryDefaults;
+      st.loaded = true;
+      st.error = null;
+    } catch (e) {
+      if (!stillCurrent(uid, gen)) { st.loading = false; return; }
+      st.error = e.message;
+    }
+    st.loading = false;
+    if (stillCurrent(uid, gen)) notify('params');
+  }
+
   // --- Info section --------------------------------------------------------
 
   async function ensureInfo(uid, gen) {
     const st = infoCache[uid] || (infoCache[uid] = {});
     if (st.loading) return;
     st.loading = true;
-    const [deviceInfo, mfrLabel, model, swVersion, prodDetail] = await Promise.allSettled([
+    // Phase D task 4: PRODUCT_DETAIL_ID_LIST (0070) is optional (never in
+    // E1.20 Table A-3's required list) and was one of the three unconditional
+    // speculative-probe sites the bench report flagged — gate it on this
+    // UID's own SUPPORTED_PARAMETERS, resolved in parallel with the four
+    // always-safe core fields below so a device with no cached answer yet
+    // pays no extra latency for it.
+    const supportedP = ensureSupportedSet(uid);
+    const corePromise = Promise.allSettled([
       Api.getParam(uid, 'device_info'),
       Api.getParam(uid, 'manufacturer_label'),
       Api.getParam(uid, 'device_model_description'),
       Api.getParam(uid, 'software_version_label'),
-      Api.getDeviceParam(uid, '0070'),
     ]);
+    const supported = await supportedP;
+    if (!stillCurrent(uid, gen)) return;
+    const prodDetailPromise = pidProbeAllowed(supported, '0070')
+      ? Api.getDeviceParam(uid, '0070').then((v) => ({ status: 'fulfilled', value: v }), (e) => ({ status: 'rejected', reason: e }))
+      : Promise.resolve({ status: 'rejected', reason: new Error('not advertised') });
+    const [deviceInfo, mfrLabel, model, swVersion] = await corePromise;
+    const prodDetail = await prodDetailPromise;
     if (!stillCurrent(uid, gen)) return;
     st.loading = false;
     st.deviceInfo = deviceInfo.status === 'fulfilled' ? deviceInfo.value.value : null;
@@ -333,13 +519,34 @@ const DeviceDetail = (() => {
     }
     const effectiveMfr = st.mfrLabelVal || f.manufacturerName;
     const modelText = st.modelVal || (di ? `0x${di.DeviceModelID.toString(16).toUpperCase().padStart(4, '0')}` : '—');
+    // Proxy status badge (Phase D task 1): PROXIED_DEVICES/PROXIED_DEVICE_
+    // COUNT are Hidden-tier now (never a generic-editor row), but the owner
+    // asked that the fact not vanish — surfaced here from the same
+    // structured fixtureJSON fields the Devices table's classification
+    // sweep already populates (f.proxiedDeviceCount/.proxiedDeviceCountKnown/
+    // .proxiedListChanged). A UI.tag, never a bare color swatch (design-spec
+    // "never color as the sole signal") — the text itself carries the fact.
+    let proxyBadgeHtml = '';
+    if (f.proxiedDeviceCountKnown && f.proxiedDeviceCount > 0) {
+      const n = f.proxiedDeviceCount;
+      proxyBadgeHtml = `<div style="margin-bottom:var(--b5-space-3)">${UI.tag(`Proxy — ${n} device${n === 1 ? '' : 's'}`, 'info')}${f.proxiedListChanged ? ' ' + UI.badge('warning', 'Proxied device list changed — re-discover to refresh it') : ''}</div>`;
+    }
     container.innerHTML = `
+      ${proxyBadgeHtml}
       <div class="b5-grid-2">
         ${infoRow('Manufacturer', `${escapeHtml(effectiveMfr)} (0x${f.manufacturerId.toString(16).toUpperCase().padStart(4, '0')})`)}
         ${infoRow('Model / fixture type', escapeHtml(modelText))}
         ${infoRow('Manufacturer label (device-reported)', st.mfrLabelVal ? escapeHtml(st.mfrLabelVal) : '<span class="b5-text-muted b5-text-sm">not reported by device</span>')}
         ${infoRow('Software version', st.swVersion ? escapeHtml(st.swVersion) : '—')}
-        ${infoRow('Node / port', `${escapeHtml(f.nodeIp)} (bind ${f.bindIndex}) / addr ${f.portAddress}`)}
+        // f.portAddress is the canonical, 0-based Art-Net Port-Address —
+        // routed through UI.formatUniverse so this line matches the same
+        // fixture's "U<n>" cell on the Devices table (devices.js) and the
+        // node/port picker's label at whatever display base Settings has
+        // active. A raw, unshifted number here was the exact bug class the
+        // owner has already flagged twice elsewhere: this row and the
+        // Devices table row it sits directly beneath disagreeing about the
+        // same fixture's universe at any base other than 0.
+        ${infoRow('Node / port', `${escapeHtml(f.nodeIp)} (bind ${f.bindIndex}) / universe ${UI.formatUniverse(f.portAddress)}`)}
         ${infoRow('DMX footprint', di ? String(di.DMXFootprint) : '—')}
         ${infoRow('DMX start address', di ? escapeHtml(Api.formatAddressRange(di.DMXStartAddress, di.DMXFootprint, true)) : '—')}
         ${infoRow('Personality', di ? escapeHtml(formatPersonalitySummary(di, st.currentPersonalityDesc)) : '—')}
@@ -363,35 +570,61 @@ const DeviceDetail = (() => {
   // implement all of these) simply omits that row rather than showing an
   // error, exactly like the always-probed base fields already do via
   // Promise.allSettled.
+  // SPECULATIVE_PARAM_FETCHERS names the six optional E1.37-1/E1.20 PIDs
+  // this section fans out speculatively, paired with the 4-hex PID each
+  // corresponds to (see internal/rdm/message.go / pids_ext.go) so
+  // pidProbeAllowed can gate each individually against this UID's own
+  // SUPPORTED_PARAMETERS (Phase D task 3 — the bench report's second named
+  // site). This list is NOT the tier/visibility mechanism Task 1 forbids
+  // hardcoding — it exists only because these six specifically get typed,
+  // dedicated fields (renderDimmerFields) rather than the generic
+  // Introspect-driven descriptor path every OTHER PID (including any future
+  // owner-promoted one) goes through untouched.
+  const SPECULATIVE_PARAM_FETCHERS = [
+    { key: 'curve', pid: '0343', name: 'curve' },
+    { key: 'ort', pid: '0345', name: 'output_response_time' },
+    { key: 'modFreq', pid: '0347', name: 'modulation_frequency' },
+    { key: 'minLevel', pid: '0341', name: 'minimum_level' },
+    { key: 'maxLevel', pid: '0342', name: 'maximum_level' },
+    { key: 'identMode', pid: '1040', name: 'identify_mode' },
+  ];
+
   async function ensureParams(uid, gen) {
     const st = paramsCache[uid] || (paramsCache[uid] = { descriptors: [], values: {}, introspecting: false, progress: null });
     if (st.loading) return;
     st.loading = true;
-    const [deviceInfo, label, personality, ident, curve, ort, modFreq, minLevel, maxLevel, identMode] = await Promise.allSettled([
+    // Phase D task 4: the E1.37-1 dimmer-set + IDENTIFY_MODE fan-out below
+    // was the bench report's largest named speculative-probe site — gated
+    // the same way ensureInfo's PRODUCT_DETAIL_ID_LIST fetch is above,
+    // resolved in parallel with the four always-safe core fields.
+    const supportedP = ensureSupportedSet(uid);
+    const corePromise = Promise.allSettled([
       Api.getParam(uid, 'device_info'),
       Api.getParam(uid, 'device_label'),
       Api.getParam(uid, 'dmx_personality'),
       Api.getParam(uid, 'identify_device'),
-      Api.getParam(uid, 'curve'),
-      Api.getParam(uid, 'output_response_time'),
-      Api.getParam(uid, 'modulation_frequency'),
-      Api.getParam(uid, 'minimum_level'),
-      Api.getParam(uid, 'maximum_level'),
-      Api.getParam(uid, 'identify_mode'),
     ]);
+    const supported = await supportedP;
+    if (!stillCurrent(uid, gen)) return;
+    const specResults = await Promise.allSettled(SPECULATIVE_PARAM_FETCHERS.map((f) =>
+      pidProbeAllowed(supported, f.pid) ? Api.getParam(uid, f.name) : Promise.reject(new Error('not advertised'))));
+    const [deviceInfo, label, personality, ident] = await corePromise;
     if (!stillCurrent(uid, gen)) return;
     st.loading = false;
     st.di = deviceInfo.status === 'fulfilled' ? deviceInfo.value.value : null;
     st.lbl = label.status === 'fulfilled' ? label.value.value : '';
     st.pers = personality.status === 'fulfilled' ? personality.value.value : null;
     st.identOn = ident.status === 'fulfilled' ? ident.value.value : false;
-    st.curve = curve.status === 'fulfilled' ? curve.value.value : null;
-    st.ort = ort.status === 'fulfilled' ? ort.value.value : null;
-    st.modFreq = modFreq.status === 'fulfilled' ? modFreq.value.value : null;
-    st.minLevel = minLevel.status === 'fulfilled' ? minLevel.value.value : null;
-    st.maxLevel = maxLevel.status === 'fulfilled' ? maxLevel.value.value : null;
-    st.identMode = identMode.status === 'fulfilled' ? identMode.value.value : null;
+    SPECULATIVE_PARAM_FETCHERS.forEach((f, i) => {
+      st[f.key] = specResults[i].status === 'fulfilled' ? specResults[i].value.value : null;
+    });
     notify('params');
+
+    // Phase D task 2/3: service life + destructive-action capability, each
+    // its own independently-cached fetch — fired here (not awaited) so a
+    // slow/NACKing device doesn't hold up the fields above.
+    ensureServiceLife(uid, gen);
+    ensureActions(uid, gen);
 
     // Cached descriptors (no wire traffic — matches the pre-existing
     // "Introspect is user-triggered, not automatic" rule, task ask: "never
@@ -400,7 +633,7 @@ const DeviceDetail = (() => {
       const descs = await Api.getDeviceParams(uid);
       if (!stillCurrent(uid, gen)) return;
       st.descriptors = descs;
-      await loadParamValues(uid, descs, gen);
+      await loadParamValues(uid, descs, gen, supported);
     } catch (e) { /* best-effort */ }
     if (stillCurrent(uid, gen)) notify('params');
 
@@ -483,9 +716,26 @@ const DeviceDetail = (() => {
     });
   }
 
-  async function loadParamValues(uid, descs, gen) {
+  // loadParamValues bulk-GETs every descriptor's current value. `supported`
+  // (optional — Phase D task 4's third named speculative-probe site) is
+  // this UID's already-resolved SUPPORTED_PARAMETERS set, when the caller
+  // has one on hand (ensureParams does); when omitted (the introspect_complete
+  // WS handler, below — a completed Introspect always means SUPPORTED_
+  // PARAMETERS just resolved moments ago server-side, so this is a cheap
+  // cache hit, never a fresh probe) it's resolved here instead. Every one of
+  // these descriptor PIDs came FROM this same UID's SUPPORTED_PARAMETERS in
+  // the first place (Introspect only ever walks it), so in the overwhelming
+  // majority of cases this gate is a no-op affirming what's already true;
+  // it's real protection only for a manufacturer-scoped descriptor cache hit
+  // (descCache is keyed on (manufacturerID, PID), shared across every
+  // same-manufacturer device) resolving a PID THIS specific device instance
+  // doesn't actually list.
+  async function loadParamValues(uid, descs, gen, supported) {
     const st = paramsCache[uid];
-    const results = await Promise.allSettled(descs.map(d => Api.getDeviceParam(uid, d.pid)));
+    const known = supported || await ensureSupportedSet(uid);
+    if (!stillCurrent(uid, gen)) return;
+    const results = await Promise.allSettled(descs.map(d =>
+      pidProbeAllowed(known, d.pid) ? Api.getDeviceParam(uid, d.pid) : Promise.reject(new Error('not advertised'))));
     if (!stillCurrent(uid, gen)) return;
     results.forEach((r, i) => {
       const pid = descs[i].pid;
@@ -496,7 +746,13 @@ const DeviceDetail = (() => {
   function introspectStatusText(st) {
     if (st.introspecting && st.progress) return `describing ${st.progress.done}/${st.progress.total} (0x${st.progress.pid})`;
     if (st.introspecting) return 'starting…';
-    if (st.descriptors.length) return `${st.descriptors.length} parameter(s) known`;
+    // Counts only what's actually shown as a row somewhere (Fixture
+    // settings above, or this section below) — st.descriptors itself can
+    // additionally hold a Hidden-tier entry resolved by some unrelated
+    // on-demand fetch (see the rowsEl fallback-text comment below), which
+    // must never inflate this count.
+    const shown = st.descriptors.filter(d => d.tier !== 'hidden').length;
+    if (shown) return `${shown} parameter(s) known`;
     return 'no manufacturer/unrecognized-PID parameters resolved yet';
   }
 
@@ -630,6 +886,48 @@ const DeviceDetail = (() => {
 
     renderDimmerFields(standard, uid, st, statusSetter);
 
+    // Phase D task 2: dedicated service-life fields (DEVICE_HOURS/LAMP_
+    // HOURS/LAMP_STRIKES/LAMP_STATE/DEVICE_POWER_CYCLES) — own panel, each
+    // field independently optional (see renderServiceLifeSection).
+    renderServiceLifeSection(container, uid, statusSetter);
+
+    // Phase D task 1: any PID classification.go tags TierPromoted that
+    // ALSO doesn't already have a dedicated field above (pan/tilt invert,
+    // display invert/level today — whatever the owner tags Promoted next,
+    // automatically, with no JS change) gets its own clearly-labeled
+    // section instead of being buried alphabetically among dozens of
+    // manufacturer PIDs below. Populated only once Introspect has run — see
+    // that button's section below — same lazy-on-request timing every
+    // OTHER descriptor-sourced field already follows; the change here is
+    // placement/prominence once resolved, not when it resolves.
+    const promotedDescs = st.descriptors.filter(d => d.tier === 'promoted');
+    // TierHidden is never supposed to reach this list at all (isEditorTarget
+    // excludes it server-side) — the standard-tier filter below excludes it
+    // too, purely as defense in depth, per Task 1: "Hidden -> not rendered
+    // as a parameter row at all" must hold even if that server invariant
+    // ever slips.
+    const standardDescs = st.descriptors.filter(d => d.tier !== 'promoted' && d.tier !== 'hidden');
+
+    if (promotedDescs.length) {
+      const promotedSection = document.createElement('div');
+      promotedSection.className = 'b5-panel b5-panel--promoted';
+      promotedSection.style.marginTop = 'var(--b5-space-5)';
+      promotedSection.innerHTML = `
+        <div class="b5-panel__header">
+          <h3 class="b5-panel__title">Fixture settings</h3>
+        </div>
+        <div class="b5-panel__body b5-stack promoted-rows"></div>
+      `;
+      container.appendChild(promotedSection);
+      const promotedRowsEl = promotedSection.querySelector('.promoted-rows');
+      promotedDescs.slice().sort((a, b) => (a.label || a.pid).localeCompare(b.label || b.pid)).forEach(desc => {
+        promotedRowsEl.appendChild(renderParamRow(uid, desc, st.values[desc.pid], statusSetter));
+      });
+    }
+
+    // Phase D task 3: warm/cold reset + factory defaults, arm-then-confirm.
+    renderDestructiveActionsSection(container, uid, lbl || uid, statusSetter);
+
     const mfrSection = document.createElement('div');
     mfrSection.className = 'b5-panel';
     mfrSection.style.marginTop = 'var(--b5-space-5)';
@@ -646,16 +944,177 @@ const DeviceDetail = (() => {
     container.appendChild(mfrSection);
     mfrSection.querySelector('.btn-introspect').addEventListener('click', () => startIntrospect(uid));
 
+    // Note: st.descriptors can be non-empty here even before Introspect has
+    // ever run — a Hidden-tier PID resolved on demand by some OTHER fetch
+    // (e.g. ensureInfo's PRODUCT_DETAIL_ID_LIST GET) lands in the server's
+    // shared per-UID descriptor cache too, and GET /params returns whatever
+    // that cache holds, not only what Introspect put there. Such a PID is
+    // filtered out of both standardDescs and promotedDescs above, so this
+    // must check those two — not the raw st.descriptors.length — or a
+    // device with only a stray Hidden entry would wrongly claim its
+    // (nonexistent) promoted fields cover everything.
     const rowsEl = mfrSection.querySelector('.param-rows');
-    if (!st.descriptors.length) {
+    if (!standardDescs.length && !promotedDescs.length) {
       rowsEl.innerHTML = '<p class="b5-text-muted b5-text-sm">Click Introspect to walk SUPPORTED_PARAMETERS + PARAMETER_DESCRIPTION (also surfaces any standard ESTA PID this app has no typed decoder for, via the same raw-hex fallback).</p>';
+    } else if (!standardDescs.length) {
+      rowsEl.innerHTML = '<p class="b5-text-muted b5-text-sm">Every parameter Introspect found is shown in a dedicated field above.</p>';
     } else {
-      st.descriptors.slice().sort((a, b) => a.pid.localeCompare(b.pid)).forEach(desc => {
+      standardDescs.slice().sort((a, b) => a.pid.localeCompare(b.pid)).forEach(desc => {
         rowsEl.appendChild(renderParamRow(uid, desc, st.values[desc.pid], statusSetter));
       });
     }
 
     restoreFieldFocus(container, focusState);
+  }
+
+  // LAMP_STATE's well-known Table A-8 values (E1.20 §10.8.4), for the
+  // settable dropdown below. Manufacturer-specific (0x80-0xDF) and any
+  // other value this device currently reports gets appended as its own
+  // option in renderServiceLifeSection so the dropdown never silently
+  // discards the device's actual current value.
+  const LAMP_STATE_OPTIONS = [
+    { value: 0x00, label: 'Off' }, { value: 0x01, label: 'On' },
+    { value: 0x02, label: 'Strike' }, { value: 0x03, label: 'Standby' },
+    { value: 0x04, label: 'Not present' }, { value: 0x7F, label: 'Error' },
+  ];
+
+  // renderServiceLifeSection appends the Phase D task 2 "service life"
+  // panel (DEVICE_HOURS/LAMP_HOURS/LAMP_STRIKES/LAMP_STATE/DEVICE_POWER_
+  // CYCLES) — each field independently optional, per serviceLifeCache's
+  // best-effort shape (see ensureServiceLife/serviceLifeJSON). A field this
+  // device doesn't support is simply omitted (never a spurious zero, never
+  // an error banner) — and if EVERY field is unsupported, the whole panel
+  // is omitted too (task ask: "degrade gracefully", not "show five
+  // 'unsupported' lines for a device none of this applies to").
+  function renderServiceLifeSection(outerContainer, uid, statusSetter) {
+    const st = serviceLifeCache[uid];
+    if (!st || (!st.loaded && !st.error)) return; // still loading, or never fetched (Sensors/Status tab active) — nothing to show yet
+
+    const wrap = document.createElement('div');
+    wrap.className = 'b5-stack';
+    let any = false;
+
+    const counters = [
+      { key: 'deviceHours', label: 'Device hours' },
+      { key: 'lampHours', label: 'Lamp hours' },
+      { key: 'lampStrikes', label: 'Lamp strikes' },
+      { key: 'devicePowerCycles', label: 'Device power cycles' },
+    ];
+    counters.forEach(c => {
+      const fs = st[c.key];
+      if (!fs || !fs.known) return;
+      any = true;
+      const field = UI.buildApplyField({ label: c.label, kind: 'number', enabled: true, value: fs.value, min: 0, max: 4294967295, name: 'servicelife_' + c.key });
+      UI.wireApplyField(field, String(fs.value), async (v) => {
+        const n = Math.trunc(Number(v));
+        if (!Number.isFinite(n) || n < 0 || n > 4294967295) throw new Error('must be a whole number 0-4294967295');
+        await saveServiceLifeField(uid, c.key, n, statusSetter);
+      }, statusSetter);
+      wrap.appendChild(field.wrap);
+    });
+
+    const ls = st.lampState;
+    if (ls && ls.known) {
+      any = true;
+      const options = LAMP_STATE_OPTIONS.slice();
+      if (!options.some(o => o.value === ls.value)) {
+        options.push({ value: ls.value, label: ls.label || `0x${ls.value.toString(16).toUpperCase().padStart(2, '0')}` });
+      }
+      const field = UI.buildApplyField({ label: 'Lamp state', kind: 'select', enabled: true, value: ls.value, options, name: 'servicelife_lampState' });
+      UI.wireApplyField(field, String(ls.value), async (v) => {
+        await saveServiceLifeField(uid, 'lampState', parseInt(v, 10), statusSetter);
+      }, statusSetter);
+      wrap.appendChild(field.wrap);
+    }
+
+    if (!any) return; // every field NACKed/unsupported — nothing worth a panel for
+
+    const h = document.createElement('h3');
+    h.className = 'b5-panel__title';
+    h.style.marginTop = 'var(--b5-space-5)';
+    h.textContent = 'Service life';
+    outerContainer.appendChild(h);
+    outerContainer.appendChild(wrap);
+  }
+
+  // renderDestructiveActionsSection appends the Phase D task 3 warm/cold
+  // RESET_DEVICE + FACTORY_DEFAULTS panel, arm-then-confirm (see
+  // armDestructive/confirmDestructive above) — omitted entirely for a
+  // device where neither action resolved as supported (actionsCache's
+  // known:false/supported:false), same "don't clutter the pane with
+  // buttons that would just NACK" rule the rest of this file follows.
+  // deviceLabel is the exact string the confirm button names (task ask:
+  // "the confirm must name the specific device").
+  function renderDestructiveActionsSection(outerContainer, uid, deviceLabel, statusSetter) {
+    const ac = actionsCache[uid];
+    if (!ac || (!ac.loaded && !ac.error)) return;
+    const resetSupported = !!(ac.resetDevice && ac.resetDevice.known && ac.resetDevice.supported);
+    const factorySupported = !!(ac.factoryDefaults && ac.factoryDefaults.known && ac.factoryDefaults.supported);
+    if (!resetSupported && !factorySupported) return;
+
+    const panel = document.createElement('div');
+    panel.className = 'b5-panel b5-panel--destructive';
+    panel.style.marginTop = 'var(--b5-space-5)';
+    panel.innerHTML = `<div class="b5-panel__header"><h3 class="b5-panel__title">Reset &amp; factory defaults</h3></div>`;
+
+    const body = document.createElement('div');
+    body.className = 'b5-panel__body b5-stack';
+    panel.appendChild(body);
+
+    if (resetSupported) {
+      // Spec-honest copy (owner brief, verbatim requirement): there is no
+      // RDM PID that reveals whether a fixture actually treats warm and
+      // cold differently, and RESET_DEVICE always clears Discovery Mute —
+      // both facts stated plainly rather than implied by two buttons that
+      // might look like a meaningful choice on their own.
+      const note = document.createElement('p');
+      note.className = 'b5-text-muted b5-text-sm';
+      note.textContent = 'This fixture advertises RESET_DEVICE with both Warm and Cold modes offered — RDM has no way to confirm it actually treats them differently; some fixtures respond to both identically. Either mode clears the fixture’s Discovery Mute flag, so it will drop off the bus: run Discover again once it comes back.';
+      body.appendChild(note);
+    }
+
+    const armed = destructiveArmed && destructiveArmed.uid === uid ? destructiveArmed.kind : null;
+    const actionsRow = document.createElement('div');
+    actionsRow.className = 'b5-row';
+    body.appendChild(actionsRow);
+
+    if (destructiveBusy && armed) {
+      actionsRow.innerHTML = `<span class="b5-inline-wait">${UI.spinner()}Sending…</span>`;
+    } else if (armed) {
+      const confirmLabel = armed === 'factory'
+        ? `Yes, reset ${escapeHtml(deviceLabel)} to factory defaults`
+        : `Yes, ${armed === 'warm' ? 'warm' : 'cold'}-reset ${escapeHtml(deviceLabel)}`;
+      actionsRow.innerHTML = `
+        <span class="b5-badge b5-badge--warning">${UI.icon('status-warning')}Confirm</span>
+        <button type="button" class="b5-btn b5-btn--sm b5-btn--danger btn-destructive-confirm">${confirmLabel}</button>
+        <button type="button" class="b5-btn b5-btn--sm b5-btn--ghost btn-destructive-cancel">${UI.icon('revert')}Cancel</button>
+      `;
+      actionsRow.querySelector('.btn-destructive-confirm').addEventListener('click', () => confirmDestructive(uid, statusSetter));
+      actionsRow.querySelector('.btn-destructive-cancel').addEventListener('click', disarmDestructive);
+    } else {
+      let html = '';
+      if (resetSupported) {
+        html += `<button type="button" class="b5-btn b5-btn--sm b5-btn--danger btn-reset-warm">Warm reset</button>`;
+        html += `<button type="button" class="b5-btn b5-btn--sm b5-btn--danger btn-reset-cold">Cold reset</button>`;
+      }
+      if (factorySupported) {
+        html += `<button type="button" class="b5-btn b5-btn--sm b5-btn--danger btn-factory-defaults">Factory defaults</button>`;
+      }
+      actionsRow.innerHTML = html;
+      const bw = actionsRow.querySelector('.btn-reset-warm'); if (bw) bw.addEventListener('click', () => armDestructive(uid, 'warm'));
+      const bc = actionsRow.querySelector('.btn-reset-cold'); if (bc) bc.addEventListener('click', () => armDestructive(uid, 'cold'));
+      const bf = actionsRow.querySelector('.btn-factory-defaults'); if (bf) bf.addEventListener('click', () => armDestructive(uid, 'factory'));
+    }
+
+    if (ac.lastNote) {
+      const msg = document.createElement('p');
+      msg.className = 'b5-text-sm b5-text-muted';
+      msg.style.marginTop = 'var(--b5-space-2)';
+      msg.textContent = ac.lastNote;
+      body.appendChild(msg);
+    }
+
+    outerContainer.appendChild(panel);
   }
 
   // renderDimmerFields appends the E1.37-1 dimmer-PID rows (task ask: "the

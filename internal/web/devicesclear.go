@@ -46,9 +46,17 @@ type devicesClearRequest struct {
 // counts (ip,port) Table-of-Devices tables dropped ("all" scope can drop
 // more than one; "port" scope drops at most one).
 type devicesClearResponse struct {
-	Scope       string `json:"scope"`
-	IP          string `json:"ip,omitempty"`
-	PortAddress uint16 `json:"portAddress,omitempty"`
+	Scope string `json:"scope"`
+	IP    string `json:"ip,omitempty"`
+	// PortAddress deliberately has NO `omitempty`: Port-Address (universe)
+	// 0 is a real, ordinary universe, not an absent value — same defect
+	// class as Entry.Universe in internal/patch/entry.go. This is the
+	// response side (echoed back from an already-validated "port" scope
+	// clear); the request struct above keeps `omitempty` since Go never
+	// marshals it — the client sends the request body, and Unmarshal
+	// ignores struct tags' `omitempty` entirely, so it can't reproduce
+	// this bug there.
+	PortAddress uint16 `json:"portAddress"`
 	Cleared     int    `json:"cleared"`
 	TodCleared  int    `json:"todCleared"`
 }
