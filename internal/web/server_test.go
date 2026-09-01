@@ -31,6 +31,43 @@ type testHarness struct {
 
 func newHarness(t *testing.T) *testHarness {
 	t.Helper()
+	// internal/params keeps process-wide, package-level state — the
+	// learned PARAMETER_DESCRIPTION cache (descCache, keyed only on
+	// manufacturer ID) and per-UID introspection state (uidStates, keyed
+	// on the full UID), both intentionally NOT scoped to any one
+	// params.Client or session.RDMController (see introspect.go's "shared
+	// descriptor cache" doc comment: a manufacturer PID's shape is a
+	// firmware-scoped constant meant to be shared across every Client
+	// touching that manufacturer's real hardware for the life of the
+	// process). That's correct for production, where RDM UIDs are globally
+	// unique. It is NOT safe for this package's tests: many _test.go files
+	// reuse the same literal manufacturer ID (0x22A6 in devicecontrol_test.go
+	// alone) or even the exact same UID (rdm.UID{0x2222, 1} appears in
+	// capture_export_test.go, patch_test.go and walk_test.go) across
+	// independent test cases, each building its own fresh
+	// FakeTransport/FakeClock/RDMController via this harness but sharing
+	// that one process-wide cache regardless. A prior test's learned
+	// "SUPPORTED_PARAMETERS doesn't list PID X" or "this UID NACKs
+	// PARAMETER_DESCRIPTION" fact would silently answer a later,
+	// unrelated test's query about a same-numbered but semantically
+	// different fake device without ever touching that test's own
+	// FakeTransport — which then leaves that test's scripted wire
+	// exchange one request short, and the real handler goroutine blocks
+	// forever waiting for a response the test's fake responder never
+	// sends for it (surfacing as "timed out waiting for HTTP handler to
+	// resolve" with no fake-clock progress possible, since the stall
+	// isn't a timer at all) — or simply returns a stale cached answer
+	// (e.g. CapturePresetSupported=false) left over from a different
+	// test's device. Reset unconditionally, before AND after every test
+	// (Cleanup covers t.Fatal/panic exits too), so no test's result can
+	// depend on what ran before it, in either direction, regardless of
+	// -shuffle order or literal UID/manufacturer-ID reuse.
+	params.ClearAllDeviceState()
+	params.ClearDescriptorCache()
+	t.Cleanup(func() {
+		params.ClearAllDeviceState()
+		params.ClearDescriptorCache()
+	})
 	clock := session.NewFakeClock(time.Time{})
 	tport := session.NewFakeTransport()
 	nodes := session.NewArtNetSession(session.ArtNetConfig{Transport: tport, Clock: clock})

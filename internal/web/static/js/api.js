@@ -181,6 +181,35 @@ const Api = (() => {
     resetDevice: (uid, mode) => req('POST', `/api/device/${encodeURIComponent(uid)}/reset`, { mode, confirm: 'RESET' }),
     getSupportedParameters: (uid) => req('GET', `/api/device/${encodeURIComponent(uid)}/supported-parameters`),
 
+    // --- E1.20 §10.11 "Device Control": POWER_STATE / PERFORM_SELFTEST /
+    // CAPTURE_PRESET / PRESET_PLAYBACK (SELF_TEST_DESCRIPTION/SELFTEST_
+    // ENHANCED are folded into getDeviceControl's response, no separate
+    // call needed). Every setter always sends the server's required
+    // {"confirm":"CONFIRM"} tripwire itself — same convention as
+    // setFactoryDefaults/resetDevice above — the UI's own arm-then-confirm
+    // gate (devicedetail.js) is what actually protects the click.
+    getDeviceControl: (uid) => req('GET', `/api/device/${encodeURIComponent(uid)}/device-control`),
+    setPowerState: (uid, value) => req('POST', `/api/device/${encodeURIComponent(uid)}/power-state`, { value, confirm: 'CONFIRM' }),
+    setSelfTest: (uid, test) => req('POST', `/api/device/${encodeURIComponent(uid)}/self-test`, { test, confirm: 'CONFIRM' }),
+    capturePreset: (uid, scene, timing) => req('POST', `/api/device/${encodeURIComponent(uid)}/capture-preset`,
+      Object.assign({ scene, confirm: 'CONFIRM' }, timing
+        ? { includeTiming: true, upFadeTime: timing.upFadeTime, downFadeTime: timing.downFadeTime, waitTime: timing.waitTime }
+        : {})),
+    setPresetPlayback: (uid, mode, level) => req('POST', `/api/device/${encodeURIComponent(uid)}/preset-playback`, { mode, level, confirm: 'CONFIRM' }),
+
+    // --- E1.37-2 IPv4 & DNS Configuration (per-device, over RDM) ---
+    // getDeviceNetwork degrades gracefully server-side (networkJSON's
+    // Known/Supported gate) — always safe to call. The three setters always
+    // send the server's required {"confirm":"CONFIRM"} tripwire themselves,
+    // same convention as setFactoryDefaults/resetDevice above; the UI's own
+    // arm-then-confirm gate (devicedetail.js) is what actually protects the
+    // click, since a mis-set address here can strand a device off the show
+    // network.
+    getDeviceNetwork: (uid) => req('GET', `/api/device/${encodeURIComponent(uid)}/network`),
+    setNetworkStatic: (uid, id, ip, mask) => req('POST', `/api/device/${encodeURIComponent(uid)}/network/interface/${id}/static`, { ip, mask, confirm: 'CONFIRM' }),
+    setNetworkDHCP: (uid, id, enable) => req('POST', `/api/device/${encodeURIComponent(uid)}/network/interface/${id}/dhcp`, { enable, confirm: 'CONFIRM' }),
+    setNetworkDNS: (uid, hostname, domain) => req('POST', `/api/device/${encodeURIComponent(uid)}/network/dns`, { hostname, domain, confirm: 'CONFIRM' }),
+
     // --- Phase 1c+: node/network configuration ---
     setNodeAddress: (ip, body) => req('POST', `/api/node/${encodeURIComponent(ip)}/address`, body),
     setNodeIPConfig: (ip, body) => req('POST', `/api/node/${encodeURIComponent(ip)}/ipconfig`, body),

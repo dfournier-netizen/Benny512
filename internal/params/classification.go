@@ -129,6 +129,19 @@ var pidTiers = map[rdm.ParameterID]PIDTier{
 	rdm.PIDDisplayInvert: TierPromoted,
 	rdm.PIDDisplayLevel:  TierPromoted,
 
+	// E1.20 §10.11 "Device Control Parameter Messages" — the remaining four
+	// user-facing controls the owner asked for (IDENTIFY_DEVICE/RESET_DEVICE
+	// above already cover §10.11.1/10.11.2). SELF_TEST_DESCRIPTION (0x1021)
+	// and SELFTEST_ENHANCED (0x1022) are deliberately NOT given their own
+	// entry here — they're companion/informational PIDs the PERFORM_SELFTEST
+	// control consumes internally (the same relationship
+	// DMX_PERSONALITY_DESCRIPTION has to DMX_PERSONALITY, which also has no
+	// pidTiers entry of its own), not standalone rows a tech would look for.
+	rdm.PIDPowerState:      TierPromoted,
+	rdm.PIDPerformSelfTest: TierPromoted,
+	rdm.PIDCapturePreset:   TierPromoted,
+	rdm.PIDPresetPlayback:  TierPromoted,
+
 	// --- TierHidden: protocol/introspection plumbing, or superseded by a
 	// dedicated structured surface elsewhere. Every entry below is an
 	// explicit opt-in per this file's "never default to Hidden" rule. -----

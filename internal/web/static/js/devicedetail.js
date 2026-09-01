@@ -64,6 +64,26 @@ const DeviceDetail = (() => {
   // ensureServiceLife/ensureActions below.
   const serviceLifeCache = {}; // uid -> { loading, loaded, error, deviceHours, lampHours, lampStrikes, lampState, devicePowerCycles }
   const actionsCache = {};     // uid -> { loading, loaded, error, resetDevice, factoryDefaults, lastNote }
+  // deviceControlCache: E1.20 §10.11 "Device Control" — the four
+  // owner-promoted controls beyond IDENTIFY_DEVICE/RESET_DEVICE (already
+  // covered above): POWER_STATE, PERFORM_SELFTEST (+ its SELF_TEST_
+  // DESCRIPTION/SELFTEST_ENHANCED companions, folded server-side into
+  // selfTests), CAPTURE_PRESET, PRESET_PLAYBACK. Same best-effort,
+  // independently-optional shape as serviceLifeCache — see
+  // ensureDeviceControl/renderDeviceControlSection below.
+  const deviceControlCache = {}; // uid -> { loading, loaded, error, powerState, selfTestActive, selfTests, selfTestsKnown, presetPlayback, capturePresetSupported, lastNote }
+  // networkCache: E1.37-2 IPv4 & DNS Configuration — GET /network's
+  // best-effort bundle (see internal/web/network.go's networkJSON). Same
+  // Known/Supported-discriminates-absence shape as actionsCache: a device
+  // that doesn't advertise LIST_INTERFACES at all (most fixtures) simply
+  // never gets this section rendered — "absent, not broken" (task brief).
+  const networkCache = {}; // uid -> { loading, loaded, error, known, supported, interfaces, dns, lastNote }
+  // networkEditState: per-uid staged edits for the network section's own
+  // fields — initialized once from the first successful GET /network (see
+  // initNetworkEditState) and never clobbered by a later re-fetch, same
+  // "oninput mutates staged state only" rule every other editable field in
+  // this app follows.
+  const networkEditState = {}; // uid -> { interfaces: { [id]: {ip, mask, applied} }, dnsHostname, dnsDomain }
   // supportedCache: Phase D task 3's client-side probe gate — GET
   // /supported-parameters resolved (and cached) once per uid, never
   // refetched on a later render (task ask: "cache per device so you don't
@@ -124,6 +144,35 @@ const DeviceDetail = (() => {
   let destructiveBusy = false;
   let destructiveArmTimer = null;
   const DESTRUCTIVE_ARM_TIMEOUT_MS = 8000;
+  // controlArmed: the same arm-then-confirm gate as destructiveArmed above,
+  // generalized for the E1.20 §10.11 device-control actions (POWER_STATE /
+  // PERFORM_SELFTEST / CAPTURE_PRESET / PRESET_PLAYBACK) — a separate
+  // variable rather than reusing destructiveArmed because that one's kind
+  // values ('warm'/'cold'/'factory') and confirmDestructive's dispatch are
+  // owned by the Reset & factory defaults panel; this section's actions are
+  // shaped differently (each carries a payload — the value/test#/scene/
+  // mode being applied — and a caller-supplied confirm-button label, not a
+  // fixed per-kind sentence). null | { uid, kind, payload, label }. kind is
+  // 'power' | 'preset' | 'capture' | 'selftest:<N>' | 'selftest:manual' —
+  // the per-test-number suffix on 'selftest:*' lets each self test's own
+  // Run button arm independently of the others (only one is ever armed at
+  // once, same as every other arm-then-confirm gate in this app, but the
+  // suffix means confirming test 2 can never accidentally read as test 1's
+  // confirm because a re-render happened to still show test 1's label
+  // stale). Auto-disarms after DESTRUCTIVE_ARM_TIMEOUT_MS, and disarms on
+  // any device reselect (see select() below) — same rules as destructiveArmed.
+  let controlArmed = null;
+  let controlBusy = false;
+  let controlArmTimer = null;
+  // networkArmed: the same arm-then-confirm gate as destructiveArmed/
+  // controlArmed above, for the E1.37-2 network-config writes (Task 2's
+  // "everything that writes is behind arm-then-confirm" rule — a mis-set
+  // static IP or DHCP toggle can strand this device off the show network,
+  // the same stranding risk nodes.js's own IP-config editor guards
+  // against). null | { uid, kind: 'static'|'dhcp', id, payload, label }.
+  let networkArmed = null;
+  let networkBusy = false;
+  let networkArmTimer = null;
   // subscribers: (scope) => void, called after any async cache update.
   // scope names which section's data just changed — 'info' | 'params' |
   // 'sensors' | 'status' — so a caller showing only one of those at a time
@@ -227,6 +276,8 @@ const DeviceDetail = (() => {
     if (uid !== selectedUID) {
       unsubscribeSensors();
       disarmDestructive(); // an armed warm/cold/factory-reset confirm belongs to the device it was armed against, never carried to the next selection
+      disarmControl(); // ditto for an armed §10.11 device-control confirm (power state / self test / preset)
+      disarmNetwork(); // ditto for an armed E1.37-2 network-config confirm (static IP / DHCP)
       selectedUID = uid;
       selectGen++;
       liveFieldState = null; // a draft belongs to the device it was typed against, never carried to the next selection
@@ -358,6 +409,143 @@ const DeviceDetail = (() => {
     notify('params');
   }
 
+  // --- E1.20 §10.11 device-control arm-then-confirm --------------------------
+  // Same shape as armDestructive/disarmDestructive/confirmDestructive above,
+  // generalized to carry an arbitrary payload + confirm-button label per
+  // action rather than a fixed kind->sentence mapping — see controlArmed's
+  // doc comment for why this is a separate gate.
+  function armControl(uid, kind, payload, label) {
+    controlArmed = { uid, kind, payload, label };
+    clearTimeout(controlArmTimer);
+    controlArmTimer = setTimeout(disarmControl, DESTRUCTIVE_ARM_TIMEOUT_MS);
+    if (uid === selectedUID) notify('params');
+  }
+
+  function disarmControl() {
+    if (!controlArmed) return;
+    controlArmed = null;
+    clearTimeout(controlArmTimer);
+    controlArmTimer = null;
+    notify('params');
+  }
+
+  // confirmControl fires the armed action's actual write, dispatching on
+  // controlArmed.kind's prefix (kind for self tests carries a per-test
+  // suffix — see controlArmed's doc comment — so this matches by prefix,
+  // not exact equality).
+  async function confirmControl(uid, statusSetter) {
+    if (!controlArmed || controlArmed.uid !== uid) return;
+    const { kind, payload } = controlArmed;
+    clearTimeout(controlArmTimer);
+    controlArmTimer = null;
+    controlBusy = true;
+    notify('params');
+    const dc = deviceControlCache[uid] || (deviceControlCache[uid] = {});
+    try {
+      if (kind === 'power') await Api.setPowerState(uid, payload.value);
+      else if (kind.startsWith('selftest:')) await Api.setSelfTest(uid, payload.test);
+      else if (kind === 'preset') await Api.setPresetPlayback(uid, payload.mode, payload.level);
+      else if (kind === 'capture') await Api.capturePreset(uid, payload.scene, payload.timing);
+      dc.lastNote = null;
+      statusSetter('applied');
+    } catch (e) {
+      dc.lastNote = 'Error: ' + e.message;
+      statusSetter('error: ' + e.message);
+    }
+    controlBusy = false;
+    controlArmed = null;
+    dc.loading = false; // allow ensureDeviceControl to run again and re-baseline
+    if (uid === selectedUID) ensureDeviceControl(uid, selectGen);
+    notify('params');
+  }
+
+  // --- E1.37-2 network configuration arm-then-confirm ------------------------
+  // Same shape as armControl/disarmControl/confirmControl above.
+  function armNetwork(uid, kind, id, payload, label) {
+    networkArmed = { uid, kind, id, payload, label };
+    clearTimeout(networkArmTimer);
+    networkArmTimer = setTimeout(disarmNetwork, DESTRUCTIVE_ARM_TIMEOUT_MS);
+    if (uid === selectedUID) notify('params');
+  }
+
+  function disarmNetwork() {
+    if (!networkArmed) return;
+    networkArmed = null;
+    clearTimeout(networkArmTimer);
+    networkArmTimer = null;
+    notify('params');
+  }
+
+  async function confirmNetwork(uid, statusSetter) {
+    if (!networkArmed || networkArmed.uid !== uid) return;
+    const { kind, id, payload } = networkArmed;
+    clearTimeout(networkArmTimer);
+    networkArmTimer = null;
+    networkBusy = true;
+    notify('params');
+    const st = networkCache[uid] || (networkCache[uid] = {});
+    try {
+      const res = kind === 'dhcp'
+        ? await Api.setNetworkDHCP(uid, id, payload.enable)
+        : await Api.setNetworkStatic(uid, id, payload.ip, payload.mask);
+      st.lastNote = res.note || 'Sent and accepted.';
+      statusSetter('network config sent');
+      const es = networkEditState[uid];
+      if (es && es.interfaces[id]) es.interfaces[id].applied = false;
+    } catch (e) {
+      st.lastNote = 'Error: ' + e.message;
+      statusSetter('error: ' + e.message);
+    }
+    networkBusy = false;
+    networkArmed = null;
+    st.loading = false; // allow ensureNetwork to run again and re-baseline current/static values
+    if (uid === selectedUID) ensureNetwork(uid, selectGen);
+    notify('params');
+  }
+
+  // initNetworkEditState seeds this uid's staged edit fields from the first
+  // successful GET /network — once only (never re-clobbered by a later
+  // background refresh, exactly like every other editable field's
+  // baseline in this file).
+  function initNetworkEditState(uid, res) {
+    if (networkEditState[uid]) return;
+    const es = networkEditState[uid] = {
+      interfaces: {},
+      dnsHostname: (res.dns && res.dns.hostnameKnown) ? res.dns.hostname : '',
+      dnsDomain: (res.dns && res.dns.domainKnown) ? res.dns.domain : '',
+    };
+    (res.interfaces || []).forEach((ifc) => {
+      es.interfaces[ifc.id] = {
+        ip: ifc.staticKnown ? ifc.staticIp : '',
+        mask: ifc.staticKnown ? ifc.staticMask : '',
+        applied: false,
+      };
+    });
+  }
+
+  async function ensureNetwork(uid, gen) {
+    const st = networkCache[uid] || (networkCache[uid] = {});
+    if (st.loading) return;
+    st.loading = true;
+    try {
+      const res = await Api.getDeviceNetwork(uid);
+      if (!stillCurrent(uid, gen)) { st.loading = false; return; }
+      st.known = res.known;
+      st.supported = res.supported;
+      st.interfaces = res.interfaces || [];
+      st.dns = res.dns || { nameServers: [] };
+      st.loading = false;
+      st.loaded = true;
+      st.error = null;
+      initNetworkEditState(uid, res);
+    } catch (e) {
+      if (!stillCurrent(uid, gen)) { st.loading = false; return; }
+      st.loading = false;
+      st.error = e.message;
+    }
+    if (stillCurrent(uid, gen)) notify('params');
+  }
+
   // --- Service life (Phase D task 2) ----------------------------------------
   // Independently-optional per field (E1.20 §10.8's DEVICE_HOURS/LAMP_HOURS/
   // LAMP_STRIKES/LAMP_STATE/DEVICE_POWER_CYCLES), same pattern the E1.37-1
@@ -410,6 +598,28 @@ const DeviceDetail = (() => {
       st.error = e.message;
     }
     st.loading = false;
+    if (stillCurrent(uid, gen)) notify('params');
+  }
+
+  // --- E1.20 §10.11 "Device Control" -----------------------------------------
+  // One GET bundles POWER_STATE / PERFORM_SELFTEST (active flag) / the
+  // SELFTEST_ENHANCED-derived self-test roster (with SELF_TEST_DESCRIPTION
+  // labels already resolved server-side) / PRESET_PLAYBACK / whether
+  // CAPTURE_PRESET is advertised — same best-effort bundling as
+  // ensureServiceLife, so this needs no per-field client fan-out either.
+  async function ensureDeviceControl(uid, gen) {
+    const st = deviceControlCache[uid] || (deviceControlCache[uid] = {});
+    if (st.loading) return;
+    st.loading = true;
+    try {
+      const res = await Api.getDeviceControl(uid);
+      if (!stillCurrent(uid, gen)) { st.loading = false; return; }
+      Object.assign(st, res, { loading: false, loaded: true, error: null });
+    } catch (e) {
+      if (!stillCurrent(uid, gen)) { st.loading = false; return; }
+      st.loading = false;
+      st.error = e.message;
+    }
     if (stillCurrent(uid, gen)) notify('params');
   }
 
@@ -531,6 +741,14 @@ const DeviceDetail = (() => {
       const n = f.proxiedDeviceCount;
       proxyBadgeHtml = `<div style="margin-bottom:var(--b5-space-3)">${UI.tag(`Proxy — ${n} device${n === 1 ? '' : 's'}`, 'info')}${f.proxiedListChanged ? ' ' + UI.badge('warning', 'Proxied device list changed — re-discover to refresh it') : ''}</div>`;
     }
+    // f.portAddress is the canonical, 0-based Art-Net Port-Address — routed
+    // through UI.formatUniverse so this line matches the same fixture's
+    // "U<n>" cell on the Devices table (devices.js) and the node/port
+    // picker's label at whatever display base Settings has active. A raw,
+    // unshifted number here was the exact bug class the owner has already
+    // flagged twice elsewhere: this row and the Devices table row it sits
+    // directly beneath disagreeing about the same fixture's universe at any
+    // base other than 0.
     container.innerHTML = `
       ${proxyBadgeHtml}
       <div class="b5-grid-2">
@@ -538,14 +756,6 @@ const DeviceDetail = (() => {
         ${infoRow('Model / fixture type', escapeHtml(modelText))}
         ${infoRow('Manufacturer label (device-reported)', st.mfrLabelVal ? escapeHtml(st.mfrLabelVal) : '<span class="b5-text-muted b5-text-sm">not reported by device</span>')}
         ${infoRow('Software version', st.swVersion ? escapeHtml(st.swVersion) : '—')}
-        // f.portAddress is the canonical, 0-based Art-Net Port-Address —
-        // routed through UI.formatUniverse so this line matches the same
-        // fixture's "U<n>" cell on the Devices table (devices.js) and the
-        // node/port picker's label at whatever display base Settings has
-        // active. A raw, unshifted number here was the exact bug class the
-        // owner has already flagged twice elsewhere: this row and the
-        // Devices table row it sits directly beneath disagreeing about the
-        // same fixture's universe at any base other than 0.
         ${infoRow('Node / port', `${escapeHtml(f.nodeIp)} (bind ${f.bindIndex}) / universe ${UI.formatUniverse(f.portAddress)}`)}
         ${infoRow('DMX footprint', di ? String(di.DMXFootprint) : '—')}
         ${infoRow('DMX start address', di ? escapeHtml(Api.formatAddressRange(di.DMXStartAddress, di.DMXFootprint, true)) : '—')}
@@ -625,6 +835,8 @@ const DeviceDetail = (() => {
     // slow/NACKing device doesn't hold up the fields above.
     ensureServiceLife(uid, gen);
     ensureActions(uid, gen);
+    ensureDeviceControl(uid, gen);
+    ensureNetwork(uid, gen);
 
     // Cached descriptors (no wire traffic — matches the pre-existing
     // "Introspect is user-triggered, not automatic" rule, task ask: "never
@@ -891,6 +1103,15 @@ const DeviceDetail = (() => {
     // field independently optional (see renderServiceLifeSection).
     renderServiceLifeSection(container, uid, statusSetter);
 
+    // E1.20 §10.11 "Device Control" — POWER_STATE / self test / preset
+    // playback / capture preset, arm-then-confirm (see renderDeviceControlSection).
+    renderDeviceControlSection(container, uid, lbl || uid, statusSetter);
+
+    // E1.37-2 IPv4 & DNS Configuration — interfaces/static IP/DHCP/DNS,
+    // arm-then-confirm on every write, entirely absent for a device that
+    // doesn't advertise LIST_INTERFACES (see renderNetworkSection).
+    renderNetworkSection(container, uid, lbl || uid, statusSetter);
+
     // Phase D task 1: any PID classification.go tags TierPromoted that
     // ALSO doesn't already have a dedicated field above (pan/tilt invert,
     // display invert/level today — whatever the owner tags Promoted next,
@@ -1037,6 +1258,315 @@ const DeviceDetail = (() => {
     outerContainer.appendChild(wrap);
   }
 
+  // --- E1.20 §10.11 "Device Control" rendering --------------------------------
+  // POWER_STATE's four Table A-11 values get a labeled dropdown (spec-defined
+  // enum — the project's own rule: only render labels the spec actually
+  // defines). A value this device currently reports outside those four still
+  // gets its own dropdown option (own label if PowerState.String() resolved
+  // one, else hex) so the control never silently discards the device's real
+  // current state.
+  const POWER_STATE_OPTIONS = [
+    { value: 0x00, label: 'Full Off' },
+    { value: 0x01, label: 'Shutdown' },
+    { value: 0x02, label: 'Standby' },
+    { value: 0xFF, label: 'Normal' },
+  ];
+
+  // controlActionRow renders either the normal (unarmed) controls for one
+  // §10.11 action, or — while that exact `kind` is armed for `uid` — a
+  // Confirm/Cancel row naming the action (armed.label), matching
+  // renderDestructiveActionsSection's actionsRow shape one level down (per
+  // control, not per panel, since several independent controls share this
+  // one section). buildControlsHtml()/wireControls(row) build the unarmed
+  // state; callers arm via armControl(uid, kind, payload, label) from
+  // inside wireControls' own event handlers.
+  function controlActionRow(uid, kind, buildControlsHtml, wireControls, statusSetter) {
+    const armed = controlArmed && controlArmed.uid === uid && controlArmed.kind === kind ? controlArmed : null;
+    const row = document.createElement('div');
+    row.className = 'b5-row';
+    if (controlBusy && armed) {
+      row.innerHTML = `<span class="b5-inline-wait">${UI.spinner()}Sending…</span>`;
+    } else if (armed) {
+      row.innerHTML = `
+        <span class="b5-badge b5-badge--warning">${UI.icon('status-warning')}Confirm</span>
+        <button type="button" class="b5-btn b5-btn--sm b5-btn--danger btn-ctrl-confirm">${escapeHtml(armed.label)}</button>
+        <button type="button" class="b5-btn b5-btn--sm b5-btn--ghost btn-ctrl-cancel">${UI.icon('revert')}Cancel</button>
+      `;
+      row.querySelector('.btn-ctrl-confirm').addEventListener('click', () => confirmControl(uid, statusSetter));
+      row.querySelector('.btn-ctrl-cancel').addEventListener('click', disarmControl);
+    } else {
+      row.innerHTML = buildControlsHtml();
+      wireControls(row);
+    }
+    return row;
+  }
+
+  // renderPowerStateField: POWER_STATE (§10.11.3), omitted entirely when
+  // this device doesn't answer GET POWER_STATE at all.
+  function renderPowerStateField(uid, st, deviceLabel, statusSetter) {
+    if (!st.powerState || !st.powerState.known) return null;
+    const wrap = document.createElement('div');
+    wrap.className = 'b5-field';
+    wrap.innerHTML = '<label class="b5-field__label">Power state</label>';
+    const current = st.powerState.value;
+    const options = POWER_STATE_OPTIONS.slice();
+    if (!options.some(o => o.value === current)) {
+      options.push({ value: current, label: st.powerState.label || `0x${current.toString(16).toUpperCase().padStart(2, '0')}` });
+    }
+    const actions = controlActionRow(uid, 'power', () => `
+      <select class="b5-select ctrl-power-select">${options.map(o => `<option value="${o.value}" ${o.value === current ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('')}</select>
+      <button type="button" class="b5-btn b5-btn--sm b5-btn--danger ctrl-power-apply">Set power state</button>
+    `, (row) => {
+      row.querySelector('.ctrl-power-apply').addEventListener('click', () => {
+        const v = parseInt(row.querySelector('.ctrl-power-select').value, 10);
+        if (v === current) return;
+        const opt = options.find(o => o.value === v);
+        armControl(uid, 'power', { value: v }, `Yes, set ${deviceLabel} power state to ${opt ? opt.label : v}`);
+      });
+    }, statusSetter);
+    wrap.appendChild(actions);
+    const hint = document.createElement('span');
+    hint.className = 'b5-field__hint';
+    hint.textContent = 'Full Off / Shutdown can leave the fixture unresponsive until it is reset or power-cycled.';
+    wrap.appendChild(hint);
+    return wrap;
+  }
+
+  // Self Test Status -> badge status (design-spec "never color as the sole
+  // signal" — the badge always carries its own text label too, from
+  // entry.statusLabel/rdm.SelfTestStatus.String() server-side).
+  function selfTestBadgeStatus(statusCode) {
+    if (statusCode === 4) return 'ok';       // STS_PASS
+    if (statusCode === 5) return 'error';    // STS_FAIL
+    if (statusCode === 3) return 'warning';  // STS_ACTIVE
+    return 'unknown';
+  }
+
+  // renderSelfTestSection: PERFORM_SELFTEST (§10.11.4) + its SELF_TEST_
+  // DESCRIPTION/SELFTEST_ENHANCED companions (§10.11.5/10.11.8), omitted
+  // entirely when this device doesn't answer GET PERFORM_SELFTEST at all.
+  // When SELFTEST_ENHANCED resolved a roster (st.selfTestsKnown), each test
+  // gets its own labeled Run button (label from SELF_TEST_DESCRIPTION when
+  // that resolved, else a bare "Self test N" — never an invented label).
+  // Otherwise (SELFTEST_ENHANCED not advertised — E1.20 §10.11.8's own text:
+  // there is no other way to learn which test numbers exist without
+  // invoking each one) falls back to a bounded numeric stepper, this
+  // project's own rule for an enumerated PID with no spec-defined labels.
+  function renderSelfTestSection(uid, st, deviceLabel, statusSetter) {
+    if (!st.selfTestActive || !st.selfTestActive.known) return null;
+    const wrap = document.createElement('div');
+    wrap.className = 'b5-stack';
+    const label = document.createElement('span');
+    label.className = 'b5-field__label';
+    label.textContent = 'Self test';
+    wrap.appendChild(label);
+
+    const activeNow = !!st.selfTestActive.value;
+    const statusLine = document.createElement('div');
+    statusLine.innerHTML = UI.badge(activeNow ? 'warning' : 'ok', activeNow ? 'A self test is currently running' : 'No self test running');
+    wrap.appendChild(statusLine);
+
+    if (st.selfTestsKnown && st.selfTests && st.selfTests.length) {
+      st.selfTests.forEach((entry) => {
+        const row = document.createElement('div');
+        row.className = 'b5-row';
+        row.style.marginTop = 'var(--b5-space-2)';
+        row.style.alignItems = 'center';
+        const name = entry.description ? `${entry.number} — ${entry.description}` : `Self test ${entry.number}`;
+        const nameEl = document.createElement('span');
+        nameEl.style.minWidth = '14rem';
+        nameEl.style.display = 'inline-block';
+        nameEl.textContent = name;
+        row.appendChild(nameEl);
+        const badge = document.createElement('span');
+        badge.innerHTML = UI.badge(selfTestBadgeStatus(entry.statusCode), entry.statusLabel);
+        row.appendChild(badge);
+        const kind = 'selftest:' + entry.number;
+        const actions = controlActionRow(uid, kind, () => `<button type="button" class="b5-btn b5-btn--sm b5-btn--danger btn-run-selftest">Run</button>`, (r) => {
+          r.querySelector('.btn-run-selftest').addEventListener('click', () => {
+            armControl(uid, kind, { test: entry.number }, `Yes, run "${name}" on ${deviceLabel}`);
+          });
+        }, statusSetter);
+        row.appendChild(actions);
+        wrap.appendChild(row);
+      });
+    } else {
+      const row = document.createElement('div');
+      row.className = 'b5-row';
+      row.style.marginTop = 'var(--b5-space-2)';
+      const numInput = document.createElement('input');
+      numInput.type = 'number'; numInput.min = '1'; numInput.max = '254'; numInput.value = '1';
+      numInput.className = 'b5-input b5-input--mono';
+      numInput.style.width = '6rem';
+      row.appendChild(numInput);
+      const actions = controlActionRow(uid, 'selftest:manual', () => `<button type="button" class="b5-btn b5-btn--sm b5-btn--danger btn-run-selftest-manual">Run</button>`, (r) => {
+        r.querySelector('.btn-run-selftest-manual').addEventListener('click', () => {
+          const n = parseInt(numInput.value, 10);
+          if (!Number.isFinite(n) || n < 1 || n > 254) return;
+          armControl(uid, 'selftest:manual', { test: n }, `Yes, run self test ${n} on ${deviceLabel}`);
+        });
+      }, statusSetter);
+      row.appendChild(actions);
+      wrap.appendChild(row);
+      const hint = document.createElement('span');
+      hint.className = 'b5-field__hint';
+      hint.textContent = 'This fixture doesn’t advertise SELFTEST_ENHANCED, so Benny512 has no way to learn which self test numbers it implements without invoking one — check the fixture’s own manual for the number to use.';
+      wrap.appendChild(hint);
+    }
+
+    // Turning tests off is the safe direction (E1.20 §10.11.4: SELF_TEST_OFF
+    // stops whatever is running) — ungated, immediate, same "remedial
+    // actions don't need arm-then-confirm ceremony" reasoning the Reset
+    // panel's own Cancel button already uses.
+    const offRow = document.createElement('div');
+    offRow.className = 'b5-row';
+    offRow.style.marginTop = 'var(--b5-space-2)';
+    const offBtn = document.createElement('button');
+    offBtn.type = 'button';
+    offBtn.className = 'b5-btn b5-btn--sm b5-btn--ghost';
+    offBtn.textContent = 'Turn off self test';
+    offBtn.disabled = !activeNow;
+    offBtn.addEventListener('click', async () => {
+      offBtn.disabled = true;
+      try {
+        await Api.setSelfTest(uid, 0);
+        statusSetter('self test off');
+      } catch (e) {
+        statusSetter('error: ' + e.message);
+      }
+      if (uid === selectedUID) ensureDeviceControl(uid, selectGen);
+    });
+    offRow.appendChild(offBtn);
+    wrap.appendChild(offRow);
+
+    return wrap;
+  }
+
+  // renderPresetPlaybackField: PRESET_PLAYBACK (§10.11.7), omitted entirely
+  // when this device doesn't answer GET PRESET_PLAYBACK at all. Mode's two
+  // sentinel values (Off/All, Table A-7) are labeled options; anything else
+  // is "Scene #" with a numeric field, matching the spec's own "individual
+  // Scene number" wording rather than a synthetic per-scene label list this
+  // app has no way to know.
+  function renderPresetPlaybackField(uid, st, deviceLabel, statusSetter) {
+    if (!st.presetPlayback || !st.presetPlayback.known) return null;
+    const wrap = document.createElement('div');
+    wrap.className = 'b5-field';
+    wrap.innerHTML = '<label class="b5-field__label">Preset playback</label>';
+    const current = st.presetPlayback.mode;
+    const level = st.presetPlayback.level;
+    const isScene = current !== 0 && current !== 0xFFFF;
+    const actions = controlActionRow(uid, 'preset', () => `
+      <select class="b5-select ctrl-preset-mode">
+        <option value="0" ${current === 0 ? 'selected' : ''}>Off (normal DMX)</option>
+        <option value="65535" ${current === 0xFFFF ? 'selected' : ''}>All (looped sequence)</option>
+        <option value="scene" ${isScene ? 'selected' : ''}>Scene #…</option>
+      </select>
+      <input type="number" min="1" max="65534" class="b5-input b5-input--mono ctrl-preset-scene" style="width:6rem" value="${isScene ? current : 1}" ${isScene ? '' : 'hidden'}>
+      <input type="number" min="0" max="255" class="b5-input b5-input--mono ctrl-preset-level" style="width:5rem" value="${level}" title="Master level 0-255 (255 = full)">
+      <button type="button" class="b5-btn b5-btn--sm b5-btn--danger ctrl-preset-apply">Set</button>
+    `, (row) => {
+      const modeSel = row.querySelector('.ctrl-preset-mode');
+      const sceneInput = row.querySelector('.ctrl-preset-scene');
+      modeSel.addEventListener('change', () => { sceneInput.hidden = modeSel.value !== 'scene'; });
+      row.querySelector('.ctrl-preset-apply').addEventListener('click', () => {
+        let mode;
+        if (modeSel.value === 'scene') mode = parseInt(sceneInput.value, 10);
+        else mode = parseInt(modeSel.value, 10);
+        const lvl = parseInt(row.querySelector('.ctrl-preset-level').value, 10);
+        if (!Number.isFinite(mode) || mode < 0 || mode > 0xFFFF) return;
+        if (!Number.isFinite(lvl) || lvl < 0 || lvl > 255) return;
+        const modeLabel = mode === 0 ? 'Off' : mode === 0xFFFF ? 'All' : `Scene ${mode}`;
+        armControl(uid, 'preset', { mode, level: lvl }, `Yes, set ${deviceLabel} preset playback to ${modeLabel}`);
+      });
+    }, statusSetter);
+    wrap.appendChild(actions);
+    const hint = document.createElement('span');
+    hint.className = 'b5-field__hint';
+    hint.textContent = 'Recalls a pre-recorded scene — this changes the fixture’s live output as soon as it’s accepted.';
+    wrap.appendChild(hint);
+    return wrap;
+  }
+
+  // renderCapturePresetField: CAPTURE_PRESET (§10.11.6), omitted entirely
+  // when this device's SUPPORTED_PARAMETERS doesn't list it (SET_COMMAND
+  // only — no GET form exists, so "known" here comes from
+  // capturePresetSupported, not a field value the way every other §10.11
+  // control above works).
+  function renderCapturePresetField(uid, st, deviceLabel, statusSetter) {
+    const sup = st.capturePresetSupported;
+    if (!sup || !sup.known || !sup.supported) return null;
+    const wrap = document.createElement('div');
+    wrap.className = 'b5-field';
+    wrap.innerHTML = '<label class="b5-field__label">Capture preset</label>';
+    const actions = controlActionRow(uid, 'capture', () => `
+      <input type="number" min="0" max="65535" value="1" class="b5-input b5-input--mono ctrl-capture-scene" style="width:6rem" placeholder="Scene #">
+      <label class="b5-toggle" style="margin:0 var(--b5-space-2)"><input type="checkbox" class="ctrl-capture-timing"><span class="b5-toggle__track"></span>Include fade/wait</label>
+      <input type="number" min="0" max="65535" value="0" class="b5-input b5-input--mono ctrl-capture-up" style="width:6rem" placeholder="Up fade (0.1s)" hidden>
+      <input type="number" min="0" max="65535" value="0" class="b5-input b5-input--mono ctrl-capture-down" style="width:6rem" placeholder="Down fade (0.1s)" hidden>
+      <input type="number" min="0" max="65535" value="0" class="b5-input b5-input--mono ctrl-capture-wait" style="width:6rem" placeholder="Wait (0.1s)" hidden>
+      <button type="button" class="b5-btn b5-btn--sm b5-btn--danger ctrl-capture-apply">Capture</button>
+    `, (row) => {
+      const timingToggle = row.querySelector('.ctrl-capture-timing');
+      const timingInputs = [row.querySelector('.ctrl-capture-up'), row.querySelector('.ctrl-capture-down'), row.querySelector('.ctrl-capture-wait')];
+      timingToggle.addEventListener('change', () => timingInputs.forEach((i) => { i.hidden = !timingToggle.checked; }));
+      row.querySelector('.ctrl-capture-apply').addEventListener('click', () => {
+        const scene = parseInt(row.querySelector('.ctrl-capture-scene').value, 10);
+        if (!Number.isFinite(scene) || scene < 0 || scene > 0xFFFF) return;
+        let timing = null;
+        if (timingToggle.checked) {
+          timing = {
+            upFadeTime: parseInt(row.querySelector('.ctrl-capture-up').value, 10) || 0,
+            downFadeTime: parseInt(row.querySelector('.ctrl-capture-down').value, 10) || 0,
+            waitTime: parseInt(row.querySelector('.ctrl-capture-wait').value, 10) || 0,
+          };
+        }
+        armControl(uid, 'capture', { scene, timing }, `Yes, capture scene ${scene} on ${deviceLabel} (overwrites any existing preset at that number)`);
+      });
+    }, statusSetter);
+    wrap.appendChild(actions);
+    const hint = document.createElement('span');
+    hint.className = 'b5-field__hint';
+    hint.textContent = 'Overwrites the fixture’s stored preset at this scene number with its current output — RDM has no way to read a preset back, so the previous contents can’t be recovered from here.';
+    wrap.appendChild(hint);
+    return wrap;
+  }
+
+  // renderDeviceControlSection assembles the four §10.11 controls above into
+  // one "Device control" panel, each independently optional exactly like
+  // renderServiceLifeSection — omitted entirely when the device answered
+  // none of them (task rule: "each control degrades independently... no
+  // spurious zeros and no broken pane").
+  function renderDeviceControlSection(outerContainer, uid, deviceLabel, statusSetter) {
+    const st = deviceControlCache[uid];
+    if (!st || (!st.loaded && !st.error)) return;
+
+    const fields = [];
+    const pf = renderPowerStateField(uid, st, deviceLabel, statusSetter); if (pf) fields.push(pf);
+    const sf = renderSelfTestSection(uid, st, deviceLabel, statusSetter); if (sf) fields.push(sf);
+    const pp = renderPresetPlaybackField(uid, st, deviceLabel, statusSetter); if (pp) fields.push(pp);
+    const cp = renderCapturePresetField(uid, st, deviceLabel, statusSetter); if (cp) fields.push(cp);
+    if (!fields.length) return;
+
+    const h = document.createElement('h3');
+    h.className = 'b5-panel__title';
+    h.style.marginTop = 'var(--b5-space-5)';
+    h.textContent = 'Device control';
+    outerContainer.appendChild(h);
+    const wrap = document.createElement('div');
+    wrap.className = 'b5-stack';
+    fields.forEach((f) => wrap.appendChild(f));
+    outerContainer.appendChild(wrap);
+
+    if (st.lastNote) {
+      const msg = document.createElement('p');
+      msg.className = 'b5-text-sm b5-text-muted';
+      msg.style.marginTop = 'var(--b5-space-2)';
+      msg.textContent = st.lastNote;
+      outerContainer.appendChild(msg);
+    }
+  }
+
   // renderDestructiveActionsSection appends the Phase D task 3 warm/cold
   // RESET_DEVICE + FACTORY_DEFAULTS panel, arm-then-confirm (see
   // armDestructive/confirmDestructive above) — omitted entirely for a
@@ -1115,6 +1645,302 @@ const DeviceDetail = (() => {
     }
 
     outerContainer.appendChild(panel);
+  }
+
+  // --- E1.37-2 network configuration (IPv4/DHCP/DNS) -------------------------
+  // isValidIPv4/isValidNetmask: client-side validation so a malformed
+  // address never even reaches Arm, let alone the wire (task brief:
+  // "Validate input client-side... a malformed IPv4 address or netmask
+  // must be rejected with a clear message rather than sent").
+  function isValidIPv4(s) {
+    if (typeof s !== 'string') return false;
+    const parts = s.trim().split('.');
+    if (parts.length !== 4) return false;
+    return parts.every((p) => /^\d{1,3}$/.test(p) && Number(p) <= 255);
+  }
+  // isValidNetmask additionally requires the address's bits to be a
+  // contiguous run of 1s followed by 0s (a standard IPv4 subnet mask) —
+  // catches e.g. "255.0.255.0", which isValidIPv4 alone would accept as a
+  // well-formed address but is not a valid netmask.
+  function isValidNetmask(s) {
+    if (!isValidIPv4(s)) return false;
+    const bits = s.trim().split('.').map((o) => Number(o).toString(2).padStart(8, '0')).join('');
+    return /^1*0*$/.test(bits);
+  }
+
+  // renderNetworkSection appends the E1.37-2 IPv4/DHCP/DNS panel — entirely
+  // omitted (task brief: "absent, not broken") unless GET /network resolved
+  // LIST_INTERFACES as advertised (networkCache[uid].supported); a device
+  // that hasn't answered yet, NACKed, or plainly doesn't implement E1.37-2
+  // (the overwhelming majority of fixtures) shows nothing here at all.
+  function renderNetworkSection(outerContainer, uid, deviceLabel, statusSetter) {
+    const st = networkCache[uid];
+    if (!st || (!st.loaded && !st.error) || !st.supported) return;
+    const es = networkEditState[uid];
+    if (!es) return;
+
+    const panel = document.createElement('div');
+    panel.className = 'b5-panel';
+    panel.style.marginTop = 'var(--b5-space-5)';
+    panel.innerHTML = `
+      <div class="b5-panel__header"><h3 class="b5-panel__title">Network configuration (E1.37-2)</h3></div>
+      <div class="b5-panel__body b5-stack">
+        <div class="b5-alert b5-alert--caution">
+          ${UI.icon('status-warning')}
+          <div>
+            <p class="b5-alert__title">Unverified against real hardware</p>
+            <p class="b5-alert__body">These E1.37-2 IPv4/DNS packet layouts are Benny512's best reading of the common wire convention, not confirmed against ANSI/ESTA E1.37-2 primary text or a real device. <strong>A mis-set IP address or subnet mask can strand this device off the show network</strong>, reachable afterward only from its own front panel/display if it has one. Double-check every value on the device's own display or web UI before — and after — applying a change here.</p>
+          </div>
+        </div>
+        <div class="network-interfaces b5-stack"></div>
+        <div class="network-dns"></div>
+      </div>
+    `;
+    outerContainer.appendChild(panel);
+
+    const ifWrap = panel.querySelector('.network-interfaces');
+    (st.interfaces || []).forEach((ifc) => ifWrap.appendChild(renderNetworkInterface(uid, ifc, deviceLabel, statusSetter)));
+
+    const dnsWrap = panel.querySelector('.network-dns');
+    const dnsEl = renderNetworkDNS(uid, st, statusSetter);
+    if (dnsEl) dnsWrap.appendChild(dnsEl);
+
+    if (st.lastNote) {
+      const msg = document.createElement('p');
+      msg.className = 'b5-text-sm b5-text-muted';
+      msg.textContent = st.lastNote;
+      panel.querySelector('.b5-panel__body').appendChild(msg);
+    }
+  }
+
+  // renderNetworkInterface builds one interface's sub-panel. Every field
+  // degrades independently (task brief: "no spurious zeros") — a Known:
+  // false field is simply omitted, never shown as a fake 0/blank that could
+  // be mistaken for a confirmed value.
+  function renderNetworkInterface(uid, ifc, deviceLabel, statusSetter) {
+    const es = networkEditState[uid].interfaces[ifc.id] || (networkEditState[uid].interfaces[ifc.id] = { ip: '', mask: '', applied: false });
+    const box = document.createElement('div');
+    box.className = 'b5-panel';
+    box.style.background = 'var(--b5-surface-2, transparent)';
+
+    const title = ifc.labelKnown ? `Interface ${ifc.id} — ${escapeHtml(ifc.label)}` : `Interface ${ifc.id}`;
+    const rows = [];
+    if (ifc.hardwareAddressKnown) {
+      rows.push(infoRow('Hardware address', `<span class="b5-input--mono">${escapeHtml(ifc.hardwareAddressHex)}</span> <span class="b5-text-muted b5-text-sm">(raw hex — byte layout not confirmed as a MAC)</span>`));
+    }
+    if (ifc.currentKnown) {
+      rows.push(infoRow('Current address', `${escapeHtml(ifc.currentIp)} / ${escapeHtml(ifc.currentMask)}`));
+    }
+    if (ifc.dhcpKnown) {
+      rows.push(infoRow('DHCP', escapeHtml(ifc.dhcpStatus)));
+    }
+
+    box.innerHTML = `
+      <div class="b5-panel__header"><h4 class="b5-panel__title" style="font-size:var(--b5-text-md)">${title}</h4></div>
+      <div class="b5-panel__body b5-stack">
+        <div class="b5-grid-2">${rows.join('')}</div>
+        <div class="static-ip-editor"></div>
+        <div class="dhcp-toggle"></div>
+      </div>
+    `;
+    const body = box.querySelector('.b5-panel__body');
+    if (!rows.length) {
+      const none = document.createElement('p');
+      none.className = 'b5-text-muted b5-text-sm';
+      none.textContent = 'This device advertises the interface but did not answer any of the address/DHCP fields Benny512 asked for.';
+      body.insertBefore(none, body.firstChild);
+    }
+
+    // --- static address editor (only when IPV4_STATIC_ADDRESS is advertised) ---
+    if (ifc.staticKnown || es.ip !== '' || es.mask !== '') {
+      const editorWrap = box.querySelector('.static-ip-editor');
+      const ipInvalid = es.ip !== '' && !isValidIPv4(es.ip);
+      const maskInvalid = es.mask !== '' && !isValidNetmask(es.mask);
+      editorWrap.innerHTML = `
+        <div class="b5-grid-2">
+          <div class="b5-field">
+            <label class="b5-field__label" for="net-ip-${ifc.id}">Static IP address</label>
+            <input id="net-ip-${ifc.id}" class="b5-input b5-input--mono" type="text" placeholder="e.g. 2.11.90.5" value="${escapeHtml(es.ip)}">
+            <span id="net-ip-error-${ifc.id}">${ipInvalid ? `<span class="b5-field__error">${UI.icon('status-error')}Not a valid IPv4 address</span>` : ''}</span>
+          </div>
+          <div class="b5-field">
+            <label class="b5-field__label" for="net-mask-${ifc.id}">Subnet mask</label>
+            <input id="net-mask-${ifc.id}" class="b5-input b5-input--mono" type="text" placeholder="e.g. 255.255.0.0" value="${escapeHtml(es.mask)}">
+            <span id="net-mask-error-${ifc.id}">${maskInvalid ? `<span class="b5-field__error">${UI.icon('status-error')}Not a valid subnet mask</span>` : ''}</span>
+          </div>
+        </div>
+        <div class="static-ip-confirm"></div>
+      `;
+      // input handlers update the per-field error span in place (never
+      // recreate the <input> itself — that would drop focus/caret mid-
+      // keystroke, the exact bug class trackLiveFieldState/captureFieldFocus
+      // exist to prevent elsewhere in this file) alongside the Apply/Arm/
+      // Confirm ladder below, so an invalid address is flagged live as the
+      // tech types, not only once Apply is attempted.
+      editorWrap.querySelector(`#net-ip-${ifc.id}`).addEventListener('input', (e) => {
+        es.ip = e.target.value; es.applied = false;
+        if (uid === selectedUID) disarmNetwork();
+        const invalid = es.ip !== '' && !isValidIPv4(es.ip);
+        editorWrap.querySelector(`#net-ip-error-${ifc.id}`).innerHTML = invalid ? `<span class="b5-field__error">${UI.icon('status-error')}Not a valid IPv4 address</span>` : '';
+        renderNetworkInterfaceStaticConfirm(uid, ifc, deviceLabel, statusSetter, editorWrap);
+      });
+      editorWrap.querySelector(`#net-mask-${ifc.id}`).addEventListener('input', (e) => {
+        es.mask = e.target.value; es.applied = false;
+        if (uid === selectedUID) disarmNetwork();
+        const invalid = es.mask !== '' && !isValidNetmask(es.mask);
+        editorWrap.querySelector(`#net-mask-error-${ifc.id}`).innerHTML = invalid ? `<span class="b5-field__error">${UI.icon('status-error')}Not a valid subnet mask</span>` : '';
+        renderNetworkInterfaceStaticConfirm(uid, ifc, deviceLabel, statusSetter, editorWrap);
+      });
+      renderNetworkInterfaceStaticConfirm(uid, ifc, deviceLabel, statusSetter, editorWrap);
+    }
+
+    // --- DHCP toggle (only when IPV4_DHCP_MODE is advertised) ---
+    if (ifc.dhcpKnown) {
+      const toggleWrap = box.querySelector('.dhcp-toggle');
+      renderNetworkDHCPToggle(uid, ifc, deviceLabel, statusSetter, toggleWrap);
+    }
+
+    return box;
+  }
+
+  // renderNetworkInterfaceStaticConfirm: the Apply -> Arm -> Confirm ladder
+  // for one interface's static IP/mask fields — matches nodes.js's own IP
+  // editor ceremony exactly (task brief: "matching... nodes.js's IP-config
+  // editor"), since a mis-set static address is the single field in this
+  // whole app most likely to strand a device off the network.
+  function renderNetworkInterfaceStaticConfirm(uid, ifc, deviceLabel, statusSetter, editorWrap) {
+    const es = networkEditState[uid].interfaces[ifc.id];
+    const area = editorWrap.querySelector('.static-ip-confirm');
+    if (!area) return;
+    const ipInvalid = es.ip !== '' && !isValidIPv4(es.ip);
+    const maskInvalid = es.mask !== '' && !isValidNetmask(es.mask);
+    const dirty = es.ip !== (ifc.staticIp || '') || es.mask !== (ifc.staticMask || '');
+    const armedHere = networkArmed && networkArmed.uid === uid && networkArmed.kind === 'static' && networkArmed.id === ifc.id;
+
+    if (!dirty) { area.innerHTML = ''; return; }
+    if (ipInvalid || maskInvalid || !es.ip || !es.mask) {
+      area.innerHTML = `<p class="b5-field__hint">Enter a complete, valid IPv4 address and subnet mask to apply a change.</p>`;
+      return;
+    }
+    if (networkBusy && armedHere) {
+      area.innerHTML = `<span class="b5-inline-wait">${UI.spinner()}Sending…</span>`;
+      return;
+    }
+    if (!es.applied) {
+      area.innerHTML = `<div class="b5-row"><button type="button" class="b5-btn b5-btn--sm b5-btn--primary btn-net-apply">${UI.icon('apply')}Apply</button><span class="b5-field__hint">stages this address; sending still requires arming + confirming.</span></div>`;
+      area.querySelector('.btn-net-apply').addEventListener('click', () => { es.applied = true; renderNetworkInterfaceStaticConfirm(uid, ifc, deviceLabel, statusSetter, editorWrap); });
+    } else if (!armedHere) {
+      area.innerHTML = `
+        <div class="b5-row">
+          ${UI.badge('ok', 'Applied')}
+          <button type="button" class="b5-btn b5-btn--sm b5-btn--danger btn-net-arm">Arm send…</button>
+          <button type="button" class="b5-btn b5-btn--sm b5-btn--ghost btn-net-revert">${UI.icon('revert')}Revert</button>
+        </div>`;
+      area.querySelector('.btn-net-arm').addEventListener('click', () => armNetwork(uid, 'static', ifc.id, { ip: es.ip, mask: es.mask }, deviceLabel));
+      area.querySelector('.btn-net-revert').addEventListener('click', () => {
+        es.ip = ifc.staticIp || ''; es.mask = ifc.staticMask || ''; es.applied = false;
+        notify('params');
+      });
+    } else {
+      area.innerHTML = `
+        <div class="b5-alert b5-alert--warning" style="margin-top:var(--b5-space-2)">
+          ${UI.icon('status-warning')}
+          <div>
+            <p class="b5-alert__title">Confirm static IP change</p>
+            <p class="b5-alert__body">A mis-set address can strand <strong>${escapeHtml(deviceLabel)}</strong> off the show network. Confirm: set interface ${ifc.id} to <strong>${escapeHtml(es.ip)} / ${escapeHtml(es.mask)}</strong>.</p>
+            <div class="b5-row" style="margin-top:var(--b5-space-2)">
+              <button type="button" class="b5-btn b5-btn--sm b5-btn--danger btn-net-confirm">Yes, send now</button>
+              <button type="button" class="b5-btn b5-btn--sm b5-btn--ghost btn-net-cancel">Cancel</button>
+            </div>
+          </div>
+        </div>`;
+      area.querySelector('.btn-net-confirm').addEventListener('click', () => confirmNetwork(uid, statusSetter));
+      area.querySelector('.btn-net-cancel').addEventListener('click', disarmNetwork);
+    }
+  }
+
+  // renderNetworkDHCPToggle: a plain toggle + arm-then-confirm (two-stage,
+  // matching the Reset & factory defaults panel's ceremony) rather than the
+  // three-stage Apply->Arm->Confirm above — a checkbox has no free-text
+  // "malformed input" failure mode to stage/validate, so Apply would add a
+  // step without adding safety.
+  function renderNetworkDHCPToggle(uid, ifc, deviceLabel, statusSetter, wrap) {
+    const armedHere = networkArmed && networkArmed.uid === uid && networkArmed.kind === 'dhcp' && networkArmed.id === ifc.id;
+    const currentlyOn = ifc.dhcpStatus === 'active';
+    if (networkBusy && armedHere) {
+      wrap.innerHTML = `<span class="b5-inline-wait">${UI.spinner()}Sending…</span>`;
+      return;
+    }
+    if (armedHere) {
+      const toState = networkArmed.payload.enable ? 'ON' : 'OFF';
+      wrap.innerHTML = `
+        <div class="b5-alert b5-alert--warning">
+          ${UI.icon('status-warning')}
+          <div>
+            <p class="b5-alert__title">Confirm DHCP change</p>
+            <p class="b5-alert__body">Switching DHCP ${toState} on <strong>${escapeHtml(deviceLabel)}</strong> can change its address and, if no DHCP server answers, strand it off the network. Confirm?</p>
+            <div class="b5-row" style="margin-top:var(--b5-space-2)">
+              <button type="button" class="b5-btn b5-btn--sm b5-btn--danger btn-dhcp-confirm">Yes, send now</button>
+              <button type="button" class="b5-btn b5-btn--sm b5-btn--ghost btn-dhcp-cancel">Cancel</button>
+            </div>
+          </div>
+        </div>`;
+      wrap.querySelector('.btn-dhcp-confirm').addEventListener('click', () => confirmNetwork(uid, statusSetter));
+      wrap.querySelector('.btn-dhcp-cancel').addEventListener('click', disarmNetwork);
+      return;
+    }
+    wrap.innerHTML = `<label class="b5-toggle"><input type="checkbox" ${currentlyOn ? 'checked' : ''}><span class="b5-toggle__track"></span>DHCP</label>`;
+    wrap.querySelector('input').addEventListener('change', (e) => {
+      const enable = e.target.checked;
+      // Reflect the pre-toggle state until confirmed — armNetwork triggers
+      // a re-render (notify('params')) that redraws this control from
+      // networkArmed, not from the checkbox's own transient DOM state.
+      e.target.checked = currentlyOn;
+      armNetwork(uid, 'dhcp', ifc.id, { enable }, deviceLabel);
+    });
+  }
+
+  // renderNetworkDNS: device-global hostname/domain (E1.37-2 §6.2's DNS_
+  // HOSTNAME/DNS_DOMAIN_NAME are not per-interface) — plain Apply fields,
+  // not arm-then-confirm: unlike a static IP or DHCP toggle, a bad hostname
+  // cannot itself take the device off the network. DNS_NAME_SERVER is
+  // read-only here (no confirmed SET layout — see internal/web/network.go's
+  // doc comment) so shown as a plain list, never editable.
+  function renderNetworkDNS(uid, st, statusSetter) {
+    if (!st.dns || !st.dns.supported) return null;
+    const es = networkEditState[uid];
+    const wrap = document.createElement('div');
+    wrap.className = 'b5-stack';
+    wrap.style.marginTop = 'var(--b5-space-3)';
+    const h = document.createElement('h4');
+    h.className = 'b5-panel__title';
+    h.style.fontSize = 'var(--b5-text-md)';
+    h.textContent = 'DNS';
+    wrap.appendChild(h);
+
+    const hostField = UI.buildApplyField({ label: 'Hostname', value: es.dnsHostname, enabled: true, maxLength: 63, name: 'network_dns_hostname' });
+    wrap.appendChild(hostField.wrap);
+    UI.wireApplyField(hostField, es.dnsHostname, async (v) => {
+      es.dnsHostname = v;
+      await Api.setNetworkDNS(uid, v, es.dnsDomain);
+      statusSetter('DNS hostname applied');
+    }, statusSetter);
+
+    const domainField = UI.buildApplyField({ label: 'Domain', value: es.dnsDomain, enabled: true, maxLength: 231, name: 'network_dns_domain' });
+    wrap.appendChild(domainField.wrap);
+    UI.wireApplyField(domainField, es.dnsDomain, async (v) => {
+      es.dnsDomain = v;
+      await Api.setNetworkDNS(uid, es.dnsHostname, v);
+      statusSetter('DNS domain applied');
+    }, statusSetter);
+
+    if (st.dns.nameServers && st.dns.nameServers.length) {
+      const list = document.createElement('div');
+      list.innerHTML = `<span class="b5-text-muted b5-text-sm">Name servers (read-only — no confirmed layout to write this back)</span><br>` +
+        st.dns.nameServers.map((n) => `<span class="b5-input--mono">[${n.index}] ${escapeHtml(n.ip)}</span>`).join(' &nbsp; ');
+      wrap.appendChild(list);
+    }
+    return wrap;
   }
 
   // renderDimmerFields appends the E1.37-1 dimmer-PID rows (task ask: "the

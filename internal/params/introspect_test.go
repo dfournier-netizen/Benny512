@@ -320,18 +320,21 @@ func TestIntrospectDoesNotProbeUndecodedStandardPIDs(t *testing.T) {
 	if len(describedPIDs) != 0 {
 		t.Fatalf("PARAMETER_DESCRIPTION sent for standard PIDs %v; only manufacturer-specific PIDs (0x8000-0xFFDF) may ever be described per E1.20 §10.4.2", describedPIDs)
 	}
-	// Phase D task 1/2 have since given several of these PIDs either a
-	// dedicated typed field (knownDecodedESTAPIDs — the DEVICE_HOURS/LAMP_*/
-	// DEVICE_POWER_CYCLES/RESET_DEVICE/FACTORY_DEFAULTS family, servicelife.go)
-	// or a TierHidden classification (PROXIED_DEVICE_COUNT, COMMS_STATUS,
-	// CLEAR_STATUS_ID), so they no longer surface as generic-editor rows —
-	// see isEditorTarget. wantVisible excludes exactly those ten; the
-	// remaining fourteen are still plain "standard, no dedicated field, not
-	// hidden" PIDs that must still surface (this test's original point).
+	// Phase D task 1/2 and the E1.20 §10.11 device-control pass have since
+	// given several of these PIDs either a dedicated typed field
+	// (knownDecodedESTAPIDs — the DEVICE_HOURS/LAMP_*/DEVICE_POWER_CYCLES/
+	// RESET_DEVICE/FACTORY_DEFAULTS family in servicelife.go, and the
+	// POWER_STATE/PRESET_PLAYBACK pair in devicecontrol.go) or a TierHidden
+	// classification (PROXIED_DEVICE_COUNT, COMMS_STATUS, CLEAR_STATUS_ID),
+	// so they no longer surface as generic-editor rows — see isEditorTarget.
+	// wantVisible excludes exactly those twelve; the remaining twelve are
+	// still plain "standard, no dedicated field, not hidden" PIDs that must
+	// still surface (this test's original point).
 	excludedNow := map[rdm.ParameterID]bool{
 		rdm.PIDProxiedDeviceCount: true, rdm.PIDCommsStatus: true, rdm.PIDClearStatusID: true,
 		rdm.PIDDeviceHours: true, rdm.PIDLampHours: true, rdm.PIDLampStrikes: true, rdm.PIDLampState: true,
 		rdm.PIDDevicePowerCycles: true, rdm.PIDResetDevice: true, rdm.PIDFactoryDefaults: true,
+		rdm.PIDPowerState: true, rdm.PIDPresetPlayback: true,
 	}
 	wantVisible := 0
 	for _, pid := range standard {

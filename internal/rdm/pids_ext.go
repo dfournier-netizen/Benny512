@@ -1,5 +1,7 @@
 package rdm
 
+import "fmt"
+
 // This file adds the Parameter ID constants introduced by the manufacturer-
 // PID/sensors/non-fixture research pass
 // (rdm-pids-sensors-research_2026-08-13_2347.md §6) to the base set already
@@ -83,6 +85,23 @@ const (
 	DHCPStatusUnknown  DHCPStatus = 0x02
 )
 
+// String renders a human-readable label for a DHCPStatus byte, falling back
+// to its raw hex for any value outside the three named ones above (this
+// package's best reading of IPV4_DHCP_MODE's status byte — see ipconfig.go's
+// doc comment on confirmation status).
+func (s DHCPStatus) String() string {
+	switch s {
+	case DHCPStatusInactive:
+		return "inactive"
+	case DHCPStatusActive:
+		return "active"
+	case DHCPStatusUnknown:
+		return "unknown"
+	default:
+		return fmt.Sprintf("0x%02X", byte(s))
+	}
+}
+
 // --- E1.37-7: Gateway & Splitter Configuration Messages (report §6.3) ---
 //
 // UNVERIFIED whether any real gateway in Dom's kit (notably the Netron EN4)
@@ -149,4 +168,15 @@ const (
 	PIDPackedPIDSub                ParameterID = 0x0058
 	PIDPackedPIDIndex              ParameterID = 0x0059
 	PIDEnumLabel                   ParameterID = 0x005A
+)
+
+// --- E1.20-2025 §10.11.8: SELFTEST_ENHANCED (Table A-3) ---
+//
+// CONFIRMED via the ANSI E1.20-2025 PDF's own Table A-3 (Phase E device-
+// control pass) — message.go's §10.11 block (IDENTIFY_DEVICE through
+// PRESET_PLAYBACK) predates this PID's addition to the standard and didn't
+// carry it; declared here rather than renumbering message.go's existing
+// block.
+const (
+	PIDSelfTestEnhanced ParameterID = 0x1022
 )

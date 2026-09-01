@@ -66,7 +66,13 @@ type RDMDetail struct {
 
 	// NackReasonCode/NackReasonName are set when ResponseType ==
 	// "NACK_REASON" (report task: "capture NACK reasons... explicitly").
-	NackReasonCode uint16 `json:"nackReasonCode,omitempty"`
+	// NackReasonCode deliberately has NO `omitempty`: NR_UNKNOWN_PID is
+	// 0x0000, a real, meaningful reason code — not "absent" — so
+	// omitempty-ing this uint16 would silently drop it from every exported/
+	// API JSON view of a NACK_REASON response whose reason happens to be
+	// UNKNOWN_PID specifically, exactly the "zero looks like undefined"
+	// class of bug this project has hit before (see repo conventions).
+	NackReasonCode uint16 `json:"nackReasonCode"`
 	NackReasonName string `json:"nackReasonName,omitempty"`
 
 	// ACK_TIMER's 2-byte estimate (report task: "capture ACK_TIMER values
@@ -359,6 +365,95 @@ func decodeParamDataString(pid rdm.ParameterID, isResponse bool, data []byte) st
 		rdm.PIDSoftwareVersionLabel:
 		if len(data) > 0 || !isResponse {
 			return fmt.Sprintf("%q", string(data))
+		}
+
+	// --- E1.37-2 IPv4 & DNS Configuration (pids_ext.go/ipconfig.go) ---
+	//
+	// Decoded per internal/params/ipconfig.go's own best-reading wire
+	// layout (interface-ID-prefixed convention) — UNVERIFIED against ANSI/
+	// ESTA E1.37-2 primary text or real hardware this session (see that
+	// file's doc comment). Rendered here anyway, clearly labeled, so a
+	// --logrdm capture from a real bench session gives Dom something to
+	// check the actual bytes against by hand, not just hex.
+	case rdm.PIDListInterfaces:
+		if isResponse {
+			if ifaces, err := params.DecodeInterfaceList(data); err == nil {
+				parts := make([]string, 0, len(ifaces))
+				for _, id := range ifaces {
+					parts = append(parts, fmt.Sprintf("%d", id))
+				}
+				return fmt.Sprintf("interfaces=[%s]", strings.Join(parts, ","))
+			}
+		}
+
+	case rdm.PIDInterfaceLabel:
+		if isResponse {
+			if id, label, err := params.DecodeInterfaceLabel(data); err == nil {
+				return fmt.Sprintf("interface=%d label=%q", id, label)
+			}
+		} else if id, err := params.DecodeInterfaceID(data); err == nil {
+			return fmt.Sprintf("requesting label for interface=%d", id)
+		}
+
+	case rdm.PIDIPv4CurrentAddress, rdm.PIDIPv4StaticAddress:
+		// A bare 4-byte payload is a GET request (interface ID only); 12
+		// bytes is either a SET request or any GET response — same shape
+		// either way, per ipconfig.go's IPv4Config.
+		if !isResponse && len(data) == 4 {
+			if id, err := params.DecodeInterfaceID(data); err == nil {
+				return fmt.Sprintf("requesting address for interface=%d", id)
+			}
+		} else if cfg, err := params.DecodeIPv4Config(data); err == nil {
+			verb := ""
+			if !isResponse {
+				verb = "SET "
+			}
+			return fmt.Sprintf("%sinterface=%d ip=%s mask=%s", verb, cfg.InterfaceID, cfg.IP, cfg.SubnetMask)
+		}
+
+	case rdm.PIDIPv4DHCPMode:
+		if !isResponse && len(data) == 4 {
+			if id, err := params.DecodeInterfaceID(data); err == nil {
+				return fmt.Sprintf("requesting DHCP mode for interface=%d", id)
+			}
+		} else if id, status, err := params.DecodeDHCPMode(data); err == nil {
+			verb := ""
+			if !isResponse {
+				verb = "SET "
+			}
+			return fmt.Sprintf("%sinterface=%d dhcp=%s", verb, id, status)
+		}
+
+	case rdm.PIDInterfaceApplyConfiguration, rdm.PIDInterfaceRenewDHCP, rdm.PIDInterfaceReleaseDHCP:
+		if id, err := params.DecodeInterfaceID(data); err == nil {
+			return fmt.Sprintf("interface=%d", id)
+		}
+
+	case rdm.PIDIPv4ZeroconfMode, rdm.PIDInterfaceHardwareAddressType1, rdm.PIDIPv4DefaultRoute:
+		// This app has NO confirmed decode for these three PIDs' payload —
+		// only the interface-ID-prefix convention every other per-interface
+		// PID in this family uses is even a guess here. Rendered as
+		// "interface=N, rest UNCONFIRMED" rather than silently doing
+		// nothing, so the raw hex (always shown alongside this field) is
+		// what Dom actually checks by hand.
+		if len(data) >= 4 {
+			if id, err := params.DecodeInterfaceID(data[:4]); err == nil {
+				return fmt.Sprintf("interface=%d (remaining %d byte(s): layout UNCONFIRMED, see raw hex)", id, len(data)-4)
+			}
+		}
+
+	case rdm.PIDDNSHostname, rdm.PIDDNSDomainName:
+		if len(data) > 0 || !isResponse {
+			return fmt.Sprintf("%q", string(data))
+		}
+
+	case rdm.PIDDNSNameServer:
+		if isResponse {
+			if idx, ip, err := params.DecodeDNSNameServer(data); err == nil {
+				return fmt.Sprintf("index=%d ip=%s", idx, ip)
+			}
+		} else if len(data) >= 1 {
+			return fmt.Sprintf("requesting DNS name server index=%d", data[0])
 		}
 
 	case rdm.PIDProductDetailIDList:

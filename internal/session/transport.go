@@ -70,6 +70,10 @@ type FakeTransport struct {
 
 	// OnSend is a hook for scripted request→response fakes.
 	OnSend func(SentPacket)
+
+	// sentCh is signalled (non-blocking, best-effort) once per recorded
+	// datagram — see SentSignal below.
+	sentCh chan struct{}
 }
 
 // NewFakeTransport returns an empty FakeTransport with a generously buffered
@@ -78,8 +82,24 @@ func NewFakeTransport() *FakeTransport {
 	return &FakeTransport{
 		inbound:   make(chan Inbound, 256),
 		broadcast: netip.AddrPortFrom(netip.AddrFrom4([4]byte{255, 255, 255, 255}), ArtNetUDPPort),
+		sentCh:    make(chan struct{}, 64),
 	}
 }
+
+// SentSignal returns a channel that receives one value shortly after every
+// outbound datagram FakeTransport records (Send or Broadcast), independent
+// of whatever OnSend hook is (or isn't) installed. It exists so a driving
+// test loop can block for real — no CPU spent, no fixed iteration budget —
+// until there is new wire traffic worth reacting to (typically: advance the
+// fake clock so a scripted response's Clock.AfterFunc callback can fire),
+// rather than racing a spin-and-Gosched loop against however the OS
+// scheduler happens to be treating the sending goroutine at that moment.
+// Signals may coalesce (the channel is small and non-blocking to send on: a
+// slow consumer drops rather than blocking the sender), which is safe here
+// because Advance fires every timer up to its target in one call, so waking
+// up "at least once more" is all a consumer ever needs — it isn't counting
+// sends.
+func (t *FakeTransport) SentSignal() <-chan struct{} { return t.sentCh }
 
 // SetSendError makes every subsequent Send/Broadcast fail with err (nil
 // clears it), for exercising transmit-failure paths.
@@ -117,6 +137,11 @@ func (t *FakeTransport) record(data []byte, dst netip.AddrPort, broadcast bool) 
 	t.sent = append(t.sent, sp)
 	hook := t.OnSend
 	t.mu.Unlock()
+
+	select {
+	case t.sentCh <- struct{}{}:
+	default:
+	}
 
 	if hook != nil {
 		hook(sp)

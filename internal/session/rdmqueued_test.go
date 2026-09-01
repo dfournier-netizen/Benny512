@@ -78,11 +78,29 @@ func (h *rdmHarness) awaitDrain(uid rdm.UID, filter rdm.StatusType, maxIter int,
 	// goroutine has even run, leaving a scheduled step that nothing will
 	// ever fire — a flake, not a failure. Once the pass is registered the
 	// whole state machine runs on the clock-advancing goroutine, so the rest
-	// is deterministic.
+	// is deterministic. This loop is intentionally unbounded (no iteration
+	// cap): it can only ever wait for something that is already true or
+	// about to become true almost immediately (drainStarted flips before
+	// DrainQueuedMessages's registering goroutine does anything else), so
+	// there is no "budget" to size, and no way it can spin forever without
+	// itself indicating a real hang elsewhere.
 	for !h.drainStarted(ch) {
 		runtime.Gosched()
 	}
 
+	// limit is a real assertion this test makes (the drain must converge
+	// within limit of *simulated* protocol time), not a loose "big enough"
+	// backstop, so — unlike runHTTPAsync's pumpUntilDone in internal/web —
+	// this loop's iteration count intentionally stays tied to limit/step
+	// rather than becoming unbounded. What changes is how each iteration
+	// yields: a bare runtime.Gosched() only *offers* the drain goroutine a
+	// turn, and under contention the offer can go unclaimed for the whole
+	// loop (see pumpUntilDone's doc comment in internal/web/device_test.go
+	// for a captured example of exactly that starvation). Blocking on
+	// either h.tr.SentSignal() or a short real timer guarantees this
+	// goroutine actually gives up its own CPU between advances — a real
+	// wait, not a hopeful yield — so the drain goroutine gets genuine
+	// scheduling opportunities across the full budget regardless of load.
 	const step = time.Millisecond
 	for elapsed := time.Duration(0); elapsed <= limit; elapsed += step {
 		select {
@@ -91,10 +109,12 @@ func (h *rdmHarness) awaitDrain(uid rdm.UID, filter rdm.StatusType, maxIter int,
 		default:
 		}
 		h.clock.Advance(step)
-		// The finished result reaches this goroutine via the drain
-		// goroutine's return, so give that goroutine a turn on every step
-		// instead of spinning the clock straight past it.
-		runtime.Gosched()
+		select {
+		case o := <-ch:
+			return o.res
+		case <-h.tr.SentSignal():
+		case <-time.After(time.Millisecond):
+		}
 	}
 	select {
 	case o := <-ch:

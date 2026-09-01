@@ -42,6 +42,14 @@ func (c *Client) ListInterfaces(ctx context.Context) ([]uint32, error) {
 	if err != nil {
 		return nil, err
 	}
+	return DecodeInterfaceList(data)
+}
+
+// DecodeInterfaceList decodes LIST_INTERFACES' response shape (a flat array
+// of 4-byte interface IDs) — exported so internal/capture can render the
+// same interpretation in a --logrdm capture without duplicating the wire
+// format. See ListInterfaces above and this file's doc comment.
+func DecodeInterfaceList(data []byte) ([]uint32, error) {
 	if len(data)%4 != 0 {
 		return nil, ErrBadInterfaceList
 	}
@@ -50,6 +58,18 @@ func (c *Client) ListInterfaces(ctx context.Context) ([]uint32, error) {
 		out = append(out, binary.BigEndian.Uint32(data[i:i+4]))
 	}
 	return out, nil
+}
+
+// DecodeInterfaceID decodes the bare 4-byte interface ID that prefixes (or,
+// for INTERFACE_APPLY_CONFIGURATION/INTERFACE_RENEW_DHCP/INTERFACE_
+// RELEASE_DHCP, entirely constitutes) most of this package's per-interface
+// GET requests and SET commands. Exported for internal/capture's benefit —
+// see DecodeInterfaceList's doc comment.
+func DecodeInterfaceID(data []byte) (uint32, error) {
+	if len(data) < 4 {
+		return 0, fmt.Errorf("%w: interface ID wants >=4 bytes, got %d", ErrBadLength, len(data))
+	}
+	return binary.BigEndian.Uint32(data[0:4]), nil
 }
 
 func encodeInterfaceID(id uint32) []byte {
@@ -66,10 +86,18 @@ func (c *Client) InterfaceLabel(ctx context.Context, interfaceID uint32) (string
 	if err != nil {
 		return "", err
 	}
+	_, label, err := DecodeInterfaceLabel(data)
+	return label, err
+}
+
+// DecodeInterfaceLabel decodes INTERFACE_LABEL's interface-ID+ASCII-label
+// response shape. Exported for internal/capture's benefit — see
+// DecodeInterfaceList's doc comment.
+func DecodeInterfaceLabel(data []byte) (interfaceID uint32, label string, err error) {
 	if len(data) < 4 {
-		return "", fmt.Errorf("%w: INTERFACE_LABEL wants >=4 bytes, got %d", ErrBadLength, len(data))
+		return 0, "", fmt.Errorf("%w: INTERFACE_LABEL wants >=4 bytes, got %d", ErrBadLength, len(data))
 	}
-	return string(data[4:]), nil
+	return binary.BigEndian.Uint32(data[0:4]), string(data[4:]), nil
 }
 
 // IPv4Config is the decoded shape of IPV4_CURRENT_ADDRESS / IPV4_STATIC_
@@ -82,6 +110,14 @@ type IPv4Config struct {
 }
 
 func decodeIPv4Config(data []byte) (IPv4Config, error) {
+	return DecodeIPv4Config(data)
+}
+
+// DecodeIPv4Config decodes IPV4_CURRENT_ADDRESS/IPV4_STATIC_ADDRESS's
+// interface-ID+IP+mask response shape (also the shape of a SET IPV4_
+// STATIC_ADDRESS request's payload). Exported for internal/capture's
+// benefit — see DecodeInterfaceList's doc comment.
+func DecodeIPv4Config(data []byte) (IPv4Config, error) {
 	if len(data) < 12 {
 		return IPv4Config{}, fmt.Errorf("%w: IPv4 config wants >=12 bytes, got %d", ErrBadLength, len(data))
 	}
@@ -135,10 +171,19 @@ func (c *Client) IPv4DHCPMode(ctx context.Context, interfaceID uint32) (rdm.DHCP
 	if err != nil {
 		return 0, err
 	}
+	_, status, err := DecodeDHCPMode(data)
+	return status, err
+}
+
+// DecodeDHCPMode decodes IPV4_DHCP_MODE's interface-ID+status-byte response
+// shape (also the shape of a SET IPV4_DHCP_MODE request's payload).
+// Exported for internal/capture's benefit — see DecodeInterfaceList's doc
+// comment.
+func DecodeDHCPMode(data []byte) (interfaceID uint32, status rdm.DHCPStatus, err error) {
 	if len(data) < 5 {
-		return 0, fmt.Errorf("%w: IPV4_DHCP_MODE wants >=5 bytes, got %d", ErrBadLength, len(data))
+		return 0, 0, fmt.Errorf("%w: IPV4_DHCP_MODE wants >=5 bytes, got %d", ErrBadLength, len(data))
 	}
-	return rdm.DHCPStatus(data[4]), nil
+	return binary.BigEndian.Uint32(data[0:4]), rdm.DHCPStatus(data[4]), nil
 }
 
 // SetIPv4DHCPMode issues SET IPV4_DHCP_MODE for one interface.
@@ -196,8 +241,31 @@ func (c *Client) DNSNameServer(ctx context.Context, index byte) (netip.Addr, err
 	if err != nil {
 		return netip.Addr{}, err
 	}
+	_, ip, err := DecodeDNSNameServer(data)
+	return ip, err
+}
+
+// DecodeDNSNameServer decodes DNS_NAME_SERVER's index+IPv4 response shape.
+// Exported for internal/capture's benefit — see DecodeInterfaceList's doc
+// comment.
+func DecodeDNSNameServer(data []byte) (index byte, ip netip.Addr, err error) {
 	if len(data) < 5 {
-		return netip.Addr{}, fmt.Errorf("%w: DNS_NAME_SERVER wants >=5 bytes, got %d", ErrBadLength, len(data))
+		return 0, netip.Addr{}, fmt.Errorf("%w: DNS_NAME_SERVER wants >=5 bytes, got %d", ErrBadLength, len(data))
 	}
-	return netip.AddrFrom4([4]byte(data[1:5])), nil
+	return data[0], netip.AddrFrom4([4]byte(data[1:5])), nil
+}
+
+// InterfaceHardwareAddress issues GET INTERFACE_HARDWARE_ADDRESS_TYPE1 for
+// one interface and returns the raw response bytes undecoded. UNVERIFIED:
+// unlike every other PID in this file, this package has no confirmed
+// reading for what follows the (also-unconfirmed) interface-ID prefix
+// convention — a Type 1 hardware address is conventionally a 6-byte
+// Ethernet MAC, but this session found nothing to confirm that byte count
+// or ordering against ANSI/ESTA E1.37-2 primary text or a real device. This
+// method intentionally does NOT slice/interpret the payload — callers get
+// the interface ID convention applied nowhere here, just the whole raw
+// response, so a caller (e.g. internal/capture's --logrdm decoding) can
+// show hex without asserting a structure this package cannot back up.
+func (c *Client) InterfaceHardwareAddress(ctx context.Context, interfaceID uint32) ([]byte, error) {
+	return c.getRaw(ctx, rdm.PIDInterfaceHardwareAddressType1, encodeInterfaceID(interfaceID))
 }

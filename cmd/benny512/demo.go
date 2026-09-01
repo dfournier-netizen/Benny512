@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"net/netip"
+	"sort"
 	"sync"
 	"time"
 
@@ -83,6 +84,17 @@ type demoDevice struct {
 	// proxiedDeviceCount > 0 marks this device as acting as an RDM proxy
 	// (report §1.3's PROXIED_DEVICES/PROXIED_DEVICE_COUNT signal).
 	proxiedDeviceCount uint16
+
+	// --- E1.20 §10.11 "Device Control" (owner ask: "add every PID in
+	// §10.11 to the device controls section") ---
+	//
+	// selfTestActive/selfTestDescs back PERFORM_SELFTEST/SELF_TEST_
+	// DESCRIPTION/SELFTEST_ENHANCED. selfTestDescs's keys are exactly the
+	// self test numbers SELFTEST_ENHANCED's packed list reports (both PIDs
+	// must agree, same as real hardware would); values are the text label
+	// SELF_TEST_DESCRIPTION returns for that number.
+	selfTestActive bool
+	selfTestDescs  map[byte]string
 }
 
 // baseSupportedParams are the PIDs every demo device advertises regardless
@@ -224,6 +236,123 @@ func (d *demoDevice) handle(msg rdm.Message) (data []byte, nack bool, reason rdm
 			return nil, true, rdm.NackDataOutOfRange
 		}
 		return append([]byte{idx}, []byte(label)...), false, 0
+	case rdm.PIDPowerState:
+		// E1.20 §10.11.3: GET/SET share the 1-byte Table A-11 shape. A SET
+		// of anything outside the four defined states is a malformed
+		// request, same discipline RESET_DEVICE's SET already enforces.
+		if msg.CommandClass == rdm.SetCommand {
+			if len(msg.ParameterData) != 1 {
+				return nil, true, rdm.NackFormatError
+			}
+			v := rdm.PowerState(msg.ParameterData[0])
+			if !v.IsValid() {
+				return nil, true, rdm.NackDataOutOfRange
+			}
+			d.paramValues[rdm.PIDPowerState] = []byte{byte(v)}
+			return nil, false, 0
+		}
+		return d.paramValues[rdm.PIDPowerState], false, 0
+	case rdm.PIDPerformSelfTest:
+		// E1.20 §10.11.4: GET returns "Self Tests Active" bool; SET starts
+		// (any non-zero Self Test #) or stops (SelfTestOff) whichever test
+		// this demo device is scripted with.
+		if msg.CommandClass == rdm.SetCommand {
+			if len(msg.ParameterData) != 1 {
+				return nil, true, rdm.NackFormatError
+			}
+			d.selfTestActive = rdm.SelfTestNumber(msg.ParameterData[0]) != rdm.SelfTestOff
+			return nil, false, 0
+		}
+		active := byte(0)
+		if d.selfTestActive {
+			active = 1
+		}
+		return []byte{active}, false, 0
+	case rdm.PIDSelfTestDescription:
+		// E1.20 §10.11.5: per-index special-casing, same pattern as
+		// CURVE_DESCRIPTION/DMX_PERSONALITY_DESCRIPTION above.
+		if len(msg.ParameterData) != 1 {
+			return nil, true, rdm.NackFormatError
+		}
+		n := msg.ParameterData[0]
+		label, ok := d.selfTestDescs[n]
+		if !ok {
+			return nil, true, rdm.NackDataOutOfRange
+		}
+		return append([]byte{n}, []byte(label)...), false, 0
+	case rdm.PIDSelfTestEnhanced:
+		// E1.20 §10.11.8: packed list, one 6-byte entry per key of
+		// selfTestDescs (sorted so the response is deterministic across
+		// runs) — no manufacturer-specific Result Code PID declared (header
+		// 0x0000, per §10.11.8's "Responder not supporting this feature
+		// shall set the field to 0x0000").
+		nums := make([]byte, 0, len(d.selfTestDescs))
+		for n := range d.selfTestDescs {
+			nums = append(nums, n)
+		}
+		sort.Slice(nums, func(i, j int) bool { return nums[i] < nums[j] })
+		out := make([]byte, 2, 2+6*len(nums))
+		for i, n := range nums {
+			status := rdm.SelfTestStatusNotRun
+			if d.selfTestActive {
+				status = rdm.SelfTestStatusActive
+			} else if i == 0 {
+				status = rdm.SelfTestStatusPass // demo flavor: the first test has "already been run"
+			}
+			entry := make([]byte, 6)
+			entry[0] = n
+			entry[1] = byte(status)
+			binary.BigEndian.PutUint16(entry[2:4], rdm.SelfTestCapAutoTerminate)
+			binary.BigEndian.PutUint16(entry[4:6], 0)
+			out = append(out, entry...)
+		}
+		return out, false, 0
+	case rdm.PIDCapturePreset:
+		// E1.20 §10.11.6: SET_COMMAND only (no GET form at all) — mirror
+		// RESET_DEVICE's unconditional GET rejection. Accepts either the
+		// 2-byte (scene-only) or 8-byte (scene+timing) PDL shapes; the demo
+		// doesn't actually persist captured scenes (nothing in this app
+		// reads them back), so a well-formed request always succeeds.
+		if msg.CommandClass == rdm.GetCommand {
+			return nil, true, rdm.NackUnsupportedCommandClass
+		}
+		if len(msg.ParameterData) != 2 && len(msg.ParameterData) != 8 {
+			return nil, true, rdm.NackFormatError
+		}
+		return nil, false, 0
+	case rdm.PIDPresetPlayback:
+		// E1.20 §10.11.7: 3-byte Mode+Level shape, GET/SET/echo.
+		if msg.CommandClass == rdm.SetCommand {
+			if len(msg.ParameterData) != 3 {
+				return nil, true, rdm.NackFormatError
+			}
+			d.paramValues[rdm.PIDPresetPlayback] = append([]byte(nil), msg.ParameterData...)
+			return nil, false, 0
+		}
+		return d.paramValues[rdm.PIDPresetPlayback], false, 0
+	case rdm.PIDInterfaceApplyConfiguration:
+		// SET-only (PDL=4, bare interface ID) per ipconfig.go's convention —
+		// demo always accepts a well-formed apply.
+		if msg.CommandClass == rdm.GetCommand {
+			return nil, true, rdm.NackUnsupportedCommandClass
+		}
+		if len(msg.ParameterData) != 4 {
+			return nil, true, rdm.NackFormatError
+		}
+		return nil, false, 0
+	case rdm.PIDDNSNameServer:
+		// Demo: only index 0 is populated (a single upstream resolver),
+		// matching ipconfig_test.go's own index+4-byte-IP shape — any other
+		// index NACKs NackDataOutOfRange, the honest "nothing configured at
+		// this slot" answer rather than echoing back index 0's address under
+		// a different index.
+		if len(msg.ParameterData) < 1 {
+			return nil, true, rdm.NackFormatError
+		}
+		if msg.ParameterData[0] != 0 {
+			return nil, true, rdm.NackDataOutOfRange
+		}
+		return []byte{0, 8, 8, 8, 8}, false, 0
 	case rdm.PIDDMXPersonalityDescription:
 		// Same per-index special-casing as CURVE_DESCRIPTION above, plus the
 		// DMX-footprint field this PID (uniquely among the *_DESCRIPTION
@@ -601,6 +730,11 @@ func buildDemoDevices(en4IP, wirelessIP netip.Addr, port0, port1, port2 artnet.P
 			rdm.PIDPanInvert, rdm.PIDTiltInvert, rdm.PIDPanTiltSwap,
 			rdm.PIDDisplayInvert, rdm.PIDDisplayLevel,
 			rdm.PIDFactoryDefaults, rdm.PIDResetDevice,
+			// E1.20 §10.11 "Device Control" — owner ask: "at least one demo
+			// device supporting the full §10.11 set" (wash2 below stays
+			// unsupported, to prove the UI degrades).
+			rdm.PIDPowerState, rdm.PIDPerformSelfTest, rdm.PIDSelfTestDescription,
+			rdm.PIDSelfTestEnhanced, rdm.PIDCapturePreset, rdm.PIDPresetPlayback,
 		},
 		paramValues: map[rdm.ParameterID][]byte{
 			rdm.PIDDMXStartAddress: dmxAddr(1), rdm.PIDDMXPersonality: {1, 2}, rdm.PIDIdentifyDevice: {0},
@@ -615,6 +749,12 @@ func buildDemoDevices(en4IP, wirelessIP netip.Addr, port0, port1, port2 artnet.P
 			rdm.PIDDisplayInvert:     {0},
 			rdm.PIDDisplayLevel:      {255},
 			rdm.PIDFactoryDefaults:   {0}, // not currently at factory defaults
+			rdm.PIDPowerState:        rdm.EncodePowerState(rdm.PowerStateNormal),
+			rdm.PIDPresetPlayback:    rdm.EncodePresetPlayback(rdm.PresetPlayback{Mode: rdm.PresetPlaybackOff, Level: 0xFF}),
+		},
+		selfTestDescs: map[byte]string{
+			1: "Lamp Check",
+			2: "Pan/Tilt Sweep",
 		},
 	}
 	wash2 := &demoDevice{
@@ -748,15 +888,65 @@ func buildDemoDevices(en4IP, wirelessIP netip.Addr, port0, port1, port2 artnet.P
 	// Control Systems is part of the ADJ Group, a realistic case of a
 	// device's own report outranking its registered ESTA entry): the
 	// Devices screen's "prefer the device's own report" demo leg. ---
+	// supportedExtra below is deliberately narrower than every E1.37-2 PID
+	// pids_ext.go declares: PIDInterfaceHardwareAddressType1, PIDIPv4Zero-
+	// confMode and PIDIPv4DefaultRoute have no confirmed byte layout
+	// anywhere in this app (see internal/params/ipconfig.go's doc comment),
+	// and PIDInterfaceRenewDHCP/PIDInterfaceReleaseDHCP have no typed Client
+	// method at all — advertising PIDs this app cannot actually decode/send
+	// would just make the demo device lie about what it offers.
+	//
+	// It's ALSO the only demo device that pairs E1.37-2 network config with
+	// a real (if narrower-than-wash1) E1.20 §10.11 device-control set —
+	// closing the coverage hole a verification pass found: no demo device
+	// exercised the "Device control" and "Network configuration" panels
+	// together, so their independence (arm state, layout, re-render) had
+	// never actually been rendered side by side. A real Obsidian EN4
+	// plausibly answers RESET_DEVICE/POWER_STATE and offers a self test
+	// (e.g. a network-link check) alongside its IP config, so this is a
+	// realistic combination, not a synthetic one built just to pair panels.
+	// CAPTURE_PRESET/PRESET_PLAYBACK are deliberately NOT added here: those
+	// are lighting-fixture scene features (E1.20 §10.11.6/7 talk in terms of
+	// DMX slot values and playback levels) with no sensible meaning for a
+	// DMX-over-Ethernet gateway that has no footprint of its own
+	// (deviceInfo above is DMXFootprint 0) — wash1 already covers that half
+	// of §10.11 for a device where it actually applies. FACTORY_DEFAULTS is
+	// left out too: it's demonstrated on wash1 already and a gateway
+	// reverting its whole network config via the generic FACTORY_DEFAULTS
+	// PID (rather than a dedicated reset-to-DHCP action) isn't a case this
+	// app models anywhere.
 	en4Root := &demoDevice{
 		uid: en4RootUID, label: "EN4-Demo", mfrLabel: "Obsidian Control Systems", model: "Netron EN4",
 		nodeIP: en4IP, port: port0, startAdr: 0,
 		deviceInfo:     basePV(rdm.CategoryDataDistribution, 0, 1, 0),
 		productDetails: []rdm.ProductDetail{rdm.DetailEthernetNode},
+		supportedExtra: []rdm.ParameterID{
+			rdm.PIDListInterfaces, rdm.PIDInterfaceLabel, rdm.PIDIPv4CurrentAddress,
+			rdm.PIDIPv4StaticAddress, rdm.PIDIPv4DHCPMode, rdm.PIDInterfaceApplyConfiguration,
+			rdm.PIDDNSHostname, rdm.PIDDNSDomainName, rdm.PIDDNSNameServer,
+			// E1.20 §10.11 subset plausible on a gateway (see doc comment
+			// above for why CAPTURE_PRESET/PRESET_PLAYBACK/FACTORY_DEFAULTS
+			// are excluded).
+			rdm.PIDPowerState, rdm.PIDResetDevice,
+			rdm.PIDPerformSelfTest, rdm.PIDSelfTestDescription, rdm.PIDSelfTestEnhanced,
+		},
 		paramValues: map[rdm.ParameterID][]byte{
 			rdm.PIDIdentifyDevice:     {0},
 			rdm.PIDListInterfaces:     {0, 0, 0, 1},
+			rdm.PIDInterfaceLabel:     append([]byte{0, 0, 0, 1}, []byte("eth0")...),
 			rdm.PIDIPv4CurrentAddress: append([]byte{0, 0, 0, 1}, append(en4IP.AsSlice(), 255, 255, 0, 0)...),
+			rdm.PIDIPv4StaticAddress:  append([]byte{0, 0, 0, 1}, append(en4IP.AsSlice(), 255, 255, 0, 0)...),
+			rdm.PIDIPv4DHCPMode:       {0, 0, 0, 1, byte(rdm.DHCPStatusInactive)},
+			rdm.PIDDNSHostname:        []byte("netron-en4"),
+			rdm.PIDDNSDomainName:      []byte("local"),
+			rdm.PIDPowerState:         rdm.EncodePowerState(rdm.PowerStateNormal),
+		},
+		// A gateway's self test is a network-link check, not a lamp/pan-tilt
+		// check like wash1's — deliberately different label content so the
+		// side-by-side screenshot can't be mistaken for wash1's panel reused
+		// verbatim.
+		selfTestDescs: map[byte]string{
+			1: "Network Link Test",
 		},
 	}
 

@@ -62,18 +62,37 @@ func (h *testHarness) wireDeviceResponder(uid rdm.UID, handler func(msg rdm.Mess
 // response is ready.
 //
 // This intentionally does NOT race a real wall-clock deadline against the
-// fake clock. An earlier version looped on `time.Now().Before(deadline)`
-// with a 1ms real sleep between fake-clock advances: under CPU contention
-// (parallel test processes, -race overhead, a loaded CI box) the real
-// deadline could expire before the handler goroutine had been scheduled
-// enough times to make progress, even though the fake-clock-driven state
-// machine itself hadn't stalled and would have resolved fine given more
-// wall-clock slack. That produced flaky failures with no logic bug behind
-// them — sometimes a timeout, sometimes a downstream assertion tripped by
-// an incompletely-processed response. Bounding on a fixed number of fake
-// advances instead (with a cooperative yield, not a real sleep, in between)
-// makes completion depend only on logical progress, never on how much real
-// CPU time the scheduler happened to hand this goroutine.
+// fake clock, and — despite an earlier version of this comment's claim —
+// it also does NOT poll on a bounded iteration count either, for the same
+// underlying reason the first attempt was wrong: both are attempts to
+// force one goroutine to observe another's progress by winning a
+// scheduling race, and both lose it under real contention. A prior
+// version looped on `time.Now().Before(deadline)` with a real sleep
+// between fake-clock advances, which lost the race when the real deadline
+// fired before enough advances had happened. The version that replaced it
+// (spin on `runtime.Gosched()` for up to 20,000 iterations) turned out to
+// lose the *opposite* race just as easily: 20,000 iterations of
+// lock/map-scan/Gosched is cheap enough to burn through in low single-digit
+// milliseconds of real CPU time, so on a host where this goroutine's own
+// OS thread doesn't get descheduled promptly (a shared/virtualized box,
+// GC, another process), the entire budget can be exhausted before the
+// handler goroutine spawned below ever gets a timeslice to run its first
+// instruction — confirmed by dumping goroutine stacks at the moment of
+// exactly such a failure: the handler goroutine sat "runnable" the whole
+// time, never scheduled, while this loop kept "making progress" (spending
+// iterations) without that progress meaning anything.
+//
+// The actual fix: never spin. Block for real on h.tport.SentSignal(),
+// which only fires when the handler goroutine has actually reached a
+// point of making wire traffic (session.RDMController's Send happens
+// synchronously inside Get/Set, before Await is ever called) — so this
+// goroutine holds no CPU at all while the handler goroutine has whatever
+// real time it needs to get scheduled and run. A generous real-time
+// backstop still guards the loop, but only as a deadlock detector for a
+// genuine production hang: with no spinning to starve the handler
+// goroutine of scheduler time, resolving in real milliseconds is the
+// normal case regardless of load, so nothing about the passing path
+// depends on beating that backstop.
 func (h *testHarness) runHTTPAsync(t *testing.T, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	done := make(chan *httptest.ResponseRecorder, 1)
@@ -81,29 +100,57 @@ func (h *testHarness) runHTTPAsync(t *testing.T, method, path string, body any) 
 		done <- doJSON(t, h.srv.Handler(), method, path, body)
 	}()
 
-	// 20,000 advances of 2ms of fake time each is 40 fake seconds of
-	// protocol time to resolve in — orders of magnitude more than any
-	// real RDM round-trip/backoff in this codebase needs — while imposing
-	// no real-time budget at all, so it can't be raced by CPU contention.
-	const maxAdvances = 20000
-	for i := 0; i < maxAdvances; i++ {
+	r := h.pumpUntilDone(t, done)
+	h.waitForRegistrySync(t)
+	return r
+}
+
+// pumpUntilDone blocks until done delivers a value, advancing h.clock in
+// reaction to two real, blocking signals rather than a spin loop — see
+// runHTTPAsync's doc comment for why a spin loop (bounded or not) races the
+// scheduler and can starve the handler goroutine outright:
+//
+//   - h.tport.SentSignal() fires the instant the handler goroutine actually
+//     puts a datagram on the wire, so the common case (a scripted response
+//     scheduled 1ms of fake time out) advances and resolves within one or
+//     two ticks of real latency.
+//   - a 1ms real ticker is the fallback for anything that needs the fake
+//     clock to move WITHOUT a new send in between — an ack-timer/backoff
+//     retry the controller schedules via Clock.AfterFunc on its own, with
+//     no fresh Send until that timer fires. Relying on SentSignal alone
+//     would deadlock that case: nothing sends again until the clock has
+//     already been advanced past the retry's deadline. The ticker is a
+//     genuine blocking receive between ticks (this goroutine holds no CPU
+//     while waiting), not a busy poll, so it doesn't reintroduce the
+//     starvation this function exists to avoid — it just guarantees fake
+//     time keeps moving even when no send is there to trigger it.
+//
+// Neither signal is bounded by a count, so there is no budget to exhaust:
+// the loop runs exactly as long as it takes, however slowly real ticks
+// arrive under contention. The 30s backstop only catches a genuine
+// deadlock (a real production bug), never normal — even heavily
+// contended — completion.
+func (h *testHarness) pumpUntilDone(t *testing.T, done <-chan *httptest.ResponseRecorder) *httptest.ResponseRecorder {
+	t.Helper()
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	backstop := time.NewTimer(30 * time.Second)
+	defer backstop.Stop()
+	for {
 		select {
 		case r := <-done:
-			h.waitForRegistrySync(t)
 			return r
-		default:
+		case <-h.tport.SentSignal():
+			h.clock.Advance(2 * time.Millisecond)
+		case <-ticker.C:
+			h.clock.Advance(2 * time.Millisecond)
+		case <-backstop.C:
+			buf := make([]byte, 1<<20)
+			n := runtime.Stack(buf, true)
+			t.Fatalf("timed out waiting for HTTP handler to resolve (no progress for 30s — a real hang, not scheduling jitter)\n%s", buf[:n])
+			return nil
 		}
-		h.clock.Advance(2 * time.Millisecond)
-		select {
-		case r := <-done:
-			h.waitForRegistrySync(t)
-			return r
-		default:
-		}
-		runtime.Gosched()
 	}
-	t.Fatal("timed out waiting for HTTP handler to resolve (no progress after many fake-clock advances — a real hang, not scheduling jitter)")
-	return nil
 }
 
 // waitForRegistrySync closes a second, independent race behind the same
@@ -144,19 +191,29 @@ func (h *testHarness) waitForRegistrySync(t *testing.T) {
 	}
 	h.rdmc.Get(sentinelNode, sentinelUID, 0x0000, nil)
 
-	const maxAdvances = 20000
-	for i := 0; i < maxAdvances; i++ {
+	// Broadcasts complete synchronously in issueLocked (see this func's doc
+	// comment) — no fake-clock advance is ever needed to make the sentinel
+	// itself complete, only real scheduling time for Registry.Run to drain
+	// its event off RDMController.Events() and republish it. So this reads
+	// with a genuinely blocking receive, no polling loop at all: no budget
+	// to exhaust, no spin competing with Registry.Run's goroutine for CPU.
+	// The backstop is a deadlock detector only, exactly like
+	// pumpUntilDone's — see that doc comment for why a bound expressed as
+	// an iteration count, not as real blocking synchronization, is what
+	// actually caused this package's flaky timeouts.
+	backstop := time.NewTimer(30 * time.Second)
+	defer backstop.Stop()
+	for {
 		select {
 		case ev := <-h.srv.Registry.RDMEvents():
 			if ev.Kind == session.EventCommandComplete && ev.UID == sentinelUID {
 				return
 			}
-		default:
-			h.clock.Advance(2 * time.Millisecond)
-			runtime.Gosched()
+		case <-backstop.C:
+			t.Fatal("timed out waiting for Registry to catch up with RDM completion events")
+			return
 		}
 	}
-	t.Fatal("timed out waiting for Registry to catch up with RDM completion events")
 }
 
 func TestDeviceParamsFlow(t *testing.T) {
@@ -330,10 +387,13 @@ func TestIntrospectEndpointAsyncCompletion(t *testing.T) {
 
 	// Advance the fake clock repeatedly until the background introspection
 	// goroutine's RDM traffic resolves and the descriptor becomes visible
-	// via the cached-descriptors endpoint.
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		h.clock.Advance(2 * time.Millisecond)
+	// via the cached-descriptors endpoint. Bounded on a fixed number of
+	// fake-clock advances (no real time.Sleep, no wall-clock deadline) so
+	// completion depends only on logical progress — see runHTTPAsync's doc
+	// comment for why a real deadline racing a fake clock is a
+	// real-clock-vs-fake-clock race, not a logic bug.
+	const maxAdvances = 20000
+	for i := 0; i < maxAdvances; i++ {
 		listRR := doJSON(t, h.srv.Handler(), "GET", "/api/device/"+uidStr+"/params", nil)
 		var list []paramDescriptorJSON
 		if err := json.Unmarshal(listRR.Body.Bytes(), &list); err == nil && len(list) == 1 && list[0].PID == "8020" {
@@ -342,9 +402,10 @@ func TestIntrospectEndpointAsyncCompletion(t *testing.T) {
 			}
 			return
 		}
-		time.Sleep(time.Millisecond)
+		h.clock.Advance(2 * time.Millisecond)
+		runtime.Gosched()
 	}
-	t.Fatal("timed out waiting for introspection to populate the descriptor cache")
+	t.Fatal("timed out waiting for introspection to populate the descriptor cache (no progress after many fake-clock advances — a real hang, not scheduling jitter)")
 }
 
 func TestDeviceUnknownUID(t *testing.T) {
@@ -723,10 +784,15 @@ func TestFixtureJSONExposesProxiedDeviceCount(t *testing.T) {
 		t.Fatalf("introspect status=%d body=%s", rr.Code, rr.Body.String())
 	}
 	uidStr := uid.String()
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
+	// Give the background introspection goroutine time to finish its walk
+	// before checking /params, using bounded fake-clock advances (no real
+	// time.Sleep/wall-clock deadline) so this depends only on logical
+	// progress — see runHTTPAsync's doc comment for why racing a real
+	// deadline against a fake clock is a real-clock-vs-fake-clock race.
+	const settleAdvances = 20000
+	for i := 0; i < settleAdvances; i++ {
 		h.clock.Advance(2 * time.Millisecond)
-		time.Sleep(time.Millisecond)
+		runtime.Gosched()
 	}
 	rr = doJSON(t, h.srv.Handler(), "GET", "/api/device/"+uidStr+"/params", nil)
 	var list []paramDescriptorJSON

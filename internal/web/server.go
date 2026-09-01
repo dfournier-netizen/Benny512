@@ -317,6 +317,15 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/device/{uid}/factory-defaults", s.handleSetFactoryDefaults)
 	s.mux.HandleFunc("POST /api/device/{uid}/reset", s.handleResetDevice)
 	s.mux.HandleFunc("GET /api/device/{uid}/supported-parameters", s.handleGetSupportedParameters)
+	s.mux.HandleFunc("GET /api/device/{uid}/device-control", s.handleGetDeviceControl)
+	s.mux.HandleFunc("POST /api/device/{uid}/power-state", s.handleSetPowerState)
+	s.mux.HandleFunc("POST /api/device/{uid}/self-test", s.handleSetSelfTest)
+	s.mux.HandleFunc("POST /api/device/{uid}/capture-preset", s.handleCapturePreset)
+	s.mux.HandleFunc("POST /api/device/{uid}/preset-playback", s.handleSetPresetPlayback)
+	s.mux.HandleFunc("GET /api/device/{uid}/network", s.handleGetDeviceNetwork)
+	s.mux.HandleFunc("POST /api/device/{uid}/network/interface/{id}/static", s.handleSetNetworkStatic)
+	s.mux.HandleFunc("POST /api/device/{uid}/network/interface/{id}/dhcp", s.handleSetNetworkDHCP)
+	s.mux.HandleFunc("POST /api/device/{uid}/network/dns", s.handleSetNetworkDNS)
 
 	// --- Phase 1c+: node/network configuration ---
 	s.mux.HandleFunc("POST /api/node/{ip}/address", s.handleNodeAddress)

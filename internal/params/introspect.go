@@ -113,6 +113,20 @@ var knownDecodedESTAPIDs = map[rdm.ParameterID]bool{
 	rdm.PIDLampState: true, rdm.PIDDevicePowerCycles: true,
 	rdm.PIDFactoryDefaults: true, rdm.PIDResetDevice: true,
 
+	// E1.20 §10.11 "Device Control Parameter Messages" (see
+	// internal/rdm/devicecontrol.go / internal/params/devicecontrol.go) —
+	// same reasoning as the service-life family above: all six now have
+	// typed Client methods, so none of them should get a redundant raw-hex
+	// editor row. CAPTURE_PRESET in particular MUST NOT reach the generic
+	// editor's bulk GET pass for the same reason RESET_DEVICE mustn't: it is
+	// SET_COMMAND only (E1.20 §10.11.6), enforced defensively in getRaw via
+	// ErrCapturePresetHasNoGet. SELF_TEST_DESCRIPTION needs its 1-byte index
+	// supplied (ErrSelfTestDescriptionNeedsNumber), so it couldn't be probed
+	// by the generic editor's index-free GET even if it weren't excluded.
+	rdm.PIDPowerState: true, rdm.PIDPerformSelfTest: true,
+	rdm.PIDSelfTestDescription: true, rdm.PIDSelfTestEnhanced: true,
+	rdm.PIDCapturePreset: true, rdm.PIDPresetPlayback: true,
+
 	// SLOT_DESCRIPTION (0x0121) needs a request payload (a 2-byte slot
 	// number, E1.20 §10.7.2) the generic editor's index-free GET can't
 	// supply, the same reason CURVE_DESCRIPTION et al. are excluded above.
@@ -782,7 +796,14 @@ func isSpeculativePID(pid rdm.ParameterID) bool {
 		rdm.PIDMinimumLevel, rdm.PIDMaximumLevel, rdm.PIDIdentifyMode,
 		rdm.PIDProductDetailIDList, rdm.PIDProxiedDeviceCount, rdm.PIDProxiedDevices,
 		rdm.PIDDeviceHours, rdm.PIDLampHours, rdm.PIDLampStrikes, rdm.PIDLampState,
-		rdm.PIDDevicePowerCycles, rdm.PIDFactoryDefaults:
+		rdm.PIDDevicePowerCycles, rdm.PIDFactoryDefaults,
+		rdm.PIDPowerState, rdm.PIDPerformSelfTest, rdm.PIDSelfTestDescription,
+		rdm.PIDSelfTestEnhanced, rdm.PIDPresetPlayback:
+		// CAPTURE_PRESET is deliberately NOT here, same reason RESET_DEVICE
+		// isn't (see this func's doc comment): it has no GET form at all, so
+		// the SUPPORTED_PARAMETERS-driven "ask only if advertised" gate below
+		// doesn't apply to it — getRaw's unconditional ErrCapturePresetHasNoGet
+		// guard is what actually protects it.
 		return true
 	default:
 		return false

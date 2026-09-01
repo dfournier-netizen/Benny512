@@ -139,9 +139,23 @@ func TestNodeConfigTimeoutPath(t *testing.T) {
 		rr := doJSON(t, h.srv.Handler(), "POST", "/api/node/10.0.0.5/input", map[string]any{"enabled": [4]bool{true, true, true, true}})
 		done <- &responseRecorderResult{Code: rr.Code, Body: rr.Body.Bytes()}
 	}()
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		h.clock.Advance(200 * time.Millisecond)
+	// Driven by real, blocking synchronization, not a spin loop bounded by
+	// an iteration count — see runHTTPAsync/pumpUntilDone's doc comment in
+	// device_test.go for the full story: a fixed-count Gosched spin can
+	// exhaust its whole budget in low-single-digit milliseconds of real
+	// CPU time, starving the handler goroutine of any timeslice at all
+	// under contention — a real-scheduler race exactly like racing a
+	// wall-clock deadline is, just losing in the opposite direction.
+	// h.tport.SentSignal() reacts the instant the handler's request hits
+	// the wire; the 1ms real ticker is the fallback that keeps fake time
+	// moving even between sends. Neither is a spin: both block for real
+	// between events, so this goroutine holds no CPU while the handler
+	// goroutine needs to run. 30s is a deadlock backstop only.
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	backstop := time.NewTimer(30 * time.Second)
+	defer backstop.Stop()
+	for {
 		select {
 		case rr := <-done:
 			if rr.Code != http.StatusOK {
@@ -155,10 +169,15 @@ func TestNodeConfigTimeoutPath(t *testing.T) {
 				t.Fatal("expected Confirmed false: node never replied")
 			}
 			return
-		case <-time.After(time.Millisecond):
+		case <-h.tport.SentSignal():
+			h.clock.Advance(200 * time.Millisecond)
+		case <-ticker.C:
+			h.clock.Advance(200 * time.Millisecond)
+		case <-backstop.C:
+			t.Fatal("timed out waiting for node config call to resolve (no progress for 30s — a real hang, not scheduling jitter)")
+			return
 		}
 	}
-	t.Fatal("timed out waiting for node config call to resolve")
 }
 
 func TestGetNICs(t *testing.T) {

@@ -73,7 +73,7 @@ func TestSetNodeNamesConfirmedViaOnSend(t *testing.T) {
 }
 
 func TestSetNodeNamesTimeout(t *testing.T) {
-	s, clock, _ := newSession(t, ArtNetConfig{})
+	s, clock, tport := newSession(t, ArtNetConfig{})
 	key := seedNode(t, s, "10.0.0.21")
 	// No OnSend hook: the node never replies.
 
@@ -87,10 +87,28 @@ func TestSetNodeNamesTimeout(t *testing.T) {
 		done <- result{res, err}
 	}()
 
-	// Give the goroutine a chance to register before advancing time.
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		clock.Advance(100 * time.Millisecond)
+	// Driven by real, blocking synchronization, not a spin loop bounded by
+	// an iteration count. A fixed-count Gosched spin can burn through its
+	// whole budget in low-single-digit milliseconds of real CPU time,
+	// starving the goroutine above of any timeslice at all under
+	// contention (confirmed by dumping goroutine stacks on a captured
+	// failure in the sibling internal/web package: the goroutine sat
+	// "runnable", never scheduled, the entire time this loop kept
+	// "making progress" spending iterations that meant nothing) — a real
+	// scheduler race exactly like racing a wall-clock deadline is, just
+	// losing in the opposite direction. tport.SentSignal() reacts the
+	// instant SetNodeNames actually puts a request on the wire; the 1ms
+	// real ticker is the fallback that keeps fake time moving between
+	// sends (an ack-timer/backoff retry the controller schedules on its
+	// own has no fresh send to react to until the clock is already past
+	// its deadline). Neither is a spin: both block for real between
+	// events, so this goroutine holds no CPU while the other one needs to
+	// run. 30s is a deadlock backstop only, never a completion budget.
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	backstop := time.NewTimer(30 * time.Second)
+	defer backstop.Stop()
+	for {
 		select {
 		case r := <-done:
 			if r.err != nil {
@@ -100,10 +118,15 @@ func TestSetNodeNamesTimeout(t *testing.T) {
 				t.Fatal("expected Confirmed false (no reply ever sent)")
 			}
 			return
-		case <-time.After(time.Millisecond):
+		case <-tport.SentSignal():
+			clock.Advance(100 * time.Millisecond)
+		case <-ticker.C:
+			clock.Advance(100 * time.Millisecond)
+		case <-backstop.C:
+			t.Fatal("timed out waiting for SetNodeNames to resolve (no progress for 30s — a real hang, not scheduling jitter)")
+			return
 		}
 	}
-	t.Fatal("timed out waiting for SetNodeNames to resolve")
 }
 
 func TestSetNodeNamesUnknownNode(t *testing.T) {

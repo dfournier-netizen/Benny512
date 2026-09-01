@@ -1,6 +1,8 @@
 package capture
 
 import (
+	"encoding/binary"
+	"encoding/json"
 	"net/netip"
 	"strings"
 	"testing"
@@ -92,6 +94,124 @@ func TestDecodeEntry_NackReason(t *testing.T) {
 	}
 	if e.RDM.NackReasonName != "DATA_OUT_OF_RANGE" {
 		t.Errorf("NackReasonName = %q, want DATA_OUT_OF_RANGE", e.RDM.NackReasonName)
+	}
+}
+
+// TestDecodeEntry_NackReasonZeroSurvivesJSON is the regression case for the
+// "0x0000 is a real value" bug called out in the E1.37-2 bench-test brief:
+// NR_UNKNOWN_PID is 0x0000, and NackReasonCode previously carried
+// `json:",omitempty"`, which would silently drop the field from any JSON
+// view (capture export, the live API) whenever a device NACKed with exactly
+// this reason — indistinguishable, from the JSON alone, from a field that
+// was never set. Asserts the marshalled bytes, not just the Go struct field
+// (repo convention: a struct-only assertion passes vacuously against this
+// exact bug class).
+func TestDecodeEntry_NackReasonZeroSurvivesJSON(t *testing.T) {
+	msg := rdm.Message{
+		DestinationUID:    rdm.UID{ManufacturerID: 0x7FF0, DeviceID: 1},
+		SourceUID:         rdm.UID{ManufacturerID: 0x2222, DeviceID: 1},
+		TransactionNumber: 1, PortIDOrResponseType: byte(rdm.ResponseNackReason),
+		CommandClass: rdm.GetCommandResponse, ParameterID: rdm.PIDIPv4StaticAddress,
+		ParameterData: []byte{0x00, 0x00}, // NR_UNKNOWN_PID = 0x0000
+	}
+	raw := encodeRDMPacket(t, msg)
+	e := DecodeEntry(DirIn, testPeer, raw)
+	if e.RDM == nil {
+		t.Fatal("RDM detail is nil")
+	}
+	if e.RDM.NackReasonCode != 0 {
+		t.Fatalf("NackReasonCode = 0x%04X, want 0x0000", e.RDM.NackReasonCode)
+	}
+	if e.RDM.NackReasonName != "UNKNOWN_PID" {
+		t.Fatalf("NackReasonName = %q, want UNKNOWN_PID", e.RDM.NackReasonName)
+	}
+	b, err := json.Marshal(e.RDM)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	if !strings.Contains(string(b), `"nackReasonCode":0`) {
+		t.Fatalf("marshalled JSON = %s, missing \"nackReasonCode\":0 — omitempty dropped a real zero value", b)
+	}
+}
+
+// TestDecodeEntry_E137_2IPv4StaticAddress covers the E1.37-2 bench-test
+// brief's core ask: a --logrdm capture must show a human-readable
+// interpretation of IPV4_STATIC_ADDRESS alongside the raw hex, not hex
+// alone, so Dom can check the byte layout by hand against a real device.
+func TestDecodeEntry_E137_2IPv4StaticAddress(t *testing.T) {
+	data := make([]byte, 12)
+	binary.BigEndian.PutUint32(data[0:4], 1)
+	copy(data[4:8], []byte{2, 11, 90, 5})
+	copy(data[8:12], []byte{255, 255, 0, 0})
+	msg := rdm.Message{
+		DestinationUID:    rdm.UID{ManufacturerID: 0x7FF0, DeviceID: 1},
+		SourceUID:         rdm.UID{ManufacturerID: 0x1900, DeviceID: 1},
+		TransactionNumber: 1, PortIDOrResponseType: byte(rdm.ResponseACK),
+		CommandClass: rdm.GetCommandResponse, ParameterID: rdm.PIDIPv4StaticAddress,
+		ParameterData: data,
+	}
+	raw := encodeRDMPacket(t, msg)
+	e := DecodeEntry(DirIn, testPeer, raw)
+	if e.RDM == nil {
+		t.Fatal("RDM detail is nil")
+	}
+	if e.RDM.PIDName != "IPV4_STATIC_ADDRESS" {
+		t.Errorf("PIDName = %q, want IPV4_STATIC_ADDRESS", e.RDM.PIDName)
+	}
+	if e.RDM.ParamDataHex == "" {
+		t.Error("ParamDataHex is empty, want raw hex always present regardless of Decoded")
+	}
+	want := "interface=1 ip=2.11.90.5 mask=255.255.0.0"
+	if e.RDM.Decoded != want {
+		t.Errorf("Decoded = %q, want %q", e.RDM.Decoded, want)
+	}
+}
+
+// TestDecodeEntry_E137_2ListInterfaces covers LIST_INTERFACES' flat-array
+// decode.
+func TestDecodeEntry_E137_2ListInterfaces(t *testing.T) {
+	data := make([]byte, 8)
+	binary.BigEndian.PutUint32(data[0:4], 1)
+	binary.BigEndian.PutUint32(data[4:8], 2)
+	msg := rdm.Message{
+		DestinationUID:    rdm.UID{ManufacturerID: 0x7FF0, DeviceID: 1},
+		SourceUID:         rdm.UID{ManufacturerID: 0x1900, DeviceID: 1},
+		TransactionNumber: 1, PortIDOrResponseType: byte(rdm.ResponseACK),
+		CommandClass: rdm.GetCommandResponse, ParameterID: rdm.PIDListInterfaces,
+		ParameterData: data,
+	}
+	raw := encodeRDMPacket(t, msg)
+	e := DecodeEntry(DirIn, testPeer, raw)
+	if e.RDM == nil {
+		t.Fatal("RDM detail is nil")
+	}
+	if e.RDM.Decoded != "interfaces=[1,2]" {
+		t.Errorf("Decoded = %q, want interfaces=[1,2]", e.RDM.Decoded)
+	}
+}
+
+// TestDecodeEntry_E137_2UnconfirmedLayoutStillDecodesInterfaceID covers the
+// three PIDs this app has NO confirmed payload layout for beyond the
+// interface-ID prefix (INTERFACE_HARDWARE_ADDRESS_TYPE1 here) — the
+// rendered string must say so plainly rather than pretending confidence it
+// doesn't have, per the E1.37-2 brief's "mark uncertainty, don't guess"
+// rule.
+func TestDecodeEntry_E137_2UnconfirmedLayoutStillDecodesInterfaceID(t *testing.T) {
+	data := append([]byte{0, 0, 0, 1}, []byte{0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF}...)
+	msg := rdm.Message{
+		DestinationUID:    rdm.UID{ManufacturerID: 0x7FF0, DeviceID: 1},
+		SourceUID:         rdm.UID{ManufacturerID: 0x1900, DeviceID: 1},
+		TransactionNumber: 1, PortIDOrResponseType: byte(rdm.ResponseACK),
+		CommandClass: rdm.GetCommandResponse, ParameterID: rdm.PIDInterfaceHardwareAddressType1,
+		ParameterData: data,
+	}
+	raw := encodeRDMPacket(t, msg)
+	e := DecodeEntry(DirIn, testPeer, raw)
+	if e.RDM == nil {
+		t.Fatal("RDM detail is nil")
+	}
+	if !strings.Contains(e.RDM.Decoded, "interface=1") || !strings.Contains(e.RDM.Decoded, "UNCONFIRMED") {
+		t.Errorf("Decoded = %q, want it to name the interface ID and say the layout is UNCONFIRMED", e.RDM.Decoded)
 	}
 }
 

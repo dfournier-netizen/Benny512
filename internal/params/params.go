@@ -126,8 +126,14 @@ func (c *Client) getRaw(ctx context.Context, pid rdm.ParameterID, data []byte) (
 	if pid == rdm.PIDResetDevice {
 		return nil, ErrResetDeviceHasNoGet
 	}
+	if pid == rdm.PIDCapturePreset {
+		return nil, ErrCapturePresetHasNoGet
+	}
 	if pid == rdm.PIDSlotDescription && len(data) != 2 {
 		return nil, ErrSlotDescriptionNeedsIndex
+	}
+	if pid == rdm.PIDSelfTestDescription && len(data) != 1 {
+		return nil, ErrSelfTestDescriptionNeedsNumber
 	}
 	if isSpeculativePID(pid) {
 		if err := c.ensureAdvertised(ctx, pid); err != nil {
