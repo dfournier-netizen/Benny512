@@ -249,9 +249,12 @@ type ChannelSet struct {
 	// sub-range starts at. Deliberately no `omitempty`: a ChannelSet
 	// starting at DMX 0 (the common case — a wheel's first slot almost
 	// always starts at 0) is real, present data, not an absent value.
-	DMXFrom      uint32  `json:"dmxFrom"`
-	PhysicalFrom float64 `json:"physicalFrom,omitempty"`
-	PhysicalTo   float64 `json:"physicalTo,omitempty"`
+	DMXFrom uint32 `json:"dmxFrom"`
+	// PhysicalFrom/PhysicalTo carry no `omitempty` for the same reason
+	// DMXFrom above does not — see the fuller note on ChannelFunction's
+	// pair. A closed-shutter or zero-frost set genuinely spans 0 to 0.
+	PhysicalFrom float64 `json:"physicalFrom"`
+	PhysicalTo   float64 `json:"physicalTo"`
 }
 
 // ChannelFunction is what one DMX offset within a patch entry's footprint
@@ -287,11 +290,30 @@ type ChannelFunction struct {
 	DMXFrom uint32 `json:"dmxFrom"`
 	DMXTo   uint32 `json:"dmxTo"`
 	// PhysicalFrom/PhysicalTo are GDTF's PhysicalFrom/PhysicalTo (e.g. pan
-	// degrees, percentage) — omitempty is fine here: 0.0 is ambiguous with
-	// "not provided" for physical units anyway, and GDTF makes no promise
-	// these are always present, unlike DMXFrom which the spec always gives.
-	PhysicalFrom float64 `json:"physicalFrom,omitempty"`
-	PhysicalTo   float64 `json:"physicalTo,omitempty"`
+	// degrees, percentage). Deliberately no `omitempty`, and the comment
+	// that used to justify one here was wrong on both of its counts.
+	//
+	// It argued that 0.0 is "ambiguous with not provided for physical units
+	// anyway". It is not: a dimmer's physical range starts at 0%, a frost's
+	// at 0, and a ChannelSet for a closed shutter legitimately has a
+	// physical range of 0 to 0. Those are stated facts from the file, and
+	// omitempty erased every one of them.
+	//
+	// It also treated the ambiguity as harmless because GDTF need not
+	// supply these. That is backwards — a field that is genuinely sometimes
+	// absent is exactly the one whose present-and-zero case must be
+	// distinguishable on the wire, and the fix for "sometimes absent" is a
+	// companion flag (see HasDefault below), never a silently dropped key.
+	//
+	// The concrete damage was an asymmetry across the Go/JS seam:
+	// internal/web's channelFunctionRequest and channelSetRequest declare
+	// both fields WITHOUT omitempty, so the browser sent "physicalFrom":0,
+	// the server accepted and stored it, and then served it back with the
+	// key missing. A value survived the trip in and was erased on the way
+	// out. The Fixture Library exports this struct verbatim, so the same
+	// zeroes also vanished from a library file handed to a coworker.
+	PhysicalFrom float64 `json:"physicalFrom"`
+	PhysicalTo   float64 `json:"physicalTo"`
 	// ChannelSets is GDTF's <ChannelSet> children of this ChannelFunction,
 	// if any. Deliberately `make([]ChannelSet, 0)`, never a nil slice, at
 	// every construction site in this codebase (gdtfparse.js's Go-side
