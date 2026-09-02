@@ -138,8 +138,32 @@ type channelFunctionRequest struct {
 	PhysicalFrom float64             `json:"physicalFrom"`
 	PhysicalTo   float64             `json:"physicalTo"`
 	ChannelSets  []channelSetRequest `json:"channelSets"`
-	RDMSlotType  string              `json:"rdmSlotType"`
-	RDMSlotLabel string              `json:"rdmSlotLabel"`
+
+	// --- GDTF resting values (patch schema v3) ---------------------------
+	//
+	// These six mirror patch.ChannelFunction's HasDefault/Default/
+	// DefaultByteCount and HasHighlight/Highlight/HighlightByteCount — the
+	// values gdtfparse.js reads out of <ChannelFunction Default="X/Y">.
+	// They are what the Rig Check base state (internal/patch/testpattern.go's
+	// "GDTF defaults + open only when needed" section) needs in order to
+	// leave an untested channel at the value its fixture actually rests at
+	// instead of driving it to 0.
+	//
+	// Deliberately NO `omitempty` on any of them, and Has* is NOT redundant
+	// with a non-zero value: a Default of 0 is the single most common real
+	// value in the wild (a dimmer resting dark, a shutter resting closed),
+	// so only Has* distinguishes "the file said 0" from "the file said
+	// nothing". This is the same rule Entry.Universe/Entry.Footprint carry
+	// and the same one patch.ChannelFunction's own doc comment states.
+	HasDefault         bool   `json:"hasDefault"`
+	Default            uint32 `json:"default"`
+	DefaultByteCount   uint16 `json:"defaultByteCount"`
+	HasHighlight       bool   `json:"hasHighlight"`
+	Highlight          uint32 `json:"highlight"`
+	HighlightByteCount uint16 `json:"highlightByteCount"`
+
+	RDMSlotType  string `json:"rdmSlotType"`
+	RDMSlotLabel string `json:"rdmSlotLabel"`
 }
 
 type channelSetRequest struct {
@@ -188,7 +212,15 @@ func channelFunctionsFromRequest(in map[string]channelFunctionRequest) (map[uint
 		out[uint16(offset)] = patch.ChannelFunction{
 			Source: source, Attribute: cfr.Attribute, FunctionName: cfr.FunctionName,
 			DMXFrom: cfr.DMXFrom, DMXTo: cfr.DMXTo, PhysicalFrom: cfr.PhysicalFrom, PhysicalTo: cfr.PhysicalTo,
-			ChannelSets: sets, RDMSlotType: cfr.RDMSlotType, RDMSlotLabel: cfr.RDMSlotLabel,
+			ChannelSets: sets,
+			// Copied verbatim, with no "is it non-zero?" filtering: a
+			// present-but-zero Default is real data (see
+			// channelFunctionRequest's doc comment), so HasDefault/
+			// HasHighlight are the ONLY signals that decide whether the
+			// value is meaningful — this layer must never second-guess them.
+			HasDefault: cfr.HasDefault, Default: cfr.Default, DefaultByteCount: cfr.DefaultByteCount,
+			HasHighlight: cfr.HasHighlight, Highlight: cfr.Highlight, HighlightByteCount: cfr.HighlightByteCount,
+			RDMSlotType: cfr.RDMSlotType, RDMSlotLabel: cfr.RDMSlotLabel,
 		}
 	}
 	return out, nil
@@ -1168,47 +1200,53 @@ func writeRigCheckError(w http.ResponseWriter, err error) {
 
 // --- rig check: stage 2 attribute-level test-pattern engine ---------------
 //
-// Endpoints (see internal/patch/testpattern.go for the pattern engine
-// itself, and its package doc comment for the design decisions behind the
-// contract below):
+// Endpoints (see internal/patch/testpattern.go for the engine itself, and its
+// package doc comment for every design decision behind the contract below):
 //
 //	POST /api/patch/rigcheck/pattern/start  <- patternStartRequest  -> patternStatusJSON
 //	POST /api/patch/rigcheck/pattern/adjust <- patternAdjustRequest -> patternStatusJSON
 //	GET  /api/patch/rigcheck/pattern        -> patternStatusJSON
 //
+// The engine holds TWO independent pieces of state and this surface mirrors
+// that split exactly:
+//
+//   - .../pattern/start is the SELECTION apply. It sets the scope, the set of
+//     selected tests, and the isolate flag, and — unless the caller sends
+//     "outputEnabled": false — lets output flow. Sending it with
+//     "outputEnabled": false is how a UI builds up a selection BEFORE
+//     anything moves.
+//   - .../pattern/adjust is the incremental mutator: toggle or
+//     re-parameterise ONE test ("test" + "enabled"), and/or flip output
+//     ("outputEnabled"), and/or flip isolate ("isolate"). Every one of those
+//     works identically whether or not output is currently flowing — the
+//     start button only allows output to flow, it does not limit
+//     configuration.
+//
 // Stop/blackout are NOT separate endpoints: the existing
 // POST /api/patch/rigcheck/stop and POST /api/patch/rigcheck/blackout apply
-// equally to a running pattern (RigCheck.Stop/Blackout are pattern-aware —
-// see rigcheck.go) — one Stop button, one Blackout button, regardless of
-// which engine is currently driving output. A caller does not need to know
-// which mode is active to hit either.
+// equally here (patch.RigCheck.Stop/Blackout are pattern-aware) — one Stop
+// button, one Blackout button, regardless of which engine is driving output.
+// Both stop OUTPUT and leave the test selection completely intact, so a
+// tech's picked tests survive a panic-button press and are still there to
+// re-run.
 //
 // GET .../rigcheck/pattern is not just a read — see patternStatusJSON's
-// LastEndReason field and testpattern.go's client-liveness-watchdog doc
-// comment: every call to it (success or not) refreshes the running
-// pattern's liveness deadline exactly like StartPattern/AdjustPattern do.
-// The UI MUST poll this at an interval comfortably under
-// patch.PatternWatchdogTimeout (5s) for as long as a pattern is meant to
-// keep running — stop polling (tab closed, navigated away, crashed) and the
-// pattern blackout-and-stops itself within that window with no further
-// action from the UI required.
+// lastEndReason field and testpattern.go's client-liveness-watchdog doc
+// comment: every call to it refreshes the running pattern's liveness deadline
+// exactly like the two POSTs do. The UI MUST poll this at an interval
+// comfortably under patch.PatternWatchdogTimeout (5s) for as long as output
+// is meant to keep flowing — stop polling (tab closed, navigated away,
+// crashed) and output blacks out and ceases within that window with no
+// further action from the UI required. The selection survives that too.
 
-type patternStartRequest struct {
-	// Scope — identical vocabulary to rigCheckStartRequest above (now
-	// including "position").
-	ScopeKind string   `json:"scopeKind"`
-	Universe  uint16   `json:"universe"`
-	Position  string   `json:"position"`
-	EntryIDs  []string `json:"entryIds"`
-
-	// Kind is one of the patch.PatternKind string constants (testpattern.go)
-	// — e.g. "dimmer_sine", "ballyhoo", "move_extreme", "colour_wheel_step",
-	// "frost", "prism_spin", "manual_value", "shaper_individual". An unknown
-	// Kind is a 400.
-	Kind string `json:"kind"`
-
-	// Params — see patch.PatternParams' doc comment for what each field
-	// means for a given Kind (an unused field for that Kind is ignored).
+// patternTestRequest is one test in a selection. Kind is one of the
+// patch.PatternKind string constants (testpattern.go); every other field is
+// that kind's parameters, and a field the kind does not use is ignored.
+// Target is what distinguishes the enumerated tests from each other (one
+// frost test per GDTF Frost* function, one gobo test per wheel, one
+// move_extreme per axis+extreme) and, with Kind, forms the test's id.
+type patternTestRequest struct {
+	Kind      string  `json:"kind"`
 	RateHz    float64 `json:"rateHz"`
 	Min       byte    `json:"min"`
 	Max       byte    `json:"max"`
@@ -1216,17 +1254,98 @@ type patternStartRequest struct {
 	Direction string  `json:"direction"`
 	Value     byte    `json:"value"`
 	On        bool    `json:"on"`
+	// Waveform is "" (== "sine"), "sine" or "snap" — a square wave holding
+	// at min for half the cycle and max for the other half. It applies to
+	// every continuous kind, not just the dimmer, and is deliberately a
+	// parameter rather than its own kind so it composes with everything.
+	Waveform string `json:"waveform"`
+	// OffsetMin/OffsetMax are the phase spread across the fixtures this test
+	// drives, in DEGREES (GrandMA3's "phase"). Fixture i of n, ordered by
+	// universe then start address, sits at
+	// OffsetMin + (OffsetMax-OffsetMin)*i/n — divisor n, not n-1, so 0..360
+	// across 8 fixtures puts the last at 315° and the chase wraps seamlessly.
+	// 0/0 (the default) is everything in unison. Sending a non-zero value
+	// for a STATIC kind (move_extreme, manual_value, dimmer_toggle) is a 400,
+	// not a silent no-op.
+	OffsetMin float64 `json:"offsetMin"`
+	OffsetMax float64 `json:"offsetMax"`
 }
 
-func patternParamsFromRequest(rateHz float64, min, max byte, target, direction string, value byte, on bool) patch.PatternParams {
-	return patch.PatternParams{RateHz: rateHz, Min: min, Max: max, Target: target, Direction: direction, Value: value, On: on}
+func (t patternTestRequest) spec() patch.PatternSpec {
+	return patch.PatternSpec{
+		Kind: patch.PatternKind(t.Kind),
+		Params: patch.PatternParams{
+			RateHz: t.RateHz, Min: t.Min, Max: t.Max, Target: t.Target, Direction: t.Direction,
+			Value: t.Value, On: t.On, Waveform: patch.Waveform(t.Waveform),
+			OffsetMin: t.OffsetMin, OffsetMax: t.OffsetMax,
+		},
+	}
 }
 
-// handleRigCheckPatternStart starts a stage 2 test pattern over a scope —
-// task ask: "starting a pattern that moves fixtures should be a deliberate
-// action" (unlike the existing rig-check faders' signed-off Apply-to-confirm
-// exception): this endpoint always requires an explicit POST naming both a
-// scope and a Kind, never an implicit continuation of anything else.
+// patternStartRequest applies a whole selection. The scope vocabulary is
+// identical to rigCheckStartRequest's.
+//
+// Tests is the current form. The flat Kind/RateHz/... fields beside it are
+// the pre-stackable-tests single-test shorthand, still supported verbatim:
+// when Tests is empty and Kind is set, the request means "select exactly this
+// one test". When Tests is non-empty, the flat fields are ignored.
+type patternStartRequest struct {
+	ScopeKind string   `json:"scopeKind"`
+	Universe  uint16   `json:"universe"`
+	Position  string   `json:"position"`
+	EntryIDs  []string `json:"entryIds"`
+
+	Tests []patternTestRequest `json:"tests"`
+
+	// --- single-test shorthand (see this struct's doc comment) ---
+	Kind      string  `json:"kind"`
+	RateHz    float64 `json:"rateHz"`
+	Min       byte    `json:"min"`
+	Max       byte    `json:"max"`
+	Target    string  `json:"target"`
+	Direction string  `json:"direction"`
+	Value     byte    `json:"value"`
+	On        bool    `json:"on"`
+	Waveform  string  `json:"waveform"`
+	OffsetMin float64 `json:"offsetMin"`
+	OffsetMax float64 `json:"offsetMax"`
+
+	// Isolate turns on the old zero-everything-else behaviour: no GDTF
+	// defaults, no dimmer-up, no shutter-open, every channel not driven by a
+	// selected test forced to 0. Default false. Useful for proving which
+	// channel drives which function; useless for seeing light.
+	Isolate bool `json:"isolate"`
+	// OutputEnabled is a POINTER on purpose: omitted (nil) means "yes, start
+	// output", which is what every pre-existing caller of this endpoint
+	// means by hitting it. An explicit false selects the tests and leaves
+	// the rig dark, which is the "pick your tests first" half of the owner's
+	// workflow.
+	OutputEnabled *bool `json:"outputEnabled"`
+}
+
+func (req patternStartRequest) specs() []patch.PatternSpec {
+	if len(req.Tests) > 0 {
+		out := make([]patch.PatternSpec, 0, len(req.Tests))
+		for _, t := range req.Tests {
+			out = append(out, t.spec())
+		}
+		return out
+	}
+	if req.Kind == "" {
+		return make([]patch.PatternSpec, 0)
+	}
+	return []patch.PatternSpec{patternTestRequest{
+		Kind: req.Kind, RateHz: req.RateHz, Min: req.Min, Max: req.Max, Target: req.Target,
+		Direction: req.Direction, Value: req.Value, On: req.On, Waveform: req.Waveform,
+		OffsetMin: req.OffsetMin, OffsetMax: req.OffsetMax,
+	}.spec()}
+}
+
+// handleRigCheckPatternStart applies a selection and (by default) lets output
+// flow — task ask: "starting a pattern that moves fixtures should be a
+// deliberate action": this endpoint always requires an explicit POST naming
+// both a scope and at least one test, never an implicit continuation of
+// anything else.
 func (s *Server) handleRigCheckPatternStart(w http.ResponseWriter, r *http.Request) {
 	var req patternStartRequest
 	if err := decodeJSON(r, &req); err != nil {
@@ -1243,19 +1362,42 @@ func (s *Server) handleRigCheckPatternStart(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	spec := patch.PatternSpec{
-		Kind:   patch.PatternKind(req.Kind),
-		Params: patternParamsFromRequest(req.RateHz, req.Min, req.Max, req.Target, req.Direction, req.Value, req.On),
-	}
-	st, err := s.RigCheck.StartPattern(entries, spec)
+	st, err := s.RigCheck.SetPatternTests(entries, req.specs(), req.Isolate)
 	if err != nil {
 		writeRigCheckError(w, err)
 		return
 	}
+	if req.OutputEnabled == nil || *req.OutputEnabled {
+		st, err = s.RigCheck.StartPatternOutput()
+		if err != nil {
+			writeRigCheckError(w, err)
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, toPatternStatusJSON(st))
 }
 
+// patternAdjustRequest is the incremental mutator — every field is optional
+// and independent, and any combination is applied in the order listed below
+// (isolate, then the test toggle, then the output flag) so one request can
+// both pick a test and start output.
+//
+// Test names one test to enable/re-parameterise (or, with Enabled explicitly
+// false, to deselect). Enabled is a POINTER so that omitting it means "yes,
+// select it" — deselecting requires saying so.
+//
+// The flat RateHz/Min/Max/... fields beside it are the pre-stackable-tests
+// shorthand: "replace the parameters of the one selected test", which is what
+// the previous version of this endpoint did. They apply only when Test is
+// absent, and 409 if zero or more than one test is selected (there is then no
+// single test the call could mean).
 type patternAdjustRequest struct {
+	Test    *patternTestRequest `json:"test"`
+	Enabled *bool               `json:"enabled"`
+
+	OutputEnabled *bool `json:"outputEnabled"`
+	Isolate       *bool `json:"isolate"`
+
 	RateHz    float64 `json:"rateHz"`
 	Min       byte    `json:"min"`
 	Max       byte    `json:"max"`
@@ -1263,21 +1405,57 @@ type patternAdjustRequest struct {
 	Direction string  `json:"direction"`
 	Value     byte    `json:"value"`
 	On        bool    `json:"on"`
+	Waveform  string  `json:"waveform"`
+	OffsetMin float64 `json:"offsetMin"`
+	OffsetMax float64 `json:"offsetMax"`
 }
 
-// handleRigCheckPatternAdjust replaces the running pattern's Params
-// wholesale (same whole-value-replace convention as POST .../rigcheck/level)
-// — 409 if no pattern is currently running.
 func (s *Server) handleRigCheckPatternAdjust(w http.ResponseWriter, r *http.Request) {
 	var req patternAdjustRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	st, err := s.RigCheck.AdjustPattern(patternParamsFromRequest(req.RateHz, req.Min, req.Max, req.Target, req.Direction, req.Value, req.On))
-	if err != nil {
-		writeRigCheckError(w, err)
-		return
+	st := s.RigCheck.PatternStatus()
+	if req.Isolate != nil {
+		st = s.RigCheck.SetPatternIsolate(*req.Isolate)
+	}
+	switch {
+	case req.Test != nil:
+		enabled := req.Enabled == nil || *req.Enabled
+		var err error
+		st, err = s.RigCheck.SelectPatternTest(req.Test.spec(), enabled)
+		if err != nil {
+			writeRigCheckError(w, err)
+			return
+		}
+	case req.OutputEnabled == nil && req.Isolate == nil:
+		// Pure single-test parameter replace (the legacy shape). Only taken
+		// when the request carries nothing else at all, so an
+		// {"outputEnabled":false} or {"isolate":true} request is never
+		// misread as "and also blank the selected test's parameters".
+		var err error
+		st, err = s.RigCheck.AdjustPattern(patch.PatternParams{
+			RateHz: req.RateHz, Min: req.Min, Max: req.Max, Target: req.Target, Direction: req.Direction,
+			Value: req.Value, On: req.On, Waveform: patch.Waveform(req.Waveform),
+			OffsetMin: req.OffsetMin, OffsetMax: req.OffsetMax,
+		})
+		if err != nil {
+			writeRigCheckError(w, err)
+			return
+		}
+	}
+	if req.OutputEnabled != nil {
+		if *req.OutputEnabled {
+			var err error
+			st, err = s.RigCheck.StartPatternOutput()
+			if err != nil {
+				writeRigCheckError(w, err)
+				return
+			}
+		} else {
+			st = s.RigCheck.StopPatternOutput()
+		}
 	}
 	writeJSON(w, http.StatusOK, toPatternStatusJSON(st))
 }
@@ -1292,33 +1470,118 @@ func (s *Server) handleRigCheckPatternStatus(w http.ResponseWriter, r *http.Requ
 type patternEntryStatusJSON struct {
 	EntryID string `json:"entryId"`
 	// Applied/Inferred/DetailMissing: see patch.PatternEntryStatus's doc
-	// comment (testpattern.go) — mixed-rig counting (decision 2) and
-	// RDM-inferred provenance (decision 3) at per-entry granularity.
-	// Deliberately no `omitempty` on any of the three: false is real,
-	// meaningful data (an un-applied/GDTF-sourced/fully-detailed entry),
-	// not an absent value — same rule as every other bool in this codebase.
+	// comment (testpattern.go) — mixed-rig counting and RDM-inferred
+	// provenance at per-entry granularity. Deliberately no `omitempty` on
+	// any of the three: false is real, meaningful data (an
+	// un-applied/GDTF-sourced/fully-detailed entry), not an absent value.
 	Applied       bool `json:"applied"`
 	Inferred      bool `json:"inferred"`
 	DetailMissing bool `json:"detailMissing"`
+	// PhaseDegrees is where on the waveform's circle this fixture sits for
+	// this test — 0 for every fixture when the test has no offset spread.
+	// No `omitempty`: 0° is the overwhelmingly common REAL value.
+	PhaseDegrees float64 `json:"phaseDegrees"`
 }
 
-// patternStatusJSON is GET .../rigcheck/pattern's (and both POST
-// .../rigcheck/pattern/start and .../adjust's) response shape.
+// patternTestStatusJSON is one selected test. The `id` is the stable handle a
+// UI uses to talk about this test (kind, or "kind:target"); it is also what
+// contested[].tests names.
+type patternTestStatusJSON struct {
+	ID    string `json:"id"`
+	Kind  string `json:"kind"`
+	Group string `json:"group"`
+	// Every parameter is echoed back at its CURRENT effective value —
+	// including the per-kind default rateHz actually in effect when the
+	// caller sent 0, and the normalized waveform ("sine" when the caller
+	// sent ""). No `omitempty` anywhere: 0/""/false are all real, legitimate
+	// configurations here, never absent data.
+	RateHz             float64                  `json:"rateHz"`
+	Min                byte                     `json:"min"`
+	Max                byte                     `json:"max"`
+	Target             string                   `json:"target"`
+	Direction          string                   `json:"direction"`
+	Value              byte                     `json:"value"`
+	On                 bool                     `json:"on"`
+	Waveform           string                   `json:"waveform"`
+	OffsetMin          float64                  `json:"offsetMin"`
+	OffsetMax          float64                  `json:"offsetMax"`
+	TotalScope         int                      `json:"totalScope"`
+	AppliedCount       int                      `json:"appliedCount"`
+	SkippedCount       int                      `json:"skippedCount"`
+	InferredCount      int                      `json:"inferredCount"`
+	MissingDetailCount int                      `json:"missingDetailCount"`
+	Entries            []patternEntryStatusJSON `json:"entries"`
+}
+
+// contestedOffsetJSON is one absolute DMX slot more than one active test
+// wants. tests is in canonical composition order — the LAST one wins. A UI
+// should warn on any non-empty list rather than letting one test silently
+// corrupt another.
+type contestedOffsetJSON struct {
+	Universe uint16   `json:"universe"`
+	Channel  uint16   `json:"channel"`
+	EntryID  string   `json:"entryId"`
+	Tests    []string `json:"tests"`
+}
+
+// patternBaseStateJSON reports what the "GDTF defaults + open only when
+// needed" base state did, and — just as importantly — what it could not do.
+type patternBaseStateJSON struct {
+	Isolate bool `json:"isolate"`
+	// DefaultsKnownCount/DefaultsUnknownCount count DMX slots across the
+	// whole scope whose GDTF resting value the file did / did not state. An
+	// unknown slot is LEFT AT 0: this engine does not invent a resting
+	// value, and this count is how a UI learns how much of the rig it is
+	// flying blind over.
+	DefaultsKnownCount   int `json:"defaultsKnownCount"`
+	DefaultsUnknownCount int `json:"defaultsUnknownCount"`
+	DimmerDrivenCount    int `json:"dimmerDrivenCount"`
+	ShutterOpenedCount   int `json:"shutterOpenedCount"`
+	// ShutterUnknownEntries names every entry that HAS a shutter/strobe
+	// function whose open position could not be established from GDTF
+	// ChannelSets or a GDTF Default. Those channels are left at 0, the
+	// fixture will probably not emit light, and this list is the engine
+	// saying so plainly instead of guessing a value. Always an array, never
+	// null.
+	ShutterUnknownEntries []string `json:"shutterUnknownEntries"`
+}
+
+// availableTestJSON is one test this scope can actually run. label comes from
+// GDTF's own ChannelFunction Name where the file gave one (labelFromGdtf
+// true), else the GDTF attribute name — this server does not decide which
+// frost is "light" and which is "heavy"; it reports what GDTF says.
+type availableTestJSON struct {
+	ID            string `json:"id"`
+	Kind          string `json:"kind"`
+	Group         string `json:"group"`
+	Target        string `json:"target"`
+	Label         string `json:"label"`
+	Attribute     string `json:"attribute"`
+	FixtureCount  int    `json:"fixtureCount"`
+	LabelFromGDTF bool   `json:"labelFromGdtf"`
+}
+
+// patternStatusJSON is GET .../rigcheck/pattern's (and both POSTs')
+// response.
+//
+// The `tests`/`available`/`contested`/`baseState` block is the real,
+// current shape. The scalar `kind`/`rateHz`/`min`/... fields above it are a
+// COMPATIBILITY VIEW of the first test in canonical order (all zero when
+// nothing is selected), kept so the pre-stackable-tests client keeps working
+// unchanged; a new client should read `tests` and ignore them.
 type patternStatusJSON struct {
-	Running bool `json:"running"`
-	// Kind/Target/Direction/Group/LastEndReason are omitempty like every
-	// other optional/not-currently-meaningful string field in this
-	// codebase (e.g. rigCheckStateJSON.Mode above) — "" genuinely means
-	// "not applicable"/"none yet", not a distinct meaningful value.
-	Kind string `json:"kind,omitempty"`
-	// RateHz/Min/Max/Value/On are the running pattern's CURRENT effective
-	// Params (echoing what StartPattern/AdjustPattern resolved, including
-	// the default RateHz actually in effect when the caller sent 0 — see
-	// patch.PatternParams' doc comment). No `omitempty` on any of these:
-	// 0/0/0/0/false are every one of them real, legitimate values (rate
-	// zero never reaches here since 0 is resolved to a default before
-	// this is built; Min/Max/Value 0 and On false are all meaningful
-	// pattern configurations), not absent data.
+	// Running and OutputEnabled are the same bit under two names: whether
+	// the selected tests are currently being rendered to DMX. `running` is
+	// the legacy name; `outputEnabled` says what it actually means now that
+	// a test can be SELECTED without output flowing.
+	Running       bool `json:"running"`
+	OutputEnabled bool `json:"outputEnabled"`
+	// SelectedCount is how many tests are selected — the number a UI needs
+	// to render "3 tests selected" whether or not output is flowing.
+	SelectedCount int `json:"selectedCount"`
+
+	// --- compatibility view of the first selected test ---
+	Kind               string                   `json:"kind,omitempty"`
 	RateHz             float64                  `json:"rateHz"`
 	Min                byte                     `json:"min"`
 	Max                byte                     `json:"max"`
@@ -1327,27 +1590,89 @@ type patternStatusJSON struct {
 	Value              byte                     `json:"value"`
 	On                 bool                     `json:"on"`
 	Group              string                   `json:"group,omitempty"`
-	ElapsedMS          int64                    `json:"elapsedMs"`
-	TotalScope         int                      `json:"totalScope"`
 	AppliedCount       int                      `json:"appliedCount"`
 	SkippedCount       int                      `json:"skippedCount"`
 	InferredCount      int                      `json:"inferredCount"`
 	MissingDetailCount int                      `json:"missingDetailCount"`
-	LastEndReason      string                   `json:"lastEndReason,omitempty"`
 	Entries            []patternEntryStatusJSON `json:"entries"`
+
+	ElapsedMS  int64 `json:"elapsedMs"`
+	TotalScope int   `json:"totalScope"`
+
+	Tests     []patternTestStatusJSON `json:"tests"`
+	Contested []contestedOffsetJSON   `json:"contested"`
+	BaseState patternBaseStateJSON    `json:"baseState"`
+	Available []availableTestJSON     `json:"available"`
+
+	// LastEndReason is why OUTPUT most recently stopped: "" (never enabled),
+	// "manual", "restarted" or "watchdog" — sticky, so a UI polling in after
+	// the fact can tell a deliberate Stop from an abandoned run the watchdog
+	// caught.
+	LastEndReason string `json:"lastEndReason,omitempty"`
+}
+
+func toPatternEntriesJSON(in []patch.PatternEntryStatus) []patternEntryStatusJSON {
+	out := make([]patternEntryStatusJSON, 0, len(in))
+	for _, e := range in {
+		out = append(out, patternEntryStatusJSON{
+			EntryID: e.EntryID, Applied: e.Applied, Inferred: e.Inferred,
+			DetailMissing: e.DetailMissing, PhaseDegrees: e.PhaseDegrees,
+		})
+	}
+	return out
 }
 
 func toPatternStatusJSON(st patch.PatternStatus) patternStatusJSON {
-	entries := make([]patternEntryStatusJSON, 0, len(st.Entries))
-	for _, e := range st.Entries {
-		entries = append(entries, patternEntryStatusJSON{EntryID: e.EntryID, Applied: e.Applied, Inferred: e.Inferred, DetailMissing: e.DetailMissing})
+	out := patternStatusJSON{
+		Running: st.OutputEnabled, OutputEnabled: st.OutputEnabled,
+		SelectedCount: len(st.Tests), ElapsedMS: st.ElapsedMS, TotalScope: st.TotalScope,
+		LastEndReason: st.LastEndReason,
+		Entries:       make([]patternEntryStatusJSON, 0),
+		Tests:         make([]patternTestStatusJSON, 0, len(st.Tests)),
+		Contested:     make([]contestedOffsetJSON, 0, len(st.Contested)),
+		Available:     make([]availableTestJSON, 0, len(st.Available)),
+		BaseState: patternBaseStateJSON{
+			Isolate:               st.BaseState.Isolate,
+			DefaultsKnownCount:    st.BaseState.DefaultsKnownCount,
+			DefaultsUnknownCount:  st.BaseState.DefaultsUnknownCount,
+			DimmerDrivenCount:     st.BaseState.DimmerDrivenCount,
+			ShutterOpenedCount:    st.BaseState.ShutterOpenedCount,
+			ShutterUnknownEntries: append(make([]string, 0, len(st.BaseState.ShutterUnknownEntries)), st.BaseState.ShutterUnknownEntries...),
+		},
 	}
-	return patternStatusJSON{
-		Running: st.Running, Kind: string(st.Kind),
-		RateHz: st.Params.RateHz, Min: st.Params.Min, Max: st.Params.Max,
-		Target: st.Params.Target, Direction: st.Params.Direction, Value: st.Params.Value, On: st.Params.On,
-		Group: string(st.Group), ElapsedMS: st.ElapsedMS, TotalScope: st.TotalScope,
-		AppliedCount: st.AppliedCount, SkippedCount: st.SkippedCount, InferredCount: st.InferredCount,
-		MissingDetailCount: st.MissingDetailCount, LastEndReason: st.LastEndReason, Entries: entries,
+	for _, t := range st.Tests {
+		out.Tests = append(out.Tests, patternTestStatusJSON{
+			ID: string(t.ID), Kind: string(t.Kind), Group: string(t.Group),
+			RateHz: t.Params.RateHz, Min: t.Params.Min, Max: t.Params.Max,
+			Target: t.Params.Target, Direction: t.Params.Direction, Value: t.Params.Value, On: t.Params.On,
+			Waveform: string(t.Params.Waveform), OffsetMin: t.Params.OffsetMin, OffsetMax: t.Params.OffsetMax,
+			TotalScope: t.TotalScope, AppliedCount: t.AppliedCount, SkippedCount: t.SkippedCount,
+			InferredCount: t.InferredCount, MissingDetailCount: t.MissingDetailCount,
+			Entries: toPatternEntriesJSON(t.Entries),
+		})
 	}
+	for _, c := range st.Contested {
+		ids := make([]string, 0, len(c.Tests))
+		for _, id := range c.Tests {
+			ids = append(ids, string(id))
+		}
+		out.Contested = append(out.Contested, contestedOffsetJSON{Universe: c.Universe, Channel: c.Channel, EntryID: c.EntryID, Tests: ids})
+	}
+	for _, a := range st.Available {
+		out.Available = append(out.Available, availableTestJSON{
+			ID: string(a.ID), Kind: string(a.Kind), Group: string(a.Group), Target: a.Target,
+			Label: a.Label, Attribute: a.Attribute, FixtureCount: a.FixtureCount, LabelFromGDTF: a.LabelFromGDTF,
+		})
+	}
+	if len(st.Tests) > 0 {
+		first := st.Tests[0]
+		out.Kind, out.Group = string(first.Kind), string(first.Group)
+		out.RateHz, out.Min, out.Max = first.Params.RateHz, first.Params.Min, first.Params.Max
+		out.Target, out.Direction = first.Params.Target, first.Params.Direction
+		out.Value, out.On = first.Params.Value, first.Params.On
+		out.AppliedCount, out.SkippedCount = first.AppliedCount, first.SkippedCount
+		out.InferredCount, out.MissingDetailCount = first.InferredCount, first.MissingDetailCount
+		out.Entries = toPatternEntriesJSON(first.Entries)
+	}
+	return out
 }

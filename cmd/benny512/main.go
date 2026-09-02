@@ -112,6 +112,15 @@ func main() {
 	if !*demo {
 		srv.SetPatchStorePath(patchStorePath())
 	}
+	// The Fixture Library persists in EVERY mode, --demo included, and is
+	// wired unconditionally — unlike the patch above, which --demo skips to
+	// protect buildDemo's preloaded in-memory sample. Nothing preloads the
+	// library, so there is nothing for an on-disk store to discard here; and
+	// the library is precisely the thing that is supposed to outlive a
+	// process, a show and a reset (see internal/library's package doc
+	// comment), so a mode in which it silently evaporated on exit would be
+	// the same bug this call fixes.
+	srv.SetLibraryStorePath(libraryStorePath())
 
 	if *logRDM != "" {
 		if err := srv.SetLogRDMPath(*logRDM); err != nil {
@@ -336,6 +345,18 @@ func patchStorePath() string {
 		return filepath.Join(filepath.Dir(exe), "benny512-patch.json")
 	}
 	return "benny512-patch.json"
+}
+
+// libraryStorePath resolves the Fixture Library's persisted file to a path
+// next to the running exe — mirrors patchStorePath exactly. Deliberately a
+// SEPARATE file from the patch: one library sits underneath every rig the
+// owner ever patches (see internal/library's package doc comment), so it
+// must not share a lifetime — or a delete — with any one show's patch file.
+func libraryStorePath() string {
+	if exe, err := os.Executable(); err == nil {
+		return filepath.Join(filepath.Dir(exe), "benny512-library.json")
+	}
+	return "benny512-library.json"
 }
 
 func shouldLog(configured, level string) bool {

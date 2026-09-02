@@ -26,20 +26,20 @@ func TestTokenContainment(t *testing.T) {
 	// Outcast 2X Wash", the device's DEVICE_MODEL_DESCRIPTION says just
 	// "Rogue Outcast 2X Wash"). Every ref (device) token must appear in
 	// text (entry).
-	entry := normalizeTokens("Chauvet Rogue Outcast 2X Wash")
-	device := normalizeTokens("Rogue Outcast 2X Wash")
-	if got := tokenContainment(entry, device); got < 0.99 {
+	entry := NormalizeTokens("Chauvet Rogue Outcast 2X Wash")
+	device := NormalizeTokens("Rogue Outcast 2X Wash")
+	if got := TokenContainment(entry, device); got < 0.99 {
 		t.Errorf("containment(entry, device) = %v, want ~1.0 (every device token is present in the patch text)", got)
 	}
 	// The reverse direction is a partial match: the entry's extra
 	// "Chauvet" token isn't in ref, but containment is defined relative to
 	// ref's token count, so this is a different (lower) number — not
 	// exercised further here, just documented so a future reader isn't
-	// surprised tokenContainment(a,b) != tokenContainment(b,a) in general.
+	// surprised TokenContainment(a,b) != TokenContainment(b,a) in general.
 	// Punctuation/case/whitespace must not matter.
-	a := normalizeTokens("rogue-outcast_2X   WASH!!")
-	b := normalizeTokens("Rogue Outcast 2x wash")
-	if got := tokenContainment(a, b); got < 0.99 {
+	a := NormalizeTokens("rogue-outcast_2X   WASH!!")
+	b := NormalizeTokens("Rogue Outcast 2x wash")
+	if got := TokenContainment(a, b); got < 0.99 {
 		t.Errorf("normalization should ignore case/punctuation/whitespace, got %v", got)
 	}
 }
@@ -52,28 +52,28 @@ func TestNormalizeTokens_LetterDigitBoundarySplit(t *testing.T) {
 	// still corroborate a patch FixtureType of "JDC 1").
 	want := map[string]struct{}{"jdc": {}, "1": {}}
 	for _, s := range []string{"JDC1", "JDC-1", "JDC 1", "jdc_1", "Jdc.1"} {
-		got := normalizeTokens(s)
+		got := NormalizeTokens(s)
 		if len(got) != len(want) {
-			t.Fatalf("normalizeTokens(%q) = %v, want %v", s, got, want)
+			t.Fatalf("NormalizeTokens(%q) = %v, want %v", s, got, want)
 		}
 		for k := range want {
 			if _, ok := got[k]; !ok {
-				t.Errorf("normalizeTokens(%q) = %v, missing token %q", s, got, k)
+				t.Errorf("NormalizeTokens(%q) = %v, missing token %q", s, got, k)
 			}
 		}
 	}
 	// A run of digits must NOT be split internally — "1960" stays one token,
 	// not "1","9","6","0".
-	if got := normalizeTokens("Proteus Rayzor 1960"); len(got) != 3 {
-		t.Errorf("normalizeTokens(%q) = %v, want 3 tokens (proteus, rayzor, 1960)", "Proteus Rayzor 1960", got)
+	if got := NormalizeTokens("Proteus Rayzor 1960"); len(got) != 3 {
+		t.Errorf("NormalizeTokens(%q) = %v, want 3 tokens (proteus, rayzor, 1960)", "Proteus Rayzor 1960", got)
 	} else if _, ok := got["1960"]; !ok {
-		t.Errorf("normalizeTokens(%q) = %v, want a single \"1960\" token", "Proteus Rayzor 1960", got)
+		t.Errorf("NormalizeTokens(%q) = %v, want a single \"1960\" token", "Proteus Rayzor 1960", got)
 	}
 	// ERA800 == ERA 800 (the task brief's other worked example).
-	era1 := normalizeTokens("ERA800")
-	era2 := normalizeTokens("ERA 800 Performance")
-	if got := tokenContainment(era2, era1); got < 0.99 {
-		t.Errorf("tokenContainment(%v, %v) = %v, want ~1.0 (ERA800 tokens all present in ERA 800 Performance)", era2, era1, got)
+	era1 := NormalizeTokens("ERA800")
+	era2 := NormalizeTokens("ERA 800 Performance")
+	if got := TokenContainment(era2, era1); got < 0.99 {
+		t.Errorf("TokenContainment(%v, %v) = %v, want ~1.0 (ERA800 tokens all present in ERA 800 Performance)", era2, era1, got)
 	}
 }
 

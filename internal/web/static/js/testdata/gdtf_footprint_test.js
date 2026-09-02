@@ -92,11 +92,29 @@ const OUTCAST_XML = gdtfDoc(
 );
 
 // ---- fixture 3 & 4: the two Custom@Light_Instr_* files — flat list ending
-// in literal "NoFeature" (no-op) channels, nothing past the last one (Task
-// 2 finding: designer padding, not a dropped channel — see gdtfparse.js's
-// doc comment and the task report). Ground truth: JDC1 61, Paladin 23 — one
-// LESS than the real DMX address spacing (62, 24); Benny512 is correct and
-// the extra address is the designer's own patch spacing, not a parser bug.
+// in literal "NoFeature" (no-op) channels, nothing past the last one.
+//
+// READ THIS BEFORE TRUSTING THE 61/23 NUMBERS BELOW. Unlike every other
+// fixture in this file, these two are CIRCULAR and carry no evidentiary
+// weight about the real files. They are hand-built as exactly 61 and 23
+// DMXChannel elements, each with a real, dense Offset — a flat list of N
+// addressed channels can only ever resolve to N, whatever the parser does.
+// So "asserts 61" here means "this synthetic input has 61 channels", not
+// "the real Custom@Light_Instr_GLP_JDC1_Strobe.gdtf resolves to 61". An
+// earlier session recorded these as ground truth alongside a note that the
+// real DMX address spacing measured 62 and 24 — i.e. the assertions
+// contradict the only independent measurement the file itself cites, and
+// the "designer padding" story reconciling them was never tested.
+//
+// The owner disputes those numbers and says the true footprints are 62 and
+// 24. Fixture 8 below tests the actual mechanism that could cause a
+// one-channel under-count, and main()'s vendor cross-check shows the
+// parser's virtual-channel rule is corroborated by the real GLP JDC1 file.
+// These two are kept, unchanged, purely as a flat-list regression guard;
+// they are NOT evidence for 61/23. See the task report for what would be
+// needed to settle the real files (their description.xml <DMXChannels>
+// lists — specifically how many <DMXChannel> elements each "DMX Mode" has
+// and each one's Offset attribute).
 
 const JDC1_XML = gdtfDoc(
   'Custom', 'Light_Instr_GLP_JDC1_Strobe',
@@ -417,6 +435,196 @@ const JDC1_REAL_XML = gdtfDoc(
   `<DMXMode Name="Mode 6 Easy (11ch)" Geometry="Base Yoke M6"><DMXChannels>${jdc1Mode6Channels()}</DMXChannels></DMXMode>`
 );
 
+// ---- fixture 8: virtual-channel / NoFeature footprint probes (Task 2, the
+// footprint dispute). The owner reported that the two Custom@Light_Instr_*
+// placeholder fixtures above resolve one channel SHORT of their real DMX
+// address spacing (61 vs 62, 23 vs 24), and the leading hypothesis was that
+// the parser drops a trailing "NoFeature" placeholder channel that still
+// occupies a DMX slot.
+//
+// These two fixtures isolate the two distinct shapes that hypothesis
+// conflates, on otherwise identical 62-channel modes, so the mechanism is
+// mechanically visible instead of inferred:
+//
+//   NOFEATURE_ADDRESSED — channel 62 has Attribute="NoFeature" but a real
+//     Offset="62". This channel HAS NO FUNCTION but DOES EXIST at a DMX
+//     address. Footprint must be 62, and offset 62 must still appear in
+//     channelFunctions (it is a real, addressed slot a rig check will drive).
+//
+//   NOFEATURE_VIRTUAL — channel 62 has Attribute="NoFeature" and
+//     Offset="None" (GDTF's own default for a missing Offset). This channel
+//     DOES NOT EXIST at any DMX address — GDTF calls it a virtual channel.
+//     Footprint must be 61.
+//
+// Only the second shrinks a footprint, which is exactly the distinction the
+// dispute turns on. See the JDC1_REAL_XML cross-check in main() for the
+// vendor evidence that excluding virtual channels is right.
+
+function noFeatureTailXml(lastOffset) {
+  let out = '';
+  for (let i = 1; i <= 61; i++) out += dmxChannel('Yoke', i, `Ch${i}`);
+  out += dmxChannel('Yoke', lastOffset, 'NoFeature');
+  return out;
+}
+
+const NOFEATURE_ADDRESSED_XML = gdtfDoc(
+  'Test', 'NoFeature Addressed',
+  `<Geometry Name="Yoke"/>`,
+  `<DMXMode Name="DMX Mode" Geometry="Yoke"><DMXChannels>${noFeatureTailXml(62)}</DMXChannels></DMXMode>`
+);
+
+const NOFEATURE_VIRTUAL_XML = gdtfDoc(
+  'Test', 'NoFeature Virtual',
+  `<Geometry Name="Yoke"/>`,
+  `<DMXMode Name="DMX Mode" Geometry="Yoke"><DMXChannels>${noFeatureTailXml('None')}</DMXChannels></DMXMode>`
+);
+
+// ---- fixture 9: GDTF Default/Highlight capture (Task 1). Rig Check drives
+// one channel at a time and sends 0 to everything else, which makes a real
+// fixture emit nothing at all — a fixture needs BOTH a dimmer at level AND a
+// shutter in its "open" position. GDTF states each channel's resting value
+// in <ChannelFunction Default="X/Y"> (and, less often, Highlight="X/Y").
+//
+// The cases below are chosen to pin the exact failure modes this data has:
+//
+//   offset 1 (Dimmer)   Default="0/1"    — 0 IS REAL DATA. This is the whole
+//                                          reason hasDefault exists; a bare
+//                                          number cannot tell this apart
+//                                          from a file that said nothing.
+//   offset 2 (Shutter1) Default="255/1" + Highlight="255/1" + <ChannelSet>s
+//                                        — a non-zero default alongside the
+//                                          ChannelSet data the shutter-open
+//                                          lookup will later need, proving
+//                                          the two survive together.
+//   offsets 3,4 (Pan)   Default="32768/2" — a 16-BIT default. Both offsets
+//                                          carry the identical record, and
+//                                          defaultByteCount is what lets a
+//                                          consumer recover coarse 128 at
+//                                          offset 3 and fine 0 at offset 4.
+//   offset 5 (Zoom)     no Default attr  — must read as UNKNOWN
+//                                          (hasDefault false), never as 0.
+
+const DEFAULTS_XML = gdtfDoc(
+  'Test', 'Defaults Probe',
+  `<Geometry Name="Body"/>`,
+  `<DMXMode Name="Default Mode" Geometry="Body"><DMXChannels>` +
+  `<DMXChannel DMXBreak="1" Geometry="Body" Offset="1">` +
+  `<LogicalChannel Attribute="Dimmer">` +
+  `<ChannelFunction Name="Dimmer" Attribute="Dimmer" DMXFrom="0/1" Default="0/1"/>` +
+  `</LogicalChannel></DMXChannel>` +
+  `<DMXChannel DMXBreak="1" Geometry="Body" Offset="2">` +
+  `<LogicalChannel Attribute="Shutter1">` +
+  `<ChannelFunction Name="Shutter" Attribute="Shutter1" DMXFrom="0/1" Default="255/1" Highlight="255/1">` +
+  `<ChannelSet Name="Closed" DMXFrom="0/1"/>` +
+  `<ChannelSet Name="Open" DMXFrom="32/1"/>` +
+  `<ChannelSet Name="Strobe" DMXFrom="64/1"/>` +
+  `</ChannelFunction>` +
+  `</LogicalChannel></DMXChannel>` +
+  `<DMXChannel DMXBreak="1" Geometry="Body" Offset="3,4">` +
+  `<LogicalChannel Attribute="Pan">` +
+  `<ChannelFunction Name="Pan" Attribute="Pan" DMXFrom="0/1" Default="32768/2"/>` +
+  `</LogicalChannel></DMXChannel>` +
+  `<DMXChannel DMXBreak="1" Geometry="Body" Offset="5">` +
+  `<LogicalChannel Attribute="Zoom">` +
+  `<ChannelFunction Name="Zoom" Attribute="Zoom" DMXFrom="0/1"/>` +
+  `</LogicalChannel></DMXChannel>` +
+  `</DMXChannels></DMXMode>`
+);
+
+// dmxByteAt: the per-offset byte a consumer recovers from a multi-byte
+// default — the formula gdtfparse.js's multi-byte note and
+// patch.ChannelFunction.DefaultByteCount's doc comment both state, applied
+// here independently of the parser so the test derives it rather than
+// echoing a parser-provided array.
+function dmxByteAt(value, byteCount, index) {
+  return (value >>> (8 * (byteCount - 1 - index))) & 0xff;
+}
+
+// ---- fixture 10: mode-name channel-count cross-check (Task 2, line of
+// investigation 1). A mode name that states its own channel count is an
+// INDEPENDENT oracle. gdtfparse.js uses it as a warning only — never as
+// parser input — so these two modes must resolve to their structural
+// footprints (7 and 8) regardless of what their names claim, with a warning
+// raised for exactly the one that disagrees.
+
+const MODE_NAME_ORACLE_XML = gdtfDoc(
+  'Test', 'Mode Name Oracle',
+  `<Geometry Name="Body"/>`,
+  `<DMXMode Name="Disagrees (62ch)" Geometry="Body"><DMXChannels>` +
+  flatChannelsXml('Body', 7) +
+  `</DMXChannels></DMXMode>` +
+  `<DMXMode Name="Agrees (8ch)" Geometry="Body"><DMXChannels>` +
+  flatChannelsXml('Body', 8) +
+  `</DMXChannels></DMXMode>`
+);
+
+
+// ---- fixture 11: Vectorworks placeholder-profile detection (Gap 4).
+//
+// The real placeholder .gdtf files are not vendored (see fixture 3 & 4's
+// note — they are what JDC1_XML / PALADIN_XML above reproduce), so the
+// POSITIVE cases below reuse those two: manufacturer "Custom", a single
+// generic "DMX Mode", 61 and 23 flat single-offset channels in a dense
+// 1..N run. That shape is the whole signature, and it is reproduced
+// exactly.
+//
+// The NEGATIVE cases matter more, because a warning that fires on a real
+// fixture is worse than one that misses: it teaches the owner to ignore
+// every warning this parser emits. They are, deliberately, one per guard,
+// each holding the other two guards TRUE so it proves that guard alone:
+//
+//   PLACEHOLDER_NEG_SMALL_XML  — Custom + "Default" + flat + dense, but
+//                                only 4 channels: the literal "real
+//                                4-channel LED par" case, published under
+//                                the worst-case manufacturer and mode name.
+//   PLACEHOLDER_NEG_NAMED_XML  — Custom + flat + dense + 32 channels, but
+//                                the mode name states its channel count.
+//   PLACEHOLDER_NEG_16BIT_XML  — Custom + "DMX Mode" + 16 offsets, but one
+//                                channel is a 16-bit coarse+fine pair, so
+//                                the mode is not a featureless flat run.
+//   ERA_800_XML                — a real vendor mode ("Basic", 42 flat
+//                                dense 8-bit channels) that passes guards
+//                                2 and 3 and is excluded by the
+//                                manufacturer alone.
+//   PALADIN_CUBE_REAL         — the real Elation vendor file (extract, see
+//                                below), whose genuine "RGB 3CH" and
+//                                "8bit 4CH" modes ARE flat, dense and
+//                                all-8-bit.
+
+const PLACEHOLDER_NEG_SMALL_XML = gdtfDoc(
+  'Custom', 'Tiny LED Par',
+  `<Geometry Name="Body"/>`,
+  `<DMXMode Name="Default" Geometry="Body"><DMXChannels>${flatChannelsXml('Body', 4)}</DMXChannels></DMXMode>`
+);
+
+const PLACEHOLDER_NEG_NAMED_XML = gdtfDoc(
+  'Custom', 'Hand Built Dimmer Pack',
+  `<Geometry Name="Body"/>`,
+  `<DMXMode Name="32 Channel" Geometry="Body"><DMXChannels>${flatChannelsXml('Body', 32)}</DMXChannels></DMXMode>`
+);
+
+const PLACEHOLDER_NEG_16BIT_XML = gdtfDoc(
+  'Custom', 'Hand Built Mover',
+  `<Geometry Name="Body"/>`,
+  `<DMXMode Name="DMX Mode" Geometry="Body"><DMXChannels>` +
+  dmxChannel('Body', '1,2', 'Pan', true) +
+  (() => { let out = ''; for (let i = 3; i <= 16; i++) out += dmxChannel('Body', i, `Ch${i}`); return out; })() +
+  `</DMXChannels></DMXMode>`
+);
+
+// The real Elation Paladin Cube vendor description.xml, verbatim except
+// that every DMXMode other than "Cells 24CH", "8bit 4CH" and "RGB 3CH" (and
+// the AttributeDefinitions/Wheels/PhysicalDescriptions/Models blocks the
+// parser never reads) has been removed to keep the file to ~21KB. Nothing
+// was rewritten: the <Geometries> tree, the surviving <DMXMode> elements
+// and every <DMXChannel>/@Offset in them are the vendor's own bytes. This
+// is the file the placeholder detector must stay silent on, and the two
+// small modes in it are the exact false positives the criterion is designed
+// around.
+const PALADIN_CUBE_REAL = fs.readFileSync(
+  path.join(__dirname, 'paladin_cube_real_extract.xml'), 'utf8');
+
+
 // ---- run ---------------------------------------------------------------
 
 function main() {
@@ -443,8 +651,13 @@ function main() {
   // The five real-show ground-truth footprints (address-spacing derived).
   check('ERA 800 Performance "Basic" footprint', modeByName(ERA_800_XML, 'Basic').footprint, 42);
   check('Rogue Outcast 2X Wash "22Ch Mode" footprint', modeByName(OUTCAST_XML, '22Ch Mode').footprint, 22);
-  check('GLP JDC1 Strobe "DMX Mode" footprint', modeByName(JDC1_XML, 'DMX Mode').footprint, 61);
-  check('Elation Paladin Cube "DMX Mode" footprint', modeByName(PALADIN_XML, 'DMX Mode').footprint, 23);
+  // CIRCULAR — see fixture 3 & 4's doc comment. These assert only that a
+  // flat list of N addressed channels resolves to N; they are not evidence
+  // about the real Custom@Light_Instr_* files' footprints.
+  check('GLP JDC1 Strobe "DMX Mode" footprint (synthetic 61-channel flat list — NOT ground truth)',
+    modeByName(JDC1_XML, 'DMX Mode').footprint, 61);
+  check('Elation Paladin Cube "DMX Mode" footprint (synthetic 23-channel flat list — NOT ground truth)',
+    modeByName(PALADIN_XML, 'DMX Mode').footprint, 23);
   const rayzorExtended = modeByName(RAYZOR_EXTENDED_XML, 'Extended Pan540/Tilt270');
   check('Proteus Rayzor 1960 "Extended Pan540/Tilt270" footprint', rayzorExtended.footprint, 100);
 
@@ -531,6 +744,174 @@ function main() {
     jdc1Mode4.channelFunctions[51] && jdc1Mode4.channelFunctions[51].attribute, 'Dimmer');
   check('JDC1 Mode 4 offset 62 attribute (Beam Pixel instance 12 Dimmer, array-expanded — the mode footprint)',
     jdc1Mode4.channelFunctions[62] && jdc1Mode4.channelFunctions[62].attribute, 'Dimmer');
+
+  // ---- Task 2: the footprint dispute -----------------------------------
+  //
+  // "This channel has no function" vs "this channel does not exist" — only
+  // the second may shrink a footprint. These two run the SAME 62-channel
+  // mode through both shapes.
+  const noFeatureAddressed = modeByName(NOFEATURE_ADDRESSED_XML, 'DMX Mode');
+  check('NoFeature channel WITH a real Offset still occupies its DMX slot (footprint)',
+    noFeatureAddressed.footprint, 62);
+  check('NoFeature channel WITH a real Offset is still in channelFunctions',
+    noFeatureAddressed.channelFunctions[62] && noFeatureAddressed.channelFunctions[62].attribute, 'NoFeature');
+  check('virtual channel (Offset="None") occupies no DMX slot (footprint)',
+    modeByName(NOFEATURE_VIRTUAL_XML, 'DMX Mode').footprint, 61);
+
+  // The vendor evidence that excluding virtual channels is CORRECT, not a
+  // convenient choice: GLP JDC1's Modes 3/4/5/6 each declare exactly one
+  // virtual channel (Offset="") alongside their addressed ones, and each
+  // mode's own name independently states its channel count. Those declared
+  // counts (68/62/17/11, asserted above) are matched exactly with the
+  // virtual channel excluded — and every one of them would be off by one if
+  // virtual channels were counted. Counting them to "fix" the disputed
+  // placeholder fixtures would therefore break four independently
+  // corroborated vendor modes.
+  function virtualChannelCount(mode) {
+    return mode.channels.filter(ch => ch.offsets.length === 0).length;
+  }
+  check('JDC1 Mode 3 declares exactly one virtual channel (excluded from its declared 68)',
+    virtualChannelCount(jdc1Mode('Mode 3 SPix (68ch)')), 1);
+  check('JDC1 Mode 4 declares exactly one virtual channel (excluded from its declared 62)',
+    virtualChannelCount(jdc1Mode('Mode 4 SPix PRO (62ch)')), 1);
+  check('JDC1 Mode 5 declares exactly one virtual channel (excluded from its declared 17)',
+    virtualChannelCount(jdc1Mode('Mode 5 1Pix Pro (17ch)')), 1);
+  check('JDC1 Mode 6 declares exactly one virtual channel (excluded from its declared 11)',
+    virtualChannelCount(jdc1Mode('Mode 6 Easy (11ch)')), 1);
+
+  // Mode-name count is a cross-check (warning), never parser input.
+  const oracle = GdtfParse.parseDescriptionXml(MODE_NAME_ORACLE_XML);
+  const oracleDisagrees = oracle.modes.find(m => m.name === 'Disagrees (62ch)');
+  const oracleAgrees = oracle.modes.find(m => m.name === 'Agrees (8ch)');
+  check('mode-name count never overrides the structural walk (disagreeing mode)',
+    oracleDisagrees.footprint, 7);
+  check('mode-name count never overrides the structural walk (agreeing mode)',
+    oracleAgrees.footprint, 8);
+  check('disagreeing mode name raises exactly one warning',
+    oracle.warnings.filter(w => w.indexOf('Disagrees (62ch)') >= 0 && w.indexOf('declares 62 channel(s)') >= 0).length, 1);
+  check('agreeing mode name raises no warning',
+    oracle.warnings.filter(w => w.indexOf('Agrees (8ch)') >= 0).length, 0);
+  // The real vendor JDC1 file's six mode names each state a channel count
+  // and each matches what the structural walk resolves, so the cross-check
+  // must stay silent for it — no count-mismatch warning at all. (The file
+  // does raise one unrelated pre-existing geometry warning, about the
+  // "Single Back Plate M3" array container; this filters on the mismatch
+  // text specifically rather than on the total warning count.)
+  check('real vendor JDC1 file raises no mode-name count mismatch',
+    GdtfParse.parseDescriptionXml(JDC1_REAL_XML).warnings
+      .filter(w => w.indexOf('the mode name declares') >= 0).length, 0);
+
+  // ---- Task 1: GDTF Default / Highlight capture -------------------------
+  const defaults = modeByName(DEFAULTS_XML, 'Default Mode');
+  const dim = defaults.channelFunctions[1];
+  const shutter = defaults.channelFunctions[2];
+  const panCoarse = defaults.channelFunctions[3];
+  const panFine = defaults.channelFunctions[4];
+  const zoom = defaults.channelFunctions[5];
+
+  // "0 is real data" — the single most important assertion here. A parser
+  // that simply didn't read Default at all leaves hasDefault undefined, and
+  // one that returned a bare number would be indistinguishable from the
+  // no-Default channel at offset 5.
+  check('Dimmer Default="0/1" is captured as KNOWN', dim.hasDefault, true);
+  check('Dimmer Default="0/1" value is 0 (a real resting value, not "unknown")', dim.defaultValue, 0);
+  check('Dimmer Default="0/1" byte count', dim.defaultByteCount, 1);
+
+  // ...and the channel that genuinely says nothing must be distinguishable
+  // from it by hasDefault alone.
+  check('Zoom with no Default attribute is UNKNOWN', zoom.hasDefault, false);
+  check('Zoom with no Default attribute has byte count 0', zoom.defaultByteCount, 0);
+  check('a known-0 default and an unknown default differ ONLY in hasDefault',
+    dim.defaultValue === zoom.defaultValue && dim.hasDefault !== zoom.hasDefault, true);
+
+  // Non-zero default + Highlight + ChannelSets all surviving together.
+  check('Shutter1 Default="255/1" value', shutter.defaultValue, 255);
+  check('Shutter1 Highlight="255/1" is captured as KNOWN', shutter.hasHighlight, true);
+  check('Shutter1 Highlight value', shutter.highlightValue, 255);
+  check('Dimmer with no Highlight attribute is UNKNOWN', dim.hasHighlight, false);
+  // ChannelSets must survive intact for every channel — the engine's future
+  // shutter-open lookup reads these names/DMXFrom values. No shutter-open
+  // heuristic is invented here (deliberately out of scope, see the task
+  // report); this only proves the raw data arrives unharmed.
+  check('Shutter1 ChannelSets survive alongside the defaults (count)', shutter.channelSets.length, 3);
+  check('Shutter1 ChannelSet[1] name', shutter.channelSets[1].name, 'Open');
+  check('Shutter1 ChannelSet[1] dmxFrom', shutter.channelSets[1].dmxFrom, 32);
+  check('Shutter1 ChannelSet[0] dmxFrom 0 survives (0 is real data here too)',
+    shutter.channelSets[0].dmxFrom, 0);
+
+  // 16-bit: both offsets of the coarse+fine pair carry the same record, and
+  // defaultByteCount is what makes it meaningful for the FINE byte too.
+  check('16-bit Pan Default="32768/2" is known at the coarse offset', panCoarse.hasDefault, true);
+  check('16-bit Pan Default="32768/2" is known at the fine offset', panFine.hasDefault, true);
+  check('16-bit Pan default value is the full 16-bit value, not a coarse byte',
+    panCoarse.defaultValue, 32768);
+  check('16-bit Pan default byte count', panCoarse.defaultByteCount, 2);
+  check('16-bit Pan fine offset carries the identical record',
+    panFine.defaultValue === panCoarse.defaultValue && panFine.defaultByteCount === panCoarse.defaultByteCount, true);
+  // The whole point of the byte count: recovering each byte's own resting
+  // value, in the (coarse, fine) ascending order testpattern.go commits to.
+  check('16-bit Pan coarse byte (offset 3) derives to 128',
+    dmxByteAt(panCoarse.defaultValue, panCoarse.defaultByteCount, 0), 128);
+  check('16-bit Pan fine byte (offset 4) derives to 0',
+    dmxByteAt(panFine.defaultValue, panFine.defaultByteCount, 1), 0);
+
+
+  // ---- Gap 4: Vectorworks placeholder-profile detection -----------------
+  //
+  // placeholderWarnings isolates the new warning from every other warning
+  // the parser can raise for the same file (geometry notes, mode-name count
+  // mismatches) by matching on its own distinctive phrase, so a count of 0
+  // here means "this criterion did not fire", not "this file was clean".
+  function placeholderWarnings(xml) {
+    return GdtfParse.parseDescriptionXml(xml).warnings
+      .filter(w => w.indexOf('GENERATED PLACEHOLDER') >= 0);
+  }
+
+  // Positive: both placeholder shapes are flagged, exactly once each.
+  check('placeholder JDC1 (Custom / "DMX Mode" / 61 flat) is flagged exactly once',
+    placeholderWarnings(JDC1_XML).length, 1);
+  check('placeholder Paladin (Custom / "DMX Mode" / 23 flat) is flagged exactly once',
+    placeholderWarnings(PALADIN_XML).length, 1);
+  // The warning must name the mode and the footprint it is warning about —
+  // a warning that doesn't say which of a fixture's modes is suspect is
+  // unactionable.
+  check('the placeholder warning names the mode and its channel count',
+    placeholderWarnings(JDC1_XML)[0].indexOf('"DMX Mode"') >= 0 &&
+    placeholderWarnings(JDC1_XML)[0].indexOf('61 channels') >= 0, true);
+  // Detection must not touch footprint computation. This re-asserts the
+  // synthetic 61/23 from above AFTER the detector runs.
+  check('flagging a placeholder does not change its resolved footprint (61)',
+    modeByName(JDC1_XML, 'DMX Mode').footprint, 61);
+  check('flagging a placeholder does not change its resolved footprint (23)',
+    modeByName(PALADIN_XML, 'DMX Mode').footprint, 23);
+
+  // Negative, guard by guard. Each of these holds the OTHER two guards true.
+  check('a real 4-channel LED par is not flagged, even as Custom / "Default" (channel-count guard)',
+    placeholderWarnings(PLACEHOLDER_NEG_SMALL_XML).length, 0);
+  check('a 32-channel Custom fixture whose mode name states its count is not flagged (mode-name guard)',
+    placeholderWarnings(PLACEHOLDER_NEG_NAMED_XML).length, 0);
+  check('a 16-offset Custom "DMX Mode" containing a 16-bit channel is not flagged (structure guard)',
+    placeholderWarnings(PLACEHOLDER_NEG_16BIT_XML).length, 0);
+  check('a real vendor 42-channel flat mode is not flagged (manufacturer guard)',
+    placeholderWarnings(ERA_800_XML).length, 0);
+  check('the real GLP JDC1 vendor file is not flagged',
+    placeholderWarnings(JDC1_REAL_XML).length, 0);
+
+  // The decisive real-file case: the actual Elation Paladin Cube vendor
+  // description.xml. Its "RGB 3CH" and "8bit 4CH" modes are genuinely flat,
+  // dense and entirely 8-bit — the exact shape the detector looks for — and
+  // must not be flagged. The two checks below prove the parse really
+  // contained them, so the silence is a decision and not an empty input.
+  const paladinReal = GdtfParse.parseDescriptionXml(PALADIN_CUBE_REAL);
+  check('real Elation vendor file parses with its genuine "RGB 3CH" mode',
+    paladinReal.modes.find(m => m.name === 'RGB 3CH').footprint, 3);
+  check('real Elation vendor file parses with its genuine "8bit 4CH" mode',
+    paladinReal.modes.find(m => m.name === '8bit 4CH').footprint, 4);
+  check('real Elation vendor file parses with its genuine 16-bit "Cells 24CH" mode',
+    paladinReal.modes.find(m => m.name === 'Cells 24CH').footprint, 24);
+  check('the real Elation Paladin Cube vendor file raises NO placeholder warning',
+    placeholderWarnings(PALADIN_CUBE_REAL).length, 0);
+
 
   if (failures > 0) {
     console.error(`\n${failures} check(s) failed.`);

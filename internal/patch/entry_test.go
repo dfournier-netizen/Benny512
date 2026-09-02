@@ -298,3 +298,260 @@ func TestPatch_IndexOf(t *testing.T) {
 		t.Errorf("IndexOf(missing) = %d, want -1", p.IndexOf("missing"))
 	}
 }
+
+// --- schema v3: GDTF Default/Highlight capture -----------------------------
+
+// TestChannelFunction_MarshalJSON_ZeroDefaultIsPresentAndKnown is the schema-
+// v3 instance of this package's oldest and most-repeated defect class (see
+// TestEntry_MarshalJSON_ZeroUniverseStartAddressFootprintPresent, and
+// Entry.Universe's doc comment for the sensorReadingJSON incident before
+// that): `omitempty` on a numeric field whose zero is real data erases the
+// real zero and leaves the client reading `undefined`.
+//
+// A GDTF Default of 0 is emphatically real data — a dimmer resting dark, a
+// shutter resting closed — and Rig Check's whole reason for capturing
+// defaults is to know a channel's resting value, so "rests at 0" and "we
+// don't know" must be different states on the wire.
+//
+// This asserts the MARSHALLED BYTES, not struct fields: `cf.Default == 0`
+// would pass vacuously whether or not `omitempty` were present, which is
+// precisely the trap this project has been bitten by.
+func TestChannelFunction_MarshalJSON_ZeroDefaultIsPresentAndKnown(t *testing.T) {
+	cf := ChannelFunction{
+		Source: SourceGDTF, Attribute: "Dimmer", FunctionName: "Dimmer",
+		DMXFrom: 0, DMXTo: 255, ChannelSets: make([]ChannelSet, 0),
+		HasDefault: true, Default: 0, DefaultByteCount: 1,
+	}
+	data, err := json.Marshal(cf)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	got := string(data)
+	for _, want := range []string{`"hasDefault":true`, `"default":0`, `"defaultByteCount":1`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("marshalled ChannelFunction missing %s; got %s", want, got)
+		}
+	}
+}
+
+// TestChannelFunction_MarshalJSON_UnknownDefaultDistinguishableFromZero is
+// the other half of the pair above, and the assertion that actually proves
+// the representation works: a channel whose GDTF file stated NO Default and
+// a channel whose GDTF file stated Default="0/1" must be distinguishable on
+// the wire. Their "default" values are byte-identical (both 0) — hasDefault
+// is the only thing that separates them, so it must always be emitted.
+func TestChannelFunction_MarshalJSON_UnknownDefaultDistinguishableFromZero(t *testing.T) {
+	known := ChannelFunction{Source: SourceGDTF, Attribute: "Dimmer", ChannelSets: make([]ChannelSet, 0),
+		HasDefault: true, Default: 0, DefaultByteCount: 1}
+	unknown := ChannelFunction{Source: SourceGDTF, Attribute: "Dimmer", ChannelSets: make([]ChannelSet, 0)}
+
+	knownJSON, err := json.Marshal(known)
+	if err != nil {
+		t.Fatalf("Marshal(known): %v", err)
+	}
+	unknownJSON, err := json.Marshal(unknown)
+	if err != nil {
+		t.Fatalf("Marshal(unknown): %v", err)
+	}
+	if string(knownJSON) == string(unknownJSON) {
+		t.Fatalf("a known-0 default and an unknown default marshalled identically (%s) — "+
+			"the client cannot tell 'rests at 0' from 'we don't know'", knownJSON)
+	}
+	if !strings.Contains(string(unknownJSON), `"hasDefault":false`) {
+		t.Errorf("unknown default must still emit hasDefault:false; got %s", unknownJSON)
+	}
+	if !strings.Contains(string(unknownJSON), `"default":0`) {
+		t.Errorf("unknown default must still emit default:0 (no omitempty anywhere in this triple); got %s", unknownJSON)
+	}
+}
+
+// TestChannelFunction_MarshalJSON_SixteenBitDefaultRoundTrips covers the
+// multi-byte case: a 16-bit function spanning a (coarse, fine) offset pair
+// carries ONE record, replicated to both offsets, and DefaultByteCount is
+// what keeps that record meaningful for the fine byte too. Asserts the
+// marshalled bytes carry the full 16-bit value (not a truncated coarse
+// byte), that it survives a round-trip, and that the per-offset
+// decomposition documented on DefaultByteCount actually yields (128, 0).
+func TestChannelFunction_MarshalJSON_SixteenBitDefaultRoundTrips(t *testing.T) {
+	cf := ChannelFunction{
+		Source: SourceGDTF, Attribute: "Pan", FunctionName: "Pan",
+		DMXFrom: 0, DMXTo: 255, ChannelSets: make([]ChannelSet, 0),
+		HasDefault: true, Default: 32768, DefaultByteCount: 2,
+	}
+	data, err := json.Marshal(cf)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	for _, want := range []string{`"default":32768`, `"defaultByteCount":2`} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("marshalled 16-bit ChannelFunction missing %s; got %s", want, data)
+		}
+	}
+	var back ChannelFunction
+	if err := json.Unmarshal(data, &back); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if !back.HasDefault || back.Default != 32768 || back.DefaultByteCount != 2 {
+		t.Fatalf("16-bit default did not round-trip: %+v", back)
+	}
+	// The (coarse, fine) ascending decomposition from DefaultByteCount's doc
+	// comment — computed here rather than read back from the struct, so this
+	// checks the documented contract and not just field storage.
+	wantBytes := []uint32{128, 0}
+	for i, want := range wantBytes {
+		got := (back.Default >> (8 * (uint32(back.DefaultByteCount) - 1 - uint32(i)))) & 0xFF
+		if got != want {
+			t.Errorf("byte %d of 16-bit default: got %d, want %d", i, got, want)
+		}
+	}
+}
+
+// TestChannelFunction_MarshalJSON_HighlightPresentAndAbsent is the same
+// known/unknown pair for GDTF's optional Highlight attribute, which far
+// fewer files carry — making "absent" the common case and HasHighlight the
+// only thing keeping it distinct from a real Highlight of 0.
+func TestChannelFunction_MarshalJSON_HighlightPresentAndAbsent(t *testing.T) {
+	with := ChannelFunction{Source: SourceGDTF, Attribute: "Shutter1", ChannelSets: make([]ChannelSet, 0),
+		HasHighlight: true, Highlight: 255, HighlightByteCount: 1}
+	data, err := json.Marshal(with)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	for _, want := range []string{`"hasHighlight":true`, `"highlight":255`, `"highlightByteCount":1`} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("marshalled ChannelFunction missing %s; got %s", want, data)
+		}
+	}
+	without := ChannelFunction{Source: SourceGDTF, Attribute: "Shutter1", ChannelSets: make([]ChannelSet, 0)}
+	data, err = json.Marshal(without)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if !strings.Contains(string(data), `"hasHighlight":false`) || !strings.Contains(string(data), `"highlight":0`) {
+		t.Errorf("absent Highlight must still emit hasHighlight:false and highlight:0; got %s", data)
+	}
+}
+
+// TestMigrate_V2FileLoadsWithDefaultsUnknown is the migration guard the
+// "old files must always open" rule demands. A patch file written BEFORE
+// schema v3 has a fully-populated ChannelFunction with no default-related
+// keys at all. It must load, be stamped v3 — and, critically, come back with
+// its defaults marked UNKNOWN rather than silently resting at 0, which is
+// what a bare numeric field with no HasDefault companion would have produced.
+//
+// The v2 JSON below is written out literally (not built by marshalling the
+// current struct, which would defeat the point by including the new keys).
+func TestMigrate_V2FileLoadsWithDefaultsUnknown(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "patch.json")
+	v2 := `{
+  "schemaVersion": 2,
+  "name": "Pre-v3 Show",
+  "entries": [
+    {
+      "id": "e1",
+      "name": "Wash 1",
+      "footprint": 4,
+      "universe": 0,
+      "startAddress": 1,
+      "channelFunctions": {
+        "1": {
+          "source": "gdtf",
+          "attribute": "Dimmer",
+          "functionName": "Dimmer",
+          "dmxFrom": 0,
+          "dmxTo": 255,
+          "channelSets": [{"name": "Slot 1", "dmxFrom": 0}]
+        }
+      }
+    }
+  ]
+}`
+	if err := os.WriteFile(path, []byte(v2), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	st := NewStore(path)
+	p, ok := st.Get()
+	if !ok {
+		t.Fatal("a pre-v3 patch file failed to load at all")
+	}
+	if p.SchemaVersion != CurrentSchemaVersion {
+		t.Errorf("SchemaVersion = %d, want migrated to %d", p.SchemaVersion, CurrentSchemaVersion)
+	}
+	if len(p.Entries) != 1 {
+		t.Fatalf("len(Entries) = %d, want 1", len(p.Entries))
+	}
+	cf, ok := p.Entries[0].ChannelFunctions[1]
+	if !ok {
+		t.Fatal("offset 1's ChannelFunction did not survive the v2 load")
+	}
+	// The pre-existing v2 data must be intact...
+	if cf.Attribute != "Dimmer" || cf.DMXTo != 255 || len(cf.ChannelSets) != 1 {
+		t.Errorf("v2 ChannelFunction data was not preserved: %+v", cf)
+	}
+	// ...and the v3 fields must read as UNKNOWN, not as a real default of 0.
+	if cf.HasDefault {
+		t.Errorf("a v2 file stated no Default, but it loaded as HasDefault=true (%+v) — "+
+			"migration must never invent a resting value", cf)
+	}
+	if cf.HasHighlight {
+		t.Errorf("a v2 file stated no Highlight, but it loaded as HasHighlight=true (%+v)", cf)
+	}
+	if cf.DefaultByteCount != 0 || cf.HighlightByteCount != 0 {
+		t.Errorf("byte counts should be 0 for an unstated value: %+v", cf)
+	}
+
+	// And the re-marshalled file must now carry the explicit unknown markers,
+	// so the client reading it back gets `false`, never `undefined`.
+	data, err := json.Marshal(p)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	for _, want := range []string{`"hasDefault":false`, `"default":0`, `"hasHighlight":false`} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("migrated patch JSON missing %s; got %s", want, data)
+		}
+	}
+}
+
+// TestStore_RoundTripPersistsKnownZeroDefault is the end-to-end on-disk
+// counterpart: a GDTF-imported channel whose stated resting value is 0 must
+// still be marked KNOWN after a save/reload cycle. If HasDefault were ever
+// dropped (or Default given `omitempty`), this entry would come back
+// indistinguishable from one whose file said nothing — and Rig Check would
+// have no way to tell "hold this channel at 0" from "we have no idea".
+func TestStore_RoundTripPersistsKnownZeroDefault(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "patch.json")
+
+	st := NewStore(path)
+	st.Replace(Patch{Name: "Defaults", Entries: []Entry{{
+		ID: "e1", Name: "Strobe", Footprint: 2, Universe: 0, StartAddress: 1,
+		ChannelFunctions: map[uint16]ChannelFunction{
+			1: {Source: SourceGDTF, Attribute: "Dimmer", ChannelSets: make([]ChannelSet, 0),
+				HasDefault: true, Default: 0, DefaultByteCount: 1},
+			2: {Source: SourceGDTF, Attribute: "Zoom", ChannelSets: make([]ChannelSet, 0)},
+		},
+	}}})
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(string(raw), `"hasDefault": true`) {
+		t.Errorf("persisted file lost the known-0 default marker; got %s", raw)
+	}
+
+	reloaded, ok := NewStore(path).Get()
+	if !ok {
+		t.Fatal("persisted patch failed to reload")
+	}
+	got := reloaded.Entries[0].ChannelFunctions
+	if !got[1].HasDefault || got[1].Default != 0 || got[1].DefaultByteCount != 1 {
+		t.Errorf("known-0 default did not survive the disk round-trip: %+v", got[1])
+	}
+	if got[2].HasDefault {
+		t.Errorf("the channel with no stated default came back as known: %+v", got[2])
+	}
+}

@@ -1,0 +1,214 @@
+<?xml version='1.0' encoding='utf-8'?>
+<GDTF DataVersion="1.2">
+  <FixtureType CanHaveChildren="Yes" Description="The PALADIN CUBE™ is a compact and powerful outdoor floodlight for a wide variety of applications. Using 9x15W RGBW cells it provides a total output of up to 3,200 lumens. Certified to IP65 it features a rugged design with a solid build quality, eliminating the need to worry about dust and water ingress. IP rated connections make it an ideal product to illuminate large areas of any outdoor event with vibrant and powerful colors. It can be operated standing on the floor or be hung in any orientation using the provided omega brackets. Available cell control and strobe features make the PALADIN CUBE also a versatile effects fixture or audience blinder." FixtureTypeID="E999BC75-3BAA-40FC-9A1D-9DAB8BC3E55A" LongName="Paladin Cube" Manufacturer="Elation" Name="Paladin Cube" RefFT="" ShortName="PalCube" Thumbnail="thumbnail" ThumbnailOffsetX="0" ThumbnailOffsetY="0">
+    <Geometries>
+      <Geometry Model="Base" Name="Base Individual" Position="{1.000000,0.000000,0.000000,0.000000}{0.000000,1.000000,0.000000,0.000000}{0.000000,0.000000,1.000000,0.000000}{0,0,0,1}">
+        <Geometry Model="Head" Name="Individual Head" Position="{1.000000,0.000000,0.000000,0.000000}{0.000000,1.000000,0.000000,0.000000}{0.000000,0.000000,1.000000,0.000000}{0,0,0,1}">
+          <Beam BeamAngle="25.000000" BeamRadius="0.050000" BeamType="Wash" ColorRenderingIndex="100" ColorTemperature="6000.000000" FieldAngle="50.000000" LampType="LED" LuminousFlux="1400.000000" Model="Individual 3/3 Beam" Name="Beam 1" Position="{1.000000,0.000000,0.000000,0.001000}{0.000000,1.000000,0.000000,0.040000}{0.000000,0.000000,1.000000,-0.038000}{0,0,0,1}" PowerConsumption="60.000000" RectangleRatio="1.777700" ThrowRatio="1.000000" />
+          <Beam BeamAngle="25.000000" BeamRadius="0.050000" BeamType="Wash" ColorRenderingIndex="100" ColorTemperature="6000.000000" FieldAngle="50.000000" LampType="LED" LuminousFlux="1400.000000" Model="Individual 3/3 Beam" Name="Beam 2" Position="{1.000000,0.000000,0.000000,0.002000}{0.000000,1.000000,0.000000,0.000000}{0.000000,0.000000,1.000000,-0.038000}{0,0,0,1}" PowerConsumption="60.000000" RectangleRatio="1.777700" ThrowRatio="1.000000" />
+          <Beam BeamAngle="25.000000" BeamRadius="0.050000" BeamType="Wash" ColorRenderingIndex="100" ColorTemperature="6000.000000" FieldAngle="50.000000" LampType="LED" LuminousFlux="1400.000000" Model="Individual 3/3 Beam" Name="Beam 3" Position="{1.000000,0.000000,0.000000,0.002000}{0.000000,1.000000,0.000000,-0.040000}{0.000000,0.000000,1.000000,-0.038000}{0,0,0,1}" PowerConsumption="60.000000" RectangleRatio="1.777700" ThrowRatio="1.000000" />
+        </Geometry>
+      </Geometry>
+      <Geometry Model="Base" Name="Unison Base" Position="{1.000000,0.000000,0.000000,0.000000}{0.000000,1.000000,0.000000,0.000000}{0.000000,0.000000,1.000000,0.000000}{0,0,0,1}">
+        <Geometry Model="Head" Name="Unison Head" Position="{1.000000,0.000000,0.000000,0.000000}{0.000000,1.000000,0.000000,0.000000}{0.000000,0.000000,1.000000,0.000000}{0,0,0,1}">
+          <Geometry Model="Single Beam holder" Name="Unison Beam " Position="{1.000000,0.000000,0.000000,0.000000}{0.000000,1.000000,0.000000,0.000000}{0.000000,0.000000,1.000000,0.000000}{0,0,0,1}">
+            <Beam BeamAngle="25.000000" BeamRadius="0.050000" BeamType="Wash" ColorRenderingIndex="100" ColorTemperature="6000.000000" FieldAngle="50.000000" LampType="LED" LuminousFlux="1400.000000" Model="Individual 3/3 Beam" Name="Unison Beam 1" Position="{1.000000,0.000000,0.000000,0.001000}{0.000000,1.000000,0.000000,0.040000}{0.000000,0.000000,1.000000,-0.047000}{0,0,0,1}" PowerConsumption="60.000000" RectangleRatio="1.777700" ThrowRatio="1.000000" />
+            <Beam BeamAngle="25.000000" BeamRadius="0.050000" BeamType="Wash" ColorRenderingIndex="100" ColorTemperature="6000.000000" FieldAngle="50.000000" LampType="LED" LuminousFlux="1400.000000" Model="Individual 3/3 Beam" Name="Unison Beam 2" Position="{1.000000,0.000000,0.000000,0.001000}{0.000000,1.000000,0.000000,0.000000}{0.000000,0.000000,1.000000,-0.047000}{0,0,0,1}" PowerConsumption="60.000000" RectangleRatio="1.777700" ThrowRatio="1.000000" />
+            <Beam BeamAngle="25.000000" BeamRadius="0.050000" BeamType="Wash" ColorRenderingIndex="100" ColorTemperature="6000.000000" FieldAngle="50.000000" LampType="LED" LuminousFlux="1400.000000" Model="Individual 3/3 Beam" Name="Unison Beam 3" Position="{1.000000,0.000000,0.000000,0.001000}{0.000000,1.000000,0.000000,-0.040000}{0.000000,0.000000,1.000000,-0.047000}{0,0,0,1}" PowerConsumption="60.000000" RectangleRatio="1.777700" ThrowRatio="1.000000" />
+          </Geometry>
+        </Geometry>
+      </Geometry>
+    </Geometries>
+    <DMXModes>
+      <DMXMode Description="" Geometry="Base Individual" Name="Cells 24CH">
+        <DMXChannels>
+          <DMXChannel DMXBreak="1" Geometry="Beam 1" Highlight="65535/2" InitialFunction="Beam 1_ColorAdd_R.ColorAdd_R.Red" Offset="1,2">
+            <LogicalChannel Attribute="ColorAdd_R" DMXChangeTimeLimit="0.000000" Master="Grand" MibFade="0.000000" Snap="No">
+              <ChannelFunction Attribute="ColorAdd_R" CustomName="" DMXFrom="0/2" Default="0/2" Emitter="Red" Max="1.000000" Min="0.000000" Name="Red" OriginalAttribute="" PhysicalFrom="0.000000" PhysicalTo="100.000000" RealAcceleration="0.000000" RealFade="0.000000">
+                <ChannelSet DMXFrom="0/2" Name="Min" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="1/2" Name="" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="65535/2" Name="Max" WheelSlotIndex="0" />
+              </ChannelFunction>
+            </LogicalChannel>
+          </DMXChannel>
+          <DMXChannel DMXBreak="1" Geometry="Beam 1" Highlight="65535/2" InitialFunction="Beam 1_ColorAdd_G.ColorAdd_G.Green" Offset="3,4">
+            <LogicalChannel Attribute="ColorAdd_G" DMXChangeTimeLimit="0.000000" Master="Grand" MibFade="0.000000" Snap="No">
+              <ChannelFunction Attribute="ColorAdd_G" CustomName="" DMXFrom="0/2" Default="0/2" Emitter="Green" Max="1.000000" Min="0.000000" Name="Green" OriginalAttribute="" PhysicalFrom="0.000000" PhysicalTo="100.000000" RealAcceleration="0.000000" RealFade="0.000000">
+                <ChannelSet DMXFrom="0/2" Name="Min" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="1/2" Name="" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="65535/2" Name="Max" WheelSlotIndex="0" />
+              </ChannelFunction>
+            </LogicalChannel>
+          </DMXChannel>
+          <DMXChannel DMXBreak="1" Geometry="Beam 1" Highlight="65535/2" InitialFunction="Beam 1_ColorAdd_B.ColorAdd_B.Blue" Offset="5,6">
+            <LogicalChannel Attribute="ColorAdd_B" DMXChangeTimeLimit="0.000000" Master="Grand" MibFade="0.000000" Snap="No">
+              <ChannelFunction Attribute="ColorAdd_B" CustomName="" DMXFrom="0/2" Default="0/2" Emitter="Blue" Max="1.000000" Min="0.000000" Name="Blue" OriginalAttribute="" PhysicalFrom="0.000000" PhysicalTo="100.000000" RealAcceleration="0.000000" RealFade="0.000000">
+                <ChannelSet DMXFrom="0/2" Name="Min" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="1/2" Name="" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="65535/2" Name="Max" WheelSlotIndex="0" />
+              </ChannelFunction>
+            </LogicalChannel>
+          </DMXChannel>
+          <DMXChannel DMXBreak="1" Geometry="Beam 1" Highlight="65535/2" InitialFunction="Beam 1_ColorAdd_W.ColorAdd_W.White" Offset="7,8">
+            <LogicalChannel Attribute="ColorAdd_W" DMXChangeTimeLimit="0.000000" Master="Grand" MibFade="0.000000" Snap="No">
+              <ChannelFunction Attribute="ColorAdd_W" CustomName="" DMXFrom="0/2" Default="0/2" Emitter="White" Max="1.000000" Min="0.000000" Name="White" OriginalAttribute="" PhysicalFrom="0.000000" PhysicalTo="100.000000" RealAcceleration="0.000000" RealFade="0.000000">
+                <ChannelSet DMXFrom="0/2" Name="Min" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="1/2" Name="" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="65535/2" Name="Max" WheelSlotIndex="0" />
+              </ChannelFunction>
+            </LogicalChannel>
+          </DMXChannel>
+          <DMXChannel DMXBreak="1" Geometry="Beam 2" Highlight="65535/2" InitialFunction="Beam 2_ColorAdd_R.ColorAdd_R.ColorAdd_R 1" Offset="9,10">
+            <LogicalChannel Attribute="ColorAdd_R" DMXChangeTimeLimit="0.000000" Master="Grand" MibFade="0.000000" Snap="No">
+              <ChannelFunction Attribute="ColorAdd_R" CustomName="" DMXFrom="0/2" Default="0/2" Emitter="Red" Max="1.000000" Min="0.000000" Name="ColorAdd_R 1" OriginalAttribute="" PhysicalFrom="0.000000" PhysicalTo="100.000000" RealAcceleration="0.000000" RealFade="0.000000">
+                <ChannelSet DMXFrom="0/2" Name="Min" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="1/2" Name="" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="65535/2" Name="Max" WheelSlotIndex="0" />
+              </ChannelFunction>
+            </LogicalChannel>
+          </DMXChannel>
+          <DMXChannel DMXBreak="1" Geometry="Beam 2" Highlight="65535/2" InitialFunction="Beam 2_ColorAdd_G.ColorAdd_G.ColorAdd_G 1" Offset="11,12">
+            <LogicalChannel Attribute="ColorAdd_G" DMXChangeTimeLimit="0.000000" Master="Grand" MibFade="0.000000" Snap="No">
+              <ChannelFunction Attribute="ColorAdd_G" CustomName="" DMXFrom="0/2" Default="0/2" Emitter="Green" Max="1.000000" Min="0.000000" Name="ColorAdd_G 1" OriginalAttribute="" PhysicalFrom="0.000000" PhysicalTo="100.000000" RealAcceleration="0.000000" RealFade="0.000000">
+                <ChannelSet DMXFrom="0/2" Name="Min" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="1/2" Name="" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="65535/2" Name="Max" WheelSlotIndex="0" />
+              </ChannelFunction>
+            </LogicalChannel>
+          </DMXChannel>
+          <DMXChannel DMXBreak="1" Geometry="Beam 2" Highlight="65535/2" InitialFunction="Beam 2_ColorAdd_B.ColorAdd_B.ColorAdd_B 1" Offset="13,14">
+            <LogicalChannel Attribute="ColorAdd_B" DMXChangeTimeLimit="0.000000" Master="Grand" MibFade="0.000000" Snap="No">
+              <ChannelFunction Attribute="ColorAdd_B" CustomName="" DMXFrom="0/2" Default="0/2" Emitter="Blue" Max="1.000000" Min="0.000000" Name="ColorAdd_B 1" OriginalAttribute="" PhysicalFrom="0.000000" PhysicalTo="100.000000" RealAcceleration="0.000000" RealFade="0.000000">
+                <ChannelSet DMXFrom="0/2" Name="Min" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="1/2" Name="" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="65535/2" Name="Max" WheelSlotIndex="0" />
+              </ChannelFunction>
+            </LogicalChannel>
+          </DMXChannel>
+          <DMXChannel DMXBreak="1" Geometry="Beam 2" Highlight="65535/2" InitialFunction="Beam 2_ColorAdd_W.ColorAdd_W.ColorAdd_W 1" Offset="15,16">
+            <LogicalChannel Attribute="ColorAdd_W" DMXChangeTimeLimit="0.000000" Master="Grand" MibFade="0.000000" Snap="No">
+              <ChannelFunction Attribute="ColorAdd_W" CustomName="" DMXFrom="0/2" Default="0/2" Emitter="White" Max="1.000000" Min="0.000000" Name="ColorAdd_W 1" OriginalAttribute="" PhysicalFrom="0.000000" PhysicalTo="100.000000" RealAcceleration="0.000000" RealFade="0.000000">
+                <ChannelSet DMXFrom="0/2" Name="Min" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="1/2" Name="" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="65535/2" Name="Max" WheelSlotIndex="0" />
+              </ChannelFunction>
+            </LogicalChannel>
+          </DMXChannel>
+          <DMXChannel DMXBreak="1" Geometry="Beam 3" Highlight="65535/2" InitialFunction="Beam 3_ColorAdd_R.ColorAdd_R.ColorAdd_R 1" Offset="17,18">
+            <LogicalChannel Attribute="ColorAdd_R" DMXChangeTimeLimit="0.000000" Master="Grand" MibFade="0.000000" Snap="No">
+              <ChannelFunction Attribute="ColorAdd_R" CustomName="" DMXFrom="0/2" Default="0/2" Emitter="Red" Max="1.000000" Min="0.000000" Name="ColorAdd_R 1" OriginalAttribute="" PhysicalFrom="0.000000" PhysicalTo="100.000000" RealAcceleration="0.000000" RealFade="0.000000">
+                <ChannelSet DMXFrom="0/2" Name="Min" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="1/2" Name="" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="65535/2" Name="Max" WheelSlotIndex="0" />
+              </ChannelFunction>
+            </LogicalChannel>
+          </DMXChannel>
+          <DMXChannel DMXBreak="1" Geometry="Beam 3" Highlight="65535/2" InitialFunction="Beam 3_ColorAdd_G.ColorAdd_G.ColorAdd_G 1" Offset="19,20">
+            <LogicalChannel Attribute="ColorAdd_G" DMXChangeTimeLimit="0.000000" Master="Grand" MibFade="0.000000" Snap="No">
+              <ChannelFunction Attribute="ColorAdd_G" CustomName="" DMXFrom="0/2" Default="0/2" Emitter="Green" Max="1.000000" Min="0.000000" Name="ColorAdd_G 1" OriginalAttribute="" PhysicalFrom="0.000000" PhysicalTo="100.000000" RealAcceleration="0.000000" RealFade="0.000000">
+                <ChannelSet DMXFrom="0/2" Name="Min" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="1/2" Name="" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="65535/2" Name="Max" WheelSlotIndex="0" />
+              </ChannelFunction>
+            </LogicalChannel>
+          </DMXChannel>
+          <DMXChannel DMXBreak="1" Geometry="Beam 3" Highlight="65535/2" InitialFunction="Beam 3_ColorAdd_B.ColorAdd_B.ColorAdd_B 1" Offset="21,22">
+            <LogicalChannel Attribute="ColorAdd_B" DMXChangeTimeLimit="0.000000" Master="Grand" MibFade="0.000000" Snap="No">
+              <ChannelFunction Attribute="ColorAdd_B" CustomName="" DMXFrom="0/2" Default="0/2" Emitter="Blue" Max="1.000000" Min="0.000000" Name="ColorAdd_B 1" OriginalAttribute="" PhysicalFrom="0.000000" PhysicalTo="100.000000" RealAcceleration="0.000000" RealFade="0.000000">
+                <ChannelSet DMXFrom="0/2" Name="Min" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="1/2" Name="" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="65535/2" Name="Max" WheelSlotIndex="0" />
+              </ChannelFunction>
+            </LogicalChannel>
+          </DMXChannel>
+          <DMXChannel DMXBreak="1" Geometry="Beam 3" Highlight="65535/2" InitialFunction="Beam 3_ColorAdd_W.ColorAdd_W.ColorAdd_W 1" Offset="23,24">
+            <LogicalChannel Attribute="ColorAdd_W" DMXChangeTimeLimit="0.000000" Master="Grand" MibFade="0.000000" Snap="No">
+              <ChannelFunction Attribute="ColorAdd_W" CustomName="" DMXFrom="0/2" Default="0/2" Emitter="White" Max="1.000000" Min="0.000000" Name="ColorAdd_W 1" OriginalAttribute="" PhysicalFrom="0.000000" PhysicalTo="100.000000" RealAcceleration="0.000000" RealFade="0.000000">
+                <ChannelSet DMXFrom="0/2" Name="Min" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="1/2" Name="" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="65535/2" Name="Max" WheelSlotIndex="0" />
+              </ChannelFunction>
+            </LogicalChannel>
+          </DMXChannel>
+        </DMXChannels>
+        <Relations />
+        <FTMacros />
+      </DMXMode>
+      <DMXMode Description="" Geometry="Unison Base" Name="8bit 4CH">
+        <DMXChannels>
+          <DMXChannel DMXBreak="1" Geometry="Unison Beam " Highlight="255/1" InitialFunction="Unison Beam _ColorAdd_R.ColorAdd_R.Red" Offset="1">
+            <LogicalChannel Attribute="ColorAdd_R" DMXChangeTimeLimit="0.000000" Master="Grand" MibFade="0.000000" Snap="No">
+              <ChannelFunction Attribute="ColorAdd_R" CustomName="" DMXFrom="0/1" Default="0/1" Emitter="Red" Max="1.000000" Min="0.000000" Name="Red" OriginalAttribute="" PhysicalFrom="0.000000" PhysicalTo="100.000000" RealAcceleration="0.000000" RealFade="0.000000">
+                <ChannelSet DMXFrom="0/1" Name="Min" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="1/1" Name="" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="255/1" Name="Max" WheelSlotIndex="0" />
+              </ChannelFunction>
+            </LogicalChannel>
+          </DMXChannel>
+          <DMXChannel DMXBreak="1" Geometry="Unison Beam " Highlight="255/1" InitialFunction="Unison Beam _ColorAdd_G.ColorAdd_G.Green" Offset="2">
+            <LogicalChannel Attribute="ColorAdd_G" DMXChangeTimeLimit="0.000000" Master="Grand" MibFade="0.000000" Snap="No">
+              <ChannelFunction Attribute="ColorAdd_G" CustomName="" DMXFrom="0/1" Default="0/1" Emitter="Green" Max="1.000000" Min="0.000000" Name="Green" OriginalAttribute="" PhysicalFrom="0.000000" PhysicalTo="100.000000" RealAcceleration="0.000000" RealFade="0.000000">
+                <ChannelSet DMXFrom="0/1" Name="Min" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="1/1" Name="" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="255/1" Name="Max" WheelSlotIndex="0" />
+              </ChannelFunction>
+            </LogicalChannel>
+          </DMXChannel>
+          <DMXChannel DMXBreak="1" Geometry="Unison Beam " Highlight="255/1" InitialFunction="Unison Beam _ColorAdd_B.ColorAdd_B.Blue" Offset="3">
+            <LogicalChannel Attribute="ColorAdd_B" DMXChangeTimeLimit="0.000000" Master="Grand" MibFade="0.000000" Snap="No">
+              <ChannelFunction Attribute="ColorAdd_B" CustomName="" DMXFrom="0/1" Default="0/1" Emitter="Blue" Max="1.000000" Min="0.000000" Name="Blue" OriginalAttribute="" PhysicalFrom="0.000000" PhysicalTo="100.000000" RealAcceleration="0.000000" RealFade="0.000000">
+                <ChannelSet DMXFrom="0/1" Name="Min" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="1/1" Name="" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="255/1" Name="Max" WheelSlotIndex="0" />
+              </ChannelFunction>
+            </LogicalChannel>
+          </DMXChannel>
+          <DMXChannel DMXBreak="1" Geometry="Unison Beam " Highlight="255/1" InitialFunction="Unison Beam _ColorAdd_W.ColorAdd_W.White" Offset="4">
+            <LogicalChannel Attribute="ColorAdd_W" DMXChangeTimeLimit="0.000000" Master="Grand" MibFade="0.000000" Snap="No">
+              <ChannelFunction Attribute="ColorAdd_W" CustomName="" DMXFrom="0/1" Default="0/1" Emitter="White" Max="1.000000" Min="0.000000" Name="White" OriginalAttribute="" PhysicalFrom="0.000000" PhysicalTo="100.000000" RealAcceleration="0.000000" RealFade="0.000000">
+                <ChannelSet DMXFrom="0/1" Name="Min" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="1/1" Name="" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="255/1" Name="Max" WheelSlotIndex="0" />
+              </ChannelFunction>
+            </LogicalChannel>
+          </DMXChannel>
+        </DMXChannels>
+        <Relations />
+        <FTMacros />
+      </DMXMode>
+      <DMXMode Description="" Geometry="Unison Base" Name="RGB 3CH">
+        <DMXChannels>
+          <DMXChannel DMXBreak="1" Geometry="Unison Beam " Highlight="255/1" InitialFunction="Unison Beam _ColorAdd_R.ColorAdd_R.Red" Offset="1">
+            <LogicalChannel Attribute="ColorAdd_R" DMXChangeTimeLimit="0.000000" Master="Grand" MibFade="0.000000" Snap="No">
+              <ChannelFunction Attribute="ColorAdd_R" CustomName="" DMXFrom="0/1" Default="0/1" Emitter="Red" Max="1.000000" Min="0.000000" Name="Red" OriginalAttribute="" PhysicalFrom="0.000000" PhysicalTo="100.000000" RealAcceleration="0.000000" RealFade="0.000000">
+                <ChannelSet DMXFrom="0/1" Name="Min" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="1/1" Name="" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="255/1" Name="Max" WheelSlotIndex="0" />
+              </ChannelFunction>
+            </LogicalChannel>
+          </DMXChannel>
+          <DMXChannel DMXBreak="1" Geometry="Unison Beam " Highlight="255/1" InitialFunction="Unison Beam _ColorAdd_G.ColorAdd_G.Green" Offset="2">
+            <LogicalChannel Attribute="ColorAdd_G" DMXChangeTimeLimit="0.000000" Master="Grand" MibFade="0.000000" Snap="No">
+              <ChannelFunction Attribute="ColorAdd_G" CustomName="" DMXFrom="0/1" Default="0/1" Emitter="Green" Max="1.000000" Min="0.000000" Name="Green" OriginalAttribute="" PhysicalFrom="0.000000" PhysicalTo="100.000000" RealAcceleration="0.000000" RealFade="0.000000">
+                <ChannelSet DMXFrom="0/1" Name="Min" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="1/1" Name="" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="255/1" Name="Max" WheelSlotIndex="0" />
+              </ChannelFunction>
+            </LogicalChannel>
+          </DMXChannel>
+          <DMXChannel DMXBreak="1" Geometry="Unison Beam " Highlight="255/1" InitialFunction="Unison Beam _ColorAdd_B.ColorAdd_B.Blue" Offset="3">
+            <LogicalChannel Attribute="ColorAdd_B" DMXChangeTimeLimit="0.000000" Master="Grand" MibFade="0.000000" Snap="No">
+              <ChannelFunction Attribute="ColorAdd_B" CustomName="" DMXFrom="0/1" Default="0/1" Emitter="Blue" Max="1.000000" Min="0.000000" Name="Blue" OriginalAttribute="" PhysicalFrom="0.000000" PhysicalTo="100.000000" RealAcceleration="0.000000" RealFade="0.000000">
+                <ChannelSet DMXFrom="0/1" Name="Min" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="1/1" Name="" WheelSlotIndex="0" />
+                <ChannelSet DMXFrom="255/1" Name="Max" WheelSlotIndex="0" />
+              </ChannelFunction>
+            </LogicalChannel>
+          </DMXChannel>
+        </DMXChannels>
+        <Relations />
+        <FTMacros />
+      </DMXMode>
+      </DMXModes>
+    </FixtureType>
+</GDTF>

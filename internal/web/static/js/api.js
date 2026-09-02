@@ -310,5 +310,40 @@ const Api = (() => {
     // drives. confirm must be the exact string "RESET" or the server
     // 400s with "confirmation required".
     fullReset: () => req('POST', '/api/reset', { confirm: 'RESET' }),
+
+    // --- Fixture Library (internal/web/library.go, internal/library) ---
+    // The library is device-TYPE knowledge (manufacturer/model, RDM
+    // identity numbers, observed PIDs, each DMX mode's footprint +
+    // channel map) and is deliberately NOT part of the patch: the patch
+    // is this rig, the library persists underneath every rig. It is also
+    // EXEMPT from fullReset above — a reset clears this show, never the
+    // fixture knowledge accumulated across shows.
+    getLibrary: () => req('GET', '/api/library'),
+    // key is the record's normalised "manufacturer|model" identity as
+    // returned in each record's `key` field — always encode it, it
+    // contains a pipe and may contain spaces.
+    getLibraryRecord: (key) => req('GET', '/api/library/record/' + encodeURIComponent(key)),
+    // deleteLibraryRecord is destructive, so it carries the project's
+    // Apply-to-confirm tripwire the same way fullReset does: the server
+    // 400s with "confirmation required" unless confirm is exactly
+    // "DELETE". Do not call this without an explicit user action.
+    deleteLibraryRecord: (key) => req('DELETE', '/api/library/record/' + encodeURIComponent(key), { confirm: 'DELETE' }),
+    // libraryExportUrl is a plain download link (Content-Disposition,
+    // timestamped filename) rather than a fetch — same treatment as the
+    // patch/capture exports. This is the file the owner hands to a
+    // coworker; POST it back through importLibrary to load it.
+    libraryExportUrl: () => '/api/library/export',
+    // importLibrary takes an already-parsed library document (the JSON of
+    // an exported file) and a mode. 'merge' folds it into what is already
+    // there and can only add; 'replace' discards the entire existing
+    // library first and therefore requires confirm:'REPLACE', which this
+    // wrapper supplies only for that mode. Resolves to the server's
+    // report: { mode, added, updated, skipped, removed, total, records:[
+    // { key, manufacturer, model, action, detail } ] } — show it, don't
+    // swallow it; "0 added" is a real answer the user needs to see. A
+    // malformed or wrong-schema document is rejected whole (400, nothing
+    // imported), never half-applied.
+    importLibrary: (doc, mode) => req('POST', '/api/library/import',
+      mode === 'replace' ? { mode, confirm: 'REPLACE', library: doc } : { mode: 'merge', library: doc }),
   };
 })();

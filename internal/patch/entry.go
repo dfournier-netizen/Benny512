@@ -55,7 +55,19 @@ import (
 // migrate() below turns that nil into an explicit empty map so every entry,
 // old or new, always has a non-nil ChannelFunctions a caller can range over
 // or marshal without a special nil case (see TestMigrate_NilChannelFunctionsBecomesEmptyMap).
-const CurrentSchemaVersion = 2
+//
+// Version 3 (GDTF Default/Highlight capture): added ChannelFunction's
+// HasDefault/Default/DefaultByteCount and
+// HasHighlight/Highlight/HighlightByteCount
+// — a channel's GDTF-declared resting value, which Rig Check needs in order
+// to make a fixture actually emit light while one channel is under test (a
+// real fixture needs both a dimmer at level AND a shutter in its open
+// position; driving every untested channel to 0 guarantees darkness). A v2
+// file has none of those keys, which unmarshals to HasDefault==false —
+// exactly the "the file never said" state, NOT a silently-real default of 0.
+// migrate() deliberately invents nothing for a v2 entry (see
+// TestMigrate_V2FileLoadsWithDefaultsUnknown).
+const CurrentSchemaVersion = 3
 
 // MatchState records a patch entry's reconciliation state, persisted so a
 // user-confirmed pairing is never re-litigated across sessions (task ask:
@@ -259,6 +271,62 @@ type ChannelFunction struct {
 	// `null` and every JS caller would need a defensive `|| []` instead of
 	// being able to just call `.map()`/`.length` on it.
 	ChannelSets []ChannelSet `json:"channelSets"`
+
+	// --- GDTF resting values (schema v3) ---------------------------------
+	//
+	// HasDefault says whether the source file actually stated a Default for
+	// this channel. It is NOT redundant with Default != 0: a Default of 0 is
+	// real, common, meaningful data (a dimmer resting dark, a shutter resting
+	// closed), and this package's hard rule — see Entry.Universe/
+	// Entry.Footprint above, and the sensorReadingJSON incident they cite —
+	// is that a numeric field whose zero is real data NEVER carries
+	// `omitempty`, because `omitempty` erases the real zero and leaves the
+	// client reading `undefined`. So Default carries no `omitempty` (a
+	// present 0 must appear on the wire as `"default":0`) and HasDefault
+	// carries none either (a present `false` is the whole signal). Consumers
+	// MUST check HasDefault before using Default; a zero-valued
+	// ChannelFunction reads as "unknown", never as "rests at 0".
+	HasDefault bool `json:"hasDefault"`
+	// Default is GDTF's <ChannelFunction Default="X/Y"> raw value X, in the
+	// SAME units as DMXFrom/DMXTo above (gdtfparse.js's one
+	// parseDmxValueParts helper produces all three). For an 8-bit channel
+	// that is a plain 0-255 byte; for a 16-bit channel it is the full
+	// 0-65535 value, NOT a coarse byte — DefaultByteCount is what says which.
+	Default uint32 `json:"default"`
+	// DefaultByteCount is GDTF's "X/Y" byte count Y (1 for 8-bit, 2 for
+	// 16-bit, ...), and it is what makes a multi-byte Default meaningful for
+	// BOTH bytes of a coarse+fine channel. Every offset a multi-offset
+	// DMXChannel spans receives an identical ChannelFunction record (see
+	// gdtfparse.js's channelFunctions rule), so a consumer recovers its own
+	// byte from its position in that channel's offsets, which resolve.go's
+	// ResolvedFunction.Offsets and testpattern.go's "16-bit (coarse+fine)"
+	// design note both fix as (coarse, fine) ascending:
+	//
+	//	byte(i) = (Default >> (8 * (DefaultByteCount-1-i))) & 0xFF
+	//
+	// e.g. a 16-bit channel at offsets (5,6) with Default="32768/2" has
+	// Default 32768, DefaultByteCount 2 -> 128 at offset 5, 0 at offset 6.
+	//
+	// Deliberately a scalar and not a pre-decomposed []uint32: this mirrors
+	// GDTF's own encoding instead of a derived form, and — the practical
+	// reason — a slice field here would have to be non-nil at every
+	// ChannelFunction construction site in the codebase to satisfy this
+	// package's "slices must be make([]T,0)" rule (a nil slice marshals to
+	// `null`, which TestChannelFunction_MarshalJSON_EmptyChannelSetsIsArrayNotNull
+	// exists to catch). A scalar has no such failure mode: its zero value is
+	// simply "no byte count", which is exactly what HasDefault==false means.
+	// 0 here is never real data, but it still gets no `omitempty` — the rest
+	// of this struct's numeric fields don't, and an inconsistently-omitted
+	// key is its own client-side hazard.
+	DefaultByteCount uint16 `json:"defaultByteCount"`
+	// HasHighlight/Highlight/HighlightByteCount are the same triple for
+	// GDTF's optional <ChannelFunction Highlight="X/Y"> (the "locate/
+	// highlight" value). Far fewer files carry it than carry Default, which
+	// is exactly why HasHighlight exists rather than a bare number.
+	HasHighlight       bool   `json:"hasHighlight"`
+	Highlight          uint32 `json:"highlight"`
+	HighlightByteCount uint16 `json:"highlightByteCount"`
+
 	// RDMSlotType/RDMSlotLabel carry the raw RDM SLOT_INFO/SLOT_DESCRIPTION
 	// evidence this mapping was inferred from — present only when
 	// Source==SourceRDMInferred, always empty for GDTF-derived entries.
@@ -325,8 +393,19 @@ func migrate(p *Patch) {
 	// because the file predates this field" versus "map/slice is empty
 	// because resolution genuinely found nothing". See this package's
 	// "slices must be make([]T,0)" rule in the file doc comment.
+	//
+	// v2 -> v3: a v2 file has no "hasDefault"/"default"/"defaultByteCount"
+	// (or the Highlight equivalents) on any ChannelFunction. Those unmarshal
+	// to HasDefault==false and Default==0 — which is precisely the correct
+	// "the file never told us this channel's resting value" state, so this
+	// migration step deliberately does NOTHING: a v2 entry must come back
+	// with its defaults marked UNKNOWN, never silently resting at 0 (see
+	// TestMigrate_V2FileLoadsWithDefaultsUnknown). Because v3 added only
+	// scalars, there is no new nil-slice normalization to do either — see
+	// ChannelFunction.DefaultByteCount's doc comment for why that was a
+	// deliberate design choice and not an accident.
 	normalizeChannelFunctions(p.Entries)
-	// Future: switch p.SchemaVersion { case 2: ...; p.SchemaVersion = 3 }
+	// Future: switch p.SchemaVersion { case 3: ...; p.SchemaVersion = 4 }
 	p.SchemaVersion = CurrentSchemaVersion
 }
 

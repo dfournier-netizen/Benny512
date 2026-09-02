@@ -25,6 +25,7 @@ import (
 
 	"benny512/internal/artnet"
 	"benny512/internal/capture"
+	"benny512/internal/library"
 	"benny512/internal/params"
 	"benny512/internal/patch"
 	"benny512/internal/rdm"
@@ -119,6 +120,32 @@ type Server struct {
 	// cmd/benny512 upgrades it via SetPatchStorePath, mirroring
 	// SetWalkStorePath.
 	PatchStore *patch.Store
+
+	// LibraryStore holds the Fixture Library (see internal/library and
+	// library.go in this package): everything generic to a fixture TYPE,
+	// accumulated across every job and shared underneath whichever patch
+	// happens to be loaded. Defaults to in-memory-only persistence;
+	// cmd/benny512 upgrades it via SetLibraryStorePath, mirroring
+	// SetPatchStorePath.
+	//
+	// RESET EXEMPTION — read before adding anything near this field. The
+	// library is the ONE store the full reset (handleReset, reset.go) must
+	// leave completely alone: a reset clears THIS rig's state, and a fixture
+	// type's channel map is not this rig's state. Two things keep that
+	// honest now that the store is an ordinary Server field:
+	//
+	//   1. internal/library.Store deliberately offers no Clear() method, so
+	//      there is no call handleReset could make to empty it. That half is
+	//      structural and is the load-bearing one — do not add Clear().
+	//   2. The path SetLibraryStorePath was called with is deliberately NOT
+	//      retained on the Server (unlike walkStorePath/patchStorePath,
+	//      which exist purely so handleReset knows which files to delete),
+	//      so there is no path for a future "delete everything else too"
+	//      edit to hand to os.Remove either.
+	//
+	// See handleReset's step 5 for the matching comment at the call site.
+	LibraryStore *library.Store
+
 	// RigCheck drives DMXOutputEngine for the Patch screen's channel-level
 	// rig check (internal/patch/rigcheck.go) — one instance for the life of
 	// the server, same "one active run at a time" model as walkStore.
@@ -174,8 +201,12 @@ func New(nodes *session.ArtNetSession, rdmc *session.RDMController, dmx *session
 		settings:   defaultSettings(),
 		walkStore:  walk.NewStore(""),
 		PatchStore: patch.NewStore(""),
-		RigCheck:   patch.NewRigCheck(dmx),
-		hub:        newHub(),
+		// The library store is constructed here beside the patch store so a
+		// Server is never in a state where s.LibraryStore is nil — every
+		// handler in library.go dereferences it unconditionally.
+		LibraryStore: library.NewStore(""),
+		RigCheck:     patch.NewRigCheck(dmx),
+		hub:          newHub(),
 	}
 	s.mux = http.NewServeMux()
 	s.routes()
@@ -233,6 +264,16 @@ func (s *Server) SetWalkStorePath(path string) {
 func (s *Server) SetPatchStorePath(path string) {
 	s.PatchStore = patch.NewStore(path)
 	s.patchStorePath = path
+}
+
+// SetLibraryStorePath switches the fixture library's persistence to path (a
+// JSON file next to the exe) — mirrors SetPatchStorePath, with one
+// deliberate difference: the path is NOT retained on the Server. See
+// Server.LibraryStore's RESET EXEMPTION note for why. Any existing library
+// at path is loaded immediately (tolerant reader + migrate-on-load, see
+// internal/library.NewStore).
+func (s *Server) SetLibraryStorePath(path string) {
+	s.LibraryStore = library.NewStore(path)
 }
 
 // SetLogRDMPath opens (or closes, if path=="") the continuous RDM disk
@@ -332,6 +373,21 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/node/{ip}/ipconfig", s.handleNodeIPConfig)
 	s.mux.HandleFunc("POST /api/node/{ip}/input", s.handleNodeInput)
 	s.mux.HandleFunc("GET /api/nics", s.handleGetNICs)
+
+	// --- Fixture Library (device-type knowledge, persists across rigs and
+	// is exempt from POST /api/reset — see internal/web/library.go) ---
+	s.mux.HandleFunc("GET /api/library", s.handleGetLibrary)
+	s.mux.HandleFunc("GET /api/library/export", s.handleLibraryExport)
+	s.mux.HandleFunc("POST /api/library/import", s.handleLibraryImport)
+	s.mux.HandleFunc("GET /api/library/record/{key}", s.handleGetLibraryRecord)
+	s.mux.HandleFunc("DELETE /api/library/record/{key}", s.handleDeleteLibraryRecord)
+	// The two directions of travel between the library and the active
+	// patch (see internal/web/library.go's endpoint reference): harvest a
+	// patch entry's profile INTO the library, and re-profile patch entries
+	// FROM it. Only the second writes to the patch, and it carries the
+	// Apply-to-confirm contract because it moves DMX addressing.
+	s.mux.HandleFunc("POST /api/library/from-patch", s.handleLibraryFromPatch)
+	s.mux.HandleFunc("POST /api/library/reprofile", s.handleLibraryReprofile)
 
 	// --- Rig Walk mode (phone-optimized device walkthrough) ---
 	s.mux.HandleFunc("GET /api/walk/session", s.handleGetWalkSession)

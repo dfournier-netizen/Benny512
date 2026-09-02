@@ -219,7 +219,7 @@ func reconcileEntry(e Entry, devices []DiscoveredDevice, claimed map[string]bool
 		addr   bool // does this candidate's device sit at the entry's patched address?
 	}
 	var candidates []scored
-	entryTokens := normalizeTokens(e.FixtureType)
+	entryTokens := NormalizeTokens(e.FixtureType)
 	for _, d := range devices {
 		score, ev := scorePair(e, d, entryTokens)
 		if score < proposedThreshold {
@@ -273,16 +273,16 @@ func scorePair(e Entry, d DiscoveredDevice, entryTokens map[string]struct{}) (fl
 		ev = append(ev, Evidence{Kind: EvidenceFootprint, Detail: "footprint agrees"})
 	}
 	if d.Manufacturer != "" {
-		mfrTokens := normalizeTokens(d.Manufacturer)
-		ratio := tokenContainment(entryTokens, mfrTokens)
+		mfrTokens := NormalizeTokens(d.Manufacturer)
+		ratio := TokenContainment(entryTokens, mfrTokens)
 		if ratio > 0 {
 			score += weights.manufacturer * ratio
 			ev = append(ev, Evidence{Kind: EvidenceManufacturer, Detail: "manufacturer \"" + d.Manufacturer + "\" found in patched fixture type"})
 		}
 	}
 	if d.Model != "" {
-		modelTokens := normalizeTokens(d.Model)
-		ratio := tokenContainment(entryTokens, modelTokens)
+		modelTokens := NormalizeTokens(d.Model)
+		ratio := TokenContainment(entryTokens, modelTokens)
 		if ratio > 0 {
 			score += weights.model * ratio
 			ev = append(ev, Evidence{Kind: EvidenceModel, Detail: "model \"" + d.Model + "\" found in patched fixture type"})
@@ -292,8 +292,20 @@ func scorePair(e Entry, d DiscoveredDevice, entryTokens map[string]struct{}) (fl
 }
 
 // --- normalized fuzzy string comparison -------------------------------
+//
+// NormalizeTokens and TokenContainment are EXPORTED, unlike the rest of this
+// file's scoring internals, for exactly one reason: internal/library needs
+// this project's fixture-name normalisation verbatim for its own tolerant
+// record matching (library/match.go's Record.Matches), and a second
+// normaliser over there would drift from this one on precisely the inputs
+// that matter — "JDC1" vs "JDC 1" vs "GLP JDC-1". They are the normaliser
+// and the comparison ONLY; the weights, the proposal threshold and the
+// ambiguity margin stay unexported, so retuning the matcher cannot silently
+// change what the library considers the same fixture type (which is what
+// happened when library/match.go reached these through patch.Reconcile and
+// inferred containment from a score against proposedThreshold).
 
-// normalizeTokens lowercases s, treats every run of non-alphanumeric
+// NormalizeTokens lowercases s, treats every run of non-alphanumeric
 // characters as a separator (so punctuation/whitespace differences never
 // matter — task ask: "case/punctuation/whitespace-insensitive, token-
 // based"), ALSO splits at every letter<->digit boundary (so "JDC1"
@@ -304,7 +316,7 @@ func scorePair(e Entry, d DiscoveredDevice, entryTokens map[string]struct{}) (fl
 // set. A run of letters or a run of digits is never split internally — only
 // the letter/digit BOUNDARY is a break point, so "2x" still splits into
 // "2","x" (two different characters classes) while "1960" stays one token.
-func normalizeTokens(s string) map[string]struct{} {
+func NormalizeTokens(s string) map[string]struct{} {
 	var b strings.Builder
 	var prevDigit, havePrev bool
 	for _, r := range strings.ToLower(s) {
@@ -328,7 +340,7 @@ func normalizeTokens(s string) map[string]struct{} {
 	return set
 }
 
-// tokenContainment returns the fraction of ref's tokens that also appear in
+// TokenContainment returns the fraction of ref's tokens that also appear in
 // text — e.g. text="rogue outcast 2x wash" (from a patch FixtureType of
 // "Rogue Outcast 2X Wash") against ref="chauvet rogue outcast 2x wash"
 // (a device's DEVICE_MODEL_DESCRIPTION combined... no, ref here is just the
@@ -338,7 +350,7 @@ func normalizeTokens(s string) map[string]struct{} {
 // includes extra words (manufacturer name, notes) the device's single
 // Manufacturer/Model field doesn't, and that asymmetry should not be
 // penalized.
-func tokenContainment(text, ref map[string]struct{}) float64 {
+func TokenContainment(text, ref map[string]struct{}) float64 {
 	if len(ref) == 0 {
 		return 0
 	}

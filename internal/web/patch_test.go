@@ -730,3 +730,210 @@ func mustUnmarshal(t *testing.T, rr *httptest.ResponseRecorder, v any) {
 		t.Fatalf("unmarshal %s: %v", rr.Body.String(), err)
 	}
 }
+
+// TestChannelFunctionImport_PreservesGDTFDefaultAndHighlight is the
+// regression test for the import path silently dropping every GDTF
+// Default/Highlight the browser parsed: channelFunctionRequest mirrors
+// patch.ChannelFunction field-for-field and channelFunctionsFromRequest
+// copies fields explicitly, so a field added to the model but not to the
+// request struct is dropped with no error anywhere.
+//
+// The value under test is deliberately a ZERO default (a shutter resting
+// closed, a dimmer resting dark — the single most common real value), which
+// is exactly the case a `Default != 0` heuristic would get wrong: only the
+// hasDefault flag distinguishes "the file said 0" from "the file said
+// nothing". Asserted on the MARSHALLED JSON BYTES of GET /api/patch, per
+// this project's serialization-test rule.
+func TestChannelFunctionImport_PreservesGDTFDefaultAndHighlight(t *testing.T) {
+	h := newHarness(t)
+	rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", entryRequest{
+		Name: "Strobe 1", Universe: 0, StartAddress: 1, Footprint: 2,
+		ChannelFunctions: map[string]channelFunctionRequest{
+			"1": {
+				Source: "gdtf", Attribute: "Shutter1", FunctionName: "Shutter1",
+				ChannelSets:      []channelSetRequest{{Name: "Closed", DMXFrom: 0}, {Name: "Open", DMXFrom: 32}},
+				HasDefault:       true,
+				Default:          0,
+				DefaultByteCount: 1,
+				HasHighlight:     true,
+				Highlight:        0,
+				// 2 here proves ByteCount is carried independently of the
+				// value it describes, not derived from it.
+				HighlightByteCount: 2,
+			},
+		},
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("create entry: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	rr = doJSON(t, h.srv.Handler(), "GET", "/api/patch", nil)
+	body := rr.Body.String()
+	for _, want := range []string{
+		`"hasDefault":true`, `"default":0`, `"defaultByteCount":1`,
+		`"hasHighlight":true`, `"highlight":0`, `"highlightByteCount":2`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("GET /api/patch JSON missing %s — the GDTF resting value was dropped on import; got %s", want, body)
+		}
+	}
+}
+
+// jdcLikeEntryRequest is a JDC-1-shaped fixture on the wire: dimmer, a
+// shutter with named GDTF ChannelSets, and a tilt with a stated GDTF Default.
+func jdcLikeEntryRequest(name string, universe uint16, addr uint16) entryRequest {
+	return entryRequest{
+		Name: name, Universe: universe, StartAddress: addr, Footprint: 3, Position: "US Truss 1",
+		ChannelFunctions: map[string]channelFunctionRequest{
+			"1": {Source: "gdtf", Attribute: "Dimmer", FunctionName: "Dimmer", ChannelSets: []channelSetRequest{}, HasDefault: true, Default: 0, DefaultByteCount: 1},
+			"2": {Source: "gdtf", Attribute: "Shutter1", FunctionName: "Shutter", ChannelSets: []channelSetRequest{
+				{Name: "Closed", DMXFrom: 0}, {Name: "Open", DMXFrom: 32}, {Name: "Strobe", DMXFrom: 64},
+			}},
+			"3": {Source: "gdtf", Attribute: "Tilt", FunctionName: "Tilt", ChannelSets: []channelSetRequest{}, HasDefault: true, Default: 128, DefaultByteCount: 1},
+		},
+	}
+}
+
+// TestRigCheckPattern_SelectionAndOutputAreIndependent is the owner's
+// workflow over REST: select tests with output off (nothing moves), start
+// output, toggle a second test live, stop — and the selection is still there.
+func TestRigCheckPattern_SelectionAndOutputAreIndependent(t *testing.T) {
+	h := newHarness(t)
+	pa := mustPort(t)
+	doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", jdcLikeEntryRequest("JDC 1", pa.RawValue(), 1))
+	off := false
+	on := true
+
+	// 1. Select a test with output OFF.
+	rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/start", patternStartRequest{
+		ScopeKind: "all", OutputEnabled: &off,
+		Tests: []patternTestRequest{{Kind: "dimmer_sine", RateHz: 1, Max: 255}},
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("select with output off: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var st patternStatusJSON
+	mustUnmarshal(t, rr, &st)
+	if st.OutputEnabled || st.Running || st.SelectedCount != 1 {
+		t.Fatalf("after select-only: outputEnabled=%v running=%v selectedCount=%d, want false,false,1", st.OutputEnabled, st.Running, st.SelectedCount)
+	}
+
+	// 2. Start output via the adjust endpoint's outputEnabled flag.
+	rr = doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/adjust", patternAdjustRequest{OutputEnabled: &on})
+	mustUnmarshal(t, rr, &st)
+	if !st.OutputEnabled || st.SelectedCount != 1 {
+		t.Fatalf("after start: %+v", st)
+	}
+
+	// 3. Toggle a SECOND test on while output flows — must not 409.
+	rr = doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/adjust", patternAdjustRequest{
+		Test: &patternTestRequest{Kind: "move_extreme", Target: "tilt_max"},
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("toggling a test live: status=%d body=%s, want 200 — configuration is never gated on output", rr.Code, rr.Body.String())
+	}
+	mustUnmarshal(t, rr, &st)
+	if st.SelectedCount != 2 {
+		t.Fatalf("selectedCount = %d after toggling a second test on, want 2", st.SelectedCount)
+	}
+
+	// 4. Stop stops OUTPUT and deselects nothing.
+	rr = doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/stop", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("stop: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	rr = doJSON(t, h.srv.Handler(), "GET", "/api/patch/rigcheck/pattern", nil)
+	mustUnmarshal(t, rr, &st)
+	if st.OutputEnabled {
+		t.Error("stop must disable output")
+	}
+	if st.SelectedCount != 2 {
+		t.Errorf("selectedCount = %d after stop, want 2 — stop stops output and deselects nothing", st.SelectedCount)
+	}
+	if st.LastEndReason != "manual" {
+		t.Errorf("lastEndReason = %q, want manual", st.LastEndReason)
+	}
+}
+
+// TestRigCheckPattern_StackedJSONShape pins the whole new wire contract on
+// the MARSHALLED BYTES: every new field present, every zero explicit, every
+// slice an array and never null.
+func TestRigCheckPattern_StackedJSONShape(t *testing.T) {
+	h := newHarness(t)
+	pa := mustPort(t)
+	doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", jdcLikeEntryRequest("JDC 1", pa.RawValue(), 1))
+	doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", jdcLikeEntryRequest("JDC 2", pa.RawValue(), 10))
+
+	rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/start", patternStartRequest{
+		ScopeKind: "all",
+		Tests: []patternTestRequest{
+			// Every numeric/boolean parameter deliberately left at its zero.
+			{Kind: "ballyhoo"},
+			{Kind: "move_extreme", Target: "tilt_max"},
+		},
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("pattern start: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	for _, want := range []string{
+		`"outputEnabled":true`, `"running":true`, `"selectedCount":2`,
+		`"tests":[{`, `"id":"move_extreme:tilt_max"`, `"id":"ballyhoo"`,
+		`"waveform":"sine"`, `"offsetMin":0`, `"offsetMax":0`,
+		`"min":0`, `"max":0`, `"value":0`, `"on":false`, `"direction":""`,
+		`"phaseDegrees":0`, `"applied":true`, `"inferred":false`, `"detailMissing":false`,
+		`"contested":[{`, `"tests":["move_extreme:tilt_max","ballyhoo"]`,
+		`"baseState":{"isolate":false`, `"defaultsKnownCount":`, `"defaultsUnknownCount":`,
+		`"dimmerDrivenCount":2`, `"shutterOpenedCount":2`, `"shutterUnknownEntries":[]`,
+		`"available":[{`, `"labelFromGdtf":false`, `"fixtureCount":2`,
+		`"elapsedMs":0`, `"totalScope":2`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("pattern status JSON missing %s;\ngot %s", want, body)
+		}
+	}
+	if strings.Contains(body, "null") {
+		t.Errorf("pattern status JSON must never contain null: %s", body)
+	}
+
+	// The canonical composition order must be reflected in `tests` order —
+	// move_extreme sorts before ballyhoo, whatever order they were sent in.
+	var st patternStatusJSON
+	mustUnmarshal(t, rr, &st)
+	if len(st.Tests) != 2 || st.Tests[0].ID != "move_extreme:tilt_max" || st.Tests[1].ID != "ballyhoo" {
+		t.Errorf("tests order = %v, want the canonical [move_extreme:tilt_max ballyhoo] regardless of request order", st.Tests)
+	}
+}
+
+// TestRigCheckPattern_PhaseAndWaveformOverREST covers the two new per-test
+// parameters end to end, including the explicit rejection of a phase spread
+// on a static kind.
+func TestRigCheckPattern_PhaseAndWaveformOverREST(t *testing.T) {
+	h := newHarness(t)
+	pa := mustPort(t)
+	for i := 0; i < 4; i++ {
+		doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", jdcLikeEntryRequest("JDC", pa.RawValue(), uint16(1+i*3)))
+	}
+	rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/start", patternStartRequest{
+		ScopeKind: "all",
+		Tests:     []patternTestRequest{{Kind: "dimmer_sine", RateHz: 1, Max: 255, Waveform: "snap", OffsetMin: 0, OffsetMax: 360}},
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("start: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	for _, want := range []string{`"waveform":"snap"`, `"offsetMax":360`, `"phaseDegrees":90`, `"phaseDegrees":270`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %s in %s", want, body)
+		}
+	}
+
+	// A phase spread on a static kind is a 400, not a silent no-op.
+	rr = doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/start", patternStartRequest{
+		ScopeKind: "all",
+		Tests:     []patternTestRequest{{Kind: "move_extreme", Target: "tilt_max", OffsetMax: 180}},
+	})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("phase on a static kind: status=%d body=%s, want 400", rr.Code, rr.Body.String())
+	}
+}

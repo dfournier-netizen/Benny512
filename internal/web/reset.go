@@ -123,6 +123,19 @@ func (s *Server) handleReset(w http.ResponseWriter, r *http.Request) {
 	deleteTracked(s.walkStorePath)
 	s.PatchStore.Clear()
 	s.walkStore.Clear()
+	// DELIBERATELY ABSENT: the Fixture Library (s.LibraryStore, see
+	// internal/library and library.go). It is the owner's explicit, standing
+	// exemption from this reset — the library is the knowledge accumulated
+	// across every job (a fixture type's modes, footprints and channel maps),
+	// not this rig's state, and a reset that threw it away would destroy the
+	// one thing here that cannot be rebuilt by re-importing an MVR. Do not
+	// add it, and do not add its file to deleteTracked. Two things make that
+	// hard to do by accident rather than merely remembered:
+	// internal/library.Store offers no Clear() method at all, and
+	// SetLibraryStorePath deliberately does not retain the path on the
+	// Server, so there is nothing here to call and no path here to delete.
+	// See Server.LibraryStore's doc comment and
+	// TestLibrary_SurvivesFullReset.
 	if deleted == nil {
 		deleted = []string{}
 	}

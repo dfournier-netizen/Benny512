@@ -68,23 +68,32 @@ var (
 	ErrRigCheckNotRunning = errors.New("patch: rig check is not running")
 	ErrRigCheckEmptyScope = errors.New("patch: rig check scope has no entries")
 	// ErrRigCheckPatternRunning is returned by every CLASSIC (channel-level)
-	// mutator — SetMode/SetLevel/Jump/Next/Previous/StepChannel — while a
-	// stage 2 test pattern (testpattern.go) is driving output. The two
-	// engines share this RigCheck instance's frame-recompute machinery and
-	// its started-universe bookkeeping but are mutually exclusive at any
-	// instant (both would otherwise race to decide what a shared universe's
-	// buffer holds): starting a pattern always stops any classic run first
-	// (StartPattern -> stopLocked, mirroring Start's own "always start
-	// clean" rule), and a classic action while a pattern is running must
-	// fail loudly rather than silently corrupt the pattern's frame with a
-	// stale r.mode-driven recompute. Call Stop (or start a classic run via
-	// Start, which itself stops the pattern first) to get back to classic
-	// mode.
-	ErrRigCheckPatternRunning = errors.New("patch: a test pattern is running — stop it first")
-	// ErrRigCheckNoPatternRunning is returned by AdjustPattern/StopPattern
-	// (the pattern-only half of the surface's own guard, mirroring
-	// ErrRigCheckNotRunning above) when no pattern is currently running.
-	ErrRigCheckNoPatternRunning = errors.New("patch: no test pattern is running")
+	// mutator — SetMode/SetLevel/Jump/Next/Previous/StepChannel — while the
+	// stage 2 test-pattern engine (testpattern.go) is actually DRIVING
+	// OUTPUT. The two engines share this RigCheck instance's frame-recompute
+	// machinery and its started-universe bookkeeping, and both would race to
+	// decide what a shared universe's buffer holds, so a classic action
+	// while pattern output flows must fail loudly rather than silently
+	// corrupt the pattern's frame with a stale r.mode-driven recompute.
+	//
+	// Note precisely what this does and does not gate, since it changed with
+	// the stackable-tests rework: it is about OUTPUT, not configuration.
+	// Selecting, deselecting and re-parameterising test patterns is legal at
+	// any time and never returns this (see testpattern.go's "Selection and
+	// output are two independent pieces of state" doc section); only the
+	// classic channel-level walk's mutators are excluded, and only while
+	// pattern output is live. Call StopPatternOutput (or Stop, or start a
+	// classic run via Start, which stops pattern output first) to get back
+	// to classic mode.
+	ErrRigCheckPatternRunning = errors.New("patch: test pattern output is running — stop it first")
+	// ErrRigCheckNoPatternRunning is returned by AdjustPattern, the
+	// single-test back-compat shorthand, when no test is selected at all.
+	ErrRigCheckNoPatternRunning = errors.New("patch: no test pattern is selected")
+	// ErrRigCheckAmbiguousTest is returned by AdjustPattern when SEVERAL
+	// tests are selected: that call names no test, so there is nothing it
+	// could unambiguously mean. Callers with more than one test selected use
+	// SelectPatternTest (which names the test it is adjusting) instead.
+	ErrRigCheckAmbiguousTest = errors.New("patch: more than one test is selected — adjust a specific test instead")
 )
 
 // PatternWatchdogTimeout is the test-pattern engine's client-liveness
@@ -115,8 +124,9 @@ type State struct {
 	EntryIDs       []string `json:"entryIds,omitempty"`
 	ChannelOffset  int      `json:"channelOffset"`
 	CurrentChannel uint16   `json:"currentChannel,omitempty"` // absolute DMX address being driven, ModeStepChannel only
-	// PatternRunning is true while a stage 2 test pattern (testpattern.go)
-	// is driving output instead of this classic channel-level walk — every
+	// PatternRunning is true while the stage 2 test-pattern engine
+	// (testpattern.go) is driving output instead of this classic
+	// channel-level walk — every
 	// field above (Mode/Level/EntryIndex/ChannelOffset/CurrentChannel) is
 	// then stale/frozen at whatever it held the instant StartPattern took
 	// over (see StartPattern's doc comment); read PatternStatus for the
@@ -145,9 +155,15 @@ type RigCheck struct {
 	running bool
 
 	// --- stage 2: attribute-level test-pattern engine (testpattern.go) ---
-	pattern        *patternRun
+	//
+	// selection and patternOutput are the two independent halves of that
+	// engine's state model (see testpattern.go's doc comment): selection
+	// survives every stop, patternOutput is what stop clears.
+	selection      *patternSelection
+	patternOutput  bool
+	patternEpoch   time.Time     // stamped when output was last enabled — the shared time base every active test's waveform is sampled against
 	patternTimer   session.Timer // self-rescheduling AfterFunc chain driving patternTick, mirrors DMXOutputEngine's own tick()/scheduleLocked()
-	lastTouch      time.Time     // last StartPattern/AdjustPattern/PatternStatus call — see PatternWatchdogTimeout
+	lastTouch      time.Time     // last pattern-surface call (including a PatternStatus read) — see PatternWatchdogTimeout
 	lastPatternEnd string        // "" (never run) | "manual" | "restarted" | "watchdog" — see PatternStatus.LastEndReason
 }
 
@@ -161,7 +177,7 @@ type RigCheck struct {
 // FakeClock deterministically drives both the DMX retransmit tick and every
 // pattern's own value recomputation.
 func NewRigCheck(dmx *session.DMXOutputEngine) *RigCheck {
-	return &RigCheck{dmx: dmx, clock: dmx.Clock(), started: map[uint16]bool{}, level: DefaultLevel}
+	return &RigCheck{dmx: dmx, clock: dmx.Clock(), started: map[uint16]bool{}, level: DefaultLevel, selection: newPatternSelection()}
 }
 
 // Start begins a new rig check over entries (already ordered/scoped by the
@@ -228,10 +244,15 @@ func (r *RigCheck) Stop() {
 // stopLocked is the one choke point every path out of a running rig
 // check — classic or pattern — goes through, so the blackout discipline
 // (this file's doc comment) and the pattern ticker's cleanup can never be
-// forgotten on any of them. reason is recorded as lastPatternEnd ONLY when a
-// pattern was actually running (see PatternStatus.LastEndReason); it is
-// ignored otherwise, so this stays the ordinary, reason-agnostic Stop path
+// forgotten on any of them. reason is recorded as lastPatternEnd ONLY when
+// pattern output was actually flowing (see PatternStatus.LastEndReason); it
+// is ignored otherwise, so this stays the ordinary, reason-agnostic Stop path
 // classic-mode callers already expect.
+//
+// It stops OUTPUT and nothing else: the pattern engine's SELECTION (scope,
+// selected tests, isolate flag) is deliberately untouched, per the owner's
+// "stop should stop output, but not deselect any tests". A caller that wants
+// the selection gone replaces it via SetPatternTests.
 func (r *RigCheck) stopLocked(reason string) {
 	r.blackoutLocked()
 	for u := range r.started {
@@ -241,7 +262,7 @@ func (r *RigCheck) stopLocked(reason string) {
 	}
 	r.started = map[uint16]bool{}
 	r.running = false
-	r.cancelPatternLocked(reason)
+	r.cancelPatternOutputLocked(reason)
 }
 
 // Blackout zeroes every currently-touched universe's buffer and pushes it
@@ -252,8 +273,8 @@ func (r *RigCheck) stopLocked(reason string) {
 func (r *RigCheck) Blackout() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.pattern != nil {
-		// A running pattern re-asserts its own frame on every tick (see
+	if r.patternOutput {
+		// Live pattern output re-asserts its own frame on every tick (see
 		// testpattern.go's tick-source doc comment — roughly every 25ms at
 		// the default 40Hz), so this method's classic-mode contract above
 		// ("Running stays true... WITHOUT ending the run") would make
@@ -290,7 +311,7 @@ func (r *RigCheck) SetMode(mode Mode) error {
 	if !r.running {
 		return ErrRigCheckNotRunning
 	}
-	if r.pattern != nil {
+	if r.patternOutput {
 		return ErrRigCheckPatternRunning
 	}
 	r.mode = normalizeMode(mode)
@@ -308,7 +329,7 @@ func (r *RigCheck) SetLevel(level byte) error {
 	if !r.running {
 		return ErrRigCheckNotRunning
 	}
-	if r.pattern != nil {
+	if r.patternOutput {
 		return ErrRigCheckPatternRunning
 	}
 	r.level = level
@@ -325,7 +346,7 @@ func (r *RigCheck) Jump(index int) error {
 	if !r.running {
 		return ErrRigCheckNotRunning
 	}
-	if r.pattern != nil {
+	if r.patternOutput {
 		return ErrRigCheckPatternRunning
 	}
 	if index < 0 || index >= len(r.entries) {
@@ -352,7 +373,7 @@ func (r *RigCheck) stepEntry(delta int) error {
 	if !r.running {
 		return ErrRigCheckNotRunning
 	}
-	if r.pattern != nil {
+	if r.patternOutput {
 		return ErrRigCheckPatternRunning
 	}
 	next := r.idx + delta
@@ -381,7 +402,7 @@ func (r *RigCheck) StepChannel(delta int) error {
 	if !r.running {
 		return ErrRigCheckNotRunning
 	}
-	if r.pattern != nil {
+	if r.patternOutput {
 		return ErrRigCheckPatternRunning
 	}
 	cur, ok := r.currentEntryLocked()
@@ -406,7 +427,7 @@ func (r *RigCheck) State() State {
 	defer r.mu.Unlock()
 	st := State{
 		Running: r.running, Mode: r.mode, Level: r.level, EntryIndex: r.idx, ChannelOffset: r.chOff,
-		PatternRunning: r.pattern != nil,
+		PatternRunning: r.patternOutput,
 	}
 	for _, e := range r.entries {
 		st.EntryIDs = append(st.EntryIDs, e.ID)

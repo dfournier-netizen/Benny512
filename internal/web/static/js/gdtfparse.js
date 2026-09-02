@@ -24,6 +24,33 @@
 // geometry-reference replication mechanism (pixel arrays / repeated cells),
 // not just the literal <DMXChannel> list.
 //
+// Virtual channels and the footprint (the "does a channel with no function
+// still take an address?" question, settled with evidence — see
+// testdata/gdtf_footprint_test.js's "virtual channel" fixtures):
+//
+//   * A channel with an ATTRIBUTE of "NoFeature" but a real Offset (e.g.
+//     <DMXChannel Offset="62"><LogicalChannel Attribute="NoFeature">) DOES
+//     occupy DMX slot 62 and IS counted. Nothing in this module has ever
+//     filtered a channel by its attribute name; parseOffsets is the only
+//     thing that decides whether a channel places anything, and it looks at
+//     Offset alone. "This channel has no function" and "this channel does
+//     not exist" are correctly distinguished, and only the second shrinks a
+//     footprint.
+//   * A channel whose Offset is the literal "None", or absent entirely
+//     (GDTF's own default for the attribute), is a VIRTUAL channel: per the
+//     GDTF spec it has no DMX placement at all, and it is excluded. This is
+//     not a heuristic — it is corroborated by real vendor data in the test
+//     file: GLP JDC1's Modes 3/4/5/6 each declare a virtual channel
+//     (Offset="") alongside their addressed ones, and each mode's own name
+//     states its channel count (68/62/17/11). Those counts are matched
+//     EXACTLY by excluding the virtual channel and are each off by one if it
+//     is counted. Counting virtual channels would therefore break four
+//     independently-corroborated vendor modes to "fix" one.
+//
+// Mode-name channel counts are used as a CROSS-CHECK ONLY (a warning when
+// they disagree with the resolved footprint), never as parser input — see
+// parseDeclaredChannelCount and its call site in parseMode.
+//
 // Why the literal list alone under-counts: GDTF lets a fixture define a
 // geometry once (a "template", e.g. one RGBW pixel cell) and instantiate it
 // many times via <GeometryReference Geometry="TemplateName"><Break
@@ -133,17 +160,68 @@ const GdtfParse = (() => {
       .filter(n => Number.isFinite(n));
   }
 
-  // parseDmxValue: GDTF's DMXFrom/Default attributes are written "X/Y"
-  // (raw DMX value / byte count), e.g. "0/1", "128/2". This module only
-  // resolves the raw value (X) — see the file doc comment's
-  // channelFunctions rule for why byte count/fine-byte resolution is out
-  // of scope.
-  function parseDmxValue(s) {
-    if (!s) return 0;
-    const slash = s.indexOf('/');
-    const n = parseInt(slash >= 0 ? s.slice(0, slash) : s, 10);
-    return Number.isFinite(n) ? n : 0;
+  // MAX_DMX_BYTES: sanity clamp on a GDTF "X/Y" value's declared byte count.
+  // GDTF permits 1-4 (8/16/24/32-bit); anything outside that is a malformed
+  // file and is clamped rather than carried forward as a nonsense byte count
+  // (this module's "never crash, degrade" posture).
+  const MAX_DMX_BYTES = 4;
+
+  // parseDmxValueParts: the ONE parser for GDTF's "X/Y" DMX-value notation
+  // (raw value / byte count), e.g. "0/1", "128/1", "32768/2". Used by
+  // DMXFrom (ChannelFunction and ChannelSet) and by Default/Highlight.
+  // Returns { present, value, byteCount }:
+  //
+  //   present   — the attribute was actually there and parsed. This is the
+  //               field that makes "the file said 0" distinguishable from
+  //               "the file said nothing", which for Default is the whole
+  //               point: a resting value of 0 is real data (a dimmer at
+  //               zero), and a consumer that cannot tell it from "unknown"
+  //               cannot decide whether to drive the channel at all.
+  //   value     — the raw value X, verbatim. For byteCount 1 that is a plain
+  //               0-255 DMX byte; for byteCount 2 it is the full 16-bit
+  //               value (0-65535), NOT a coarse byte — see the multi-byte
+  //               note above parseChannelFunction.
+  //   byteCount — Y, clamped to 1..MAX_DMX_BYTES, defaulting to 1 when the
+  //               notation carries no "/Y" part at all.
+  function parseDmxValueParts(s) {
+    if (s === null || s === undefined) return { present: false, value: 0, byteCount: 1 };
+    const str = String(s).trim();
+    if (str === '') return { present: false, value: 0, byteCount: 1 };
+    const slash = str.indexOf('/');
+    const n = parseInt(slash >= 0 ? str.slice(0, slash) : str, 10);
+    if (!Number.isFinite(n)) return { present: false, value: 0, byteCount: 1 };
+    let byteCount = 1;
+    if (slash >= 0) {
+      const b = parseInt(str.slice(slash + 1), 10);
+      if (Number.isFinite(b) && b >= 1) byteCount = Math.min(b, MAX_DMX_BYTES);
+    }
+    return { present: true, value: n, byteCount };
   }
+
+  // parseDmxValue: the pre-existing raw-value-only reading of "X/Y", kept
+  // as the DMXFrom accessor it always was so DMXFrom/DMXTo's units are
+  // unchanged by this file's Default/Highlight work. Delegates to
+  // parseDmxValueParts — there is exactly one "X/Y" parser in this module.
+  function parseDmxValue(s) {
+    return parseDmxValueParts(s).value;
+  }
+
+  // Multi-byte (16-bit+) note. value + byteCount together are what make a
+  // Default meaningful for BOTH bytes of a coarse+fine channel, without this
+  // module having to pre-decompose anything: every offset a multi-offset
+  // DMXChannel spans receives an IDENTICAL channelFunction record (see this
+  // file's channelFunctions rule), so a consumer recovers its own byte from
+  // its position i in that channel's ascending (coarse, fine) offsets —
+  // the ordering internal/patch/resolve.go's ResolvedFunction.Offsets and
+  // testpattern.go's "16-bit (coarse+fine)" design note both already fix:
+  //
+  //     byte(i) = (value >>> (8 * (byteCount - 1 - i))) & 0xff
+  //
+  // e.g. Offset="5,6" with Default="32768/2" -> value 32768, byteCount 2 ->
+  // 128 at offset 5, 0 at offset 6. This mirrors GDTF's own "X/Y" encoding
+  // rather than inventing a derived array, and keeps the record field-for-
+  // field identical to patch.ChannelFunction's Default/DefaultByteCount
+  // (internal/patch/entry.go), whose doc comment records the same formula.
 
   function parseFloatAttr(s) {
     if (!s) return 0;
@@ -160,13 +238,37 @@ const GdtfParse = (() => {
     };
   }
 
+  // parseChannelFunction: one <ChannelFunction>. Beyond the range/name data
+  // this always carried, it reads the two GDTF "resting value" attributes
+  // Rig Check needs in order to make a fixture actually emit light while a
+  // single channel is under test (a real fixture needs BOTH its dimmer up
+  // AND its shutter in the open position; sending 0 to every untested
+  // channel guarantees darkness):
+  //
+  //   Default   — <ChannelFunction Default="X/Y">, the value the fixture
+  //               rests at for this function.
+  //   Highlight — <ChannelFunction Highlight="X/Y">, GDTF's optional
+  //               "highlight/locate" value, present on far fewer files.
+  //
+  // Both are carried as an explicit has*/value/*Bytes triple rather than a
+  // bare number, because 0 is a perfectly real Default (see
+  // parseDmxValueParts' `present` doc) and a bare 0 would be
+  // indistinguishable from "this file didn't say".
   function parseChannelFunction(cfEl) {
+    const def = parseDmxValueParts(cfEl.getAttribute('Default'));
+    const hi = parseDmxValueParts(cfEl.getAttribute('Highlight'));
     return {
       name: cfEl.getAttribute('Name') || '',
       attribute: cfEl.getAttribute('Attribute') || '',
       dmxFrom: parseDmxValue(cfEl.getAttribute('DMXFrom')),
       physicalFrom: parseFloatAttr(cfEl.getAttribute('PhysicalFrom')),
       physicalTo: parseFloatAttr(cfEl.getAttribute('PhysicalTo')),
+      hasDefault: def.present,
+      defaultValue: def.value,
+      defaultByteCount: def.present ? def.byteCount : 0,
+      hasHighlight: hi.present,
+      highlightValue: hi.value,
+      highlightByteCount: hi.present ? hi.byteCount : 0,
       channelSets: childrenByTag(cfEl, 'ChannelSet').map(parseChannelSet),
     };
   }
@@ -203,6 +305,16 @@ const GdtfParse = (() => {
       dmxTo: nextFn ? Math.max(nextFn.dmxFrom - 1, fn ? fn.dmxFrom : 0) : 255,
       physicalFrom: fn ? fn.physicalFrom : 0,
       physicalTo: fn ? fn.physicalTo : 0,
+      // Default/Highlight: absent (has* false) whenever there is no
+      // resolvable ChannelFunction at all, which is the same "the file
+      // didn't say" state a ChannelFunction carrying no Default attribute
+      // produces — never a fabricated 0.
+      hasDefault: fn ? fn.hasDefault : false,
+      defaultValue: fn ? fn.defaultValue : 0,
+      defaultByteCount: fn ? fn.defaultByteCount : 0,
+      hasHighlight: fn ? fn.hasHighlight : false,
+      highlightValue: fn ? fn.highlightValue : 0,
+      highlightByteCount: fn ? fn.highlightByteCount : 0,
       channelSets: fn ? fn.channelSets : [],
     };
   }
@@ -450,6 +562,134 @@ const GdtfParse = (() => {
     return resolved;
   }
 
+  // DECLARED_CHANNEL_COUNT_RE: the "(62ch)" / "62 Ch" / "62-Channel" shapes
+  // GDTF mode names use to state their own channel count. Anchored on the
+  // "ch" token so a bare number in a mode name ("Mode 4", "Pan540/Tilt270",
+  // "Standard 16bit") is never mistaken for a channel count. The LAST match
+  // wins: names like "Mode 4 SPix PRO (62ch)" put the count at the end,
+  // after other digits that are not counts.
+  const DECLARED_CHANNEL_COUNT_RE = /(\d+)\s*(?:-\s*)?(?:ch|chan|channel)s?\b/gi;
+
+  // parseDeclaredChannelCount: the channel count a mode NAME states about
+  // itself, or null when the name states none. See the call site in
+  // parseMode for why this is only ever a cross-check, never parser input.
+  function parseDeclaredChannelCount(modeName) {
+    if (!modeName) return null;
+    let found = null;
+    DECLARED_CHANNEL_COUNT_RE.lastIndex = 0;
+    let m;
+    while ((m = DECLARED_CHANNEL_COUNT_RE.exec(modeName)) !== null) {
+      const n = parseInt(m[1], 10);
+      if (Number.isFinite(n) && n > 0) found = n;
+    }
+    return found;
+  }
+
+
+  // --- Vectorworks placeholder-profile detection -------------------------
+  //
+  // WHAT THIS IS FOR. An MVR exported from Vectorworks can carry a
+  // GENERATED PLACEHOLDER .gdtf in place of the real vendor file — a
+  // synthetic fixture type whose only mode is a flat, dense run of
+  // single-byte channels with no personality structure at all. It parses
+  // perfectly, resolves a footprint, and is wrong: the owner's own show
+  // file carried placeholders for two types at 61 and 23 channels where
+  // the real vendor files are 62 and 24, and he patched the whole rig one
+  // channel short per fixture. Nothing downstream can detect that — the
+  // file is internally consistent — so the only defence is to say so at
+  // import time, through the same `warnings` channel the mode-name
+  // cross-check and the geometry-resolution notes already use.
+  //
+  // FOOTPRINT IS NOT TOUCHED. Like parseDeclaredChannelCount's cross-check,
+  // this only ever ADDS a warning. The resolved footprint is what the file
+  // actually states, and guessing a "corrected" one from a placeholder is
+  // strictly worse than telling a human to fetch the real GDTF.
+  //
+  // THE DETECTION CRITERION, and why it cannot fire on a legitimate simple
+  // fixture. A mode is flagged only when ALL THREE of the following hold,
+  // each of which is independently sufficient to exclude a real vendor
+  // mode:
+  //
+  //   1. MANUFACTURER is exactly "Custom" (case/whitespace-folded).
+  //      GDTF's Manufacturer is the vendor: Elation, GLP, Martin, Robe,
+  //      Chauvet. "Custom" is what a generator stamps on a fixture type it
+  //      invented because it had no vendor file to copy. A real vendor
+  //      file never says this.
+  //   2. The MODE NAME is generic — "DMX Mode", "Default", "Mode",
+  //      "Standard", "Basic", "Normal" and nothing else. Real personality
+  //      names identify the personality, and overwhelmingly state their own
+  //      channel count: "Cells 24CH", "RGB 3CH", "8bit 4CH",
+  //      "Mode 2 Normal (23ch)". A name carrying ANY digit is never
+  //      generic by this rule, so every count-bearing vendor mode name is
+  //      excluded outright.
+  //   3. The mode is STRUCTURALLY FLAT AND LARGE: at least
+  //      PLACEHOLDER_MIN_CHANNELS placed channels, not one of which spans
+  //      more than a single DMX offset (no 16-bit coarse+fine pair
+  //      anywhere), and the resolved offsets are exactly the dense run
+  //      1..N with N === the number of placed channels (so no geometry
+  //      replication, no gaps, no virtual channels). A fixture with 12+
+  //      channels and not a single 16-bit attribute, no repeated cell
+  //      geometry, and no gaps is a generated list, not an engineered
+  //      personality.
+  //
+  // Against the concrete false positive that matters — the real Elation
+  // Paladin Cube's genuine "RGB 3CH" and "8bit 4CH" modes, which ARE flat,
+  // dense and all-8-bit — all three guards fail independently: the
+  // manufacturer is "Elation", the names carry digits and a personality,
+  // and 3 and 4 channels are far below the 12-channel floor. The same is
+  // true of any real 4-channel LED par: even one published by a vendor
+  // literally named "Custom" under a mode literally named "Default", four
+  // channels cannot reach the floor. The floor is set at 12 because that
+  // is comfortably above every legitimately-tiny personality (RGB, RGBW,
+  // RGBA+dimmer, CMY) while far below the 23 of the smaller of the two
+  // real placeholders — a miss on some hypothetical 8-channel placeholder
+  // is the deliberate trade, because a warning that cries wolf on a real
+  // fixture trains the owner to ignore every warning this parser emits.
+  const PLACEHOLDER_MANUFACTURER = 'custom';
+  const PLACEHOLDER_GENERIC_MODE_NAMES = ['dmx mode', 'default', 'mode', 'standard', 'basic', 'normal'];
+  const PLACEHOLDER_MIN_CHANNELS = 12;
+
+  function foldName(s) {
+    return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  }
+
+  // isFlatGeneratedMode: guard 3 above, computed from the mode's own
+  // resolved output — channels[].offsets are the literal <DMXChannel>
+  // offsets and footprint is the MAX RESOLVED offset, so footprint ===
+  // channel count together with a dense literal 1..N run also proves no
+  // geometry replication contributed anything.
+  function isFlatGeneratedMode(mode) {
+    const placed = mode.channels.filter(ch => ch.offsets.length > 0);
+    if (placed.length < PLACEHOLDER_MIN_CHANNELS) return false;
+    if (placed.length !== mode.channels.length) return false; // a virtual channel is structure
+    if (placed.some(ch => ch.offsets.length !== 1)) return false; // any 16-bit channel is structure
+    if (mode.footprint !== placed.length) return false; // replication or gaps
+    const seen = new Set();
+    placed.forEach(ch => seen.add(ch.offsets[0]));
+    if (seen.size !== placed.length) return false;
+    for (let i = 1; i <= placed.length; i++) if (!seen.has(i)) return false;
+    return true;
+  }
+
+  // detectPlaceholderProfiles pushes one warning per flagged mode. Returns
+  // nothing; it only ever appends to warnings.
+  function detectPlaceholderProfiles(manufacturer, model, modes, warnings) {
+    if (foldName(manufacturer) !== PLACEHOLDER_MANUFACTURER) return;
+    modes.forEach(mode => {
+      if (PLACEHOLDER_GENERIC_MODE_NAMES.indexOf(foldName(mode.name)) < 0) return;
+      if (!isFlatGeneratedMode(mode)) return;
+      warnings.push(
+        `mode "${mode.name}" of "${manufacturer} ${model}" looks like a GENERATED PLACEHOLDER ` +
+        `profile, not a real vendor GDTF: manufacturer "${manufacturer}", a generic mode name, and ` +
+        `${mode.footprint} channels in one flat 8-bit run with no personality structure. Its ` +
+        `${mode.footprint}-channel footprint is used as stated (nothing here guesses a correction), ` +
+        `but placeholders are commonly off by a channel or more against the real fixture — patch ` +
+        `this type from the manufacturer's own GDTF and re-profile these entries before trusting ` +
+        `the addressing.`
+      );
+    });
+  }
+
   function parseMode(modeEl, geometryIndex, fixtureWarnings) {
     const name = modeEl.getAttribute('Name') || '';
     const channelsContainer = childByTag(modeEl, 'DMXChannels');
@@ -510,6 +750,30 @@ const GdtfParse = (() => {
     channels.forEach(ch => { ch.offsets.forEach(off => { if (off > maxLiteralOffset) maxLiteralOffset = off; }); });
     if (maxLiteralOffset > footprint) footprint = maxLiteralOffset;
 
+    // Declared-channel-count cross-check (footprint dispute, Task 2). A GDTF
+    // mode name very often states its own channel count ("Mode 4 SPix PRO
+    // (62ch)"). That is an INDEPENDENT oracle — it comes from the fixture
+    // vendor, not from this walk — and when it disagrees with the resolved
+    // footprint, one of the two is wrong and a human needs to know.
+    //
+    // It is deliberately NOT parser input. Overriding a structural walk with
+    // a number scraped out of free text would be its own bug, and a worse
+    // one: the name is unvalidated, untyped, frequently absent, occasionally
+    // stale (vendors rename modes and forget the count), and a fixture
+    // patched at a footprint no channel in the file actually occupies is
+    // silently wrong on the wire in a way nothing downstream can detect. So
+    // the resolved footprint stands and this only ever adds a warning, which
+    // mvrimport.js already surfaces to the tech per GDTF file.
+    const declared = parseDeclaredChannelCount(name);
+    if (declared !== null && declared !== footprint) {
+      modeWarnings.push(
+        `mode "${name}": the mode name declares ${declared} channel(s) but the file's own ` +
+        `<DMXChannels>/<Geometries> structure resolves to ${footprint}. The resolved value is ` +
+        `used (a mode name is free text, never authoritative over the structure); check this ` +
+        `fixture's patched footprint by hand.`
+      );
+    }
+
     // channelFunctions: keyed by RESOLVED offset (matches
     // patch.Entry.ChannelFunctions 1:1 — see the file doc comment's
     // channelFunctions rule). An attribute-less resolution
@@ -528,6 +792,18 @@ const GdtfParse = (() => {
         dmxTo: resolved.dmxTo,
         physicalFrom: resolved.physicalFrom,
         physicalTo: resolved.physicalTo,
+        // hasDefault/hasHighlight are the "the file actually said this"
+        // flags — see parseDmxValueParts; a resting value of 0 is real data
+        // and must never be confused with an absent one. defaultByteCount
+        // is GDTF's "X/Y" byte count, which is what keeps a 16-bit default
+        // meaningful for the fine byte too — see the multi-byte note above
+        // parseChannelFunction for the exact per-offset formula.
+        hasDefault: resolved.hasDefault,
+        defaultValue: resolved.defaultValue,
+        defaultByteCount: resolved.defaultByteCount,
+        hasHighlight: resolved.hasHighlight,
+        highlightValue: resolved.highlightValue,
+        highlightByteCount: resolved.highlightByteCount,
         channelSets: resolved.channelSets,
       };
     });
@@ -544,10 +820,13 @@ const GdtfParse = (() => {
   //                          // (fixtureType := strings.TrimSpace(mfr+" "+model))
   //   modes: [{ name, footprint, channels: [{ offsets: number[],
   //             logicalChannels: [{ attribute, functions: [{name,attribute,
-  //             dmxFrom,physicalFrom,physicalTo,channelSets}] }] }],
+  //             dmxFrom,physicalFrom,physicalTo,hasDefault,defaultValue,
+  //             defaultByteCount,hasHighlight,highlightValue,
+  //             highlightByteCount,channelSets}] }] }],
   //             channelFunctions: { [offset]: {source:'gdtf',attribute,
   //               functionName,dmxFrom,dmxTo,physicalFrom,physicalTo,
-  //               channelSets} } }]
+  //               hasDefault,defaultValue,defaultByteCount,hasHighlight,
+  //               highlightValue,highlightByteCount,channelSets} } }]
   // }
   function parseDescriptionXml(xmlString) {
     const doc = parseXml(xmlString);
@@ -568,10 +847,19 @@ const GdtfParse = (() => {
     const warnings = [];
     const modes = modeEls.map(modeEl => parseMode(modeEl, geometryIndex, warnings));
 
+    // Placeholder-profile detection runs once over the finished modes (it
+    // needs the manufacturer, which parseMode never sees) and, like the
+    // mode-name cross-check inside parseMode, only ever appends a warning.
+    detectPlaceholderProfiles(manufacturer, model, modes, warnings);
+
     // warnings: geometry-resolution notes collected across every mode (a
     // reference cycle, a multi-break reference, an unresolvable root/target
-    // geometry name) — never fatal, always additive to whatever the caller
-    // (mvrimport.js / patch.js) already surfaces for this fixture.
+    // geometry name), mode-name channel-count disagreements, and
+    // generated-placeholder-profile flags — never fatal, always additive to
+    // whatever the caller (mvrimport.js / patch.js) already surfaces for
+    // this fixture. There is deliberately ONE warnings channel: a second
+    // one would need a second surfacing path in every caller, and the one
+    // that got wired up last would be the one nobody sees.
     return { manufacturer, model, fixtureType, modes, warnings };
   }
 
