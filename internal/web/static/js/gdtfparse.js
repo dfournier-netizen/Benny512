@@ -798,11 +798,26 @@ const GdtfParse = (() => {
         // is GDTF's "X/Y" byte count, which is what keeps a 16-bit default
         // meaningful for the fine byte too — see the multi-byte note above
         // parseChannelFunction for the exact per-offset formula.
+        //
+        // KEY NAMES HERE ARE THE WIRE CONTRACT, NOT THIS FILE'S INTERNAL
+        // SHAPE. This map is sent VERBATIM as entryRequest.channelFunctions
+        // (patch.js's runGdtfApply -> PUT /api/patch/entries/{id};
+        // mvrimport.js -> POST /api/patch/import), and internal/web's
+        // decodeJSON calls DisallowUnknownFields — so every key must be
+        // spelled exactly as internal/web/patch.go's channelFunctionRequest
+        // (and the JSON tags on patch.ChannelFunction) spells it, or the
+        // WHOLE request is rejected with a 400. That spelling is `default`
+        // and `highlight` — NOT the defaultValue/highlightValue names
+        // parseChannelFunction uses for its own intermediate parse tree
+        // above, which never leaves the browser. Emitting the intermediate
+        // names here made every GDTF apply and every MVR import that
+        // resolved even one channel function fail outright with
+        // `json: unknown field "defaultValue"`.
         hasDefault: resolved.hasDefault,
-        defaultValue: resolved.defaultValue,
+        default: resolved.defaultValue,
         defaultByteCount: resolved.defaultByteCount,
         hasHighlight: resolved.hasHighlight,
-        highlightValue: resolved.highlightValue,
+        highlight: resolved.highlightValue,
         highlightByteCount: resolved.highlightByteCount,
         channelSets: resolved.channelSets,
       };
@@ -825,9 +840,16 @@ const GdtfParse = (() => {
   //             highlightByteCount,channelSets}] }] }],
   //             channelFunctions: { [offset]: {source:'gdtf',attribute,
   //               functionName,dmxFrom,dmxTo,physicalFrom,physicalTo,
-  //               hasDefault,defaultValue,defaultByteCount,hasHighlight,
-  //               highlightValue,highlightByteCount,channelSets} } }]
+  //               hasDefault,default,defaultByteCount,hasHighlight,
+  //               highlight,highlightByteCount,channelSets} } }]
   // }
+  //
+  // NOTE the deliberate key-name difference between the two shapes above:
+  // the per-<ChannelFunction> parse tree (functions[]) is INTERNAL and uses
+  // defaultValue/highlightValue, whereas channelFunctions is the WIRE shape
+  // handed straight to internal/web's entryRequest and therefore uses that
+  // struct's own names, `default` and `highlight`. See the comment at the
+  // channelFunctions construction site for why a mismatch is not cosmetic.
   function parseDescriptionXml(xmlString) {
     const doc = parseXml(xmlString);
     const gdtfEl = doc.getElementsByTagName('GDTF')[0];

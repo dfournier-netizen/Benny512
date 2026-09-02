@@ -814,7 +814,7 @@ function main() {
   // one that returned a bare number would be indistinguishable from the
   // no-Default channel at offset 5.
   check('Dimmer Default="0/1" is captured as KNOWN', dim.hasDefault, true);
-  check('Dimmer Default="0/1" value is 0 (a real resting value, not "unknown")', dim.defaultValue, 0);
+  check('Dimmer Default="0/1" value is 0 (a real resting value, not "unknown")', dim.default, 0);
   check('Dimmer Default="0/1" byte count', dim.defaultByteCount, 1);
 
   // ...and the channel that genuinely says nothing must be distinguishable
@@ -822,12 +822,12 @@ function main() {
   check('Zoom with no Default attribute is UNKNOWN', zoom.hasDefault, false);
   check('Zoom with no Default attribute has byte count 0', zoom.defaultByteCount, 0);
   check('a known-0 default and an unknown default differ ONLY in hasDefault',
-    dim.defaultValue === zoom.defaultValue && dim.hasDefault !== zoom.hasDefault, true);
+    dim.default === zoom.default && dim.hasDefault !== zoom.hasDefault, true);
 
   // Non-zero default + Highlight + ChannelSets all surviving together.
-  check('Shutter1 Default="255/1" value', shutter.defaultValue, 255);
+  check('Shutter1 Default="255/1" value', shutter.default, 255);
   check('Shutter1 Highlight="255/1" is captured as KNOWN', shutter.hasHighlight, true);
-  check('Shutter1 Highlight value', shutter.highlightValue, 255);
+  check('Shutter1 Highlight value', shutter.highlight, 255);
   check('Dimmer with no Highlight attribute is UNKNOWN', dim.hasHighlight, false);
   // ChannelSets must survive intact for every channel — the engine's future
   // shutter-open lookup reads these names/DMXFrom values. No shutter-open
@@ -844,16 +844,16 @@ function main() {
   check('16-bit Pan Default="32768/2" is known at the coarse offset', panCoarse.hasDefault, true);
   check('16-bit Pan Default="32768/2" is known at the fine offset', panFine.hasDefault, true);
   check('16-bit Pan default value is the full 16-bit value, not a coarse byte',
-    panCoarse.defaultValue, 32768);
+    panCoarse.default, 32768);
   check('16-bit Pan default byte count', panCoarse.defaultByteCount, 2);
   check('16-bit Pan fine offset carries the identical record',
-    panFine.defaultValue === panCoarse.defaultValue && panFine.defaultByteCount === panCoarse.defaultByteCount, true);
+    panFine.default === panCoarse.default && panFine.defaultByteCount === panCoarse.defaultByteCount, true);
   // The whole point of the byte count: recovering each byte's own resting
   // value, in the (coarse, fine) ascending order testpattern.go commits to.
   check('16-bit Pan coarse byte (offset 3) derives to 128',
-    dmxByteAt(panCoarse.defaultValue, panCoarse.defaultByteCount, 0), 128);
+    dmxByteAt(panCoarse.default, panCoarse.defaultByteCount, 0), 128);
   check('16-bit Pan fine byte (offset 4) derives to 0',
-    dmxByteAt(panFine.defaultValue, panFine.defaultByteCount, 1), 0);
+    dmxByteAt(panFine.default, panFine.defaultByteCount, 1), 0);
 
 
   // ---- Gap 4: Vectorworks placeholder-profile detection -----------------
