@@ -416,6 +416,17 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/patch/reconcile/{id}/reject", s.handlePatchReconcileReject)
 	s.mux.HandleFunc("POST /api/patch/reconcile/{id}/fix", s.handlePatchReconcileFix)
 	s.mux.HandleFunc("POST /api/patch/reconcile/fix-all", s.handlePatchReconcileFixAll)
+	// Reconcile commit model (patch schema v4) — see
+	// internal/web/reconcilecommit.go's file comment. Commit, decommit,
+	// re-read and adopt only ever READ from a fixture (adopt does not even
+	// do that); /push is the single endpoint in this group that emits an
+	// RDM SET, and only for the fields it is explicitly told to write.
+	s.mux.HandleFunc("GET /api/patch/reconcile/board", s.handleReconcileBoard)
+	s.mux.HandleFunc("POST /api/patch/reconcile/{id}/commit", s.handleReconcileCommit)
+	s.mux.HandleFunc("POST /api/patch/reconcile/{id}/decommit", s.handleReconcileDecommit)
+	s.mux.HandleFunc("POST /api/patch/reconcile/{id}/reread", s.handleReconcileReread)
+	s.mux.HandleFunc("POST /api/patch/reconcile/{id}/push", s.handleReconcilePush)
+	s.mux.HandleFunc("POST /api/patch/reconcile/{id}/adopt", s.handleReconcileAdoptIntended)
 	s.mux.HandleFunc("POST /api/patch/adopt", s.handlePatchAdopt)
 	s.mux.HandleFunc("POST /api/patch/import", s.handlePatchImport)
 	s.mux.HandleFunc("GET /api/patch/export", s.handlePatchExport)

@@ -272,6 +272,14 @@ func (s *Server) handleUpdatePatchEntry(w http.ResponseWriter, r *http.Request) 
 			return fmt.Errorf("unknown patch entry %q", id)
 		}
 		confirmedUID, matchState := pp.Entries[idx].ConfirmedUID, pp.Entries[idx].MatchState
+		// Same rule, extended to the schema-v4 commit model: entryRequest
+		// has no `intended`/`asFound` fields at all (they are never edited
+		// through this form — Intended changes only via an explicit
+		// reconcile adopt, AsFound only via an explicit commit/re-read), so
+		// entryFromRequest always produces them zero-valued. Dropping them
+		// in here would mean that renaming a fixture silently decommitted
+		// it and threw away every setting read off the real light.
+		intended, asFound := pp.Entries[idx].Intended, pp.Entries[idx].AsFound
 		// A plain field edit (fixing a typo, adjusting Notes) submits an
 		// entryRequest with no channelFunctions at all — preserve whatever
 		// this entry already had rather than wiping out (possibly
@@ -292,6 +300,8 @@ func (s *Server) handleUpdatePatchEntry(w http.ResponseWriter, r *http.Request) 
 		// re-litigated").
 		pp.Entries[idx].ConfirmedUID = confirmedUID
 		pp.Entries[idx].MatchState = matchState
+		pp.Entries[idx].Intended = intended
+		pp.Entries[idx].AsFound = asFound
 		return nil
 	})
 	if err != nil {

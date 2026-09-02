@@ -67,7 +67,20 @@ import (
 // exactly the "the file never said" state, NOT a silently-real default of 0.
 // migrate() deliberately invents nothing for a v2 entry (see
 // TestMigrate_V2FileLoadsWithDefaultsUnknown).
-const CurrentSchemaVersion = 3
+//
+// Version 4 (Reconcile commit/decommit): added Entry.Intended and
+// Entry.AsFound (asfound.go) — the device-level settings a patch entry
+// intends, and the settings actually read off the fixture it is committed
+// to. A v3 file has neither key, so both unmarshal to zero-valued structs in
+// which every `Known` companion boolean is false and AsFound.UID is empty —
+// i.e. "never read", which is exactly right and is NOT the same as "read as
+// 0". A dimmer curve of 0 and a DMX address of 0 are both real values a
+// fixture can report, so no numeric or boolean field in either struct
+// carries `omitempty` and none of them is ever interpreted without its
+// Known flag. As with v2 -> v3, migrate() below deliberately invents nothing
+// for a v3 entry (see TestMigrate_V3FileLoadsWithAsFoundUnread); and since
+// v4 added no slices or maps, there is no nil normalization to do either.
+const CurrentSchemaVersion = 4
 
 // MatchState records a patch entry's reconciliation state, persisted so a
 // user-confirmed pairing is never re-litigated across sessions (task ask:
@@ -169,6 +182,22 @@ type Entry struct {
 	// dependency — internal/web parses/formats it at the boundary.
 	ConfirmedUID string     `json:"confirmedUid,omitempty"`
 	MatchState   MatchState `json:"matchState,omitempty"`
+
+	// Intended and AsFound are the schema-v4 commit model — see asfound.go's
+	// file comment for the full design, including why the two are
+	// deliberately asymmetric (decommit clears AsFound and leaves Intended
+	// alone, which is what makes fixture substitution work) and why address/
+	// universe/footprint/mode-name are NOT duplicated into Intended.
+	//
+	// Neither carries `omitempty`. They are structs, so `omitempty` would
+	// not omit them anyway (encoding/json has never treated a struct as
+	// empty), but the absent tag is deliberate documentation: every key
+	// inside them is likewise always on the wire, because a `false` Known
+	// flag and a `0` value are the two halves of one signal and dropping
+	// either would recreate the exact defect class Entry.Universe's comment
+	// above records.
+	Intended IntendedSettings `json:"intended"`
+	AsFound  AsFoundSettings  `json:"asFound"`
 
 	// ChannelFunctions is the function-aware Rig Check foundation (see
 	// taxonomy.go's package-level doc comment for the feature this
@@ -404,8 +433,18 @@ func migrate(p *Patch) {
 	// scalars, there is no new nil-slice normalization to do either — see
 	// ChannelFunction.DefaultByteCount's doc comment for why that was a
 	// deliberate design choice and not an accident.
+	//
+	// v3 -> v4: a v3 file has no "intended"/"asFound" key on any entry.
+	// Both unmarshal to their zero-valued structs, in which every Known
+	// companion boolean is false and AsFound.UID is "" — precisely "this
+	// entry has never been committed and nothing has ever been read off a
+	// fixture for it". So, like v2 -> v3, this step deliberately does
+	// NOTHING: an older show file must load with as-found marked UNREAD,
+	// never silently zero (see TestMigrate_V3FileLoadsWithAsFoundUnread).
+	// v4 added only structs of scalars — no slices, no maps — so there is
+	// no new nil normalization to do here either.
 	normalizeChannelFunctions(p.Entries)
-	// Future: switch p.SchemaVersion { case 3: ...; p.SchemaVersion = 4 }
+	// Future: switch p.SchemaVersion { case 4: ...; p.SchemaVersion = 5 }
 	p.SchemaVersion = CurrentSchemaVersion
 }
 

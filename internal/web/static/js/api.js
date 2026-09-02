@@ -250,6 +250,24 @@ const Api = (() => {
     reconcileReject: (id) => req('POST', `/api/patch/reconcile/${encodeURIComponent(id)}/reject`),
     reconcileFix: (id, deviceUid) => req('POST', `/api/patch/reconcile/${encodeURIComponent(id)}/fix`, { deviceUid }),
     reconcileFixAll: (confirm) => req('POST', '/api/patch/reconcile/fix-all', { confirm }),
+
+    // --- Reconcile commit model (patch schema v4 — reconcile.js) ---
+    // getReconcileBoard returns BOTH panes plus the matcher's proposals in
+    // one response, deliberately: the panes have to agree about which entry
+    // owns which device, and joining separately-timed responses client-side
+    // is how that agreement quietly stops holding.
+    //
+    // Of the five mutators, only reconcilePush ever writes to a fixture.
+    // commit/decommit/reread only READ from one, and adoptIntended does not
+    // even do that — it writes to the patch alone. See
+    // internal/web/reconcilecommit.go's file comment.
+    getReconcileBoard: () => req('GET', '/api/patch/reconcile/board'),
+    reconcileCommit: (id, deviceUid) => req('POST', `/api/patch/reconcile/${encodeURIComponent(id)}/commit`, { deviceUid }),
+    reconcileDecommit: (id) => req('POST', `/api/patch/reconcile/${encodeURIComponent(id)}/decommit`),
+    reconcileReread: (id) => req('POST', `/api/patch/reconcile/${encodeURIComponent(id)}/reread`),
+    reconcilePush: (id, fields) => req('POST', `/api/patch/reconcile/${encodeURIComponent(id)}/push`, { fields }),
+    reconcileAdoptIntended: (id, fields) => req('POST', `/api/patch/reconcile/${encodeURIComponent(id)}/adopt`, { fields }),
+
     patchAdopt: (mode) => req('POST', '/api/patch/adopt', { mode }),
     patchImport: (mode, entries) => req('POST', '/api/patch/import', { mode, entries }),
     patchExportUrl: (format) => '/api/patch/export?format=' + format,

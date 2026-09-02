@@ -124,6 +124,20 @@ func (d *demoDevice) handle(msg rdm.Message) (data []byte, nack bool, reason rdm
 	case rdm.PIDDeviceInfo:
 		return params.EncodeDeviceInfo(d.deviceInfo), false, 0
 	case rdm.PIDDeviceLabel:
+		// SET actually renames the device, the way a real fixture does.
+		// This case used to ACK the write and then keep answering with the
+		// OLD label, which made the demo rig lie in the one way that
+		// matters most to the Reconcile screen: that screen re-READS every
+		// setting after a push, specifically so the owner can watch the
+		// write land, and a responder that silently discards a SET turns a
+		// working Apply-to-confirm loop into an apparent product bug. The
+		// default branch below has always stored SETs this way for every
+		// paramValues-backed PID; DEVICE_LABEL was the outlier only because
+		// its value lives in its own field rather than in that map.
+		if msg.CommandClass == rdm.SetCommand {
+			d.label = string(msg.ParameterData)
+			return nil, false, 0
+		}
 		return []byte(d.label), false, 0
 	case rdm.PIDDeviceModelDescription:
 		if d.noModelDescription {
@@ -600,7 +614,7 @@ func buildDemo(ctx context.Context, legacyRdmStartCode bool, logNodes bool) (*we
 		// relative to --logrdm doesn't matter, but it belongs here anyway:
 		// buildDemoPatch's own doc comment on the "correct match" case
 		// depends on warmDemoDeviceCaches (just above) having already run.
-		srv.PatchStore.Replace(buildDemoPatch(port1, port2))
+		srv.PatchStore.Replace(buildDemoPatch(port0, port1, port2))
 
 		go generateDemoTraffic(ctx, ring)
 	}
@@ -672,7 +686,7 @@ func warmDemoDeviceCaches(ctx context.Context, rdmc *session.RDMController, devi
 // referencing only one of them from the sample patch while its identical
 // twin sits nearby would manufacture a confusing false ambiguity that has
 // nothing to do with the scenario being demonstrated.
-func buildDemoPatch(port1, port2 artnet.PortAddress) patch.Patch {
+func buildDemoPatch(port0, port1, port2 artnet.PortAddress) patch.Patch {
 	entry := func(name, fixtureType, position, fixtureNumber string, universe artnet.PortAddress, addr, footprint uint16) patch.Entry {
 		return patch.Entry{
 			ID: patch.NewEntryID(), Name: name, FixtureType: fixtureType,
@@ -761,6 +775,28 @@ func buildDemoPatch(port1, port2 artnet.PortAddress) patch.Patch {
 			entry("Practical 1", "Practical LED", "", "201", practicalsUniverse, 100, 10),
 			entry("Practical 2", "Practical LED", "", "202", practicalsUniverse, 105, 10),
 			entry("Beam FX 1", "Demo Beam FX Fixture", "US Truss 1", "105", port1, 150, 12),
+			// Wash L exists to make the Reconcile screen's two hardest cases
+			// exercisable in --demo, neither of which the entries above
+			// produce:
+			//
+			//  1. AMBIGUITY. The rig has two identical Robe Wash fixtures
+			//     (wash1 at address 1, wash2 at 21 — same manufacturer, same
+			//     model, same footprint; see buildDemoDevices). Patching
+			//     Wash L at an address NEITHER of them sits at makes both
+			//     score identically (footprint 0.20 + manufacturer 0.15 +
+			//     model 0.25 = 0.60, with neither collecting the 0.40 address
+			//     weight), landing inside match.go's 0.10 ambiguityMargin. The
+			//     matcher therefore proposes both and refuses to pick — exactly
+			//     the row the Reconcile UI has to EXPLAIN rather than resolve,
+			//     since committing the wrong one of two identical lights is the
+			//     mistake the whole screen exists to prevent.
+			//
+			//  2. SUBSTITUTION. wash1 advertises PAN_INVERT/TILT_INVERT/
+			//     PAN_TILT_SWAP and wash2 deliberately does not, so decommitting
+			//     one and committing the other demonstrates both the inheritance
+			//     of the entry's intended settings AND the honest "this fixture
+			//     will not answer for that setting" degrade on the substitute.
+			entry("Wash L", "Robe Wash", "SL Boom", "106", port0, 41, 20),
 		},
 	}
 	p.Entries[0].ChannelFunctions = cf2Channels    // CF2 48: GDTF-derived

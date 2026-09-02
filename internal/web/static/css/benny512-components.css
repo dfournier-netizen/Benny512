@@ -1037,3 +1037,407 @@
   }
   .b5-rcp-params .b5-range-touch:focus-visible { outline: none; box-shadow: var(--b5-shadow-focus); }
 }
+
+/* ==========================================================================
+   Reconcile board (.b5-rcb-*) — reconcile.js
+   ==========================================================================
+   Appended in its own block, editing nothing above, exactly as the
+   .b5-rcp-* Rig Check block above was. Same tablet-first treatment as that
+   screen, for the same reason: this is used standing up, in the dark, on a
+   tablet held at arm's length under a truss, by someone whose hands are
+   busy.
+
+   Two accessibility rules govern everything here and neither is negotiable:
+
+     1. NEVER COLOUR AS THE SOLE SIGNAL. Every state on this screen is
+        carried by WORDS first ("Not committed", "Committed · 2 settings
+        differ", "Differs", "Not read"), then reinforced by an icon, then by
+        a border weight/style, and only then by hue. Read this stylesheet
+        with all colour removed and the screen still works — which is the
+        actual test, because these fixtures get reconciled under blue
+        worklight and by people who do not all see red and green the same
+        way. That is why the left border of a card is a THICKNESS change as
+        well as a colour change, and why .b5-rcb-state is a bordered pill
+        with text rather than a coloured dot.
+
+     2. TOUCH TARGETS AND CONTRAST. Every interactive element in this block
+        clears 44px of height. Body copy sits at the kit's regular weight
+        rather than a lighter one, and the type is left-aligned with
+        generous line-height throughout (dyslexia-friendly: no justified
+        text, no all-caps runs longer than a short chip label).
+   ========================================================================== */
+
+/* ---- toolbar ---- */
+.b5-rcb-toolbar { margin-bottom: var(--b5-space-4); }
+.b5-rcb-toolbar__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--b5-space-2);
+  align-items: center;
+}
+.b5-rcb-toolbar__row .b5-btn { min-height: 44px; }
+.b5-rcb-search { flex: 1 1 220px; min-width: 180px; }
+.b5-rcb-search input {
+  width: 100%;
+  min-height: 44px;
+  padding: var(--b5-space-2) var(--b5-space-3);
+  font: inherit;
+  font-size: var(--b5-font-size-md);
+  color: var(--b5-color-text-primary);
+  background: var(--b5-color-bg-surface-raised);
+  border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
+  border-radius: var(--b5-radius-md);
+}
+.b5-rcb-search input:focus-visible { outline: none; box-shadow: var(--b5-shadow-focus); }
+
+/* The "needs attention only" toggle carries its on-state with a thicker
+   border and an inset underline as well as a tint — see rule 1. */
+.b5-rcb-seg2 {
+  min-height: 44px;
+  padding: var(--b5-space-2) var(--b5-space-4);
+  border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
+  border-radius: var(--b5-radius-md);
+  background: var(--b5-color-bg-surface-raised);
+  color: var(--b5-color-text-secondary);
+  font: inherit;
+  font-size: var(--b5-font-size-md);
+  font-weight: var(--b5-font-weight-medium);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--b5-space-2);
+}
+.b5-rcb-seg2:hover { background: var(--b5-color-bg-hover); }
+.b5-rcb-seg2.is-on {
+  background: var(--b5-color-accent-500-a15);
+  border-color: var(--b5-color-accent-500);
+  border-width: var(--b5-border-width-thick);
+  color: var(--b5-color-text-accent);
+  font-weight: var(--b5-font-weight-bold);
+  box-shadow: inset 0 -3px 0 var(--b5-color-accent-500);
+}
+.b5-rcb-seg2:focus-visible { outline: none; box-shadow: var(--b5-shadow-focus); }
+
+.b5-rcb-tally {
+  margin: var(--b5-space-3) 0 0;
+  font-size: var(--b5-font-size-md);
+  line-height: 1.6;
+  color: var(--b5-color-text-secondary);
+}
+.b5-rcb-tally strong { color: var(--b5-color-text-primary); }
+
+/* ---- the armed banner ----
+   Sticky, because the commit gesture is "pick one side, scroll the other
+   pane, pick the partner" and on a tablet that scroll is long enough to
+   forget what you armed. */
+.b5-rcb-armed {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--b5-space-3);
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--b5-space-3);
+  padding: var(--b5-space-3) var(--b5-space-4);
+  border: var(--b5-border-width-thick) solid var(--b5-color-accent-500);
+  border-radius: var(--b5-radius-md);
+  background: var(--b5-color-accent-500-a15);
+  color: var(--b5-color-text-primary);
+}
+.b5-rcb-armed__label { font-size: var(--b5-font-size-md); line-height: 1.5; }
+.b5-rcb-alert { margin-bottom: var(--b5-space-4); }
+
+/* ---- the two panes ----
+   Side by side on anything tablet-landscape or wider, stacked below that.
+   Deliberately NOT a fixed two-column grid at every width: at 820px
+   portrait, two columns would leave each card too narrow for the diff table
+   inside it, and the diff is the part he actually reads. */
+.b5-rcb-panes {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--b5-space-4);
+}
+@media (min-width: 900px) {
+  .b5-rcb-panes { grid-template-columns: 1fr 1fr; align-items: start; }
+}
+.b5-rcb-pane {
+  min-width: 0; /* lets the grid track shrink so wide diff tables scroll INSIDE the card instead of widening the page */
+  border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
+  border-radius: var(--b5-radius-lg);
+  background: var(--b5-color-bg-surface);
+}
+.b5-rcb-pane__head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: var(--b5-space-3) var(--b5-space-4);
+  border-bottom: var(--b5-border-width-thin) solid var(--b5-color-border-default);
+  background: var(--b5-color-bg-surface-raised);
+  border-radius: var(--b5-radius-lg) var(--b5-radius-lg) 0 0;
+}
+.b5-rcb-pane__title {
+  font-size: var(--b5-font-size-lg);
+  font-weight: var(--b5-font-weight-bold);
+  letter-spacing: var(--b5-letter-spacing-sm);
+  color: var(--b5-color-text-primary);
+}
+.b5-rcb-pane__sub {
+  font-size: var(--b5-font-size-sm);
+  font-weight: var(--b5-font-weight-regular);
+  color: var(--b5-color-text-muted);
+}
+.b5-rcb-list { display: flex; flex-direction: column; gap: var(--b5-space-3); padding: var(--b5-space-3); }
+.b5-rcb-empty { margin: 0; padding: var(--b5-space-4); color: var(--b5-color-text-muted); font-size: var(--b5-font-size-md); line-height: 1.6; }
+
+/* ---- one row on either side ----
+   The left border is the card's state marker. Its WIDTH changes with state
+   as well as its colour (rule 1): a matching card has a hairline, anything
+   needing attention has a thick one, so the pane scans correctly in
+   greyscale. */
+.b5-rcb-card {
+  min-width: 0;
+  padding: var(--b5-space-3);
+  border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
+  border-left-width: 6px;
+  border-radius: var(--b5-radius-md);
+  background: var(--b5-color-bg-surface-raised);
+}
+.b5-rcb-card.is-matching { border-left-color: var(--b5-color-success-500); }
+.b5-rcb-card.is-differs {
+  border-left-color: var(--b5-color-warning-500);
+  border-left-width: 10px;
+}
+.b5-rcb-card.is-offline {
+  border-left-color: var(--b5-color-danger-500);
+  border-left-width: 10px;
+}
+.b5-rcb-card.is-uncommitted {
+  border-left-color: var(--b5-color-border-strong);
+  border-left-style: dashed; /* an uncommitted item reads as unattached even with no colour at all */
+}
+.b5-rcb-card.is-armed {
+  border-color: var(--b5-color-accent-500);
+  border-width: var(--b5-border-width-thick);
+  border-left-width: 10px;
+  border-left-color: var(--b5-color-accent-500);
+  background: var(--b5-color-accent-500-a15);
+}
+
+.b5-rcb-card__top { display: flex; gap: var(--b5-space-3); align-items: flex-start; }
+.b5-rcb-card__id { min-width: 0; }
+.b5-rcb-card__name {
+  display: block;
+  font-size: var(--b5-font-size-lg);
+  line-height: 1.35;
+  color: var(--b5-color-text-primary);
+  overflow-wrap: anywhere;
+}
+.b5-rcb-card__meta {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--b5-font-size-sm);
+  line-height: 1.6;
+  color: var(--b5-color-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+/* The link badge: the same number on both sides of a committed pair. This
+   is how the relation is readable ACROSS two panes without drawing a line
+   between them, and without depending on colour to say which goes with
+   which. */
+.b5-rcb-link {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px; height: 32px;
+  border-radius: var(--b5-radius-full);
+  border: var(--b5-border-width-thick) solid var(--b5-color-accent-500);
+  background: var(--b5-color-accent-500-a15);
+  color: var(--b5-color-text-accent);
+  font-size: var(--b5-font-size-sm);
+  font-weight: var(--b5-font-weight-bold);
+  font-variant-numeric: tabular-nums;
+}
+.b5-rcb-link--none {
+  border-style: dashed;
+  border-color: var(--b5-color-border-default);
+  background: transparent;
+  color: var(--b5-color-text-disabled);
+}
+
+.b5-rcb-card__state {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--b5-space-2);
+  align-items: center;
+  margin-top: var(--b5-space-3);
+}
+.b5-rcb-uid { font-size: var(--b5-font-size-sm); color: var(--b5-color-text-muted); }
+.b5-rcb-readat { margin: var(--b5-space-2) 0 0; font-size: var(--b5-font-size-sm); color: var(--b5-color-text-muted); line-height: 1.5; }
+
+/* Chips always carry their words. There is no icon-only variant on purpose. */
+.b5-rcb-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--b5-space-1);
+  padding: 4px var(--b5-space-3);
+  border-radius: var(--b5-radius-full);
+  border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
+  background: var(--b5-color-bg-inset);
+  color: var(--b5-color-text-secondary);
+  font-size: var(--b5-font-size-sm);
+  font-weight: var(--b5-font-weight-medium);
+  line-height: 1.4;
+}
+.b5-rcb-chip--ok { border-color: var(--b5-color-success-500); color: var(--b5-color-text-success); }
+.b5-rcb-chip--warn { border-color: var(--b5-color-warning-500); border-width: var(--b5-border-width-thick); color: var(--b5-color-text-warning); }
+.b5-rcb-chip--open { border-style: dashed; border-color: var(--b5-color-border-strong); color: var(--b5-color-text-secondary); }
+
+.b5-rcb-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--b5-space-2);
+  align-items: center;
+  margin-top: var(--b5-space-3);
+}
+.b5-rcb-card__actions .b5-btn { min-height: 44px; }
+.b5-rcb-note { font-size: var(--b5-font-size-sm); line-height: 1.5; color: var(--b5-color-text-muted); }
+
+/* ---- the matcher's suggestion ----
+   Inset rather than styled as a card of its own, so it reads as "about this
+   entry" rather than as another item in the pane. */
+.b5-rcb-suggest {
+  margin-top: var(--b5-space-3);
+  padding: var(--b5-space-3);
+  border: var(--b5-border-width-thin) dashed var(--b5-color-border-strong);
+  border-radius: var(--b5-radius-md);
+  background: var(--b5-color-bg-inset);
+}
+.b5-rcb-suggest__head {
+  display: flex;
+  gap: var(--b5-space-2);
+  align-items: flex-start;
+  margin: 0 0 var(--b5-space-3);
+  font-size: var(--b5-font-size-md);
+  line-height: 1.55;
+  color: var(--b5-color-text-secondary);
+}
+.b5-rcb-cand {
+  margin-bottom: var(--b5-space-3);
+  padding: var(--b5-space-3);
+  border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
+  border-radius: var(--b5-radius-md);
+  background: var(--b5-color-bg-surface-raised);
+}
+.b5-rcb-cand__top { display: flex; flex-wrap: wrap; gap: var(--b5-space-2); justify-content: space-between; align-items: baseline; }
+.b5-rcb-cand__conf { font-size: var(--b5-font-size-sm); font-weight: var(--b5-font-weight-bold); color: var(--b5-color-text-primary); font-variant-numeric: tabular-nums; }
+.b5-rcb-cand__actions { display: flex; flex-wrap: wrap; gap: var(--b5-space-2); margin-top: var(--b5-space-3); }
+.b5-rcb-cand__actions .b5-btn { min-height: 44px; }
+/* The evidence list. This is the part that stops the wrong light being
+   committed when two fixtures are identical, so it is body-sized text, not
+   fine print. */
+.b5-rcb-why { margin: var(--b5-space-2) 0 0; padding-left: var(--b5-space-5); font-size: var(--b5-font-size-sm); line-height: 1.65; color: var(--b5-color-text-secondary); }
+.b5-rcb-why li { margin-bottom: 2px; }
+.b5-rcb-why__kind {
+  display: inline-block;
+  min-width: 6.5em;
+  font-weight: var(--b5-font-weight-bold);
+  color: var(--b5-color-text-primary);
+}
+
+/* ---- the diff ----
+   One stacked block per setting. This replaced a five-column table after
+   render-proofing at 1024x768 showed the Action column — the Apply button —
+   pushed outside the visible card by the two-pane layout, reachable only via
+   a nested horizontal scrollbar. Blocks have no minimum width to overflow,
+   so the button is always visible and always a full touch target. */
+.b5-rcb-diff {
+  margin-top: var(--b5-space-3);
+  padding-top: var(--b5-space-3);
+  border-top: var(--b5-border-width-thin) solid var(--b5-color-border-default);
+}
+.b5-rcb-diff__lead { margin: 0 0 var(--b5-space-3); font-size: var(--b5-font-size-sm); line-height: 1.6; color: var(--b5-color-text-secondary); }
+.b5-rcb-adoptall { min-height: 44px; margin-top: var(--b5-space-2); }
+
+.b5-rcb-line {
+  padding: var(--b5-space-3);
+  margin-bottom: var(--b5-space-2);
+  border: var(--b5-border-width-thin) solid var(--b5-color-border-subtle);
+  border-left-width: 4px;
+  border-left-color: var(--b5-color-border-default);
+  border-radius: var(--b5-radius-md);
+  background: var(--b5-color-bg-surface);
+}
+/* A differing setting is marked three independent ways — a thick left rule,
+   a tint, and the word "Differs" in a bordered pill — so it survives being
+   read in greyscale (see rule 1 at the top of this block). */
+.b5-rcb-line.is-differs {
+  border-left-width: 8px;
+  border-left-color: var(--b5-color-warning-500);
+  background: var(--b5-color-warning-100);
+}
+.b5-rcb-line.is-intended_unset { border-left-color: var(--b5-color-info-500); }
+.b5-rcb-line.is-match { border-left-color: var(--b5-color-success-500); }
+.b5-rcb-line.is-unread { border-left-style: dashed; color: var(--b5-color-text-muted); }
+
+.b5-rcb-line__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--b5-space-2);
+  align-items: center;
+  justify-content: space-between;
+}
+.b5-rcb-line__label { font-size: var(--b5-font-size-md); font-weight: var(--b5-font-weight-bold); color: var(--b5-color-text-primary); }
+
+/* Two-column definition list: the label column is fixed and narrow so the
+   two values line up under each other and the eye can compare them
+   vertically, which is the whole job of this block. */
+.b5-rcb-line__vals {
+  display: grid;
+  grid-template-columns: 6.5em 1fr;
+  gap: 2px var(--b5-space-3);
+  margin: var(--b5-space-2) 0 0;
+  font-size: var(--b5-font-size-sm);
+  line-height: 1.55;
+}
+.b5-rcb-line__vals dt { color: var(--b5-color-text-muted); }
+.b5-rcb-line__vals dd { margin: 0; color: var(--b5-color-text-primary); overflow-wrap: anywhere; }
+.b5-rcb-line__action { margin-top: var(--b5-space-3); }
+.b5-rcb-line__action .b5-btn { min-height: 44px; }
+
+.b5-rcb-state {
+  display: inline-block;
+  padding: 2px var(--b5-space-2);
+  border-radius: var(--b5-radius-sm);
+  border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
+  font-size: var(--b5-font-size-xs);
+  font-weight: var(--b5-font-weight-bold);
+  white-space: nowrap;
+}
+.b5-rcb-state--match { border-color: var(--b5-color-success-500); color: var(--b5-color-text-success); }
+.b5-rcb-state--differs { border-color: var(--b5-color-warning-500); border-width: var(--b5-border-width-thick); color: var(--b5-color-text-warning); }
+.b5-rcb-state--intended_unset { border-color: var(--b5-color-info-500); color: var(--b5-color-text-info); }
+.b5-rcb-state--unread { border-style: dashed; color: var(--b5-color-text-muted); }
+
+/* ---- icon sizing ----
+   Every component in this kit sizes its own <use>-instanced icons; there is
+   no global rule (see .b5-btn svg / .b5-badge svg above). Omitting these
+   made the filter and warning glyphs render at their intrinsic 24px+ box
+   and blow the toolbar apart — caught by looking at a real screenshot, not
+   by any assertion. */
+.b5-rcb-seg2 svg { width: 18px; height: 18px; flex: none; }
+.b5-rcb-chip svg { width: 14px; height: 14px; flex: none; }
+.b5-rcb-suggest__head svg { width: 18px; height: 18px; flex: none; margin-top: 2px; }
+.b5-rcb-armed svg { width: 18px; height: 18px; flex: none; }
+
+/* Dark-scheme legibility: the warning tint behind a differing setting is a
+   light-scheme colour. Under the dark theme the same block needs a dark
+   tint or its text drops below contrast. */
+@media (prefers-color-scheme: dark) {
+  .b5-rcb-line.is-differs { background: var(--b5-color-warning-900); }
+}
+[data-theme="dark"] .b5-rcb-line.is-differs { background: var(--b5-color-warning-900); }

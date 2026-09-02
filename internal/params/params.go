@@ -358,6 +358,72 @@ func (c *Client) SetIdentifyDevice(ctx context.Context, on bool) error {
 	return c.setRaw(ctx, rdm.PIDIdentifyDevice, []byte{v})
 }
 
+// --- E1.20 §10.7 pan/tilt orientation PIDs -----------------------------
+//
+// PAN_INVERT (0x0600), TILT_INVERT (0x0601) and PAN_TILT_SWAP (0x0602) all
+// share IDENTIFY_DEVICE's wire shape exactly: a single byte, 0 or non-zero,
+// GET and SET. They get typed helpers here — rather than going through
+// Client.GetParam/SetParam's PARAMETER_DESCRIPTION-driven generic path —
+// because the Reconcile screen's commit/push needs them on devices that
+// (correctly) do NOT publish a PARAMETER_DESCRIPTION for a standard ESTA
+// PID, which is every compliant fixture: PARAMETER_DESCRIPTION is for
+// MANUFACTURER-specific PIDs (E1.20 §10.4.2), so the generic path would
+// fall back to a raw byte editor for all three.
+//
+// boolPID/setBoolPID are shared by the three rather than copied, and the
+// GET side is deliberately tolerant in the one way that matters: any
+// non-zero byte reads as true (E1.20 says 0/1; real fixtures have been seen
+// answering 0xFF).
+
+func (c *Client) boolPID(ctx context.Context, pid rdm.ParameterID, name string) (bool, error) {
+	data, err := c.getRaw(ctx, pid, nil)
+	if err != nil {
+		return false, err
+	}
+	if len(data) != 1 {
+		return false, fmt.Errorf("%w: %s wants 1 byte, got %d", ErrBadLength, name, len(data))
+	}
+	return data[0] != 0, nil
+}
+
+func (c *Client) setBoolPID(ctx context.Context, pid rdm.ParameterID, on bool) error {
+	v := byte(0)
+	if on {
+		v = 1
+	}
+	return c.setRaw(ctx, pid, []byte{v})
+}
+
+// PanInvert issues GET PAN_INVERT (0x0600).
+func (c *Client) PanInvert(ctx context.Context) (bool, error) {
+	return c.boolPID(ctx, rdm.PIDPanInvert, "PAN_INVERT")
+}
+
+// SetPanInvert issues SET PAN_INVERT.
+func (c *Client) SetPanInvert(ctx context.Context, on bool) error {
+	return c.setBoolPID(ctx, rdm.PIDPanInvert, on)
+}
+
+// TiltInvert issues GET TILT_INVERT (0x0601).
+func (c *Client) TiltInvert(ctx context.Context) (bool, error) {
+	return c.boolPID(ctx, rdm.PIDTiltInvert, "TILT_INVERT")
+}
+
+// SetTiltInvert issues SET TILT_INVERT.
+func (c *Client) SetTiltInvert(ctx context.Context, on bool) error {
+	return c.setBoolPID(ctx, rdm.PIDTiltInvert, on)
+}
+
+// PanTiltSwap issues GET PAN_TILT_SWAP (0x0602).
+func (c *Client) PanTiltSwap(ctx context.Context) (bool, error) {
+	return c.boolPID(ctx, rdm.PIDPanTiltSwap, "PAN_TILT_SWAP")
+}
+
+// SetPanTiltSwap issues SET PAN_TILT_SWAP.
+func (c *Client) SetPanTiltSwap(ctx context.Context, on bool) error {
+	return c.setBoolPID(ctx, rdm.PIDPanTiltSwap, on)
+}
+
 // --- E1.37-1 dimmer PIDs -----------------------------------------------
 //
 // Typed helpers for the "dimmer curve" family the owner asked for by name

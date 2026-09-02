@@ -37,7 +37,8 @@ const PatchScreen = (() => {
   // as defense-in-depth, not because the server bug is still open.
   // Not the same bug as the Task-1 universe off-by-one.
   let collisions = [];
-  let reconcile = null;
+  // No `reconcile` mirror here any more: ReconcilePanel (reconcile.js) holds
+  // the only copy of the reconcile board, per its rule 1.
   let rigCheckState = null;
   let statusMsg = '';
 
@@ -129,6 +130,14 @@ const PatchScreen = (() => {
       getEntries: () => (patchData.active && patchData.patch ? patchData.patch.entries || [] : []),
       setStatus: (m) => setStatus(m),
       goToEntries: () => setView('entries'),
+    });
+    // The Reconcile screen (reconcile.js) owns its own server snapshot the
+    // same way RigCheckPanel does, so it needs only the shared status line
+    // and the word this install uses for a universe — it never formats a
+    // universe number itself without going through UI.formatUniverse.
+    ReconcilePanel.init({
+      setStatus: (m) => setStatus(m),
+      getUniverseLabel: () => 'Universe',
     });
     // Universe base changed on the Settings screen — re-render every
     // universe number currently on screen (notation only, no data refetch
@@ -360,12 +369,12 @@ const PatchScreen = (() => {
     render();
   }
 
+  // refreshReconcile: the Reconcile view's data now lives entirely in
+  // ReconcilePanel (reconcile.js), which fetches the whole two-pane board in
+  // one request and keeps no mirror of it here. This screen only forwards
+  // the refresh so the outer tab switcher keeps working.
   async function refreshReconcile() {
-    try {
-      reconcile = await Api.getPatchReconcile();
-    } catch (e) {
-      statusMsg = 'error: ' + e.message;
-    }
+    await ReconcilePanel.refresh();
   }
 
   async function refreshRigCheck() {
@@ -383,9 +392,15 @@ const PatchScreen = (() => {
 
   function setView(v) {
     if (v !== 'rigcheck') RigCheckPanel.leave();
+    if (v !== 'reconcile') ReconcilePanel.leave();
     view = v;
     render();
-    if (v === 'reconcile' && !reconcile) refreshReconcile().then(render);
+    if (v === 'reconcile') {
+      const body = document.getElementById('patchViewBody');
+      // enter() paints its own loading state, fetches the board and
+      // re-renders — the panel owns that whole cycle (reconcile.js rule 1).
+      if (body) ReconcilePanel.enter(body);
+    }
     if (v === 'rigcheck') refreshRigCheck().then(render);
   }
 
@@ -425,7 +440,7 @@ const PatchScreen = (() => {
     });
     const body = document.getElementById('patchViewBody');
     if (view === 'entries') renderEntries(body);
-    else if (view === 'reconcile') renderReconcile(body);
+    else if (view === 'reconcile') { ReconcilePanel.attach(body); ReconcilePanel.render(); }
     else renderRigCheck(body);
   }
 
@@ -1214,164 +1229,22 @@ const PatchScreen = (() => {
   // ============================================================
   // Reconcile view
   // ============================================================
-
-  const RECONCILE_GROUPS = [
-    { status: 'address_mismatch', title: 'Address mismatch — paired, but the device is live at a different address' },
-    { status: 'ambiguous', title: 'Ambiguous — multiple candidates, needs your call' },
-    { status: 'missing', title: 'Missing — patched, no matching device found' },
-    { status: 'unpatched', title: 'Unpatched — device found, not in the patch' },
-    { status: 'matched', title: 'Matched' },
-  ];
-
-  function renderReconcile(body) {
-    if (!reconcile) {
-      body.innerHTML = `<span class="b5-inline-wait">${UI.spinner()}Loading reconcile report… (this resolves every device's live DMX address, may take a moment on a large rig)</span>`;
-      return;
-    }
-    const byStatus = {};
-    reconcile.rows.forEach(r => { (byStatus[r.status] = byStatus[r.status] || []).push(r); });
-    const entriesById = {};
-    if (patchData.active) (patchData.patch.entries || []).forEach(e => { entriesById[e.id] = e; });
-
-    body.innerHTML = `
-      <div class="b5-filterbar">
-        <div class="b5-filterbar__group">
-          <button id="btnReconcileRefresh" class="b5-btn b5-btn--sm">${UI.icon('refresh')}Refresh</button>
-          <button id="btnFixAll" class="b5-btn b5-btn--sm b5-btn--primary">Fix all address mismatches…</button>
-          <button id="btnExportReconcileJson" class="b5-btn b5-btn--sm">${UI.icon('export')}Export JSON</button>
-          <button id="btnExportReconcileTxt" class="b5-btn b5-btn--sm">${UI.icon('export')}Export TXT</button>
-        </div>
-        <span class="b5-filterbar__summary">Generated ${new Date(reconcile.generatedAt).toLocaleTimeString()}</span>
-      </div>
-      <div class="b5-accordion">
-        ${RECONCILE_GROUPS.map(g => renderReconcileGroup(g, byStatus[g.status] || [], entriesById)).join('')}
-      </div>
-    `;
-    document.getElementById('btnReconcileRefresh').addEventListener('click', async () => { reconcile = null; render(); await refreshReconcile(); render(); });
-    document.getElementById('btnFixAll').addEventListener('click', onFixAll);
-    document.getElementById('btnExportReconcileJson').addEventListener('click', () => window.open(Api.patchReconcileExportUrl('json'), '_blank'));
-    document.getElementById('btnExportReconcileTxt').addEventListener('click', () => window.open(Api.patchReconcileExportUrl('txt'), '_blank'));
-
-    wireReconcileRowActions(entriesById);
-  }
-
-  function reconcileRowLabel(row, entriesById) {
-    if (row.entryId) {
-      const e = entriesById[row.entryId];
-      return e ? (e.name || e.fixtureType || e.id) : row.entryId;
-    }
-    return '(unpatched device)';
-  }
-
-  function renderEvidence(evidence) {
-    if (!evidence || !evidence.length) return '';
-    return `<ul class="b5-text-muted b5-text-xs" style="margin:var(--b5-space-1) 0 0; padding-left:1.2em">${evidence.map(ev => `<li>${escapeHtml(ev.kind)}: ${escapeHtml(ev.detail)}</li>`).join('')}</ul>`;
-  }
-
-  // Reconcile groups use native <details>/<summary> — free open/closed
-  // state with built-in keyboard + AT support — styled as a
-  // .b5-accordion__item via app.css's marker-suppression rule; group
-  // open-by-default logic (findings needing attention default open,
-  // "matched" stays collapsed) is unchanged from before the retheme.
-  function renderReconcileGroup(g, rows, entriesById) {
-    return `
-      <details class="b5-accordion__item" ${rows.length && g.status !== 'matched' ? 'open' : ''}>
-        <summary class="b5-accordion__trigger"><span>${escapeHtml(g.title)} (${rows.length})</span>${UI.icon('chevron-expand')}</summary>
-        <div class="b5-accordion__panel b5-stack">
-          ${rows.length ? rows.map(r => renderReconcileRow(r, entriesById)).join('') : '<p class="b5-text-muted b5-text-sm">none</p>'}
-        </div>
-      </details>
-    `;
-  }
-
-  function renderReconcileRow(row, entriesById) {
-    const label = reconcileRowLabel(row, entriesById);
-    const conf = (row.confidence * 100).toFixed(0);
-    let actions = '';
-    if (row.status === 'address_mismatch' && row.entryId && row.deviceUid) {
-      actions = `
-        <button class="b5-btn b5-btn--sm b5-btn--primary" data-fix-entry="${escapeHtml(row.entryId)}" data-fix-device="${escapeHtml(row.deviceUid)}">Fix device address</button>
-        <button class="b5-btn b5-btn--sm b5-btn--ghost" data-reject-entry="${escapeHtml(row.entryId)}">Not this device</button>
-      `;
-    } else if (row.status === 'ambiguous' && row.entryId) {
-      actions = (row.candidates || []).map(c => `
-        <div class="b5-card" style="margin-top:var(--b5-space-2)">
-          <div class="b5-row" style="justify-content:space-between">
-            <span class="b5-text-mono b5-text-sm">${escapeHtml(c.deviceUid)} — ${(c.confidence * 100).toFixed(0)}%</span>
-            <span class="b5-row">
-              <button class="b5-btn b5-btn--sm b5-btn--primary" data-confirm-entry="${escapeHtml(row.entryId)}" data-confirm-device="${escapeHtml(c.deviceUid)}">This one</button>
-              <button class="b5-btn b5-btn--sm" data-identify-device="${escapeHtml(c.deviceUid)}">${UI.icon('identify')}Identify</button>
-            </span>
-          </div>
-          ${renderEvidence(c.evidence)}
-        </div>
-      `).join('') + `<button class="b5-btn b5-btn--sm b5-btn--ghost" style="margin-top:var(--b5-space-2)" data-reject-entry="${escapeHtml(row.entryId)}">None of these</button>`;
-    }
-    return `
-      <div class="b5-card">
-        <div class="b5-row" style="justify-content:space-between">
-          <strong class="b5-text-sm">${escapeHtml(label)}</strong>
-          <span class="b5-text-muted b5-text-xs">${row.deviceUid ? 'device ' + escapeHtml(row.deviceUid) : ''} ${row.confidence ? '· confidence ' + conf + '%' : ''}</span>
-        </div>
-        ${renderEvidence(row.evidence)}
-        <div class="b5-row" style="margin-top:var(--b5-space-2)">${actions}</div>
-      </div>
-    `;
-  }
-
-  function wireReconcileRowActions(entriesById) {
-    document.querySelectorAll('[data-fix-entry]').forEach(btn => btn.addEventListener('click', async () => {
-      const entry = entriesById[btn.dataset.fixEntry];
-      const label = entry ? (entry.name || entry.fixtureType || entry.id) : btn.dataset.fixEntry;
-      if (!confirm(`Set device ${btn.dataset.fixDevice}'s DMX start address to match "${label}"'s patched address? This sends an RDM SET to the fixture now.`)) return;
-      try {
-        await Api.reconcileFix(btn.dataset.fixEntry, btn.dataset.fixDevice);
-        setStatus('address fixed and pairing confirmed');
-        await refreshReconcile();
-        render();
-      } catch (e) { setStatus('error: ' + e.message); }
-    }));
-    document.querySelectorAll('[data-confirm-entry]').forEach(btn => btn.addEventListener('click', async () => {
-      try {
-        await Api.reconcileConfirm(btn.dataset.confirmEntry, btn.dataset.confirmDevice);
-        setStatus('pairing confirmed');
-        await refreshReconcile();
-        render();
-      } catch (e) { setStatus('error: ' + e.message); }
-    }));
-    document.querySelectorAll('[data-reject-entry]').forEach(btn => btn.addEventListener('click', async () => {
-      try {
-        await Api.reconcileReject(btn.dataset.rejectEntry);
-        setStatus('candidates dismissed');
-        await refreshReconcile();
-        render();
-      } catch (e) { setStatus('error: ' + e.message); }
-    }));
-    document.querySelectorAll('[data-identify-device]').forEach(btn => btn.addEventListener('click', async () => {
-      const uid = btn.dataset.identifyDevice;
-      try {
-        await Api.identify(uid, true);
-        setStatus('identify on for ' + uid + ' (auto-off in 5s)');
-        setTimeout(() => { Api.identify(uid, false).catch(() => {}); }, 5000);
-      } catch (e) { setStatus('error: ' + e.message); }
-    }));
-  }
-
-  async function onFixAll() {
-    let preview;
-    try {
-      preview = await Api.reconcileFixAll(false);
-    } catch (e) { setStatus('error: ' + e.message); return; }
-    if (!preview.count) { setStatus('no address mismatches to fix'); return; }
-    const lines = preview.items.map(i => `  ${i.entryName}: ${i.from || '—'} → ${i.to}`).join('\n');
-    if (!confirm(`Fix ${preview.count} device address(es) to match the patch?\n\n${lines}\n\nThis sends an RDM SET to each device now.`)) return;
-    try {
-      const result = await Api.reconcileFixAll(true);
-      setStatus(`fixed ${result.applied} of ${result.count}`);
-      await refreshReconcile();
-      render();
-    } catch (e) { setStatus('error: ' + e.message); }
-  }
+  //
+  // Everything that used to live here — a read-only accordion grouped by
+  // matcher status, plus per-row fix / fix-all — now lives in reconcile.js
+  // (ReconcilePanel), extracted exactly the way rigcheck.js was and for the
+  // same reason: the old view could not express what the owner asked for.
+  // See that file's header for the diagnosis; the short version is that its
+  // two largest groups ("Matched", "Unpatched") rendered zero buttons, so
+  // neither committing a pairing nor breaking one was reachable from the
+  // screen named after those two verbs.
+  //
+  // Deliberately NOT carried over: the "Fix all address mismatches" bulk
+  // button. Its endpoint (POST /api/patch/reconcile/fix-all) and tests are
+  // untouched and it remains callable, but a button that writes a new DMX
+  // address to every mismatched fixture in one press is a different contract
+  // from the per-difference "Apply to fixture" the owner settled on, and
+  // having both on one screen would have made the safe one look optional.
 
   // ============================================================
   // Rig Check view
