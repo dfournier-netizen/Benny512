@@ -644,3 +644,396 @@
 .b5-text-sm { font-size: var(--b5-font-size-sm); }
 .b5-text-xs { font-size: var(--b5-font-size-xs); }
 .b5-hr { border: none; border-top: var(--b5-border-width-thin) solid var(--b5-color-border-subtle); margin: var(--b5-space-4) 0; }
+
+/* ============================================================
+   Rig Check — stackable test toggles (rigcheck.js)
+   Appended block, per the ownership split for this piece of work:
+   everything below is new and nothing above it was touched.
+
+   Design target is a TABLET held at arm's length, in the dark, by
+   someone standing under a truss with one hand free. That drives
+   every number here: tiles are at least 88px tall (double the 44px
+   touch minimum) so a mis-tap is unlikely; the START/STOP bar is
+   sticky to the BOTTOM edge, which is where a thumb sits when a
+   tablet is held two-handed; and no state is carried by colour
+   alone — every on/off condition also has an icon, the literal word
+   ON/OFF or LIVE/STOPPED, a border weight change and a background
+   change, so it survives a dim screen, a colour-blind reader and a
+   greyscale photo of the rig.
+   ============================================================ */
+
+.b5-rcp-section { margin-bottom: var(--b5-space-6); }
+.b5-rcp-section__head {
+  display: flex;
+  align-items: center;
+  gap: var(--b5-space-3);
+  margin: 0 0 var(--b5-space-3);
+  font-size: var(--b5-font-size-lg);
+  font-weight: var(--b5-font-weight-bold);
+  letter-spacing: var(--b5-letter-spacing-sm);
+  color: var(--b5-color-text-primary);
+}
+.b5-rcp-section__note {
+  font-size: var(--b5-font-size-sm);
+  font-weight: var(--b5-font-weight-regular);
+  color: var(--b5-color-text-muted);
+}
+/* The numbered step marker makes the owner's stated workflow order —
+   scope, then tests, then run — readable as an order rather than as
+   three unrelated panels. */
+.b5-rcp-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px; height: 28px;
+  flex: none;
+  border-radius: var(--b5-radius-full);
+  border: var(--b5-border-width-thick) solid var(--b5-color-border-strong);
+  font-size: var(--b5-font-size-sm);
+  color: var(--b5-color-text-secondary);
+}
+
+.b5-rcp-alert { margin-bottom: var(--b5-space-4); }
+.b5-rcp-list { margin: var(--b5-space-2) 0 0; padding-left: var(--b5-space-5); color: var(--b5-color-text-secondary); font-size: var(--b5-font-size-sm); }
+.b5-rcp-list li { margin-bottom: var(--b5-space-1); }
+
+/* ---- segmented control (scope kind, waveform, direction) ---- */
+.b5-rcp-segmented { display: flex; flex-wrap: wrap; gap: var(--b5-space-2); }
+.b5-rcp-seg {
+  flex: 1 1 auto;
+  min-height: 52px;
+  min-width: 120px;
+  padding: var(--b5-space-2) var(--b5-space-4);
+  border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
+  border-radius: var(--b5-radius-md);
+  background: var(--b5-color-bg-surface-raised);
+  color: var(--b5-color-text-secondary);
+  font: inherit;
+  font-size: var(--b5-font-size-md);
+  font-weight: var(--b5-font-weight-medium);
+  cursor: pointer;
+}
+.b5-rcp-seg:hover { background: var(--b5-color-bg-hover); }
+.b5-rcp-seg.is-on {
+  background: var(--b5-color-accent-500-a15);
+  border-color: var(--b5-color-accent-500);
+  border-width: var(--b5-border-width-thick);
+  color: var(--b5-color-text-accent);
+  font-weight: var(--b5-font-weight-bold);
+  box-shadow: inset 0 -3px 0 var(--b5-color-accent-500);
+}
+.b5-rcp-seg:focus-visible { outline: none; box-shadow: var(--b5-shadow-focus); }
+.b5-rcp-segmented--sm .b5-rcp-seg { min-height: 44px; min-width: 96px; font-size: var(--b5-font-size-sm); }
+
+/* ---- scope ---- */
+.b5-rcp-scope__value { margin-top: var(--b5-space-3); display: flex; flex-direction: column; gap: var(--b5-space-2); }
+.b5-rcp-scope__count {
+  margin: var(--b5-space-3) 0 0;
+  font-size: var(--b5-font-size-md);
+  color: var(--b5-color-text-secondary);
+}
+.b5-rcp-scope__note { margin: var(--b5-space-1) 0 0; font-size: var(--b5-font-size-sm); color: var(--b5-color-text-muted); }
+.b5-rcp-num { min-height: 48px; width: 8em; font-size: var(--b5-font-size-md); }
+.b5-rcp-scope__picklist {
+  max-height: 260px;
+  overflow-y: auto;
+  border: var(--b5-border-width-thin) solid var(--b5-color-border-subtle);
+  border-radius: var(--b5-radius-md);
+  padding: var(--b5-space-2);
+}
+.b5-rcp-pick {
+  display: flex;
+  align-items: center;
+  gap: var(--b5-space-3);
+  min-height: var(--b5-size-touch-min);
+  padding: var(--b5-space-1) var(--b5-space-2);
+  cursor: pointer;
+  color: var(--b5-color-text-secondary);
+}
+.b5-rcp-pick input { width: 24px; height: 24px; flex: none; accent-color: var(--b5-color-accent-500); }
+
+/* ---- isolate ---- */
+.b5-rcp-isolate {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--b5-space-3);
+  padding: var(--b5-space-3) var(--b5-space-4);
+  border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
+  border-radius: var(--b5-radius-md);
+  background: var(--b5-color-bg-surface);
+  cursor: pointer;
+  min-height: var(--b5-size-touch-min);
+}
+.b5-rcp-isolate.is-on { border-color: var(--b5-color-warning-500); border-width: var(--b5-border-width-thick); background: var(--b5-color-warning-900); }
+.b5-rcp-isolate input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.b5-rcp-isolate__box {
+  flex: none;
+  width: 30px; height: 30px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: var(--b5-border-width-thick) solid var(--b5-color-border-strong);
+  border-radius: var(--b5-radius-sm);
+  color: var(--b5-color-text-warning);
+}
+.b5-rcp-isolate.is-on .b5-rcp-isolate__box { border-color: var(--b5-color-warning-400); }
+.b5-rcp-isolate__box svg { width: 20px; height: 20px; }
+.b5-rcp-isolate input:focus-visible + .b5-rcp-isolate__box { box-shadow: var(--b5-shadow-focus); }
+.b5-rcp-isolate__title { display: block; font-weight: var(--b5-font-weight-bold); color: var(--b5-color-text-primary); }
+.b5-rcp-isolate__body { display: block; margin-top: var(--b5-space-1); font-size: var(--b5-font-size-sm); color: var(--b5-color-text-muted); }
+
+/* ---- test grid ---- */
+.b5-rcp-group { margin-bottom: var(--b5-space-5); }
+.b5-rcp-group__head {
+  margin: 0 0 var(--b5-space-2);
+  padding-bottom: var(--b5-space-1);
+  border-bottom: var(--b5-border-width-thin) solid var(--b5-color-border-subtle);
+  font-size: var(--b5-font-size-md);
+  font-weight: var(--b5-font-weight-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--b5-color-text-muted);
+}
+/* auto-fill rather than auto-fit: a lone tile in a group keeps a sane
+   width instead of stretching the full width of a landscape tablet. */
+.b5-rcp-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--b5-space-3);
+}
+.b5-rcp-tile {
+  display: flex;
+  flex-direction: column;
+  border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
+  border-radius: var(--b5-radius-md);
+  background: var(--b5-color-bg-surface);
+  overflow: hidden;
+}
+.b5-rcp-tile.is-on {
+  border-color: var(--b5-color-accent-500);
+  border-width: var(--b5-border-width-thick);
+  background: var(--b5-color-bg-selected);
+}
+.b5-rcp-tile__toggle {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--b5-space-1);
+  width: 100%;
+  min-height: 88px;
+  padding: var(--b5-space-3) var(--b5-space-4);
+  border: none;
+  background: transparent;
+  color: var(--b5-color-text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.b5-rcp-tile__toggle:hover { background: var(--b5-color-bg-hover); }
+.b5-rcp-tile__toggle:focus-visible { outline: none; box-shadow: inset var(--b5-shadow-focus); }
+.b5-rcp-tile__toggle:disabled { cursor: progress; opacity: 0.6; }
+/* State is a bordered pill carrying an icon AND the word ON/OFF: three
+   independent signals (shape, text, colour) for one bit. */
+.b5-rcp-tile__state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--b5-space-1);
+  padding: 2px var(--b5-space-2);
+  border: var(--b5-border-width-thin) solid var(--b5-color-border-strong);
+  border-radius: var(--b5-radius-full);
+  font-size: var(--b5-font-size-xs);
+  font-weight: var(--b5-font-weight-bold);
+  letter-spacing: 0.08em;
+  color: var(--b5-color-text-muted);
+}
+.b5-rcp-tile__state svg { width: 16px; height: 16px; }
+.b5-rcp-tile.is-on .b5-rcp-tile__state {
+  border-color: var(--b5-color-accent-500);
+  border-width: var(--b5-border-width-thick);
+  background: var(--b5-color-accent-900);
+  color: var(--b5-color-text-accent);
+}
+.b5-rcp-tile__label {
+  font-size: var(--b5-font-size-lg);
+  font-weight: var(--b5-font-weight-medium);
+  line-height: var(--b5-line-height-tight);
+}
+.b5-rcp-tile.is-on .b5-rcp-tile__label { font-weight: var(--b5-font-weight-bold); }
+.b5-rcp-tile__coverage { font-size: var(--b5-font-size-sm); color: var(--b5-color-text-muted); }
+.b5-rcp-tile__notes { font-size: var(--b5-font-size-xs); color: var(--b5-color-text-warning); }
+/* A label the app is only repeating out of the fixture file, not a name
+   it chose — said plainly rather than passed off as considered wording. */
+.b5-rcp-fromfile {
+  display: inline-block;
+  margin-left: var(--b5-space-2);
+  padding: 0 var(--b5-space-2);
+  border: 1px dashed var(--b5-color-border-strong);
+  border-radius: var(--b5-radius-sm);
+  font-size: var(--b5-font-size-xs);
+  font-weight: var(--b5-font-weight-regular);
+  color: var(--b5-color-text-muted);
+  vertical-align: middle;
+}
+.b5-rcp-tile__more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--b5-space-2);
+  min-height: var(--b5-size-touch-min);
+  border: none;
+  border-top: var(--b5-border-width-thin) solid var(--b5-color-border-subtle);
+  background: transparent;
+  color: var(--b5-color-text-secondary);
+  font: inherit;
+  font-size: var(--b5-font-size-sm);
+  cursor: pointer;
+}
+.b5-rcp-tile__more:hover { background: var(--b5-color-bg-hover); }
+.b5-rcp-tile__more svg { width: 16px; height: 16px; }
+
+/* ---- per-test parameters ---- */
+.b5-rcp-params {
+  padding: var(--b5-space-3) var(--b5-space-4) var(--b5-space-4);
+  border-top: var(--b5-border-width-thin) solid var(--b5-color-border-subtle);
+  background: var(--b5-color-bg-inset);
+  display: flex;
+  flex-direction: column;
+  gap: var(--b5-space-4);
+}
+.b5-rcp-params__hint { margin: 0; font-size: var(--b5-font-size-sm); color: var(--b5-color-text-muted); }
+.b5-rcp-param { display: flex; flex-direction: column; gap: var(--b5-space-2); }
+.b5-rcp-param__label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--b5-space-2);
+  font-size: var(--b5-font-size-sm);
+  font-weight: var(--b5-font-weight-medium);
+  color: var(--b5-color-text-secondary);
+}
+.b5-rcp-param__hint { font-size: var(--b5-font-size-xs); color: var(--b5-color-text-muted); }
+.b5-rcp-out { color: var(--b5-color-text-primary); font-size: var(--b5-font-size-md); }
+.b5-rcp-phase { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2); }
+.b5-rcp-phase__field { display: inline-flex; align-items: center; gap: var(--b5-space-1); font-size: var(--b5-font-size-sm); color: var(--b5-color-text-muted); }
+.b5-rcp-phase__field .b5-rcp-num { width: 6em; }
+
+/* ---- sticky output bar ---- */
+/* Sticky to the bottom of the scrolling page rather than fixed: this app
+   has been bitten before by fixed bars needing a body reserve-space
+   dance, and sticky keeps STOP on screen without one. The bar renders
+   last in DOM order, matching the owner's workflow (scope, tests, run),
+   while sticky bottom keeps it under the thumb the whole way down. */
+.b5-rcp-outputbar {
+  position: sticky;
+  bottom: 0;
+  z-index: var(--b5-z-sticky);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--b5-space-3) var(--b5-space-4);
+  margin-top: var(--b5-space-6);
+  padding: var(--b5-space-3) var(--b5-space-4);
+  border: var(--b5-border-width-thick) solid var(--b5-color-border-default);
+  border-radius: var(--b5-radius-md);
+  background: var(--b5-color-bg-surface-raised);
+  box-shadow: var(--b5-shadow-lg);
+}
+.b5-rcp-outputbar__status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-3); margin-right: auto; }
+.b5-rcp-outputbar__head { display: inline-flex; align-items: center; gap: var(--b5-space-2); font-weight: var(--b5-font-weight-bold); }
+.b5-rcp-outputlight {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--b5-space-2);
+  padding: var(--b5-space-1) var(--b5-space-3);
+  border: var(--b5-border-width-thick) solid var(--b5-color-border-strong);
+  border-radius: var(--b5-radius-full);
+  font-weight: var(--b5-font-weight-bold);
+  letter-spacing: 0.08em;
+  color: var(--b5-color-text-muted);
+}
+.b5-rcp-outputlight svg { width: 18px; height: 18px; }
+.b5-rcp-outputlight.is-on { border-color: var(--b5-color-success-500); background: var(--b5-color-success-900); color: var(--b5-color-text-success); }
+.b5-rcp-outputbar__buttons { display: flex; gap: var(--b5-space-3); flex: 1 1 auto; justify-content: flex-end; }
+/* START and STOP are deliberately different SHAPES as well as different
+   colours: START is an outlined pill, STOP is a filled square-cornered
+   slab. In a dark truss at arm's length the silhouette reads before the
+   hue does, and the two can never be confused by a colour-blind reader. */
+.b5-rcp-bigbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--b5-space-2);
+  min-height: 64px;
+  min-width: 150px;
+  padding: 0 var(--b5-space-6);
+  font: inherit;
+  font-size: var(--b5-font-size-xl);
+  font-weight: var(--b5-font-weight-bold);
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+.b5-rcp-bigbtn svg { width: 24px; height: 24px; }
+.b5-rcp-bigbtn:focus-visible { outline: none; box-shadow: var(--b5-shadow-focus); }
+.b5-rcp-bigbtn--start {
+  border: var(--b5-border-width-thick) solid var(--b5-color-success-500);
+  border-radius: var(--b5-radius-full);
+  background: var(--b5-color-success-900);
+  color: var(--b5-color-success-300);
+}
+.b5-rcp-bigbtn--start:hover:not(:disabled) { background: var(--b5-color-success-700); color: var(--b5-color-neutral-050); }
+.b5-rcp-bigbtn--start:disabled { opacity: 0.4; cursor: not-allowed; }
+.b5-rcp-bigbtn--stop {
+  border: var(--b5-border-width-thick) solid var(--b5-color-danger-300);
+  border-radius: var(--b5-radius-sm);
+  background: var(--b5-color-danger-600);
+  color: var(--b5-color-neutral-050);
+}
+.b5-rcp-bigbtn--stop:hover { background: var(--b5-color-danger-500); }
+
+@media (max-width: 640px) {
+  .b5-rcp-outputbar__buttons { flex-basis: 100%; }
+  .b5-rcp-bigbtn { flex: 1 1 0; min-width: 0; }
+}
+
+/* Rig Check parameter faders on a MOUSE/desktop pointer. app.css already
+   ships a touch-safe .b5-range-touch restyle, but it is deliberately gated
+   to (hover:none) and (pointer:coarse) so a desktop grid never gets a 44px
+   thumb — which leaves the fader as the browser default (bright blue,
+   off-palette, thin) on a laptop. This mirrors that treatment at desktop
+   proportions and is gated to the opposite side of the same query, so on
+   the tablet the existing coarse-pointer rule in app.css still wins. */
+@media (hover: hover) and (pointer: fine) {
+  .b5-rcp-params .b5-range-touch {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 28px;
+    background: transparent;
+    cursor: pointer;
+  }
+  .b5-rcp-params .b5-range-touch::-webkit-slider-runnable-track {
+    height: 6px;
+    background: var(--b5-color-bg-inset);
+    border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
+    border-radius: var(--b5-radius-full);
+  }
+  .b5-rcp-params .b5-range-touch::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 26px; height: 26px;
+    margin-top: -11px;
+    border-radius: var(--b5-radius-full);
+    background: var(--b5-color-accent-500);
+    border: var(--b5-border-width-thin) solid var(--b5-color-accent-700);
+  }
+  .b5-rcp-params .b5-range-touch::-moz-range-track {
+    height: 6px;
+    background: var(--b5-color-bg-inset);
+    border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
+    border-radius: var(--b5-radius-full);
+  }
+  .b5-rcp-params .b5-range-touch::-moz-range-thumb {
+    width: 26px; height: 26px;
+    border-radius: var(--b5-radius-full);
+    background: var(--b5-color-accent-500);
+    border: var(--b5-border-width-thin) solid var(--b5-color-accent-700);
+  }
+  .b5-rcp-params .b5-range-touch:focus-visible { outline: none; box-shadow: var(--b5-shadow-focus); }
+}
