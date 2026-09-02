@@ -61,8 +61,17 @@
 // says the word COMMITTED, carries a link icon, and is joined to its partner
 // by a matching numbered link badge on both sides.
 const ReconcilePanel = (() => {
-  // host: supplied by patch.js — the three things this panel cannot know.
-  let host = { setStatus: () => {}, getUniverseLabel: () => 'Universe' };
+  // host: supplied by patch.js — the things this panel cannot know.
+  //
+  // onPatchChanged is how the OWNING screen learns that a mutation here
+  // changed the PATCH and not just this board: commit/decommit stamp the
+  // entry's ConfirmedUID and MatchState, adopt writes its intended settings
+  // and its Mode. Rule 1 keeps this file honest about its own board; it says
+  // nothing about the host's copy of the patch, which the Entries table, the
+  // collision banner and both Rig Check scope pickers render from — so
+  // without this hook a commit here left those showing pre-commit data until
+  // the whole Patch tab was left and re-entered.
+  let host = { setStatus: () => {}, getUniverseLabel: () => 'Universe', onPatchChanged: () => {} };
 
   // board: the last full server snapshot. null before the first fetch and
   // between a mutation and its refresh (which is what paints the spinner).
@@ -542,6 +551,11 @@ const ReconcilePanel = (() => {
       busy = false;
       await refresh();
       render();
+      // The board is refreshed; now tell the owning screen the patch behind
+      // it moved too. Last, and not awaited into the button's own busy
+      // window: this board is already correct and painted, and the host's
+      // refetch is for the OTHER sub-tabs.
+      try { host.onPatchChanged(); } catch (e) { /* the host's problem, never this board's */ }
     }
   }
 

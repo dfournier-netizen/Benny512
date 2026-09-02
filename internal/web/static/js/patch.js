@@ -138,6 +138,11 @@ const PatchScreen = (() => {
     ReconcilePanel.init({
       setStatus: (m) => setStatus(m),
       getUniverseLabel: () => 'Universe',
+      // Every Reconcile mutation can change the PATCH (commit/decommit set
+      // ConfirmedUID + MatchState; adopt writes intended settings and Mode),
+      // and this screen's Entries table, collision banner and Rig Check
+      // scope pickers all render from `patchData`. See refreshPatchDataOnly.
+      onPatchChanged: () => refreshPatchDataOnly(),
     });
     // Universe base changed on the Settings screen — re-render every
     // universe number currently on screen (notation only, no data refetch
@@ -353,6 +358,35 @@ const PatchScreen = (() => {
   // saying exactly what they said before.
   function stopPatternHeartbeat() { RigCheckPanel.stopPolling(); }
 
+  // stopPatternOutputBeforeLeavingRigCheck: the Function check panel's
+  // client-liveness heartbeat is what keeps the server's pattern watchdog
+  // fed, and this screen stops that heartbeat the moment the panel is no
+  // longer on screen (setView away from Rig Check, setRcSubView away from
+  // Function). Stopping the heartbeat WITHOUT stopping the output is a seam:
+  //
+  //   - the rig keeps sweeping for up to PatternWatchdogTimeout (5s) with
+  //     nothing on screen saying so, which is exactly the "never leave the
+  //     rig lit" hazard this screen's own safety copy promises against;
+  //   - then the watchdog blacks out and stamps lastEndReason "watchdog",
+  //     i.e. "this page went more than 5s without reaching the server" —
+  //     a false diagnosis, since the page is alive and just showing a
+  //     different sub-tab;
+  //   - and the Channel check sub-view, which renders "A Function check
+  //     pattern is running" with its own controls disabled off
+  //     RigCheckPanel.outputEnabled(), never learns about that blackout
+  //     (its snapshot only refreshes while the panel polls), so it sits
+  //     behind a stale banner with Scope/Mode/Start disabled forever.
+  //
+  // Output therefore ALWAYS ends within 5s of leaving the Rig Check view
+  // either way — this just makes it end deterministically, immediately, and
+  // honestly ("manual"), and leaves RigCheckPanel's snapshot correct so the
+  // Channel check sub-view renders the truth. Selection is untouched: this
+  // is POST .../pattern/output false, not a deselect.
+  async function stopPatternOutputBeforeLeavingRigCheck() {
+    if (!RigCheckPanel.outputEnabled()) return;
+    try { await RigCheckPanel.stopOutput(); } catch (e) { /* best-effort; onLeaveScreen's rigCheckStop is the backstop */ }
+  }
+
   // --- data refresh -----------------------------------------------------
 
   async function refresh() {
@@ -377,6 +411,37 @@ const PatchScreen = (() => {
     await ReconcilePanel.refresh();
   }
 
+  // refreshPatchDataOnly: refetch THIS screen's own copy of the patch (and
+  // its collisions) without disturbing either sub-panel's snapshot.
+  //
+  // Reconcile's mutators write to the patch — commit/decommit set the
+  // entry's ConfirmedUID and MatchState, adopt writes intended settings and
+  // the entry's Mode. reconcile.js correctly re-reads its OWN board after
+  // every one of them (its rule 1), but the board is not the patch: the
+  // Entries table, the collision banner and both Rig Check scope pickers all
+  // render from `patchData`, which nothing told to refetch. Committing on
+  // Reconcile and then switching to Entries therefore showed the entry still
+  // "Unresolved" until the whole Patch tab was left and re-entered. Both
+  // halves were self-consistent; the patch snapshot fell between them.
+  //
+  // Deliberately does NOT re-render while the Reconcile view is the one on
+  // screen: the panel has just repainted itself from its own fresh board,
+  // and a second render() here would only throw that DOM away (losing the
+  // scroll position of a two-pane board mid-commit) to paint the same thing.
+  // setView() renders from `patchData` on the way into Entries/Rig Check, so
+  // refreshing the data is all that is needed for those to be correct.
+  async function refreshPatchDataOnly() {
+    try {
+      patchData = await Api.getPatch();
+    } catch (e) {
+      return; // best-effort: keep the last good snapshot rather than blanking the screen
+    }
+    try {
+      collisions = patchData.active ? (await Api.getPatchCollisions() || []) : [];
+    } catch (e) { /* best-effort */ }
+    if (view !== 'reconcile') render();
+  }
+
   async function refreshRigCheck() {
     try {
       rigCheckState = await Api.getRigCheckState();
@@ -390,8 +455,11 @@ const PatchScreen = (() => {
     await RigCheckPanel.refreshStatus();
   }
 
-  function setView(v) {
-    if (v !== 'rigcheck') RigCheckPanel.leave();
+  async function setView(v) {
+    if (v !== 'rigcheck') {
+      await stopPatternOutputBeforeLeavingRigCheck();
+      RigCheckPanel.leave();
+    }
     if (v !== 'reconcile') ReconcilePanel.leave();
     view = v;
     render();
@@ -1272,9 +1340,12 @@ const PatchScreen = (() => {
     else renderClassicRigCheck(sub);
   }
 
-  function setRcSubView(v) {
+  async function setRcSubView(v) {
     if (v === rcSubView) return;
-    if (v !== 'function') stopPatternHeartbeat();
+    if (v !== 'function') {
+      await stopPatternOutputBeforeLeavingRigCheck();
+      stopPatternHeartbeat();
+    }
     rcSubView = v;
     sessionStorage.setItem('benny512.patch.rcSubView', v);
     render();
