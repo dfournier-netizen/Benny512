@@ -937,3 +937,313 @@ func TestRigCheckPattern_PhaseAndWaveformOverREST(t *testing.T) {
 		t.Errorf("phase on a static kind: status=%d body=%s, want 400", rr.Code, rr.Body.String())
 	}
 }
+
+// goboFrostEntryRequest is a mover with TWO distinct GDTF Frost functions
+// and one gobo wheel that both indexes and rotates — the shape
+// patch.AvailableTests exists to enumerate honestly rather than guess at
+// (see testpattern.go's "enumeration instead of guessing" doc section).
+// Frost1 carries a GDTF ChannelFunction Name and Frost2 deliberately does
+// not, so the labelFromGdtf provenance flag has both states to report.
+func goboFrostEntryRequest(name string, universe uint16, addr uint16) entryRequest {
+	return entryRequest{
+		Name: name, Universe: universe, StartAddress: addr, Footprint: 6, Position: "DS Truss",
+		ChannelFunctions: map[string]channelFunctionRequest{
+			"0": {Source: "gdtf", Attribute: "Dimmer", FunctionName: "Dimmer", ChannelSets: []channelSetRequest{}, HasDefault: true, Default: 0, DefaultByteCount: 1},
+			"1": {Source: "gdtf", Attribute: "Frost1", FunctionName: "Light Frost", ChannelSets: []channelSetRequest{}},
+			"2": {Source: "gdtf", Attribute: "Frost2", ChannelSets: []channelSetRequest{}},
+			"3": {Source: "gdtf", Attribute: "Gobo1", FunctionName: "Gobo Wheel 1", ChannelSets: []channelSetRequest{
+				{Name: "Open", DMXFrom: 0}, {Name: "Gobo 1", DMXFrom: 10}, {Name: "Gobo 2", DMXFrom: 20},
+			}},
+			"4": {Source: "gdtf", Attribute: "Gobo1WheelSpin", FunctionName: "Gobo 1 Rotate", ChannelSets: []channelSetRequest{}},
+		},
+	}
+}
+
+// TestRigCheckPatternEndpoints_SelectionOutlivesOutput drives the five
+// single-purpose endpoints through the owner's workflow and pins the two
+// safety rules that motivated the split: selecting a SECOND test while
+// output is flowing takes effect with no stop in between, and stopping
+// output deselects nothing — a later status GET still lists both tests.
+func TestRigCheckPatternEndpoints_SelectionOutlivesOutput(t *testing.T) {
+	h := newHarness(t)
+	pa := mustPort(t)
+	doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", jdcLikeEntryRequest("JDC 1", pa.RawValue(), 1))
+
+	// Scope + one test, output still off.
+	rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/tests", patternTestsRequest{
+		patternScopeFields: patternScopeFields{ScopeKind: "all"},
+		Tests:              []patternTestRequest{{Kind: "dimmer_sine", RateHz: 1, Max: 255}},
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("pattern/tests: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var st patternStatusJSON
+	mustUnmarshal(t, rr, &st)
+	if st.OutputEnabled || st.SelectedCount != 1 || st.TotalScope != 1 {
+		t.Fatalf("after pattern/tests: outputEnabled=%v selectedCount=%d totalScope=%d, want false,1,1",
+			st.OutputEnabled, st.SelectedCount, st.TotalScope)
+	}
+
+	// Start output.
+	rr = doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/output", patternOutputRequest{Enabled: true})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("pattern/output start: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	mustUnmarshal(t, rr, &st)
+	if !st.OutputEnabled || !st.Running {
+		t.Fatalf("after pattern/output{enabled:true}: %+v", st)
+	}
+
+	// Select a SECOND test with output flowing. No stop, no 409 — and the
+	// response itself must already show it, so a UI re-rendering from this
+	// snapshot alone is correct.
+	rr = doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/select", patternSelectRequest{
+		Test: patternTestRequest{Kind: "move_extreme", Target: "tilt_max"},
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("pattern/select while output flows: status=%d body=%s, want 200 — configuration is never gated on output",
+			rr.Code, rr.Body.String())
+	}
+	mustUnmarshal(t, rr, &st)
+	if st.SelectedCount != 2 || !st.OutputEnabled {
+		t.Fatalf("after selecting a second test live: selectedCount=%d outputEnabled=%v, want 2,true", st.SelectedCount, st.OutputEnabled)
+	}
+	if len(st.Tests) != 2 {
+		t.Fatalf("tests = %+v, want both tests in the SAME response that made the change", st.Tests)
+	}
+
+	// Stop OUTPUT. The selection must survive completely.
+	rr = doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/output", patternOutputRequest{Enabled: false})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("pattern/output stop: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	mustUnmarshal(t, rr, &st)
+	if st.OutputEnabled {
+		t.Error("pattern/output{enabled:false} must stop output")
+	}
+	if st.SelectedCount != 2 {
+		t.Errorf("selectedCount = %d immediately after stop, want 2 — stop stops output and deselects nothing", st.SelectedCount)
+	}
+
+	// ...and a subsequent independent status GET still lists both.
+	rr = doJSON(t, h.srv.Handler(), "GET", "/api/patch/rigcheck/pattern", nil)
+	mustUnmarshal(t, rr, &st)
+	if st.SelectedCount != 2 || len(st.Tests) != 2 {
+		t.Fatalf("GET after stop: selectedCount=%d tests=%d, want 2,2", st.SelectedCount, len(st.Tests))
+	}
+	gotIDs := []string{st.Tests[0].ID, st.Tests[1].ID}
+	if gotIDs[0] != "dimmer_sine" || gotIDs[1] != "move_extreme:tilt_max" {
+		t.Errorf("tests after stop = %v, want the canonical [dimmer_sine move_extreme:tilt_max]", gotIDs)
+	}
+	if st.LastEndReason != "manual" {
+		t.Errorf("lastEndReason = %q, want manual", st.LastEndReason)
+	}
+
+	// Output can be re-enabled with no re-selection at all.
+	rr = doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/output", patternOutputRequest{Enabled: true})
+	mustUnmarshal(t, rr, &st)
+	if !st.OutputEnabled || st.SelectedCount != 2 {
+		t.Errorf("restart: outputEnabled=%v selectedCount=%d, want true,2", st.OutputEnabled, st.SelectedCount)
+	}
+}
+
+// TestRigCheckPatternSelect_DisableIsExplicitOnTheWire pins the
+// deselect path against this codebase's no-`omitempty`-on-a-real-false rule,
+// on the MARSHALLED REQUEST BYTES: a toggle-off must travel as
+// "enabled":false. An enabled flag that vanished when false would be read by
+// the server as "select it" and the test would never turn off.
+func TestRigCheckPatternSelect_DisableIsExplicitOnTheWire(t *testing.T) {
+	h := newHarness(t)
+	pa := mustPort(t)
+	doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", jdcLikeEntryRequest("JDC 1", pa.RawValue(), 1))
+
+	doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/tests", patternTestsRequest{
+		patternScopeFields: patternScopeFields{ScopeKind: "all"},
+		Tests:              []patternTestRequest{{Kind: "dimmer_sine", RateHz: 1, Max: 255}, {Kind: "move_extreme", Target: "tilt_max"}},
+	})
+
+	off := false
+	body, err := json.Marshal(patternSelectRequest{
+		Test: patternTestRequest{Kind: "dimmer_sine", RateHz: 1, Max: 255}, Enabled: &off,
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(body), `"enabled":false`) {
+		t.Fatalf("deselect request marshalled to %s, want it to carry \"enabled\":false — a false that vanishes reads as \"select\"", body)
+	}
+
+	// Post those exact bytes, not a struct, so the wire form is what is tested.
+	rr := doRaw(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/select", string(body))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("deselect: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var st patternStatusJSON
+	mustUnmarshal(t, rr, &st)
+	if st.SelectedCount != 1 || len(st.Tests) != 1 || st.Tests[0].ID != "move_extreme:tilt_max" {
+		t.Fatalf("after deselect: selectedCount=%d tests=%+v, want only move_extreme:tilt_max left", st.SelectedCount, st.Tests)
+	}
+
+	// The same request WITHOUT the enabled key means "select" — which is
+	// exactly why the false above has to be on the wire.
+	rr = doRaw(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/select",
+		`{"test":{"kind":"dimmer_sine","rateHz":1,"max":255}}`)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("select: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	mustUnmarshal(t, rr, &st)
+	if st.SelectedCount != 2 {
+		t.Fatalf("omitting enabled = %d selected, want 2 (omitted means select)", st.SelectedCount)
+	}
+}
+
+// TestRigCheckPatternEndpoints_AvailableTestsEnumerated asserts the
+// available-test enumeration reaches the wire for a scope whose fixture has
+// TWO frost functions and a gobo wheel: one frost test per GDTF Frost*
+// function, one gobo step test and one gobo rotate test for the wheel, each
+// labelled from GDTF and each honest about whether the label came from GDTF.
+func TestRigCheckPatternEndpoints_AvailableTestsEnumerated(t *testing.T) {
+	h := newHarness(t)
+	pa := mustPort(t)
+	doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", goboFrostEntryRequest("Spot 1", pa.RawValue(), 1))
+
+	rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/tests", patternTestsRequest{
+		patternScopeFields: patternScopeFields{ScopeKind: "all"},
+		Tests:              []patternTestRequest{},
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("pattern/tests: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	for _, want := range []string{
+		`"available":[{`,
+		`"id":"frost:Frost1"`, `"label":"Light Frost"`, `"attribute":"Frost1"`, `"labelFromGdtf":true`,
+		`"id":"frost:Frost2"`, `"label":"Frost2"`,
+		`"id":"gobo_step:Gobo1"`, `"label":"Gobo Wheel 1"`,
+		`"id":"gobo_rotate:Gobo1"`, `"label":"Gobo 1 Rotate"`, `"attribute":"Gobo1WheelSpin"`,
+		`"fixtureCount":1`, `"target":"Frost1"`,
+		`"selectedCount":0`, `"tests":[]`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("pattern status JSON missing %s;\ngot %s", want, body)
+		}
+	}
+	if strings.Contains(body, "null") {
+		t.Errorf("pattern status JSON must never contain null: %s", body)
+	}
+
+	// The same enumeration must be on a plain status GET too — that is the
+	// call a UI polls, and it is what drives the toggle buttons.
+	rr = doJSON(t, h.srv.Handler(), "GET", "/api/patch/rigcheck/pattern", nil)
+	var st patternStatusJSON
+	mustUnmarshal(t, rr, &st)
+	ids := map[string]availableTestJSON{}
+	for _, a := range st.Available {
+		ids[a.ID] = a
+	}
+	for _, want := range []string{"frost:Frost1", "frost:Frost2", "gobo_step:Gobo1", "gobo_rotate:Gobo1"} {
+		if _, ok := ids[want]; !ok {
+			t.Errorf("GET status available[] missing %q; got %+v", want, st.Available)
+		}
+	}
+	if a := ids["frost:Frost2"]; a.LabelFromGDTF {
+		t.Errorf("Frost2 has no GDTF ChannelFunction Name, so labelFromGdtf must be false; got %+v", a)
+	}
+
+	// And every enumerated test must actually be selectable by the id's own
+	// (kind, target) — the enumeration is the UI's only source of these.
+	for _, a := range st.Available {
+		rr = doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/select", patternSelectRequest{
+			Test: patternTestRequest{Kind: a.Kind, Target: a.Target},
+		})
+		if rr.Code != http.StatusOK {
+			t.Fatalf("selecting enumerated test %q: status=%d body=%s", a.ID, rr.Code, rr.Body.String())
+		}
+	}
+	want := len(st.Available)
+	mustUnmarshal(t, rr, &st)
+	if st.SelectedCount != want {
+		t.Errorf("selectedCount = %d after selecting every available test, want %d", st.SelectedCount, want)
+	}
+}
+
+// TestRigCheckPatternEndpoints_ScopeAndIsolate covers the two remaining
+// single-purpose endpoints, including that each is legal while output flows
+// and that each answers with the full snapshot.
+func TestRigCheckPatternEndpoints_ScopeAndIsolate(t *testing.T) {
+	h := newHarness(t)
+	pa := mustPort(t)
+	doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", jdcLikeEntryRequest("JDC 1", pa.RawValue(), 1))
+	doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", jdcLikeEntryRequest("JDC 2", pa.RawValue(), 10))
+
+	doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/tests", patternTestsRequest{
+		patternScopeFields: patternScopeFields{ScopeKind: "all"},
+		Tests:              []patternTestRequest{{Kind: "dimmer_sine", RateHz: 1, Max: 255}},
+	})
+	doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/output", patternOutputRequest{Enabled: true})
+
+	// Narrow the scope while output is flowing.
+	rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/scope", patternScopeRequest{
+		patternScopeFields: patternScopeFields{ScopeKind: "position", Position: "US Truss 1"},
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("pattern/scope: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var st patternStatusJSON
+	mustUnmarshal(t, rr, &st)
+	if st.TotalScope != 2 || st.SelectedCount != 1 || !st.OutputEnabled {
+		t.Fatalf("after scope change: totalScope=%d selectedCount=%d outputEnabled=%v, want 2,1,true",
+			st.TotalScope, st.SelectedCount, st.OutputEnabled)
+	}
+
+	// A scope resolving to no entries is a 422, and leaves the old scope be.
+	rr = doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/scope", patternScopeRequest{
+		patternScopeFields: patternScopeFields{ScopeKind: "position", Position: "Nowhere"},
+	})
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("empty scope: status=%d body=%s, want 422", rr.Code, rr.Body.String())
+	}
+	rr = doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/scope", patternScopeRequest{
+		patternScopeFields: patternScopeFields{ScopeKind: "not_a_kind"},
+	})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("bad scopeKind: status=%d body=%s, want 400", rr.Code, rr.Body.String())
+	}
+
+	// Isolate flips on its own, on the wire, with output still flowing.
+	rr = doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/isolate", patternIsolateRequest{Isolate: true})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("pattern/isolate: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if b := rr.Body.String(); !strings.Contains(b, `"isolate":true`) {
+		t.Errorf("isolate on: body missing \"isolate\":true; got %s", b)
+	}
+	rr = doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/isolate", patternIsolateRequest{Isolate: false})
+	if b := rr.Body.String(); !strings.Contains(b, `"isolate":false`) {
+		t.Errorf("isolate off: body missing \"isolate\":false — a false that vanishes is unreadable; got %s", b)
+	}
+	mustUnmarshal(t, rr, &st)
+	if !st.OutputEnabled || st.SelectedCount != 1 {
+		t.Errorf("isolate must not disturb output or selection: %+v", st)
+	}
+}
+
+// TestRigCheckPatternAdjust_AmbiguousIsAConflict pins the status code
+// patternAdjustRequest's own doc comment promises: the legacy
+// single-selected-test parameter replace has no single test to mean when
+// several are selected, which is a state conflict (409), not a malformed
+// request (400).
+func TestRigCheckPatternAdjust_AmbiguousIsAConflict(t *testing.T) {
+	h := newHarness(t)
+	pa := mustPort(t)
+	doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", jdcLikeEntryRequest("JDC 1", pa.RawValue(), 1))
+	doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/tests", patternTestsRequest{
+		patternScopeFields: patternScopeFields{ScopeKind: "all"},
+		Tests:              []patternTestRequest{{Kind: "dimmer_sine", RateHz: 1, Max: 255}, {Kind: "move_extreme", Target: "tilt_max"}},
+	})
+
+	rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/adjust", patternAdjustRequest{RateHz: 2})
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("legacy adjust with two tests selected: status=%d body=%s, want 409", rr.Code, rr.Body.String())
+	}
+}

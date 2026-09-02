@@ -38,6 +38,11 @@
 //	POST   /api/patch/rigcheck/channel            <- rigCheckChannelRequest -> rigCheckStateJSON
 //	POST   /api/patch/rigcheck/pattern/start      <- patternStartRequest  -> patternStatusJSON (stage 2 test-pattern engine — see internal/patch/testpattern.go)
 //	POST   /api/patch/rigcheck/pattern/adjust     <- patternAdjustRequest -> patternStatusJSON
+//	POST   /api/patch/rigcheck/pattern/tests      <- patternTestsRequest   -> patternStatusJSON (whole-selection apply)
+//	POST   /api/patch/rigcheck/pattern/select     <- patternSelectRequest  -> patternStatusJSON (toggle ONE test)
+//	POST   /api/patch/rigcheck/pattern/scope      <- patternScopeRequest   -> patternStatusJSON
+//	POST   /api/patch/rigcheck/pattern/isolate    <- patternIsolateRequest -> patternStatusJSON
+//	POST   /api/patch/rigcheck/pattern/output     <- patternOutputRequest  -> patternStatusJSON (start/stop output only)
 //	GET    /api/patch/rigcheck/pattern            -> patternStatusJSON (also the pattern's client-liveness watchdog heartbeat — see its section below)
 package web
 
@@ -1189,7 +1194,12 @@ func (s *Server) handleRigCheckChannel(w http.ResponseWriter, r *http.Request) {
 
 func writeRigCheckError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, patch.ErrRigCheckNotRunning), errors.Is(err, patch.ErrRigCheckPatternRunning), errors.Is(err, patch.ErrRigCheckNoPatternRunning):
+	case errors.Is(err, patch.ErrRigCheckNotRunning), errors.Is(err, patch.ErrRigCheckPatternRunning), errors.Is(err, patch.ErrRigCheckNoPatternRunning),
+		// ErrRigCheckAmbiguousTest is a state conflict, not a malformed
+		// request: .../pattern/adjust's single-selected-test parameter
+		// replace has no single test to mean when several are selected.
+		// Its own doc comment above already promised a 409 here.
+		errors.Is(err, patch.ErrRigCheckAmbiguousTest):
 		writeError(w, http.StatusConflict, err)
 	case errors.Is(err, patch.ErrRigCheckEmptyScope):
 		writeError(w, http.StatusUnprocessableEntity, err)
@@ -1203,9 +1213,31 @@ func writeRigCheckError(w http.ResponseWriter, err error) {
 // Endpoints (see internal/patch/testpattern.go for the engine itself, and its
 // package doc comment for every design decision behind the contract below):
 //
-//	POST /api/patch/rigcheck/pattern/start  <- patternStartRequest  -> patternStatusJSON
-//	POST /api/patch/rigcheck/pattern/adjust <- patternAdjustRequest -> patternStatusJSON
-//	GET  /api/patch/rigcheck/pattern        -> patternStatusJSON
+//	POST /api/patch/rigcheck/pattern/tests   <- patternTestsRequest   -> patternStatusJSON
+//	POST /api/patch/rigcheck/pattern/select  <- patternSelectRequest  -> patternStatusJSON
+//	POST /api/patch/rigcheck/pattern/scope   <- patternScopeRequest   -> patternStatusJSON
+//	POST /api/patch/rigcheck/pattern/isolate <- patternIsolateRequest -> patternStatusJSON
+//	POST /api/patch/rigcheck/pattern/output  <- patternOutputRequest  -> patternStatusJSON
+//	POST /api/patch/rigcheck/pattern/start   <- patternStartRequest   -> patternStatusJSON  (legacy)
+//	POST /api/patch/rigcheck/pattern/adjust  <- patternAdjustRequest  -> patternStatusJSON  (legacy)
+//	GET  /api/patch/rigcheck/pattern         -> patternStatusJSON
+//
+// The five single-purpose POSTs are the current surface, one endpoint per
+// engine mutator, and EVERY one of them — including the two legacy ones and
+// the GET — answers with the FULL patternStatusJSON snapshot. That is not
+// incidental: a client re-renders from the returned snapshot and never
+// mutates its own copy of the state, which is what stops a selection change
+// from failing to show up until something else forces a refresh.
+//
+// The legacy pair remains routed and behaviourally unchanged because
+// static/js/patch.js still calls it:
+//
+//	POST .../pattern/start   ==  POST .../pattern/tests  (+ output on unless
+//	                             "outputEnabled": false), with a flat
+//	                             single-test shorthand beside "tests"
+//	POST .../pattern/adjust  ==  select / isolate / output multiplexed into
+//	                             one request, plus the single-selected-test
+//	                             parameter replace
 //
 // The engine holds TWO independent pieces of state and this surface mirrors
 // that split exactly:
@@ -1465,6 +1497,201 @@ func (s *Server) handleRigCheckPatternAdjust(w http.ResponseWriter, r *http.Requ
 // watchdog's heartbeat.
 func (s *Server) handleRigCheckPatternStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toPatternStatusJSON(s.RigCheck.PatternStatus()))
+}
+
+// --- rig check pattern: one endpoint per engine mutator -------------------
+//
+// These five are the surface a new UI should drive. Each maps 1:1 onto one
+// patch.RigCheck method, each is legal whether or not output is flowing
+// (only .../output changes whether output flows at all), and each returns
+// the same full patternStatusJSON snapshot the GET does.
+
+// patternScopeFields is the scope-selection vocabulary, IDENTICAL to
+// rigCheckStartRequest's and resolved by the same rigCheckScopeEntries — one
+// vocabulary for both engines so they can never diverge in meaning.
+//
+//	scopeKind "" / "all"  -> every entry in the patch
+//	scopeKind "universe"  -> every entry whose universe == `universe`
+//	scopeKind "position"  -> every entry whose position == `position`
+//	scopeKind "selection" -> the entries named in `entryIds`, in PATCH order
+//
+// Anything else is a 400. A scope that resolves to zero entries is a 422
+// (patch.ErrRigCheckEmptyScope): the engine refuses to hold an empty scope
+// rather than silently selecting nothing.
+type patternScopeFields struct {
+	ScopeKind string   `json:"scopeKind"`
+	Universe  uint16   `json:"universe"`
+	Position  string   `json:"position"`
+	EntryIDs  []string `json:"entryIds"`
+}
+
+// resolveScope turns the scope fields into the ordered entries the engine
+// takes, or writes the appropriate error response and returns ok=false.
+func (s *Server) resolveScope(w http.ResponseWriter, f patternScopeFields) ([]patch.Entry, bool) {
+	p, ok := s.PatchStore.Get()
+	if !ok {
+		writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("no active patch"))
+		return nil, false
+	}
+	entries, err := s.rigCheckScopeEntries(p, f.ScopeKind, f.Universe, f.Position, f.EntryIDs)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return nil, false
+	}
+	return entries, true
+}
+
+// patternTestsRequest is the whole-state selection apply — the primary call
+// a UI makes. It replaces the scope, the ENTIRE set of selected tests, and
+// the isolate flag in one atomic operation, and it never touches the output
+// flag: applying a selection while output flows re-renders on the very next
+// frame, and applying one with output off moves nothing.
+//
+// Sending "tests": [] is a legitimate request meaning "deselect everything",
+// not a malformed one.
+type patternTestsRequest struct {
+	patternScopeFields
+	Tests []patternTestRequest `json:"tests"`
+	// Isolate is the zero-everything-else base state (no GDTF defaults, no
+	// dimmer-up, no shutter-open). Absent means false, which is the normal
+	// mode — this is a whole-state apply, so an omitted isolate really does
+	// mean "isolate off", not "leave it as it was". Use .../pattern/isolate
+	// to change only that flag.
+	Isolate bool `json:"isolate"`
+}
+
+func (req patternTestsRequest) specs() []patch.PatternSpec {
+	out := make([]patch.PatternSpec, 0, len(req.Tests))
+	for _, t := range req.Tests {
+		out = append(out, t.spec())
+	}
+	return out
+}
+
+func (s *Server) handleRigCheckPatternTests(w http.ResponseWriter, r *http.Request) {
+	var req patternTestsRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	entries, ok := s.resolveScope(w, req.patternScopeFields)
+	if !ok {
+		return
+	}
+	st, err := s.RigCheck.SetPatternTests(entries, req.specs(), req.Isolate)
+	if err != nil {
+		writeRigCheckError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toPatternStatusJSON(st))
+}
+
+// patternSelectRequest toggles ONE test on or off — what a single
+// toggle-button press sends. `test` carries the full spec (kind + params);
+// the test's identity is kind, or "kind:target" when the spec has a target,
+// which is exactly the `id` the status's tests[]/available[] report, so a UI
+// never has to invent one.
+//
+// Enabled is a POINTER: omitting it means "select it" (the common case),
+// and DESELECTING requires an explicit "enabled": false on the wire. A
+// client MUST serialize that false rather than dropping the key — an
+// enabled flag that vanishes when it is false is the exact class of bug this
+// codebase forbids `omitempty` for.
+//
+// Re-selecting an already-selected test replaces its parameters wholesale.
+// Legal at any time; NEVER requires stopping output first.
+type patternSelectRequest struct {
+	Test    patternTestRequest `json:"test"`
+	Enabled *bool              `json:"enabled"`
+}
+
+func (s *Server) handleRigCheckPatternSelect(w http.ResponseWriter, r *http.Request) {
+	var req patternSelectRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	enabled := req.Enabled == nil || *req.Enabled
+	st, err := s.RigCheck.SelectPatternTest(req.Test.spec(), enabled)
+	if err != nil {
+		writeRigCheckError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toPatternStatusJSON(st))
+}
+
+// patternScopeRequest replaces the scope alone, keeping every selected test
+// (each is re-resolved against the new fixtures). Legal while output flows.
+type patternScopeRequest struct {
+	patternScopeFields
+}
+
+func (s *Server) handleRigCheckPatternScope(w http.ResponseWriter, r *http.Request) {
+	var req patternScopeRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	entries, ok := s.resolveScope(w, req.patternScopeFields)
+	if !ok {
+		return
+	}
+	st, err := s.RigCheck.SetPatternScope(entries)
+	if err != nil {
+		writeRigCheckError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toPatternStatusJSON(st))
+}
+
+// patternIsolateRequest flips the isolate flag alone. Absent means false —
+// this is a set, not a patch.
+type patternIsolateRequest struct {
+	Isolate bool `json:"isolate"`
+}
+
+func (s *Server) handleRigCheckPatternIsolate(w http.ResponseWriter, r *http.Request) {
+	var req patternIsolateRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toPatternStatusJSON(s.RigCheck.SetPatternIsolate(req.Isolate)))
+}
+
+// patternOutputRequest is the start/stop button and NOTHING else:
+// {"enabled": true} lets output flow for whatever is currently selected,
+// {"enabled": false} blacks out (immediately, via SendNow — not on the next
+// retransmit tick) and ceases output while leaving the selection COMPLETELY
+// intact. The owner's rule, preserved here: the stop button stops output, it
+// does not deselect any tests, and the start button only allows output to
+// flow — it does not limit configuration.
+//
+// Enabled is a plain bool and an absent one therefore means false (stop):
+// a client asking to start must say so.
+//
+// Starting with an empty scope is a 422; starting with an empty SELECTION is
+// a legitimate 200 that renders only the base state.
+type patternOutputRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
+func (s *Server) handleRigCheckPatternOutput(w http.ResponseWriter, r *http.Request) {
+	var req patternOutputRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if !req.Enabled {
+		writeJSON(w, http.StatusOK, toPatternStatusJSON(s.RigCheck.StopPatternOutput()))
+		return
+	}
+	st, err := s.RigCheck.StartPatternOutput()
+	if err != nil {
+		writeRigCheckError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toPatternStatusJSON(st))
 }
 
 type patternEntryStatusJSON struct {

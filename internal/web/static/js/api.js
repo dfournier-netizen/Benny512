@@ -277,6 +277,35 @@ const Api = (() => {
     patternAdjust: (body) => req('POST', '/api/patch/rigcheck/pattern/adjust', body),
     getPattern: () => req('GET', '/api/patch/rigcheck/pattern'),
 
+    // --- stackable tests: one wrapper per engine mutator -----------------
+    // These five are the current surface; patternStart/patternAdjust above
+    // are the legacy multiplexed pair, still routed and still working.
+    // EVERY one of them (and getPattern) answers with the SAME full status
+    // snapshot — outputEnabled, selectedCount, tests[], available[],
+    // contested[], baseState, lastEndReason. Always re-render from the
+    // returned snapshot; never mutate a local copy of the selection, which
+    // is what made a newly picked test fail to appear until something else
+    // forced a refresh.
+    //
+    // Selection and output are independent: patternSetTests/patternSelect/
+    // patternSetScope/patternSetIsolate are all legal while output is
+    // flowing and none of them ever requires a stop first, and
+    // patternSetOutput(false) blacks out without deselecting anything.
+    //
+    // patternSetTests({scopeKind, universe, position, entryIds, tests, isolate})
+    // is the whole-state apply; tests: [] legitimately means "deselect all".
+    patternSetTests: (body) => req('POST', '/api/patch/rigcheck/pattern/tests', body),
+    // patternSelect({test, enabled}) toggles ONE test — a toggle-button
+    // press. `test` is {kind, target, rateHz, min, max, direction, value,
+    // on, waveform, offsetMin, offsetMax}; its id (kind, or "kind:target")
+    // is what status.tests[].id and status.available[].id report. `enabled`
+    // MUST be serialized even when false — omitting it means "select".
+    patternSelect: (test, enabled) => req('POST', '/api/patch/rigcheck/pattern/select', { test, enabled: enabled !== false }),
+    patternSetScope: (body) => req('POST', '/api/patch/rigcheck/pattern/scope', body),
+    patternSetIsolate: (isolate) => req('POST', '/api/patch/rigcheck/pattern/isolate', { isolate: !!isolate }),
+    // patternSetOutput(true) = the start button, (false) = the stop button.
+    patternSetOutput: (enabled) => req('POST', '/api/patch/rigcheck/pattern/output', { enabled: !!enabled }),
+
     getRigCheckState: () => req('GET', '/api/patch/rigcheck'),
     rigCheckStart: (body) => req('POST', '/api/patch/rigcheck/start', body),
     rigCheckStop: () => req('POST', '/api/patch/rigcheck/stop'),

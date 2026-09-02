@@ -432,6 +432,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/patch/rigcheck/channel", s.handleRigCheckChannel)
 	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/start", s.handleRigCheckPatternStart)
 	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/adjust", s.handleRigCheckPatternAdjust)
+	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/tests", s.handleRigCheckPatternTests)
+	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/select", s.handleRigCheckPatternSelect)
+	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/scope", s.handleRigCheckPatternScope)
+	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/isolate", s.handleRigCheckPatternIsolate)
+	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/output", s.handleRigCheckPatternOutput)
 	s.mux.HandleFunc("GET /api/patch/rigcheck/pattern", s.handleRigCheckPatternStatus)
 
 	s.mux.HandleFunc("GET /ws", s.handleWS)
