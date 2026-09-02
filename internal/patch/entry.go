@@ -80,7 +80,16 @@ import (
 // Known flag. As with v2 -> v3, migrate() below deliberately invents nothing
 // for a v3 entry (see TestMigrate_V3FileLoadsWithAsFoundUnread); and since
 // v4 added no slices or maps, there is no nil normalization to do either.
-const CurrentSchemaVersion = 4
+// Version 5 (as-found "not fitted", bench capture RDM-LOG24, 2026-09-02):
+// every stored setting in asfound.go gained an explicit State — "read",
+// "not_fitted" or "unknown" — so that "this fixture's own
+// SUPPORTED_PARAMETERS does not list PAN_INVERT, therefore it has no pan"
+// stops being rendered as a failed read with a NACK string beside it, and
+// stops costing a round trip to relearn on every commit. A v4 file has no
+// "state" key on any setting; migrate() below normalizes the resulting
+// empty string to "unknown", never "not_fitted" — see the v4 -> v5 note in
+// migrate() for why that direction is the whole point of the bump.
+const CurrentSchemaVersion = 5
 
 // MatchState records a patch entry's reconciliation state, persisted so a
 // user-confirmed pairing is never re-litigated across sessions (task ask:
@@ -465,8 +474,19 @@ func migrate(p *Patch) {
 	// never silently zero (see TestMigrate_V3FileLoadsWithAsFoundUnread).
 	// v4 added only structs of scalars — no slices, no maps — so there is
 	// no new nil normalization to do here either.
+	//
+	// v4 -> v5: a v4 file has no "state" key on any setting inside
+	// Entry.AsFound/Entry.Intended, so each unmarshals to State=="".
+	// normalizeSettingStates (asfound.go) maps that onto "unknown" and pins
+	// the Known == (State=="read") invariant. Unlike the three steps above
+	// this one does have work to do — but it still invents nothing: "" and
+	// every unrecognized value become "unknown", NEVER "not_fitted". An old
+	// show file records that we never asked; it must not come back claiming
+	// we know the fixture lacks the hardware (see
+	// TestMigrate_V4FileLoadsWithSettingStatesUnknown).
 	normalizeChannelFunctions(p.Entries)
-	// Future: switch p.SchemaVersion { case 4: ...; p.SchemaVersion = 5 }
+	normalizeSettingStates(p.Entries)
+	// Future: switch p.SchemaVersion { case 5: ...; p.SchemaVersion = 6 }
 	p.SchemaVersion = CurrentSchemaVersion
 }
 
@@ -587,6 +607,7 @@ func (st *Store) Replace(p Patch) Patch {
 	p.ModifiedAt = now
 	p.SchemaVersion = CurrentSchemaVersion
 	normalizeChannelFunctions(p.Entries)
+	normalizeSettingStates(p.Entries)
 	st.patch = &p
 	st.persistLocked()
 	return clonePatch(*st.patch)
@@ -617,6 +638,7 @@ func (st *Store) Mutate(fn func(*Patch) error) (Patch, error) {
 	}
 	st.patch.ModifiedAt = time.Now()
 	normalizeChannelFunctions(st.patch.Entries)
+	normalizeSettingStates(st.patch.Entries)
 	st.persistLocked()
 	return clonePatch(*st.patch), nil
 }

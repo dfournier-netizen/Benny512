@@ -131,6 +131,31 @@ svg {
   stroke-linejoin: round;
 }
 
+/* ---- Icon sprite, part two: every icon also needs a SIZE it does not carry
+   The same <use>-instancing described above is also why no icon in this app
+   has an intrinsic size worth trusting: the kit sizes icons per call site
+   (.b5-btn svg, .b5-badge svg, .b5-nav__item svg, .b5-alert svg, .b5-empty
+   svg, ...) and there is no default underneath them. Any NEW call site
+   therefore renders its glyph at the symbol's own box — which is how the
+   Reconcile toolbar's filter and warning glyphs first shipped blowing the
+   control row apart, and how the reset dialog's checkmark shipped as a
+   large blob (see .b5-dialog__title svg below). Both were caught by looking
+   at a screenshot; no assertion in this project would have found either.
+   Fix: one low-specificity default, so an unsized icon is merely
+   ordinary-sized instead of broken. Every existing `... svg { width; height }`
+   rule in the kit is more specific and still wins, so nothing that was
+   already sized changes. Safe as a blanket `svg` selector for exactly the
+   reason the fill/stroke rule above is: grepped the whole static/ tree —
+   every <svg> in this app wraps exactly one <use href=".../benny512-icons.svg#...">,
+   and the logo is an <img>, not inline markup.
+   The scale itself lives with the components that consume it, at the top of
+   the screen-kit block in benny512-components.css. */
+svg {
+  width: var(--b5-size-icon-md);
+  height: var(--b5-size-icon-md);
+  flex: none;
+}
+
 /* ---- Nav buttons: reset UA <button> defaults ----------------------------
    ROOT CAUSE (2026-08-25, "nav buttons too bright, text too low-contrast"):
    .b5-nav__item (layout.css) was authored for <a> elements — it sets

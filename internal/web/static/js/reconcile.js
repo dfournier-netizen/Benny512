@@ -202,20 +202,20 @@ const ReconcilePanel = (() => {
     el.innerHTML = `
       ${renderToolbar()}
       ${renderArmedBanner()}
-      <div class="b5-rcb-panes">
-        <section class="b5-rcb-pane" aria-labelledby="rcbIntendedHead">
-          <h3 class="b5-rcb-pane__head" id="rcbIntendedHead">
-            <span class="b5-rcb-pane__title">Intended fixtures</span>
-            <span class="b5-rcb-pane__sub">what the patch says should be there</span>
+      <div class="b5-board">
+        <section class="b5-board__pane" aria-labelledby="rcbIntendedHead">
+          <h3 class="b5-board__head" id="rcbIntendedHead">
+            <span class="b5-board__title">Intended fixtures</span>
+            <span class="b5-board__sub">what the patch says should be there</span>
           </h3>
-          <div class="b5-rcb-list">${renderIntendedPane(links, proposalsByEntry)}</div>
+          <div class="b5-board__list">${renderIntendedPane(links, proposalsByEntry)}</div>
         </section>
-        <section class="b5-rcb-pane" aria-labelledby="rcbDetectedHead">
-          <h3 class="b5-rcb-pane__head" id="rcbDetectedHead">
-            <span class="b5-rcb-pane__title">Detected on the RDM line</span>
-            <span class="b5-rcb-pane__sub">what actually answered</span>
+        <section class="b5-board__pane" aria-labelledby="rcbDetectedHead">
+          <h3 class="b5-board__head" id="rcbDetectedHead">
+            <span class="b5-board__title">Detected on the RDM line</span>
+            <span class="b5-board__sub">what actually answered</span>
           </h3>
-          <div class="b5-rcb-list">${renderDetectedPane(links)}</div>
+          <div class="b5-board__list">${renderDetectedPane(links)}</div>
         </section>
       </div>
     `;
@@ -229,14 +229,14 @@ const ReconcilePanel = (() => {
     const differing = intended.filter(r => r.committed && r.differsCount > 0).length;
     const unclaimed = detected.filter(d => !d.committedToEntryId).length;
     return `
-      <div class="b5-rcb-toolbar">
-        <div class="b5-rcb-toolbar__row">
+      <div class="b5-toolbar">
+        <div class="b5-toolbar__row">
           <button id="rcbRefresh" class="b5-btn" ${busy ? 'disabled' : ''}>${UI.icon('refresh')}Refresh</button>
-          <label class="b5-rcb-search">
+          <label class="b5-toolbar__search">
             <span class="b5-visually-hidden">Filter both panes</span>
             <input id="rcbFilter" type="search" placeholder="Filter by name, type, position, UID…" value="${esc(filterText)}">
           </label>
-          <button id="rcbAttention" class="b5-rcb-seg2 ${needsAttentionOnly ? 'is-on' : ''}" aria-pressed="${needsAttentionOnly}">
+          <button id="rcbAttention" class="b5-seg ${needsAttentionOnly ? 'is-on' : ''}" aria-pressed="${needsAttentionOnly}">
             ${needsAttentionOnly ? UI.icon('status-ok') : UI.icon('filter')}Needs attention only
           </button>
           <button id="rcbExportJson" class="b5-btn">${UI.icon('export')}Export JSON</button>
@@ -254,16 +254,16 @@ const ReconcilePanel = (() => {
     if (armedEntryId) {
       const row = (board.intended || []).find(r => r.entryId === armedEntryId);
       if (!row) return '';
-      return `<div class="b5-rcb-armed">
-        <span class="b5-rcb-armed__label">Committing <strong>${esc(entryLabel(row))}</strong> — now pick the fixture that answers for it on the right.</span>
+      return `<div class="b5-modebar">
+        <span class="b5-modebar__label">Committing <strong>${esc(entryLabel(row))}</strong> — now pick the fixture that answers for it on the right.</span>
         <button class="b5-btn b5-btn--ghost" data-rcb-disarm="1">Cancel</button>
       </div>`;
     }
     if (armedDeviceUid) {
       const dev = (board.detected || []).find(d => d.uid === armedDeviceUid);
       if (!dev) return '';
-      return `<div class="b5-rcb-armed">
-        <span class="b5-rcb-armed__label">Committing fixture <strong class="b5-text-mono">${esc(dev.uid)}</strong> — now pick the patch entry it belongs to on the left.</span>
+      return `<div class="b5-modebar">
+        <span class="b5-modebar__label">Committing fixture <strong class="b5-text-mono">${esc(dev.uid)}</strong> — now pick the patch entry it belongs to on the left.</span>
         <button class="b5-btn b5-btn--ghost" data-rcb-disarm="1">Cancel</button>
       </div>`;
     }
@@ -289,17 +289,17 @@ const ReconcilePanel = (() => {
     // reinforcement, never the signal itself.
     let stateChip, cls;
     if (!row.committed) {
-      stateChip = `<span class="b5-rcb-chip b5-rcb-chip--open">Not committed</span>`;
-      cls = 'is-uncommitted';
+      stateChip = `<span class="b5-pill b5-pill--md b5-pill--open">Not committed</span>`;
+      cls = 'is-open';
     } else if (!row.deviceOnline) {
-      stateChip = `<span class="b5-rcb-chip b5-rcb-chip--warn">${UI.icon('status-warning')}Committed · fixture not answering</span>`;
-      cls = 'is-offline';
+      stateChip = `<span class="b5-pill b5-pill--md b5-pill--warn">${UI.icon('status-warning')}Committed · fixture not answering</span>`;
+      cls = 'is-danger';
     } else if (row.differsCount > 0) {
-      stateChip = `<span class="b5-rcb-chip b5-rcb-chip--warn">${UI.icon('status-warning')}Committed · ${row.differsCount} setting${row.differsCount === 1 ? '' : 's'} differ${row.differsCount === 1 ? 's' : ''}</span>`;
-      cls = 'is-differs';
+      stateChip = `<span class="b5-pill b5-pill--md b5-pill--warn">${UI.icon('status-warning')}Committed · ${row.differsCount} setting${row.differsCount === 1 ? '' : 's'} differ${row.differsCount === 1 ? 's' : ''}</span>`;
+      cls = 'is-warn';
     } else {
-      stateChip = `<span class="b5-rcb-chip b5-rcb-chip--ok">${UI.icon('status-ok')}Committed · settings match</span>`;
-      cls = 'is-matching';
+      stateChip = `<span class="b5-pill b5-pill--md b5-pill--ok">${UI.icon('status-ok')}Committed · settings match</span>`;
+      cls = 'is-ok';
     }
 
     const meta = [
@@ -324,18 +324,18 @@ const ReconcilePanel = (() => {
     }
 
     return `
-      <article class="b5-rcb-card ${cls} ${armed ? 'is-armed' : ''}">
-        <div class="b5-rcb-card__top">
-          ${link ? `<span class="b5-rcb-link" title="committed pair">${link}</span>` : `<span class="b5-rcb-link b5-rcb-link--none" aria-hidden="true">·</span>`}
-          <div class="b5-rcb-card__id">
-            <strong class="b5-rcb-card__name">${esc(entryLabel(row))}</strong>
-            <span class="b5-rcb-card__meta">${meta}</span>
+      <article class="b5-statecard ${cls} ${armed ? 'is-armed' : ''}">
+        <div class="b5-statecard__top">
+          ${link ? `<span class="b5-linkbadge" title="committed pair">${link}</span>` : `<span class="b5-linkbadge b5-linkbadge--none" aria-hidden="true">·</span>`}
+          <div class="b5-statecard__id">
+            <strong class="b5-statecard__name">${esc(entryLabel(row))}</strong>
+            <span class="b5-statecard__meta">${meta}</span>
           </div>
         </div>
-        <div class="b5-rcb-card__state">${stateChip}${row.committed ? `<span class="b5-text-mono b5-rcb-uid">${esc(row.committedUid)}</span>` : ''}</div>
+        <div class="b5-statecard__state">${stateChip}${row.committed ? `<span class="b5-text-mono b5-rcb-uid">${esc(row.committedUid)}</span>` : ''}</div>
         ${row.committed && row.asFoundAt ? `<p class="b5-rcb-readat">Settings last read ${esc(when(row.asFoundAt))}</p>` : ''}
         ${renderProposal(row, proposal)}
-        <div class="b5-rcb-card__actions">${actions}</div>
+        <div class="b5-statecard__actions">${actions}</div>
         ${open && row.committed ? renderDiff(row) : ''}
       </article>`;
   }
@@ -349,17 +349,17 @@ const ReconcilePanel = (() => {
     if (row.committed || !proposal || !proposal.candidates || !proposal.candidates.length) return '';
     const ambiguous = proposal.status === 'ambiguous' || proposal.candidates.length > 1;
     const head = ambiguous
-      ? `<p class="b5-rcb-suggest__head">${UI.icon('status-warning')}<strong>${proposal.candidates.length} fixtures match this entry about equally well.</strong> Nothing has been committed — pick one, and check the evidence first.</p>`
-      : `<p class="b5-rcb-suggest__head">Suggested match — nothing is committed until you say so.</p>`;
+      ? `<p class="b5-inset__head">${UI.icon('status-warning')}<strong>${proposal.candidates.length} fixtures match this entry about equally well.</strong> Nothing has been committed — pick one, and check the evidence first.</p>`
+      : `<p class="b5-inset__head">Suggested match — nothing is committed until you say so.</p>`;
     const cands = proposal.candidates.map(c => `
       <div class="b5-rcb-cand">
         <div class="b5-rcb-cand__top">
           <span class="b5-text-mono">${esc(c.deviceUid)}</span>
           <span class="b5-rcb-cand__conf">${Math.round((c.confidence || 0) * 100)}% confidence</span>
         </div>
-        <ul class="b5-rcb-why">
+        <ul class="b5-why">
           ${(c.evidence || []).length
-            ? (c.evidence || []).map(ev => `<li><span class="b5-rcb-why__kind">${esc(ev.kind)}</span> ${esc(ev.detail)}</li>`).join('')
+            ? (c.evidence || []).map(ev => `<li><span class="b5-why__kind">${esc(ev.kind)}</span> ${esc(ev.detail)}</li>`).join('')
             : '<li>No field-level evidence — this candidate scored only just above the proposal threshold.</li>'}
         </ul>
         <div class="b5-rcb-cand__actions">
@@ -367,12 +367,23 @@ const ReconcilePanel = (() => {
           <button class="b5-btn" data-rcb-identify="${esc(c.deviceUid)}" ${busy ? 'disabled' : ''}>${UI.icon('identify')}Identify</button>
         </div>
       </div>`).join('');
-    return `<div class="b5-rcb-suggest">${head}${cands}
+    return `<div class="b5-inset">${head}${cands}
       <button class="b5-btn b5-btn--ghost" data-rcb-reject="${esc(row.entryId)}" ${busy ? 'disabled' : ''}>None of these</button>
     </div>`;
   }
 
   // --- the diff -------------------------------------------------------------
+
+  // DIFF_TONE: the server's own diff-state vocabulary mapped onto the design
+  // system's tone names (see css/DESIGN.md). The kit deliberately knows nothing
+  // about "intended_unset" — a tone says how alarmed to be, a state says what
+  // happened, and this table is the one place the two meet.
+  const DIFF_TONE = {
+    match: 'ok',
+    differs: 'warn',
+    intended_unset: 'info',
+    unread: 'unread',
+  };
 
   const STATE_WORD = {
     match: 'Matches',
@@ -390,7 +401,7 @@ const ReconcilePanel = (() => {
       // An intended mode NAME with no committable index still reads better
       // than a bare dash — it tells him what the patch believes even though
       // there is no index to push.
-      return label ? `<em>${esc(label)}</em> <span class="b5-rcb-note">(name only — no mode number to send)</span>` : '—';
+      return label ? `<em>${esc(label)}</em> <span class="b5-note">(name only — no mode number to send)</span>` : '—';
     }
     switch (line.kind) {
       case 'universe':
@@ -404,8 +415,8 @@ const ReconcilePanel = (() => {
         const n = side === 'intended' ? line.intendedNum : line.foundNum;
         const count = (side === 'found' && line.foundCountKnown) ? ` of ${line.foundCount}` : '';
         return label
-          ? `${esc(label)} <span class="b5-rcb-note">(#${esc(String(n))}${esc(count)})</span>`
-          : `#${esc(String(n))}<span class="b5-rcb-note">${esc(count)}</span>`;
+          ? `${esc(label)} <span class="b5-note">(#${esc(String(n))}${esc(count)})</span>`
+          : `#${esc(String(n))}<span class="b5-note">${esc(count)}</span>`;
       }
       case 'bool':
         return (side === 'intended' ? line.intendedBool : line.foundBool) ? 'On' : 'Off';
@@ -433,15 +444,20 @@ const ReconcilePanel = (() => {
     const lines = row.diff || [];
     const body = lines.map(line => {
       const word = STATE_WORD[line.state] || line.state;
+      // A state the kit has no tone for is drawn as a plain untoned tag rather
+      // than silently borrowing another state's colour.
+      const tone = DIFF_TONE[line.state] || '';
+      const toneCls = tone ? ` b5-pill--${tone}` : '';
+      const lineCls = tone ? ` is-${tone}` : '';
       let action = '';
       if (line.state === 'differs' && line.pushable) {
         action = `<button class="b5-btn b5-btn--primary" data-rcb-push="${esc(row.entryId)}" data-rcb-push-field="${esc(line.field)}" ${busy ? 'disabled' : ''}>${UI.icon('apply')}Apply to fixture</button>`;
       } else if (line.state === 'differs') {
-        action = `<span class="b5-rcb-note">Not settable over RDM — this one is fixed at the node or on the DMX line.</span>`;
+        action = `<span class="b5-note">Not settable over RDM — this one is fixed at the node or on the DMX line.</span>`;
       } else if (line.state === 'intended_unset') {
         action = `<button class="b5-btn" data-rcb-adopt="${esc(row.entryId)}" data-rcb-adopt-field="${esc(line.field)}" ${busy ? 'disabled' : ''}>Adopt as intended</button>`;
       } else if (line.state === 'unread' && line.foundErr) {
-        action = `<span class="b5-rcb-note">${esc(line.foundErr)}</span>`;
+        action = `<span class="b5-note">${esc(line.foundErr)}</span>`;
       }
       // The as-found timestamp sits on the field that carries it, because
       // per-field read times genuinely differ — a curve that NACKed on
@@ -449,16 +465,16 @@ const ReconcilePanel = (() => {
       // moment from the address beside it.
       const at = (line.foundKnown && line.foundAt) ? when(line.foundAt) : '';
       return `
-        <div class="b5-rcb-line is-${esc(line.state)}">
-          <div class="b5-rcb-line__head">
-            <span class="b5-rcb-line__label">${esc(line.label)}</span>
-            <span class="b5-rcb-state b5-rcb-state--${esc(line.state)}">${esc(word)}</span>
+        <div class="b5-diffline${lineCls}">
+          <div class="b5-diffline__head">
+            <span class="b5-diffline__label">${esc(line.label)}</span>
+            <span class="b5-pill b5-pill--tag${toneCls}">${esc(word)}</span>
           </div>
-          <dl class="b5-rcb-line__vals">
+          <dl class="b5-diffline__vals">
             <dt>Intended</dt><dd>${valueText(line, 'intended')}</dd>
-            <dt>As found</dt><dd>${valueText(line, 'found')}${at ? ` <span class="b5-rcb-note">· read ${esc(at)}</span>` : ''}</dd>
+            <dt>As found</dt><dd>${valueText(line, 'found')}${at ? ` <span class="b5-note">· read ${esc(at)}</span>` : ''}</dd>
           </dl>
-          ${action ? `<div class="b5-rcb-line__action">${action}</div>` : ''}
+          ${action ? `<div class="b5-diffline__action">${action}</div>` : ''}
         </div>`;
     }).join('');
 
@@ -501,7 +517,7 @@ const ReconcilePanel = (() => {
 
     let actions = '';
     if (claimed) {
-      actions = `<span class="b5-rcb-note">Committed to <strong>${esc(dev.committedToName)}</strong> — decommit it on the left to free this fixture.</span>`;
+      actions = `<span class="b5-note">Committed to <strong>${esc(dev.committedToName)}</strong> — decommit it on the left to free this fixture.</span>`;
     } else if (armedEntryId) {
       actions = `<button class="b5-btn b5-btn--primary" data-rcb-commit-device="${esc(dev.uid)}" ${busy ? 'disabled' : ''}>Commit the picked entry to this fixture</button>
         <button class="b5-btn" data-rcb-identify="${esc(dev.uid)}" ${busy ? 'disabled' : ''}>${UI.icon('identify')}Identify</button>`;
@@ -511,26 +527,26 @@ const ReconcilePanel = (() => {
     }
 
     return `
-      <article class="b5-rcb-card ${claimed ? 'is-matching' : 'is-uncommitted'} ${armed ? 'is-armed' : ''}">
-        <div class="b5-rcb-card__top">
-          ${link ? `<span class="b5-rcb-link" title="committed pair">${link}</span>` : `<span class="b5-rcb-link b5-rcb-link--none" aria-hidden="true">·</span>`}
-          <div class="b5-rcb-card__id">
-            <strong class="b5-rcb-card__name">${esc(deviceLabel(dev))}</strong>
-            <span class="b5-rcb-card__meta">${meta}</span>
+      <article class="b5-statecard ${claimed ? 'is-ok' : 'is-open'} ${armed ? 'is-armed' : ''}">
+        <div class="b5-statecard__top">
+          ${link ? `<span class="b5-linkbadge" title="committed pair">${link}</span>` : `<span class="b5-linkbadge b5-linkbadge--none" aria-hidden="true">·</span>`}
+          <div class="b5-statecard__id">
+            <strong class="b5-statecard__name">${esc(deviceLabel(dev))}</strong>
+            <span class="b5-statecard__meta">${meta}</span>
           </div>
         </div>
-        <div class="b5-rcb-card__state">
+        <div class="b5-statecard__state">
           ${claimed
-            ? `<span class="b5-rcb-chip b5-rcb-chip--ok">${UI.icon('status-ok')}Committed</span>`
-            : `<span class="b5-rcb-chip b5-rcb-chip--open">Not committed</span>`}
+            ? `<span class="b5-pill b5-pill--md b5-pill--ok">${UI.icon('status-ok')}Committed</span>`
+            : `<span class="b5-pill b5-pill--md b5-pill--open">Not committed</span>`}
           <span class="b5-text-mono b5-rcb-uid">${esc(dev.uid)}</span>
         </div>
-        <div class="b5-rcb-card__actions">${actions}</div>
+        <div class="b5-statecard__actions">${actions}</div>
       </article>`;
   }
 
   function emptyNote(text) {
-    return `<p class="b5-rcb-empty">${esc(text)}</p>`;
+    return `<p class="b5-board__empty">${esc(text)}</p>`;
   }
 
   // --- actions --------------------------------------------------------------

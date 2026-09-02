@@ -107,11 +107,11 @@ func TestUpdatePatchEntry_PreservesAsFoundAndIntended(t *testing.T) {
 	now := time.Date(2026, 9, 2, 5, 0, 0, 0, time.UTC)
 	want := patch.AsFoundSettings{
 		UID: "2222:00000001", ReadAt: now,
-		StartAddress: patch.SettingUint16{Known: true, Value: 41, At: now},
-		PanInvert:    patch.SettingBool{Known: true, Value: true, At: now},
+		StartAddress: patch.SettingUint16{Known: true, Value: 41, At: now, State: patch.SettingRead},
+		PanInvert:    patch.SettingBool{Known: true, Value: true, At: now, State: patch.SettingRead},
 	}
 	wantIntended := patch.IntendedSettings{
-		Personality: patch.SettingIndex{Known: true, Value: 2, Count: 3, CountKnown: true, Label: "20ch", At: now},
+		Personality: patch.SettingIndex{Known: true, Value: 2, Count: 3, CountKnown: true, Label: "20ch", At: now, State: patch.SettingRead},
 	}
 	if _, err := h.srv.PatchStore.Mutate(func(pp *patch.Patch) error {
 		idx := pp.IndexOf(id)
@@ -139,10 +139,10 @@ func TestUpdatePatchEntry_PreservesAsFoundAndIntended(t *testing.T) {
 	if got.ConfirmedUID != "2222:00000001" || got.MatchState != patch.MatchStateConfirmed {
 		t.Errorf("a plain field edit broke the commit: uid=%q state=%q", got.ConfirmedUID, got.MatchState)
 	}
-	if got.AsFound != want {
+	if got.AsFound != want.Normalized() {
 		t.Errorf("a plain field edit discarded the as-found readings:\n got %+v\nwant %+v", got.AsFound, want)
 	}
-	if got.Intended != wantIntended {
+	if got.Intended != wantIntended.Normalized() {
 		t.Errorf("a plain field edit discarded the intended settings:\n got %+v\nwant %+v", got.Intended, wantIntended)
 	}
 }
@@ -160,9 +160,9 @@ func TestReconcileDecommit_ClearsAsFoundKeepsIntended(t *testing.T) {
 
 	now := time.Date(2026, 9, 2, 5, 0, 0, 0, time.UTC)
 	wantIntended := patch.IntendedSettings{
-		Personality: patch.SettingIndex{Known: true, Value: 2, Count: 3, CountKnown: true, Label: "20ch", At: now},
-		PanInvert:   patch.SettingBool{Known: true, Value: true, At: now},
-		DeviceLabel: patch.SettingText{Known: true, Value: "SL Boom 1", At: now},
+		Personality: patch.SettingIndex{Known: true, Value: 2, Count: 3, CountKnown: true, Label: "20ch", At: now, State: patch.SettingRead},
+		PanInvert:   patch.SettingBool{Known: true, Value: true, At: now, State: patch.SettingRead},
+		DeviceLabel: patch.SettingText{Known: true, Value: "SL Boom 1", At: now, State: patch.SettingRead},
 	}
 	if _, err := h.srv.PatchStore.Mutate(func(pp *patch.Patch) error {
 		idx := pp.IndexOf(id)
@@ -194,10 +194,10 @@ func TestReconcileDecommit_ClearsAsFoundKeepsIntended(t *testing.T) {
 	if got.ConfirmedUID != "" || got.MatchState != patch.MatchStateUnresolved {
 		t.Errorf("relation survived decommit: uid=%q state=%q", got.ConfirmedUID, got.MatchState)
 	}
-	if got.AsFound != (patch.AsFoundSettings{}) {
+	if got.AsFound != patch.EmptyAsFound() {
 		t.Errorf("as-found survived decommit: %+v", got.AsFound)
 	}
-	if got.Intended != wantIntended {
+	if got.Intended != wantIntended.Normalized() {
 		t.Errorf("decommit destroyed the intended settings a substitute must inherit:\n got %+v\nwant %+v", got.Intended, wantIntended)
 	}
 	if got.StartAddress != 41 {
@@ -332,13 +332,14 @@ func TestReconcileCommit_StealingADeviceDecommitsTheOtherEntry(t *testing.T) {
 	idB := created.Patch.Entries[1].ID
 
 	now := time.Date(2026, 9, 2, 5, 0, 0, 0, time.UTC)
-	intendedA := patch.IntendedSettings{PanInvert: patch.SettingBool{Known: true, Value: true, At: now}}
+	intendedA := patch.IntendedSettings{PanInvert: patch.SettingBool{Known: true, Value: true, At: now, State: patch.SettingRead}}
 	if _, err := h.srv.PatchStore.Mutate(func(pp *patch.Patch) error {
 		idx := pp.IndexOf(idA)
 		pp.Entries[idx].ConfirmedUID = "2222:00000001"
 		pp.Entries[idx].MatchState = patch.MatchStateConfirmed
 		pp.Entries[idx].Intended = intendedA
 		pp.Entries[idx].AsFound = patch.AsFoundSettings{UID: "2222:00000001", ReadAt: now}
+		// (states are normalized to "unknown" by the store on write)
 		return nil
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -368,10 +369,10 @@ func TestReconcileCommit_StealingADeviceDecommitsTheOtherEntry(t *testing.T) {
 	if a.ConfirmedUID != "" {
 		t.Errorf("two entries now claim one fixture — entry A still holds %q", a.ConfirmedUID)
 	}
-	if a.AsFound != (patch.AsFoundSettings{}) {
+	if a.AsFound != patch.EmptyAsFound() {
 		t.Errorf("entry A kept stale readings for a fixture it no longer holds: %+v", a.AsFound)
 	}
-	if a.Intended != intendedA {
+	if a.Intended != intendedA.Normalized() {
 		t.Errorf("losing a fixture destroyed entry A's intended settings:\n got %+v\nwant %+v", a.Intended, intendedA)
 	}
 }

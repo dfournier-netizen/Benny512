@@ -120,8 +120,8 @@ func TestMigrate_V3FileLoadsWithAsFoundUnread(t *testing.T) {
 	if p.SchemaVersion != CurrentSchemaVersion {
 		t.Errorf("SchemaVersion = %d after migrate, want %d", p.SchemaVersion, CurrentSchemaVersion)
 	}
-	if CurrentSchemaVersion != 4 {
-		t.Errorf("CurrentSchemaVersion = %d, want 4 — the commit model's bump", CurrentSchemaVersion)
+	if CurrentSchemaVersion != 5 {
+		t.Errorf("CurrentSchemaVersion = %d, want 5 — the commit model's bump (4) plus the as-found not-fitted state (5)", CurrentSchemaVersion)
 	}
 	e := p.Entries[0]
 
@@ -362,7 +362,7 @@ func TestEntry_Decommit_KeepsIntended(t *testing.T) {
 	if e.MatchState != MatchStateUnresolved {
 		t.Errorf("MatchState = %q after Decommit, want unresolved", e.MatchState)
 	}
-	if e.AsFound != (AsFoundSettings{}) {
+	if e.AsFound != EmptyAsFound() {
 		t.Errorf("AsFound survived Decommit: %+v", e.AsFound)
 	}
 	if e.Intended != intendedBefore {
@@ -419,7 +419,7 @@ func TestEntry_AdoptAsIntended(t *testing.T) {
 		t.Errorf("StartAddress = %d, want the patch's own 41", e.StartAddress)
 	}
 
-	if e.Intended.Personality != (SettingIndex{Known: true, Value: 3, Count: 4, CountKnown: true, Label: "20ch Extended", At: now}) {
+	if e.Intended.Personality != (SettingIndex{Known: true, Value: 3, Count: 4, CountKnown: true, Label: "20ch Extended", At: now, State: SettingRead}) {
 		t.Errorf("adopted personality = %+v", e.Intended.Personality)
 	}
 	// The real zero.

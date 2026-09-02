@@ -645,25 +645,61 @@
 .b5-text-xs { font-size: var(--b5-font-size-xs); }
 .b5-hr { border: none; border-top: var(--b5-border-width-thin) solid var(--b5-color-border-subtle); margin: var(--b5-space-4) 0; }
 
-/* ============================================================
-   Rig Check — stackable test toggles (rigcheck.js)
-   Appended block, per the ownership split for this piece of work:
-   everything below is new and nothing above it was touched.
 
-   Design target is a TABLET held at arm's length, in the dark, by
-   someone standing under a truss with one hand free. That drives
-   every number here: tiles are at least 88px tall (double the 44px
-   touch minimum) so a mis-tap is unlikely; the START/STOP bar is
-   sticky to the BOTTOM edge, which is where a thumb sits when a
-   tablet is held two-handed; and no state is carried by colour
-   alone — every on/off condition also has an icon, the literal word
-   ON/OFF or LIVE/STOPPED, a border weight change and a background
-   change, so it survives a dim screen, a colour-blind reader and a
-   greyscale photo of the rig.
-   ============================================================ */
+/* ============================================================================
+   BENNY512 SCREEN KIT
+   ============================================================================
+   One shared vocabulary for the screen shapes the owner signed off on the
+   Reconcile and Rig Check "Function check" pages. Everything here was
+   promoted out of those two screens' private `.b5-rcp-*` / `.b5-rcb-*`
+   blocks, which had each grown their own spelling of the same idea. Read
+   css/DESIGN.md before using any of it — that file carries the markup
+   contract for each component and the rules that are not negotiable.
 
-.b5-rcp-section { margin-bottom: var(--b5-space-6); }
-.b5-rcp-section__head {
+   The design target is a TABLET held at arm's length, in the dark, by
+   someone standing under a truss with one hand free. That drives every
+   number below.
+
+   THE FOUR RULES THESE COMPONENTS EXIST TO ENFORCE
+   ------------------------------------------------
+   1. NEVER COLOUR AS THE SOLE SIGNAL. Every state is carried by a WORD
+      first, then an icon, then a border weight or style, and only then by
+      hue. Read this stylesheet with all colour removed and the screens
+      still work. That is why .b5-statecard's left rule changes WIDTH as
+      well as colour, why .b5-pill is a bordered pill with text in it
+      rather than a coloured dot, and why .b5-bigbtn--go and
+      .b5-bigbtn--stop are different SHAPES.
+   2. 44px MINIMUM TOUCH TARGET on everything you can press. The kit's
+      .b5-btn already carries it (min-height: var(--b5-size-touch-min)), so
+      a container does NOT need to re-declare it — every component here is
+      sized from that token, never from a literal.
+   3. AN UNKNOWN IS NAMED, NOT HIDDEN. .b5-fromfile, .b5-pill--unread,
+      .b5-pill--open and .b5-board__empty exist so a screen can say what it
+      does not know instead of printing a plausible zero.
+   4. WIDE CONTENT SCROLLS INSIDE ITS OWN BOX. Every container here that
+      can hold wide content sets `min-width: 0` so the page body never
+      scrolls sideways.
+
+   ---- icon scale -----------------------------------------------------------
+   These live here rather than in benny512-tokens.css only because that file
+   is outside this change's ownership boundary; they are component-scale
+   constants, not palette, so nothing about the theme depends on them. The
+   global default that consumes them is in app.css, next to the existing
+   global svg fill/stroke rule — see the long comment there for why every
+   icon in this app needs a size it does not carry itself. */
+:root {
+  --b5-size-icon-sm: 14px;
+  --b5-size-icon-md: 18px;
+  --b5-size-icon-lg: 24px;
+}
+
+/* ---------------------------------------------------------------------------
+   1. NUMBERED STEP SECTION
+   Gives a screen a readable top-to-bottom order ("1 Testing scope",
+   "2 Tests", "3 Output") rather than three unrelated panels.
+   --------------------------------------------------------------------------- */
+.b5-step-section { margin-bottom: var(--b5-space-6); }
+.b5-step-section__head {
   display: flex;
   align-items: center;
   gap: var(--b5-space-3);
@@ -673,15 +709,12 @@
   letter-spacing: var(--b5-letter-spacing-sm);
   color: var(--b5-color-text-primary);
 }
-.b5-rcp-section__note {
+.b5-step-section__note {
   font-size: var(--b5-font-size-sm);
   font-weight: var(--b5-font-weight-regular);
   color: var(--b5-color-text-muted);
 }
-/* The numbered step marker makes the owner's stated workflow order —
-   scope, then tests, then run — readable as an order rather than as
-   three unrelated panels. */
-.b5-rcp-step {
+.b5-step-num {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -693,16 +726,35 @@
   color: var(--b5-color-text-secondary);
 }
 
-.b5-rcp-alert { margin-bottom: var(--b5-space-4); }
-.b5-rcp-list { margin: var(--b5-space-2) 0 0; padding-left: var(--b5-space-5); color: var(--b5-color-text-secondary); font-size: var(--b5-font-size-sm); }
-.b5-rcp-list li { margin-bottom: var(--b5-space-1); }
+/* ---------------------------------------------------------------------------
+   2. GROUP — a labelled band of related items inside a step section.
+   --------------------------------------------------------------------------- */
+.b5-group { margin-bottom: var(--b5-space-5); }
+.b5-group__head {
+  margin: 0 0 var(--b5-space-2);
+  padding-bottom: var(--b5-space-1);
+  border-bottom: var(--b5-border-width-thin) solid var(--b5-color-border-subtle);
+  font-size: var(--b5-font-size-md);
+  font-weight: var(--b5-font-weight-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--b5-color-text-muted);
+}
 
-/* ---- segmented control (scope kind, waveform, direction) ---- */
-.b5-rcp-segmented { display: flex; flex-wrap: wrap; gap: var(--b5-space-2); }
-.b5-rcp-seg {
-  flex: 1 1 auto;
-  min-height: 52px;
-  min-width: 120px;
+/* ---------------------------------------------------------------------------
+   3. SEGMENTED CONTROL / TOGGLE BUTTON
+   One component, two shapes: inside .b5-segmented the buttons share the row
+   and grow; standing alone (a filter toggle in a toolbar) a .b5-seg is a
+   content-width 44px button. The on-state carries a thicker border and an
+   inset underline as well as a tint — rule 1.
+   --------------------------------------------------------------------------- */
+.b5-segmented { display: flex; flex-wrap: wrap; gap: var(--b5-space-2); }
+.b5-seg {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--b5-space-2);
+  min-height: var(--b5-size-touch-min);
   padding: var(--b5-space-2) var(--b5-space-4);
   border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
   border-radius: var(--b5-radius-md);
@@ -713,8 +765,10 @@
   font-weight: var(--b5-font-weight-medium);
   cursor: pointer;
 }
-.b5-rcp-seg:hover { background: var(--b5-color-bg-hover); }
-.b5-rcp-seg.is-on {
+.b5-segmented > .b5-seg { flex: 1 1 auto; min-height: 52px; min-width: 120px; }
+.b5-segmented--sm > .b5-seg { min-height: var(--b5-size-touch-min); min-width: 96px; font-size: var(--b5-font-size-sm); }
+.b5-seg:hover { background: var(--b5-color-bg-hover); }
+.b5-seg.is-on {
   background: var(--b5-color-accent-500-a15);
   border-color: var(--b5-color-accent-500);
   border-width: var(--b5-border-width-thick);
@@ -722,97 +776,101 @@
   font-weight: var(--b5-font-weight-bold);
   box-shadow: inset 0 -3px 0 var(--b5-color-accent-500);
 }
-.b5-rcp-seg:focus-visible { outline: none; box-shadow: var(--b5-shadow-focus); }
-.b5-rcp-segmented--sm .b5-rcp-seg { min-height: 44px; min-width: 96px; font-size: var(--b5-font-size-sm); }
+.b5-seg:focus-visible { outline: none; box-shadow: var(--b5-shadow-focus); }
 
-/* ---- scope ---- */
-.b5-rcp-scope__value { margin-top: var(--b5-space-3); display: flex; flex-direction: column; gap: var(--b5-space-2); }
-.b5-rcp-scope__count {
-  margin: var(--b5-space-3) 0 0;
-  font-size: var(--b5-font-size-md);
-  color: var(--b5-color-text-secondary);
-}
-.b5-rcp-scope__note { margin: var(--b5-space-1) 0 0; font-size: var(--b5-font-size-sm); color: var(--b5-color-text-muted); }
-.b5-rcp-num { min-height: 48px; width: 8em; font-size: var(--b5-font-size-md); }
-.b5-rcp-scope__picklist {
-  max-height: 260px;
-  overflow-y: auto;
-  border: var(--b5-border-width-thin) solid var(--b5-color-border-subtle);
-  border-radius: var(--b5-radius-md);
-  padding: var(--b5-space-2);
-}
-.b5-rcp-pick {
-  display: flex;
+/* ---------------------------------------------------------------------------
+   4. STATUS PILL — the single way this app draws a state.
+   Pick exactly one SKIN (--sm | --md | --lg | --tag), optionally one TONE
+   (--ok | --warn | --danger | --info | --accent | --open | --unread), and
+   optionally --solid to fill it with that tone's tint. A pill ALWAYS
+   contains a word; there is no icon-only variant on purpose.
+   --------------------------------------------------------------------------- */
+.b5-pill {
+  display: inline-flex;
   align-items: center;
-  gap: var(--b5-space-3);
-  min-height: var(--b5-size-touch-min);
-  padding: var(--b5-space-1) var(--b5-space-2);
-  cursor: pointer;
-  color: var(--b5-color-text-secondary);
-}
-.b5-rcp-pick input { width: 24px; height: 24px; flex: none; accent-color: var(--b5-color-accent-500); }
-
-/* ---- isolate ---- */
-.b5-rcp-isolate {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--b5-space-3);
-  padding: var(--b5-space-3) var(--b5-space-4);
+  gap: var(--b5-space-1);
   border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
-  border-radius: var(--b5-radius-md);
-  background: var(--b5-color-bg-surface);
-  cursor: pointer;
-  min-height: var(--b5-size-touch-min);
+  border-radius: var(--b5-radius-full);
+  white-space: nowrap;
 }
-.b5-rcp-isolate.is-on { border-color: var(--b5-color-warning-500); border-width: var(--b5-border-width-thick); background: var(--b5-color-warning-900); }
-.b5-rcp-isolate input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-.b5-rcp-isolate__box {
-  flex: none;
-  width: 30px; height: 30px;
-  display: inline-flex; align-items: center; justify-content: center;
-  border: var(--b5-border-width-thick) solid var(--b5-color-border-strong);
-  border-radius: var(--b5-radius-sm);
-  color: var(--b5-color-text-warning);
-}
-.b5-rcp-isolate.is-on .b5-rcp-isolate__box { border-color: var(--b5-color-warning-400); }
-.b5-rcp-isolate__box svg { width: 20px; height: 20px; }
-.b5-rcp-isolate input:focus-visible + .b5-rcp-isolate__box { box-shadow: var(--b5-shadow-focus); }
-.b5-rcp-isolate__title { display: block; font-weight: var(--b5-font-weight-bold); color: var(--b5-color-text-primary); }
-.b5-rcp-isolate__body { display: block; margin-top: var(--b5-space-1); font-size: var(--b5-font-size-sm); color: var(--b5-color-text-muted); }
 
-/* ---- test grid ---- */
-.b5-rcp-group { margin-bottom: var(--b5-space-5); }
-.b5-rcp-group__head {
-  margin: 0 0 var(--b5-space-2);
-  padding-bottom: var(--b5-space-1);
-  border-bottom: var(--b5-border-width-thin) solid var(--b5-color-border-subtle);
-  font-size: var(--b5-font-size-md);
+/* skins */
+.b5-pill--sm {
+  padding: 2px var(--b5-space-2);
+  border-color: var(--b5-color-border-strong);
+  font-size: var(--b5-font-size-xs);
   font-weight: var(--b5-font-weight-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   color: var(--b5-color-text-muted);
 }
-/* auto-fill rather than auto-fit: a lone tile in a group keeps a sane
-   width instead of stretching the full width of a landscape tablet. */
-.b5-rcp-tiles {
+.b5-pill--sm svg { width: 16px; height: 16px; }
+.b5-pill--md {
+  padding: 4px var(--b5-space-3);
+  background: var(--b5-color-bg-inset);
+  color: var(--b5-color-text-secondary);
+  font-size: var(--b5-font-size-sm);
+  font-weight: var(--b5-font-weight-medium);
+  line-height: 1.4;
+}
+.b5-pill--md svg { width: var(--b5-size-icon-sm); height: var(--b5-size-icon-sm); }
+.b5-pill--lg {
+  gap: var(--b5-space-2);
+  padding: var(--b5-space-1) var(--b5-space-3);
+  border-width: var(--b5-border-width-thick);
+  border-color: var(--b5-color-border-strong);
+  font-weight: var(--b5-font-weight-bold);
+  letter-spacing: 0.08em;
+  color: var(--b5-color-text-muted);
+}
+/* --tag: the compact, square-cornered word used inside a dense list row
+   (a diff line) where a full pill would out-shout the value beside it. */
+.b5-pill--tag {
+  padding: 2px var(--b5-space-2);
+  border-radius: var(--b5-radius-sm);
+  font-size: var(--b5-font-size-xs);
+  font-weight: var(--b5-font-weight-bold);
+}
+
+/* tones — border colour + text colour only, so a tone is safe on any skin.
+   Each also publishes its tint for --solid to pick up. */
+.b5-pill--ok      { border-color: var(--b5-color-success-500); color: var(--b5-color-text-success); --b5-pill-tint: var(--b5-color-success-900); }
+.b5-pill--warn    { border-color: var(--b5-color-warning-500); border-width: var(--b5-border-width-thick); color: var(--b5-color-text-warning); --b5-pill-tint: var(--b5-color-warning-900); }
+.b5-pill--danger  { border-color: var(--b5-color-danger-500);  color: var(--b5-color-text-danger);  --b5-pill-tint: var(--b5-color-danger-900); }
+.b5-pill--info    { border-color: var(--b5-color-info-500);    color: var(--b5-color-text-info);    --b5-pill-tint: var(--b5-color-info-900); }
+.b5-pill--accent  { border-color: var(--b5-color-accent-500);  border-width: var(--b5-border-width-thick); color: var(--b5-color-text-accent); --b5-pill-tint: var(--b5-color-accent-900); }
+/* --open and --unread are the two honest-unknown tones: a dashed border
+   reads as "nothing is attached here" with no colour at all. */
+.b5-pill--open    { border-style: dashed; border-color: var(--b5-color-border-strong); color: var(--b5-color-text-secondary); }
+.b5-pill--unread  { border-style: dashed; color: var(--b5-color-text-muted); }
+.b5-pill--solid   { background: var(--b5-pill-tint, transparent); }
+
+/* ---------------------------------------------------------------------------
+   5. TILE GRID — a large touch target per item with an unmistakable
+   on/off state, plus an optional disclosure panel underneath.
+   auto-fill rather than auto-fit: a lone tile in a group keeps a sane width
+   instead of stretching the full width of a landscape tablet.
+   --------------------------------------------------------------------------- */
+.b5-tilegrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: var(--b5-space-3);
 }
-.b5-rcp-tile {
+.b5-tile {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
   border-radius: var(--b5-radius-md);
   background: var(--b5-color-bg-surface);
   overflow: hidden;
 }
-.b5-rcp-tile.is-on {
+.b5-tile.is-on {
   border-color: var(--b5-color-accent-500);
   border-width: var(--b5-border-width-thick);
   background: var(--b5-color-bg-selected);
 }
-.b5-rcp-tile__toggle {
+/* 88px — double the touch minimum, so a mis-tap in the dark is unlikely. */
+.b5-tile__toggle {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -827,52 +885,18 @@
   text-align: left;
   cursor: pointer;
 }
-.b5-rcp-tile__toggle:hover { background: var(--b5-color-bg-hover); }
-.b5-rcp-tile__toggle:focus-visible { outline: none; box-shadow: inset var(--b5-shadow-focus); }
-.b5-rcp-tile__toggle:disabled { cursor: progress; opacity: 0.6; }
-/* State is a bordered pill carrying an icon AND the word ON/OFF: three
-   independent signals (shape, text, colour) for one bit. */
-.b5-rcp-tile__state {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--b5-space-1);
-  padding: 2px var(--b5-space-2);
-  border: var(--b5-border-width-thin) solid var(--b5-color-border-strong);
-  border-radius: var(--b5-radius-full);
-  font-size: var(--b5-font-size-xs);
-  font-weight: var(--b5-font-weight-bold);
-  letter-spacing: 0.08em;
-  color: var(--b5-color-text-muted);
-}
-.b5-rcp-tile__state svg { width: 16px; height: 16px; }
-.b5-rcp-tile.is-on .b5-rcp-tile__state {
-  border-color: var(--b5-color-accent-500);
-  border-width: var(--b5-border-width-thick);
-  background: var(--b5-color-accent-900);
-  color: var(--b5-color-text-accent);
-}
-.b5-rcp-tile__label {
+.b5-tile__toggle:hover { background: var(--b5-color-bg-hover); }
+.b5-tile__toggle:focus-visible { outline: none; box-shadow: inset var(--b5-shadow-focus); }
+.b5-tile__toggle:disabled { cursor: progress; opacity: 0.6; }
+.b5-tile__label {
   font-size: var(--b5-font-size-lg);
   font-weight: var(--b5-font-weight-medium);
   line-height: var(--b5-line-height-tight);
 }
-.b5-rcp-tile.is-on .b5-rcp-tile__label { font-weight: var(--b5-font-weight-bold); }
-.b5-rcp-tile__coverage { font-size: var(--b5-font-size-sm); color: var(--b5-color-text-muted); }
-.b5-rcp-tile__notes { font-size: var(--b5-font-size-xs); color: var(--b5-color-text-warning); }
-/* A label the app is only repeating out of the fixture file, not a name
-   it chose — said plainly rather than passed off as considered wording. */
-.b5-rcp-fromfile {
-  display: inline-block;
-  margin-left: var(--b5-space-2);
-  padding: 0 var(--b5-space-2);
-  border: 1px dashed var(--b5-color-border-strong);
-  border-radius: var(--b5-radius-sm);
-  font-size: var(--b5-font-size-xs);
-  font-weight: var(--b5-font-weight-regular);
-  color: var(--b5-color-text-muted);
-  vertical-align: middle;
-}
-.b5-rcp-tile__more {
+.b5-tile.is-on .b5-tile__label { font-weight: var(--b5-font-weight-bold); }
+/* (a tile's one-line supporting caption is the shared .b5-caption, below) */
+.b5-tile__notes { font-size: var(--b5-font-size-xs); color: var(--b5-color-text-warning); }
+.b5-tile__more {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -886,11 +910,9 @@
   font-size: var(--b5-font-size-sm);
   cursor: pointer;
 }
-.b5-rcp-tile__more:hover { background: var(--b5-color-bg-hover); }
-.b5-rcp-tile__more svg { width: 16px; height: 16px; }
-
-/* ---- per-test parameters ---- */
-.b5-rcp-params {
+.b5-tile__more:hover { background: var(--b5-color-bg-hover); }
+.b5-tile__more svg { width: 16px; height: 16px; }
+.b5-tile__panel {
   padding: var(--b5-space-3) var(--b5-space-4) var(--b5-space-4);
   border-top: var(--b5-border-width-thin) solid var(--b5-color-border-subtle);
   background: var(--b5-color-bg-inset);
@@ -898,9 +920,12 @@
   flex-direction: column;
   gap: var(--b5-space-4);
 }
-.b5-rcp-params__hint { margin: 0; font-size: var(--b5-font-size-sm); color: var(--b5-color-text-muted); }
-.b5-rcp-param { display: flex; flex-direction: column; gap: var(--b5-space-2); }
-.b5-rcp-param__label {
+
+/* ---------------------------------------------------------------------------
+   6. PARAMETER ROW — one labelled control inside a disclosure panel.
+   --------------------------------------------------------------------------- */
+.b5-param { display: flex; flex-direction: column; gap: var(--b5-space-2); }
+.b5-param__label {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
@@ -909,19 +934,122 @@
   font-weight: var(--b5-font-weight-medium);
   color: var(--b5-color-text-secondary);
 }
-.b5-rcp-param__hint { font-size: var(--b5-font-size-xs); color: var(--b5-color-text-muted); }
-.b5-rcp-out { color: var(--b5-color-text-primary); font-size: var(--b5-font-size-md); }
-.b5-rcp-phase { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2); }
-.b5-rcp-phase__field { display: inline-flex; align-items: center; gap: var(--b5-space-1); font-size: var(--b5-font-size-sm); color: var(--b5-color-text-muted); }
-.b5-rcp-phase__field .b5-rcp-num { width: 6em; }
+.b5-param__hint { font-size: var(--b5-font-size-xs); color: var(--b5-color-text-muted); }
+.b5-param__value { color: var(--b5-color-text-primary); font-size: var(--b5-font-size-md); }
+/* A compact numeric entry that still clears a fingertip. */
+.b5-numinput { min-height: 48px; width: 8em; font-size: var(--b5-font-size-md); }
 
-/* ---- sticky output bar ---- */
-/* Sticky to the bottom of the scrolling page rather than fixed: this app
-   has been bitten before by fixed bars needing a body reserve-space
-   dance, and sticky keeps STOP on screen without one. The bar renders
-   last in DOM order, matching the owner's workflow (scope, tests, run),
-   while sticky bottom keeps it under the thumb the whole way down. */
-.b5-rcp-outputbar {
+/* Parameter faders on a MOUSE/desktop pointer. app.css ships a touch-safe
+   .b5-range-touch restyle, but it is deliberately gated to (hover:none) and
+   (pointer:coarse) so a desktop grid never gets a 44px thumb — which leaves
+   the fader as the browser default (bright blue, off-palette, thin) on a
+   laptop. This mirrors that treatment at desktop proportions and is gated to
+   the opposite side of the same query, so on a tablet the coarse-pointer rule
+   in app.css still wins. Scoped to .b5-param, NOT to .b5-range-touch
+   globally: Send's 512-cell desktop grid must keep its compact thumb. */
+@media (hover: hover) and (pointer: fine) {
+  .b5-param .b5-range-touch {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 28px;
+    background: transparent;
+    cursor: pointer;
+  }
+  .b5-param .b5-range-touch::-webkit-slider-runnable-track {
+    height: 6px;
+    background: var(--b5-color-bg-inset);
+    border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
+    border-radius: var(--b5-radius-full);
+  }
+  .b5-param .b5-range-touch::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 26px; height: 26px;
+    margin-top: -11px;
+    border-radius: var(--b5-radius-full);
+    background: var(--b5-color-accent-500);
+    border: var(--b5-border-width-thin) solid var(--b5-color-accent-700);
+  }
+  .b5-param .b5-range-touch::-moz-range-track {
+    height: 6px;
+    background: var(--b5-color-bg-inset);
+    border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
+    border-radius: var(--b5-radius-full);
+  }
+  .b5-param .b5-range-touch::-moz-range-thumb {
+    width: 26px; height: 26px;
+    border-radius: var(--b5-radius-full);
+    background: var(--b5-color-accent-500);
+    border: var(--b5-border-width-thin) solid var(--b5-color-accent-700);
+  }
+  .b5-param .b5-range-touch:focus-visible { outline: none; box-shadow: var(--b5-shadow-focus); }
+}
+
+/* ---------------------------------------------------------------------------
+   7. CHOICE CARD — one big consequential checkbox that needs a sentence of
+   explanation beside it, not a bare toggle in a row of fields.
+   --caution is for a mode that makes the RIG behave surprisingly (Rig
+   Check's Isolate makes fixtures emit no light); the default on-state is
+   the kit's ordinary accent.
+   --------------------------------------------------------------------------- */
+.b5-choicecard {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--b5-space-3);
+  padding: var(--b5-space-3) var(--b5-space-4);
+  border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
+  border-radius: var(--b5-radius-md);
+  background: var(--b5-color-bg-surface);
+  cursor: pointer;
+  min-height: var(--b5-size-touch-min);
+}
+.b5-choicecard input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.b5-choicecard__box {
+  flex: none;
+  width: 30px; height: 30px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: var(--b5-border-width-thick) solid var(--b5-color-border-strong);
+  border-radius: var(--b5-radius-sm);
+}
+.b5-choicecard__box svg { width: 20px; height: 20px; }
+.b5-choicecard input:focus-visible + .b5-choicecard__box { box-shadow: var(--b5-shadow-focus); }
+.b5-choicecard__title { display: block; font-weight: var(--b5-font-weight-bold); color: var(--b5-color-text-primary); }
+.b5-choicecard__body { display: block; margin-top: var(--b5-space-1); font-size: var(--b5-font-size-sm); color: var(--b5-color-text-muted); }
+.b5-choicecard.is-on { border-color: var(--b5-color-accent-500); border-width: var(--b5-border-width-thick); background: var(--b5-color-bg-selected); }
+.b5-choicecard.is-on .b5-choicecard__box { border-color: var(--b5-color-accent-400); }
+.b5-choicecard--caution .b5-choicecard__box { color: var(--b5-color-text-warning); }
+.b5-choicecard--caution.is-on { border-color: var(--b5-color-warning-500); background: var(--b5-color-warning-900); }
+.b5-choicecard--caution.is-on .b5-choicecard__box { border-color: var(--b5-color-warning-400); }
+
+/* ---------------------------------------------------------------------------
+   8. PICK LIST — a bounded, scrolling list of checkbox rows.
+   --------------------------------------------------------------------------- */
+.b5-picklist {
+  max-height: 260px;
+  overflow-y: auto;
+  border: var(--b5-border-width-thin) solid var(--b5-color-border-subtle);
+  border-radius: var(--b5-radius-md);
+  padding: var(--b5-space-2);
+}
+.b5-pickrow {
+  display: flex;
+  align-items: center;
+  gap: var(--b5-space-3);
+  min-height: var(--b5-size-touch-min);
+  padding: var(--b5-space-1) var(--b5-space-2);
+  cursor: pointer;
+  color: var(--b5-color-text-secondary);
+}
+.b5-pickrow input { width: 24px; height: 24px; flex: none; accent-color: var(--b5-color-accent-500); }
+
+/* ---------------------------------------------------------------------------
+   9. STICKY ACTION BAR — the primary and destructive actions of a screen,
+   in fixed non-moving positions, always both present.
+   Sticky rather than fixed: this app has been bitten before by fixed bars
+   needing a body reserve-space dance (see app.css's --b5-walk-bar-reserve
+   comment), and sticky keeps STOP on screen without one.
+   --------------------------------------------------------------------------- */
+.b5-actionbar {
   position: sticky;
   bottom: 0;
   z-index: var(--b5-z-sticky);
@@ -936,27 +1064,16 @@
   background: var(--b5-color-bg-surface-raised);
   box-shadow: var(--b5-shadow-lg);
 }
-.b5-rcp-outputbar__status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-3); margin-right: auto; }
-.b5-rcp-outputbar__head { display: inline-flex; align-items: center; gap: var(--b5-space-2); font-weight: var(--b5-font-weight-bold); }
-.b5-rcp-outputlight {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--b5-space-2);
-  padding: var(--b5-space-1) var(--b5-space-3);
-  border: var(--b5-border-width-thick) solid var(--b5-color-border-strong);
-  border-radius: var(--b5-radius-full);
-  font-weight: var(--b5-font-weight-bold);
-  letter-spacing: 0.08em;
-  color: var(--b5-color-text-muted);
-}
-.b5-rcp-outputlight svg { width: 18px; height: 18px; }
-.b5-rcp-outputlight.is-on { border-color: var(--b5-color-success-500); background: var(--b5-color-success-900); color: var(--b5-color-text-success); }
-.b5-rcp-outputbar__buttons { display: flex; gap: var(--b5-space-3); flex: 1 1 auto; justify-content: flex-end; }
-/* START and STOP are deliberately different SHAPES as well as different
-   colours: START is an outlined pill, STOP is a filled square-cornered
-   slab. In a dark truss at arm's length the silhouette reads before the
-   hue does, and the two can never be confused by a colour-blind reader. */
-.b5-rcp-bigbtn {
+.b5-actionbar__status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-3); margin-right: auto; }
+.b5-actionbar__title { display: inline-flex; align-items: center; gap: var(--b5-space-2); font-weight: var(--b5-font-weight-bold); }
+.b5-actionbar__buttons { display: flex; gap: var(--b5-space-3); flex: 1 1 auto; justify-content: flex-end; }
+
+/* The affirmative and the destructive action are deliberately different
+   SHAPES as well as different colours: --go is an outlined pill, --stop is a
+   filled square-cornered slab. In a dark truss at arm's length the
+   silhouette reads before the hue does, and the two can never be confused by
+   a colour-blind reader. */
+.b5-bigbtn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -970,116 +1087,49 @@
   letter-spacing: 0.06em;
   cursor: pointer;
 }
-.b5-rcp-bigbtn svg { width: 24px; height: 24px; }
-.b5-rcp-bigbtn:focus-visible { outline: none; box-shadow: var(--b5-shadow-focus); }
-.b5-rcp-bigbtn--start {
+.b5-bigbtn svg { width: var(--b5-size-icon-lg); height: var(--b5-size-icon-lg); }
+.b5-bigbtn:focus-visible { outline: none; box-shadow: var(--b5-shadow-focus); }
+.b5-bigbtn--go {
   border: var(--b5-border-width-thick) solid var(--b5-color-success-500);
   border-radius: var(--b5-radius-full);
   background: var(--b5-color-success-900);
   color: var(--b5-color-success-300);
 }
-.b5-rcp-bigbtn--start:hover:not(:disabled) { background: var(--b5-color-success-700); color: var(--b5-color-neutral-050); }
-.b5-rcp-bigbtn--start:disabled { opacity: 0.4; cursor: not-allowed; }
-.b5-rcp-bigbtn--stop {
+.b5-bigbtn--go:hover:not(:disabled) { background: var(--b5-color-success-700); color: var(--b5-color-neutral-050); }
+.b5-bigbtn--go:disabled { opacity: 0.4; cursor: not-allowed; }
+.b5-bigbtn--stop {
   border: var(--b5-border-width-thick) solid var(--b5-color-danger-300);
   border-radius: var(--b5-radius-sm);
   background: var(--b5-color-danger-600);
   color: var(--b5-color-neutral-050);
 }
-.b5-rcp-bigbtn--stop:hover { background: var(--b5-color-danger-500); }
+.b5-bigbtn--stop:hover { background: var(--b5-color-danger-500); }
 
 @media (max-width: 640px) {
-  .b5-rcp-outputbar__buttons { flex-basis: 100%; }
-  .b5-rcp-bigbtn { flex: 1 1 0; min-width: 0; }
+  .b5-actionbar__buttons { flex-basis: 100%; }
+  .b5-bigbtn { flex: 1 1 0; min-width: 0; }
 }
 
-/* Rig Check parameter faders on a MOUSE/desktop pointer. app.css already
-   ships a touch-safe .b5-range-touch restyle, but it is deliberately gated
-   to (hover:none) and (pointer:coarse) so a desktop grid never gets a 44px
-   thumb — which leaves the fader as the browser default (bright blue,
-   off-palette, thin) on a laptop. This mirrors that treatment at desktop
-   proportions and is gated to the opposite side of the same query, so on
-   the tablet the existing coarse-pointer rule in app.css still wins. */
-@media (hover: hover) and (pointer: fine) {
-  .b5-rcp-params .b5-range-touch {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 100%;
-    height: 28px;
-    background: transparent;
-    cursor: pointer;
-  }
-  .b5-rcp-params .b5-range-touch::-webkit-slider-runnable-track {
-    height: 6px;
-    background: var(--b5-color-bg-inset);
-    border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
-    border-radius: var(--b5-radius-full);
-  }
-  .b5-rcp-params .b5-range-touch::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 26px; height: 26px;
-    margin-top: -11px;
-    border-radius: var(--b5-radius-full);
-    background: var(--b5-color-accent-500);
-    border: var(--b5-border-width-thin) solid var(--b5-color-accent-700);
-  }
-  .b5-rcp-params .b5-range-touch::-moz-range-track {
-    height: 6px;
-    background: var(--b5-color-bg-inset);
-    border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
-    border-radius: var(--b5-radius-full);
-  }
-  .b5-rcp-params .b5-range-touch::-moz-range-thumb {
-    width: 26px; height: 26px;
-    border-radius: var(--b5-radius-full);
-    background: var(--b5-color-accent-500);
-    border: var(--b5-border-width-thin) solid var(--b5-color-accent-700);
-  }
-  .b5-rcp-params .b5-range-touch:focus-visible { outline: none; box-shadow: var(--b5-shadow-focus); }
-}
-
-/* ==========================================================================
-   Reconcile board (.b5-rcb-*) — reconcile.js
-   ==========================================================================
-   Appended in its own block, editing nothing above, exactly as the
-   .b5-rcp-* Rig Check block above was. Same tablet-first treatment as that
-   screen, for the same reason: this is used standing up, in the dark, on a
-   tablet held at arm's length under a truss, by someone whose hands are
-   busy.
-
-   Two accessibility rules govern everything here and neither is negotiable:
-
-     1. NEVER COLOUR AS THE SOLE SIGNAL. Every state on this screen is
-        carried by WORDS first ("Not committed", "Committed · 2 settings
-        differ", "Differs", "Not read"), then reinforced by an icon, then by
-        a border weight/style, and only then by hue. Read this stylesheet
-        with all colour removed and the screen still works — which is the
-        actual test, because these fixtures get reconciled under blue
-        worklight and by people who do not all see red and green the same
-        way. That is why the left border of a card is a THICKNESS change as
-        well as a colour change, and why .b5-rcb-state is a bordered pill
-        with text rather than a coloured dot.
-
-     2. TOUCH TARGETS AND CONTRAST. Every interactive element in this block
-        clears 44px of height. Body copy sits at the kit's regular weight
-        rather than a lighter one, and the type is left-aligned with
-        generous line-height throughout (dyslexia-friendly: no justified
-        text, no all-caps runs longer than a short chip label).
-   ========================================================================== */
-
-/* ---- toolbar ---- */
-.b5-rcb-toolbar { margin-bottom: var(--b5-space-4); }
-.b5-rcb-toolbar__row {
+/* ---------------------------------------------------------------------------
+   10. TOOLBAR — the screen-top control row. Distinct from the older
+   .b5-filterbar (chips + summary, authored desktop-first): every control in
+   a .b5-toolbar is a full touch target and the row wraps instead of
+   scrolling. New screens use this one.
+   --------------------------------------------------------------------------- */
+.b5-toolbar { margin-bottom: var(--b5-space-4); }
+.b5-toolbar__row {
   display: flex;
   flex-wrap: wrap;
   gap: var(--b5-space-2);
   align-items: center;
 }
-.b5-rcb-toolbar__row .b5-btn { min-height: 44px; }
-.b5-rcb-search { flex: 1 1 220px; min-width: 180px; }
-.b5-rcb-search input {
+.b5-toolbar__search { flex: 1 1 220px; min-width: 180px; }
+/* Deliberately NOT .b5-input: a search that sits in the control row reads as
+   part of that row (raised surface) rather than as a form field cut into the
+   page (inset surface). Same height and focus ring as every other control. */
+.b5-toolbar__search input {
   width: 100%;
-  min-height: 44px;
+  min-height: var(--b5-size-touch-min);
   padding: var(--b5-space-2) var(--b5-space-3);
   font: inherit;
   font-size: var(--b5-font-size-md);
@@ -1088,49 +1138,14 @@
   border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
   border-radius: var(--b5-radius-md);
 }
-.b5-rcb-search input:focus-visible { outline: none; box-shadow: var(--b5-shadow-focus); }
+.b5-toolbar__search input:focus-visible { outline: none; box-shadow: var(--b5-shadow-focus); }
 
-/* The "needs attention only" toggle carries its on-state with a thicker
-   border and an inset underline as well as a tint — see rule 1. */
-.b5-rcb-seg2 {
-  min-height: 44px;
-  padding: var(--b5-space-2) var(--b5-space-4);
-  border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
-  border-radius: var(--b5-radius-md);
-  background: var(--b5-color-bg-surface-raised);
-  color: var(--b5-color-text-secondary);
-  font: inherit;
-  font-size: var(--b5-font-size-md);
-  font-weight: var(--b5-font-weight-medium);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--b5-space-2);
-}
-.b5-rcb-seg2:hover { background: var(--b5-color-bg-hover); }
-.b5-rcb-seg2.is-on {
-  background: var(--b5-color-accent-500-a15);
-  border-color: var(--b5-color-accent-500);
-  border-width: var(--b5-border-width-thick);
-  color: var(--b5-color-text-accent);
-  font-weight: var(--b5-font-weight-bold);
-  box-shadow: inset 0 -3px 0 var(--b5-color-accent-500);
-}
-.b5-rcb-seg2:focus-visible { outline: none; box-shadow: var(--b5-shadow-focus); }
-
-.b5-rcb-tally {
-  margin: var(--b5-space-3) 0 0;
-  font-size: var(--b5-font-size-md);
-  line-height: 1.6;
-  color: var(--b5-color-text-secondary);
-}
-.b5-rcb-tally strong { color: var(--b5-color-text-primary); }
-
-/* ---- the armed banner ----
-   Sticky, because the commit gesture is "pick one side, scroll the other
-   pane, pick the partner" and on a tablet that scroll is long enough to
-   forget what you armed. */
-.b5-rcb-armed {
+/* ---------------------------------------------------------------------------
+   11. MODE BAR — a sticky reminder of a mode the user has entered and must
+   leave deliberately ("you are committing X — now pick its partner").
+   Sticky because the gesture it describes involves a long scroll.
+   --------------------------------------------------------------------------- */
+.b5-modebar {
   position: sticky;
   top: 0;
   z-index: 3;
@@ -1146,29 +1161,31 @@
   background: var(--b5-color-accent-500-a15);
   color: var(--b5-color-text-primary);
 }
-.b5-rcb-armed__label { font-size: var(--b5-font-size-md); line-height: 1.5; }
-.b5-rcb-alert { margin-bottom: var(--b5-space-4); }
+.b5-modebar__label { font-size: var(--b5-font-size-md); line-height: 1.5; }
 
-/* ---- the two panes ----
-   Side by side on anything tablet-landscape or wider, stacked below that.
-   Deliberately NOT a fixed two-column grid at every width: at 820px
-   portrait, two columns would leave each card too narrow for the diff table
-   inside it, and the diff is the part he actually reads. */
-.b5-rcb-panes {
+/* ---------------------------------------------------------------------------
+   12. BOARD — two panes side by side, each with a title and an explanatory
+   sub-caption saying what that pane actually contains.
+   Side by side on tablet-landscape and wider, stacked below that.
+   Deliberately NOT a fixed two-column grid at every width: at 820px portrait
+   two columns leave each card too narrow for the diff blocks inside it, and
+   the diff is the part he actually reads.
+   --------------------------------------------------------------------------- */
+.b5-board {
   display: grid;
   grid-template-columns: 1fr;
   gap: var(--b5-space-4);
 }
 @media (min-width: 900px) {
-  .b5-rcb-panes { grid-template-columns: 1fr 1fr; align-items: start; }
+  .b5-board { grid-template-columns: 1fr 1fr; align-items: start; }
 }
-.b5-rcb-pane {
-  min-width: 0; /* lets the grid track shrink so wide diff tables scroll INSIDE the card instead of widening the page */
+.b5-board__pane {
+  min-width: 0; /* lets the grid track shrink so wide content scrolls INSIDE the pane instead of widening the page */
   border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
   border-radius: var(--b5-radius-lg);
   background: var(--b5-color-bg-surface);
 }
-.b5-rcb-pane__head {
+.b5-board__head {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -1178,26 +1195,31 @@
   background: var(--b5-color-bg-surface-raised);
   border-radius: var(--b5-radius-lg) var(--b5-radius-lg) 0 0;
 }
-.b5-rcb-pane__title {
+.b5-board__title {
   font-size: var(--b5-font-size-lg);
   font-weight: var(--b5-font-weight-bold);
   letter-spacing: var(--b5-letter-spacing-sm);
   color: var(--b5-color-text-primary);
 }
-.b5-rcb-pane__sub {
+/* The sub-caption is not decoration. It is where a pane says in the owner's
+   own words what it holds ("what the patch says should be there" /
+   "what actually answered"). Do not ship a pane without one. */
+.b5-board__sub {
   font-size: var(--b5-font-size-sm);
   font-weight: var(--b5-font-weight-regular);
   color: var(--b5-color-text-muted);
 }
-.b5-rcb-list { display: flex; flex-direction: column; gap: var(--b5-space-3); padding: var(--b5-space-3); }
-.b5-rcb-empty { margin: 0; padding: var(--b5-space-4); color: var(--b5-color-text-muted); font-size: var(--b5-font-size-md); line-height: 1.6; }
+.b5-board__list { display: flex; flex-direction: column; gap: var(--b5-space-3); padding: var(--b5-space-3); }
+/* An empty pane names what is missing rather than rendering nothing. */
+.b5-board__empty { margin: 0; padding: var(--b5-space-4); color: var(--b5-color-text-muted); font-size: var(--b5-font-size-md); line-height: 1.6; }
 
-/* ---- one row on either side ----
-   The left border is the card's state marker. Its WIDTH changes with state
-   as well as its colour (rule 1): a matching card has a hairline, anything
-   needing attention has a thick one, so the pane scans correctly in
-   greyscale. */
-.b5-rcb-card {
+/* ---------------------------------------------------------------------------
+   13. STATE CARD — one row in a board pane. The left border is the card's
+   state marker, and its WIDTH changes with state as well as its colour
+   (rule 1): a settled card has a hairline, anything needing attention has a
+   thick one, so the pane scans correctly in greyscale.
+   --------------------------------------------------------------------------- */
+.b5-statecard {
   min-width: 0;
   padding: var(--b5-space-3);
   border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
@@ -1205,37 +1227,28 @@
   border-radius: var(--b5-radius-md);
   background: var(--b5-color-bg-surface-raised);
 }
-.b5-rcb-card.is-matching { border-left-color: var(--b5-color-success-500); }
-.b5-rcb-card.is-differs {
-  border-left-color: var(--b5-color-warning-500);
-  border-left-width: 10px;
-}
-.b5-rcb-card.is-offline {
-  border-left-color: var(--b5-color-danger-500);
-  border-left-width: 10px;
-}
-.b5-rcb-card.is-uncommitted {
-  border-left-color: var(--b5-color-border-strong);
-  border-left-style: dashed; /* an uncommitted item reads as unattached even with no colour at all */
-}
-.b5-rcb-card.is-armed {
+.b5-statecard.is-ok { border-left-color: var(--b5-color-success-500); }
+.b5-statecard.is-warn { border-left-color: var(--b5-color-warning-500); border-left-width: 10px; }
+.b5-statecard.is-danger { border-left-color: var(--b5-color-danger-500); border-left-width: 10px; }
+/* An unattached item reads as unattached even with no colour at all. */
+.b5-statecard.is-open { border-left-color: var(--b5-color-border-strong); border-left-style: dashed; }
+.b5-statecard.is-armed {
   border-color: var(--b5-color-accent-500);
   border-width: var(--b5-border-width-thick);
   border-left-width: 10px;
   border-left-color: var(--b5-color-accent-500);
   background: var(--b5-color-accent-500-a15);
 }
-
-.b5-rcb-card__top { display: flex; gap: var(--b5-space-3); align-items: flex-start; }
-.b5-rcb-card__id { min-width: 0; }
-.b5-rcb-card__name {
+.b5-statecard__top { display: flex; gap: var(--b5-space-3); align-items: flex-start; }
+.b5-statecard__id { min-width: 0; }
+.b5-statecard__name {
   display: block;
   font-size: var(--b5-font-size-lg);
   line-height: 1.35;
   color: var(--b5-color-text-primary);
   overflow-wrap: anywhere;
 }
-.b5-rcb-card__meta {
+.b5-statecard__meta {
   display: block;
   margin-top: 2px;
   font-size: var(--b5-font-size-sm);
@@ -1243,12 +1256,15 @@
   color: var(--b5-color-text-secondary);
   overflow-wrap: anywhere;
 }
+.b5-statecard__state { display: flex; flex-wrap: wrap; gap: var(--b5-space-2); align-items: center; margin-top: var(--b5-space-3); }
+.b5-statecard__actions { display: flex; flex-wrap: wrap; gap: var(--b5-space-2); align-items: center; margin-top: var(--b5-space-3); }
 
-/* The link badge: the same number on both sides of a committed pair. This
-   is how the relation is readable ACROSS two panes without drawing a line
-   between them, and without depending on colour to say which goes with
-   which. */
-.b5-rcb-link {
+/* ---------------------------------------------------------------------------
+   14. LINK BADGE — the same number on both sides of a related pair. This is
+   how a relation is readable ACROSS two panes without drawing a line between
+   them, and without depending on colour to say which goes with which.
+   --------------------------------------------------------------------------- */
+.b5-linkbadge {
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -1262,62 +1278,86 @@
   font-weight: var(--b5-font-weight-bold);
   font-variant-numeric: tabular-nums;
 }
-.b5-rcb-link--none {
+.b5-linkbadge--none {
   border-style: dashed;
   border-color: var(--b5-color-border-default);
   background: transparent;
   color: var(--b5-color-text-disabled);
 }
 
-.b5-rcb-card__state {
+/* ---------------------------------------------------------------------------
+   15. DIFF LINE — one stacked block per setting: what we intended, what we
+   found, and the one press that resolves it.
+   Deliberately NOT a table. A five-column table was tried and render-proofing
+   it in Chromium at 1024x768 killed it outright: with two panes side by side
+   each card is about 430px wide, so the table overflowed and the ACTION
+   column — the Apply button — sat entirely outside the visible card,
+   reachable only by dragging a nested horizontal scrollbar. A control a
+   tablet user cannot see is a control that does not exist. Stacked blocks
+   have no minimum width to overflow.
+   --------------------------------------------------------------------------- */
+.b5-diffline {
+  padding: var(--b5-space-3);
+  margin-bottom: var(--b5-space-2);
+  border: var(--b5-border-width-thin) solid var(--b5-color-border-subtle);
+  border-left-width: 4px;
+  border-left-color: var(--b5-color-border-default);
+  border-radius: var(--b5-radius-md);
+  background: var(--b5-color-bg-surface);
+}
+/* A line that needs attention is marked three independent ways — a thick
+   left rule, a tint, and its own worded pill — so it survives greyscale. */
+.b5-diffline.is-warn {
+  border-left-width: 8px;
+  border-left-color: var(--b5-color-warning-500);
+  background: var(--b5-color-warning-900);
+}
+.b5-diffline.is-info { border-left-color: var(--b5-color-info-500); }
+.b5-diffline.is-ok { border-left-color: var(--b5-color-success-500); }
+.b5-diffline.is-unread { border-left-style: dashed; color: var(--b5-color-text-muted); }
+/* The tint above is the DARK-THEME value, because dark is this app's default
+   theme (benny512-tokens.css puts dark on :root and light behind
+   [data-theme="light"]). The light theme gets the light tint back here.
+   This replaced a `@media (prefers-color-scheme: dark)` override, which keyed
+   off the OS rather than off the app's own theme: on a light-theme app on a
+   dark-OS machine it painted a near-black tint under near-black text. */
+[data-theme="light"] .b5-diffline.is-warn { background: var(--b5-color-warning-100); }
+
+.b5-diffline__head {
   display: flex;
   flex-wrap: wrap;
   gap: var(--b5-space-2);
   align-items: center;
-  margin-top: var(--b5-space-3);
+  justify-content: space-between;
 }
-.b5-rcb-uid { font-size: var(--b5-font-size-sm); color: var(--b5-color-text-muted); }
-.b5-rcb-readat { margin: var(--b5-space-2) 0 0; font-size: var(--b5-font-size-sm); color: var(--b5-color-text-muted); line-height: 1.5; }
-
-/* Chips always carry their words. There is no icon-only variant on purpose. */
-.b5-rcb-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--b5-space-1);
-  padding: 4px var(--b5-space-3);
-  border-radius: var(--b5-radius-full);
-  border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
-  background: var(--b5-color-bg-inset);
-  color: var(--b5-color-text-secondary);
+.b5-diffline__label { font-size: var(--b5-font-size-md); font-weight: var(--b5-font-weight-bold); color: var(--b5-color-text-primary); }
+/* Two-column definition list: the label column is fixed and narrow so the two
+   values line up under each other and the eye can compare them vertically,
+   which is the whole job of this block. */
+.b5-diffline__vals {
+  display: grid;
+  grid-template-columns: 6.5em 1fr;
+  gap: 2px var(--b5-space-3);
+  margin: var(--b5-space-2) 0 0;
   font-size: var(--b5-font-size-sm);
-  font-weight: var(--b5-font-weight-medium);
-  line-height: 1.4;
+  line-height: 1.55;
 }
-.b5-rcb-chip--ok { border-color: var(--b5-color-success-500); color: var(--b5-color-text-success); }
-.b5-rcb-chip--warn { border-color: var(--b5-color-warning-500); border-width: var(--b5-border-width-thick); color: var(--b5-color-text-warning); }
-.b5-rcb-chip--open { border-style: dashed; border-color: var(--b5-color-border-strong); color: var(--b5-color-text-secondary); }
+.b5-diffline__vals dt { color: var(--b5-color-text-muted); }
+.b5-diffline__vals dd { margin: 0; color: var(--b5-color-text-primary); overflow-wrap: anywhere; }
+.b5-diffline__action { margin-top: var(--b5-space-3); }
 
-.b5-rcb-card__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--b5-space-2);
-  align-items: center;
-  margin-top: var(--b5-space-3);
-}
-.b5-rcb-card__actions .b5-btn { min-height: 44px; }
-.b5-rcb-note { font-size: var(--b5-font-size-sm); line-height: 1.5; color: var(--b5-color-text-muted); }
-
-/* ---- the matcher's suggestion ----
-   Inset rather than styled as a card of its own, so it reads as "about this
-   entry" rather than as another item in the pane. */
-.b5-rcb-suggest {
+/* ---------------------------------------------------------------------------
+   16. INSET — "about the thing above", not another item in the list.
+   Dashed border so it never reads as a card of its own.
+   --------------------------------------------------------------------------- */
+.b5-inset {
   margin-top: var(--b5-space-3);
   padding: var(--b5-space-3);
   border: var(--b5-border-width-thin) dashed var(--b5-color-border-strong);
   border-radius: var(--b5-radius-md);
   background: var(--b5-color-bg-inset);
 }
-.b5-rcb-suggest__head {
+.b5-inset__head {
   display: flex;
   gap: var(--b5-space-2);
   align-items: flex-start;
@@ -1326,6 +1366,75 @@
   line-height: 1.55;
   color: var(--b5-color-text-secondary);
 }
+.b5-inset__head svg { margin-top: 2px; }
+
+/* ---------------------------------------------------------------------------
+   17. WHY LIST — the evidence behind a conclusion the app is offering.
+   This is the part that stops the wrong fixture being committed when two are
+   identical, so it is body-sized text, never fine print.
+   --------------------------------------------------------------------------- */
+.b5-why { margin: var(--b5-space-2) 0 0; padding-left: var(--b5-space-5); font-size: var(--b5-font-size-sm); line-height: 1.65; color: var(--b5-color-text-secondary); }
+.b5-why li { margin-bottom: 2px; }
+.b5-why__kind { display: inline-block; min-width: 6.5em; font-weight: var(--b5-font-weight-bold); color: var(--b5-color-text-primary); }
+
+/* ---------------------------------------------------------------------------
+   18. HONEST-UNKNOWN MARKERS AND CAPTIONS
+   .b5-fromfile marks a label the app is only repeating out of a fixture file,
+   not a name it chose — said plainly rather than passed off as considered
+   wording. Dashed, because dashed means "not ours" everywhere in this kit.
+   --------------------------------------------------------------------------- */
+.b5-fromfile {
+  display: inline-block;
+  margin-left: var(--b5-space-2);
+  padding: 0 var(--b5-space-2);
+  border: var(--b5-border-width-thin) dashed var(--b5-color-border-strong);
+  border-radius: var(--b5-radius-sm);
+  font-size: var(--b5-font-size-xs);
+  font-weight: var(--b5-font-weight-regular);
+  color: var(--b5-color-text-muted);
+  vertical-align: middle;
+}
+/* .b5-note is a wrapping explanatory sentence; .b5-caption is a single line
+   of supporting text under a label. Two classes because their line-heights
+   are genuinely different jobs, not an accident. */
+.b5-note { font-size: var(--b5-font-size-sm); line-height: 1.5; color: var(--b5-color-text-muted); }
+.b5-caption { font-size: var(--b5-font-size-sm); color: var(--b5-color-text-muted); }
+
+/* ============================================================
+   Rig Check "Function check" (rigcheck.js) — what is left after the
+   screen kit above absorbed everything reusable. Everything here is
+   specific to the test-pattern engine's own controls.
+   ============================================================ */
+
+.b5-rcp-alert { margin-bottom: var(--b5-space-4); }
+.b5-rcp-list { margin: var(--b5-space-2) 0 0; padding-left: var(--b5-space-5); color: var(--b5-color-text-secondary); font-size: var(--b5-font-size-sm); }
+.b5-rcp-list li { margin-bottom: var(--b5-space-1); }
+
+/* ---- scope ---- */
+.b5-rcp-scope__value { margin-top: var(--b5-space-3); display: flex; flex-direction: column; gap: var(--b5-space-2); }
+.b5-rcp-scope__count { margin: var(--b5-space-3) 0 0; font-size: var(--b5-font-size-md); color: var(--b5-color-text-secondary); }
+.b5-rcp-scope__note { margin: var(--b5-space-1) 0 0; font-size: var(--b5-font-size-sm); color: var(--b5-color-text-muted); }
+
+/* ---- per-test parameters ---- */
+.b5-rcp-hint { margin: 0; font-size: var(--b5-font-size-sm); color: var(--b5-color-text-muted); }
+/* Phase spread: two numeric fields plus two presets, on one wrapping line. */
+.b5-rcp-phase { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2); }
+.b5-rcp-phase__field { display: inline-flex; align-items: center; gap: var(--b5-space-1); font-size: var(--b5-font-size-sm); color: var(--b5-color-text-muted); }
+.b5-rcp-phase__field .b5-numinput { width: 6em; }
+
+/* ============================================================
+   Reconcile board (reconcile.js) — what is left after the screen kit
+   above absorbed everything reusable. Everything here is specific to the
+   weighted matcher's candidate list and to the board's own tallies.
+   ============================================================ */
+
+.b5-rcb-alert { margin-bottom: var(--b5-space-4); }
+.b5-rcb-tally { margin: var(--b5-space-3) 0 0; font-size: var(--b5-font-size-md); line-height: 1.6; color: var(--b5-color-text-secondary); }
+.b5-rcb-tally strong { color: var(--b5-color-text-primary); }
+.b5-rcb-uid { font-size: var(--b5-font-size-sm); color: var(--b5-color-text-muted); }
+.b5-rcb-readat { margin: var(--b5-space-2) 0 0; font-size: var(--b5-font-size-sm); color: var(--b5-color-text-muted); line-height: 1.5; }
+
+/* ---- one candidate from the matcher ---- */
 .b5-rcb-cand {
   margin-bottom: var(--b5-space-3);
   padding: var(--b5-space-3);
@@ -1336,108 +1445,12 @@
 .b5-rcb-cand__top { display: flex; flex-wrap: wrap; gap: var(--b5-space-2); justify-content: space-between; align-items: baseline; }
 .b5-rcb-cand__conf { font-size: var(--b5-font-size-sm); font-weight: var(--b5-font-weight-bold); color: var(--b5-color-text-primary); font-variant-numeric: tabular-nums; }
 .b5-rcb-cand__actions { display: flex; flex-wrap: wrap; gap: var(--b5-space-2); margin-top: var(--b5-space-3); }
-.b5-rcb-cand__actions .b5-btn { min-height: 44px; }
-/* The evidence list. This is the part that stops the wrong light being
-   committed when two fixtures are identical, so it is body-sized text, not
-   fine print. */
-.b5-rcb-why { margin: var(--b5-space-2) 0 0; padding-left: var(--b5-space-5); font-size: var(--b5-font-size-sm); line-height: 1.65; color: var(--b5-color-text-secondary); }
-.b5-rcb-why li { margin-bottom: 2px; }
-.b5-rcb-why__kind {
-  display: inline-block;
-  min-width: 6.5em;
-  font-weight: var(--b5-font-weight-bold);
-  color: var(--b5-color-text-primary);
-}
 
-/* ---- the diff ----
-   One stacked block per setting. This replaced a five-column table after
-   render-proofing at 1024x768 showed the Action column — the Apply button —
-   pushed outside the visible card by the two-pane layout, reachable only via
-   a nested horizontal scrollbar. Blocks have no minimum width to overflow,
-   so the button is always visible and always a full touch target. */
+/* ---- the diff panel wrapper ---- */
 .b5-rcb-diff {
   margin-top: var(--b5-space-3);
   padding-top: var(--b5-space-3);
   border-top: var(--b5-border-width-thin) solid var(--b5-color-border-default);
 }
 .b5-rcb-diff__lead { margin: 0 0 var(--b5-space-3); font-size: var(--b5-font-size-sm); line-height: 1.6; color: var(--b5-color-text-secondary); }
-.b5-rcb-adoptall { min-height: 44px; margin-top: var(--b5-space-2); }
-
-.b5-rcb-line {
-  padding: var(--b5-space-3);
-  margin-bottom: var(--b5-space-2);
-  border: var(--b5-border-width-thin) solid var(--b5-color-border-subtle);
-  border-left-width: 4px;
-  border-left-color: var(--b5-color-border-default);
-  border-radius: var(--b5-radius-md);
-  background: var(--b5-color-bg-surface);
-}
-/* A differing setting is marked three independent ways — a thick left rule,
-   a tint, and the word "Differs" in a bordered pill — so it survives being
-   read in greyscale (see rule 1 at the top of this block). */
-.b5-rcb-line.is-differs {
-  border-left-width: 8px;
-  border-left-color: var(--b5-color-warning-500);
-  background: var(--b5-color-warning-100);
-}
-.b5-rcb-line.is-intended_unset { border-left-color: var(--b5-color-info-500); }
-.b5-rcb-line.is-match { border-left-color: var(--b5-color-success-500); }
-.b5-rcb-line.is-unread { border-left-style: dashed; color: var(--b5-color-text-muted); }
-
-.b5-rcb-line__head {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--b5-space-2);
-  align-items: center;
-  justify-content: space-between;
-}
-.b5-rcb-line__label { font-size: var(--b5-font-size-md); font-weight: var(--b5-font-weight-bold); color: var(--b5-color-text-primary); }
-
-/* Two-column definition list: the label column is fixed and narrow so the
-   two values line up under each other and the eye can compare them
-   vertically, which is the whole job of this block. */
-.b5-rcb-line__vals {
-  display: grid;
-  grid-template-columns: 6.5em 1fr;
-  gap: 2px var(--b5-space-3);
-  margin: var(--b5-space-2) 0 0;
-  font-size: var(--b5-font-size-sm);
-  line-height: 1.55;
-}
-.b5-rcb-line__vals dt { color: var(--b5-color-text-muted); }
-.b5-rcb-line__vals dd { margin: 0; color: var(--b5-color-text-primary); overflow-wrap: anywhere; }
-.b5-rcb-line__action { margin-top: var(--b5-space-3); }
-.b5-rcb-line__action .b5-btn { min-height: 44px; }
-
-.b5-rcb-state {
-  display: inline-block;
-  padding: 2px var(--b5-space-2);
-  border-radius: var(--b5-radius-sm);
-  border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
-  font-size: var(--b5-font-size-xs);
-  font-weight: var(--b5-font-weight-bold);
-  white-space: nowrap;
-}
-.b5-rcb-state--match { border-color: var(--b5-color-success-500); color: var(--b5-color-text-success); }
-.b5-rcb-state--differs { border-color: var(--b5-color-warning-500); border-width: var(--b5-border-width-thick); color: var(--b5-color-text-warning); }
-.b5-rcb-state--intended_unset { border-color: var(--b5-color-info-500); color: var(--b5-color-text-info); }
-.b5-rcb-state--unread { border-style: dashed; color: var(--b5-color-text-muted); }
-
-/* ---- icon sizing ----
-   Every component in this kit sizes its own <use>-instanced icons; there is
-   no global rule (see .b5-btn svg / .b5-badge svg above). Omitting these
-   made the filter and warning glyphs render at their intrinsic 24px+ box
-   and blow the toolbar apart — caught by looking at a real screenshot, not
-   by any assertion. */
-.b5-rcb-seg2 svg { width: 18px; height: 18px; flex: none; }
-.b5-rcb-chip svg { width: 14px; height: 14px; flex: none; }
-.b5-rcb-suggest__head svg { width: 18px; height: 18px; flex: none; margin-top: 2px; }
-.b5-rcb-armed svg { width: 18px; height: 18px; flex: none; }
-
-/* Dark-scheme legibility: the warning tint behind a differing setting is a
-   light-scheme colour. Under the dark theme the same block needs a dark
-   tint or its text drops below contrast. */
-@media (prefers-color-scheme: dark) {
-  .b5-rcb-line.is-differs { background: var(--b5-color-warning-900); }
-}
-[data-theme="dark"] .b5-rcb-line.is-differs { background: var(--b5-color-warning-900); }
+.b5-rcb-adoptall { margin-top: var(--b5-space-2); }

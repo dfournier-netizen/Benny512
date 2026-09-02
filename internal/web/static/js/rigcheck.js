@@ -584,7 +584,7 @@ const RigCheckPanel = (() => {
       value = `
         <div class="b5-rcp-scope__value">
           <label class="b5-field__label" for="rcpScopeUniverse">Universe <span class="b5-text-muted b5-text-xs">(${escapeHtml(UI.universeBaseLabel())})</span></label>
-          <input type="number" id="rcpScopeUniverse" class="b5-input b5-rcp-num" min="${ua.min}" max="${ua.max}" value="${UI.formatUniverse(scopeUniverse)}">
+          <input type="number" id="rcpScopeUniverse" class="b5-input b5-numinput" min="${ua.min}" max="${ua.max}" value="${UI.formatUniverse(scopeUniverse)}">
         </div>`;
     } else if (scopeKind === 'position') {
       if (!scopePosition && positions.length) scopePosition = positions[0];
@@ -597,9 +597,9 @@ const RigCheckPanel = (() => {
         </div>`;
     } else if (scopeKind === 'selection') {
       value = `
-        <div class="b5-rcp-scope__value b5-rcp-scope__picklist">
+        <div class="b5-rcp-scope__value b5-picklist">
           ${entries.length ? entries.map(e => `
-            <label class="b5-rcp-pick">
+            <label class="b5-pickrow">
               <input type="checkbox" data-rcp-pick="${escapeHtml(e.id)}" ${scopeSelection[e.id] ? 'checked' : ''}>
               <span>${escapeHtml(e.name || e.fixtureType || e.id)} <span class="b5-text-muted b5-text-xs">U${UI.formatUniverse(e.universe)}/${e.startAddress}</span></span>
             </label>`).join('') : '<span class="b5-text-muted b5-text-sm">no entries in this patch</span>'}
@@ -609,11 +609,11 @@ const RigCheckPanel = (() => {
     const total = snap.totalScope || 0;
     const unknownDefaults = (snap.baseState && snap.baseState.defaultsUnknownCount) || 0;
     return `
-      <section class="b5-rcp-section" aria-labelledby="rcpScopeHead">
-        <h2 class="b5-rcp-section__head" id="rcpScopeHead"><span class="b5-rcp-step">1</span> Testing scope</h2>
-        <div class="b5-rcp-segmented" role="group" aria-label="Testing scope">
+      <section class="b5-step-section" aria-labelledby="rcpScopeHead">
+        <h2 class="b5-step-section__head" id="rcpScopeHead"><span class="b5-step-num">1</span> Testing scope</h2>
+        <div class="b5-segmented" role="group" aria-label="Testing scope">
           ${kinds.map(k => `
-            <button type="button" class="b5-rcp-seg ${scopeKind === k.id ? 'is-on' : ''}" data-rcp-scope="${k.id}" aria-pressed="${scopeKind === k.id}">${escapeHtml(k.label)}</button>
+            <button type="button" class="b5-seg ${scopeKind === k.id ? 'is-on' : ''}" data-rcp-scope="${k.id}" aria-pressed="${scopeKind === k.id}">${escapeHtml(k.label)}</button>
           `).join('')}
         </div>
         ${value}
@@ -627,13 +627,13 @@ const RigCheckPanel = (() => {
   function renderIsolate() {
     const on = !!(snap.baseState && snap.baseState.isolate);
     return `
-      <section class="b5-rcp-section">
-        <label class="b5-rcp-isolate ${on ? 'is-on' : ''}">
+      <section class="b5-step-section">
+        <label class="b5-choicecard b5-choicecard--caution ${on ? 'is-on' : ''}">
           <input type="checkbox" id="rcpIsolate" ${on ? 'checked' : ''}>
-          <span class="b5-rcp-isolate__box" aria-hidden="true">${on ? UI.icon('status-ok') : ''}</span>
+          <span class="b5-choicecard__box" aria-hidden="true">${on ? UI.icon('status-ok') : ''}</span>
           <span>
-            <span class="b5-rcp-isolate__title">Isolate: drive only the tested channel &mdash; ${on ? 'ON' : 'OFF'}</span>
-            <span class="b5-rcp-isolate__body">Everything else is held at zero, so you can prove which channel does what. The fixture will probably make no visible light while this is on.</span>
+            <span class="b5-choicecard__title">Isolate: drive only the tested channel &mdash; ${on ? 'ON' : 'OFF'}</span>
+            <span class="b5-choicecard__body">Everything else is held at zero, so you can prove which channel does what. The fixture will probably make no visible light while this is on.</span>
           </span>
         </label>
       </section>`;
@@ -645,8 +645,8 @@ const RigCheckPanel = (() => {
     const available = snap.available || [];
     if (!available.length) {
       return `
-        <section class="b5-rcp-section" aria-labelledby="rcpTestsHead">
-          <h2 class="b5-rcp-section__head" id="rcpTestsHead"><span class="b5-rcp-step">2</span> Tests</h2>
+        <section class="b5-step-section" aria-labelledby="rcpTestsHead">
+          <h2 class="b5-step-section__head" id="rcpTestsHead"><span class="b5-step-num">2</span> Tests</h2>
           <div class="b5-empty">
             ${UI.icon('status-pending')}
             <span class="b5-empty__title">No tests available for this scope</span>
@@ -663,12 +663,12 @@ const RigCheckPanel = (() => {
       Object.keys(byGroup).filter(k => !known[k]).map(k => ({ id: k, label: k })));
 
     return `
-      <section class="b5-rcp-section" aria-labelledby="rcpTestsHead">
-        <h2 class="b5-rcp-section__head" id="rcpTestsHead"><span class="b5-rcp-step">2</span> Tests <span class="b5-rcp-section__note">${(snap.tests || []).length} on</span></h2>
+      <section class="b5-step-section" aria-labelledby="rcpTestsHead">
+        <h2 class="b5-step-section__head" id="rcpTestsHead"><span class="b5-step-num">2</span> Tests <span class="b5-step-section__note">${(snap.tests || []).length} on</span></h2>
         ${order.map(g => `
-          <div class="b5-rcp-group">
-            <h3 class="b5-rcp-group__head">${escapeHtml(g.label)}</h3>
-            <div class="b5-rcp-tiles">
+          <div class="b5-group">
+            <h3 class="b5-group__head">${escapeHtml(g.label)}</h3>
+            <div class="b5-tilegrid">
               ${byGroup[g.id].map(a => renderTile(a, sel[a.id])).join('')}
             </div>
           </div>
@@ -689,15 +689,15 @@ const RigCheckPanel = (() => {
     if (on && t.inferredCount) notes.push(`${t.inferredCount} RDM-inferred`);
     if (on && t.missingDetailCount) notes.push(`${t.missingDetailCount} no slot data`);
     return `
-      <div class="b5-rcp-tile ${on ? 'is-on' : ''}" data-rcp-tile="${escapeHtml(a.id)}">
-        <button type="button" class="b5-rcp-tile__toggle" data-rcp-toggle="${escapeHtml(a.id)}" aria-pressed="${on}" ${isBusy ? 'disabled' : ''}>
-          <span class="b5-rcp-tile__state">${isBusy ? UI.spinner() : (on ? UI.icon('status-ok') : '')}<span class="b5-rcp-tile__stateword">${on ? 'ON' : 'OFF'}</span></span>
-          <span class="b5-rcp-tile__label">${escapeHtml(lbl.text)}${lbl.fromFile ? ' <span class="b5-rcp-fromfile" title="This name is repeated from the fixture file, not written by this app">name from file</span>' : ''}</span>
-          <span class="b5-rcp-tile__coverage" data-rcp-coverage="${escapeHtml(a.id)}">${escapeHtml(coverage)}</span>
-          ${notes.length ? `<span class="b5-rcp-tile__notes">${escapeHtml(notes.join(' · '))}</span>` : ''}
+      <div class="b5-tile ${on ? 'is-on' : ''}" data-rcp-tile="${escapeHtml(a.id)}">
+        <button type="button" class="b5-tile__toggle" data-rcp-toggle="${escapeHtml(a.id)}" aria-pressed="${on}" ${isBusy ? 'disabled' : ''}>
+          <span class="b5-pill b5-pill--sm${on ? ' b5-pill--accent b5-pill--solid' : ''}">${isBusy ? UI.spinner() : (on ? UI.icon('status-ok') : '')}<span class="b5-tile__stateword">${on ? 'ON' : 'OFF'}</span></span>
+          <span class="b5-tile__label">${escapeHtml(lbl.text)}${lbl.fromFile ? ' <span class="b5-fromfile" title="This name is repeated from the fixture file, not written by this app">name from file</span>' : ''}</span>
+          <span class="b5-caption" data-rcp-coverage="${escapeHtml(a.id)}">${escapeHtml(coverage)}</span>
+          ${notes.length ? `<span class="b5-tile__notes">${escapeHtml(notes.join(' · '))}</span>` : ''}
         </button>
-        <button type="button" class="b5-rcp-tile__more" data-rcp-more="${escapeHtml(a.id)}" aria-expanded="${open}" aria-label="Settings for ${escapeHtml(lbl.text)}">${UI.icon(open ? 'chevron-collapse' : 'chevron-expand')}<span>Settings</span></button>
-        ${open ? `<div class="b5-rcp-params">${on ? renderParams(t) : `<p class="b5-text-sm b5-text-muted">Turn this test ON to set its rate, levels, waveform and phase. Turning it on does not move anything &mdash; only START lets output flow.</p>`}</div>` : ''}
+        <button type="button" class="b5-tile__more" data-rcp-more="${escapeHtml(a.id)}" aria-expanded="${open}" aria-label="Settings for ${escapeHtml(lbl.text)}">${UI.icon(open ? 'chevron-collapse' : 'chevron-expand')}<span>Settings</span></button>
+        ${open ? `<div class="b5-tile__panel">${on ? renderParams(t) : `<p class="b5-text-sm b5-text-muted">Turn this test ON to set its rate, levels, waveform and phase. Turning it on does not move anything &mdash; only START lets output flow.</p>`}</div>` : ''}
       </div>`;
   }
 
@@ -707,11 +707,11 @@ const RigCheckPanel = (() => {
     const rows = [];
     if (p.on) {
       rows.push(`
-        <div class="b5-rcp-param">
-          <span class="b5-rcp-param__label">State</span>
-          <div class="b5-rcp-segmented b5-rcp-segmented--sm" role="group" aria-label="Dimmer state">
-            <button type="button" class="b5-rcp-seg ${t.on ? 'is-on' : ''}" data-rcp-on="${escapeHtml(t.id)}:1" aria-pressed="${t.on}">On (max)</button>
-            <button type="button" class="b5-rcp-seg ${!t.on ? 'is-on' : ''}" data-rcp-on="${escapeHtml(t.id)}:0" aria-pressed="${!t.on}">Off (min)</button>
+        <div class="b5-param">
+          <span class="b5-param__label">State</span>
+          <div class="b5-segmented b5-segmented--sm" role="group" aria-label="Dimmer state">
+            <button type="button" class="b5-seg ${t.on ? 'is-on' : ''}" data-rcp-on="${escapeHtml(t.id)}:1" aria-pressed="${t.on}">On (max)</button>
+            <button type="button" class="b5-seg ${!t.on ? 'is-on' : ''}" data-rcp-on="${escapeHtml(t.id)}:0" aria-pressed="${!t.on}">Off (min)</button>
           </div>
         </div>`);
     }
@@ -723,11 +723,11 @@ const RigCheckPanel = (() => {
     }
     if (p.direction) {
       rows.push(`
-        <div class="b5-rcp-param">
-          <span class="b5-rcp-param__label">Direction</span>
-          <div class="b5-rcp-segmented b5-rcp-segmented--sm" role="group" aria-label="Direction">
-            <button type="button" class="b5-rcp-seg ${t.direction !== 'ccw' ? 'is-on' : ''}" data-rcp-dir="${escapeHtml(t.id)}:cw" aria-pressed="${t.direction !== 'ccw'}">Clockwise</button>
-            <button type="button" class="b5-rcp-seg ${t.direction === 'ccw' ? 'is-on' : ''}" data-rcp-dir="${escapeHtml(t.id)}:ccw" aria-pressed="${t.direction === 'ccw'}">Counter-cw</button>
+        <div class="b5-param">
+          <span class="b5-param__label">Direction</span>
+          <div class="b5-segmented b5-segmented--sm" role="group" aria-label="Direction">
+            <button type="button" class="b5-seg ${t.direction !== 'ccw' ? 'is-on' : ''}" data-rcp-dir="${escapeHtml(t.id)}:cw" aria-pressed="${t.direction !== 'ccw'}">Clockwise</button>
+            <button type="button" class="b5-seg ${t.direction === 'ccw' ? 'is-on' : ''}" data-rcp-dir="${escapeHtml(t.id)}:ccw" aria-pressed="${t.direction === 'ccw'}">Counter-cw</button>
           </div>
         </div>`);
     }
@@ -735,11 +735,11 @@ const RigCheckPanel = (() => {
       // Waveform is a property of every continuous test, not a separate
       // kind — so it is a switch on the test, never a second tile.
       rows.push(`
-        <div class="b5-rcp-param">
-          <span class="b5-rcp-param__label">Waveform</span>
-          <div class="b5-rcp-segmented b5-rcp-segmented--sm" role="group" aria-label="Waveform">
-            <button type="button" class="b5-rcp-seg ${t.waveform !== 'snap' ? 'is-on' : ''}" data-rcp-wave="${escapeHtml(t.id)}:sine" aria-pressed="${t.waveform !== 'snap'}">Sine (smooth)</button>
-            <button type="button" class="b5-rcp-seg ${t.waveform === 'snap' ? 'is-on' : ''}" data-rcp-wave="${escapeHtml(t.id)}:snap" aria-pressed="${t.waveform === 'snap'}">Snap (hard)</button>
+        <div class="b5-param">
+          <span class="b5-param__label">Waveform</span>
+          <div class="b5-segmented b5-segmented--sm" role="group" aria-label="Waveform">
+            <button type="button" class="b5-seg ${t.waveform !== 'snap' ? 'is-on' : ''}" data-rcp-wave="${escapeHtml(t.id)}:sine" aria-pressed="${t.waveform !== 'snap'}">Sine (smooth)</button>
+            <button type="button" class="b5-seg ${t.waveform === 'snap' ? 'is-on' : ''}" data-rcp-wave="${escapeHtml(t.id)}:snap" aria-pressed="${t.waveform === 'snap'}">Snap (hard)</button>
           </div>
         </div>`);
       // Phase spread: fixture i of n sits at min + (max-min)*i/n degrees, so
@@ -748,31 +748,31 @@ const RigCheckPanel = (() => {
       // a static one, and a control whose only outcome is an error has no
       // business on this screen.
       rows.push(`
-        <div class="b5-rcp-param">
-          <span class="b5-rcp-param__label">Phase spread across the fixtures</span>
+        <div class="b5-param">
+          <span class="b5-param__label">Phase spread across the fixtures</span>
           <div class="b5-rcp-phase">
             <label class="b5-rcp-phase__field">from
-              <input type="number" class="b5-input b5-rcp-num" data-rcp-phase="${escapeHtml(t.id)}:offsetMin" value="${t.offsetMin || 0}" step="15" min="-3600" max="3600">&deg;
+              <input type="number" class="b5-input b5-numinput" data-rcp-phase="${escapeHtml(t.id)}:offsetMin" value="${t.offsetMin || 0}" step="15" min="-3600" max="3600">&deg;
             </label>
             <label class="b5-rcp-phase__field">to
-              <input type="number" class="b5-input b5-rcp-num" data-rcp-phase="${escapeHtml(t.id)}:offsetMax" value="${t.offsetMax || 0}" step="15" min="-3600" max="3600">&deg;
+              <input type="number" class="b5-input b5-numinput" data-rcp-phase="${escapeHtml(t.id)}:offsetMax" value="${t.offsetMax || 0}" step="15" min="-3600" max="3600">&deg;
             </label>
             <button type="button" class="b5-btn b5-btn--sm" data-rcp-phaseset="${escapeHtml(t.id)}:0:0">Unison</button>
             <button type="button" class="b5-btn b5-btn--sm" data-rcp-phaseset="${escapeHtml(t.id)}:0:360">Chase</button>
           </div>
-          <span class="b5-rcp-param__hint">0&deg; to 0&deg; is everything together. 0&deg; to 360&deg; spreads one full cycle across the fixtures &mdash; a chase that wraps.</span>
+          <span class="b5-param__hint">0&deg; to 0&deg; is everything together. 0&deg; to 360&deg; spreads one full cycle across the fixtures &mdash; a chase that wraps.</span>
         </div>`);
     }
     return `
-      <p class="b5-rcp-params__hint">${escapeHtml(KIND_HINT[t.kind] || '')} Changes apply immediately, even while output is running.</p>
+      <p class="b5-rcp-hint">${escapeHtml(KIND_HINT[t.kind] || '')} Changes apply immediately, even while output is running.</p>
       ${rows.join('')}`;
   }
 
   function slider(testId, field, label, value, min, max, step, suffix) {
     const shown = step < 1 ? Number(value).toFixed(2) : String(value);
     return `
-      <div class="b5-rcp-param">
-        <span class="b5-rcp-param__label">${escapeHtml(label)} <span class="b5-text-mono b5-rcp-out" data-rcp-out="${escapeHtml(testId)}:${field}">${escapeHtml(shown)}${suffix || ''}</span></span>
+      <div class="b5-param">
+        <span class="b5-param__label">${escapeHtml(label)} <span class="b5-text-mono b5-param__value" data-rcp-out="${escapeHtml(testId)}:${field}">${escapeHtml(shown)}${suffix || ''}</span></span>
         <input type="range" class="b5-range-touch" data-rcp-slider="${escapeHtml(testId)}:${field}" data-suffix="${suffix || ''}" min="${min}" max="${max}" step="${step}" value="${value}">
       </div>`;
   }
@@ -789,15 +789,15 @@ const RigCheckPanel = (() => {
     const n = (snap.tests || []).length;
     const elapsed = ((snap.elapsedMs || 0) / 1000).toFixed(1);
     return `
-      <section class="b5-rcp-outputbar" aria-label="Output">
-        <div class="b5-rcp-outputbar__status">
-          <span class="b5-rcp-outputbar__head"><span class="b5-rcp-step">3</span> Output</span>
-          <span class="b5-rcp-outputlight ${on ? 'is-on' : ''}">${on ? UI.icon('status-ok') : UI.icon('status-pending')}${on ? 'LIVE' : 'STOPPED'}</span>
+      <section class="b5-actionbar" aria-label="Output">
+        <div class="b5-actionbar__status">
+          <span class="b5-actionbar__title"><span class="b5-step-num">3</span> Output</span>
+          <span class="b5-pill b5-pill--lg${on ? ' b5-pill--ok b5-pill--solid' : ''}">${on ? UI.icon('status-ok') : UI.icon('status-pending')}${on ? 'LIVE' : 'STOPPED'}</span>
           <span class="b5-text-sm b5-text-muted">${n} test${n === 1 ? '' : 's'} on${on ? ` &middot; <span id="rcpElapsed">${elapsed}s</span>` : ''}</span>
         </div>
-        <div class="b5-rcp-outputbar__buttons">
-          <button type="button" id="rcpStart" class="b5-rcp-bigbtn b5-rcp-bigbtn--start" ${on || starting ? 'disabled' : ''}>${starting ? UI.spinner() : UI.icon('status-ok')}START</button>
-          <button type="button" id="rcpStop" class="b5-rcp-bigbtn b5-rcp-bigbtn--stop">${UI.icon('status-error')}STOP</button>
+        <div class="b5-actionbar__buttons">
+          <button type="button" id="rcpStart" class="b5-bigbtn b5-bigbtn--go" ${on || starting ? 'disabled' : ''}>${starting ? UI.spinner() : UI.icon('status-ok')}START</button>
+          <button type="button" id="rcpStop" class="b5-bigbtn b5-bigbtn--stop">${UI.icon('status-error')}STOP</button>
         </div>
       </section>`;
   }

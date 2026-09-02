@@ -77,6 +77,63 @@ import (
 //
 // The per-field reads are fanned out concurrently, in the same shape as
 // handlePatchReconcileFixAll's SET fan-out.
+//
+// --- ask the fixture only what it says it has (bench capture RDM-LOG24) ----
+//
+// Before the fan-out, one GET SUPPORTED_PARAMETERS resolves what this
+// device actually implements, and the optional settings below are skipped
+// outright when the device's own list omits them. RDM-LOG24 (eight GLP
+// JDC-1s, 23 minutes) caught this pass asking every one of them for
+// PAN_INVERT and PAN_TILT_SWAP nine times each — 18 GETs, 18 NACK
+// UNKNOWN_PID — against a fixture whose SUPPORTED_PARAMETERS lists
+// TILT_INVERT and neither of the other two, because a JDC-1 tilts and does
+// not pan. On a hard DMX line that is noise; through the CRMX/MoonLite2
+// wireless proxy three other bench logs document, a shared buffer full of
+// pointless transactions is what stops that proxy answering for unrelated
+// devices, so this is a failure mode and not merely an inefficiency.
+//
+// The mechanism is NOT new. internal/params already gates a named set of
+// optional "speculative" PIDs inside getRaw (isSpeculativePID /
+// ensureAdvertised / resolveSupportedSet, introspect.go), added for the
+// Proteus Rayzor capture; PRODUCT_DETAIL_ID_LIST and PROXIED_DEVICE_COUNT —
+// two of RDM-LOG24's four offenders — are already members and are not asked
+// for by this function at all. What this pass lacked was any consultation
+// of that same cache, and a way to say "not fitted" rather than "unread".
+// So it reuses the cache through the accessor params already exports for
+// exactly this (Client.SupportedParameters, which resolves once per UID per
+// process and shares its result with getRaw's own gate), and does not add a
+// second gating mechanism.
+//
+// Resolving ONCE here, sequentially, before the fan-out is deliberate:
+// resolveSupportedSet's "have we tried yet" flag is read under an RLock and
+// set afterwards, so N goroutines entering it together can each spend their
+// own GET SUPPORTED_PARAMETERS. One up-front call makes the pass cost
+// exactly one, and every later gated read in the same process free.
+//
+// Which settings are gated, and which are deliberately not:
+//
+//   - PAN_INVERT, TILT_INVERT, PAN_TILT_SWAP and CURVE are gated. Every one
+//     is optional in E1.20 Table A-3 / E1.37-1 — never in a "required"
+//     column — and E1.20 §10.4.1 requires an optional PID a device
+//     implements to appear in SUPPORTED_PARAMETERS. So "not listed" is the
+//     device stating the fact outright, not a guess. This is the same test
+//     isSpeculativePID applies, and CURVE is already one of its members.
+//   - DEVICE_INFO, DMX_START_ADDRESS and DEVICE_LABEL are NOT gated. E1.20
+//     §10.4.1 also says PIDs in the minimum-support list "shall not be
+//     reported" in SUPPORTED_PARAMETERS, so a required PID's ABSENCE from
+//     the list means nothing at all — gating on it would blank a core field
+//     on a perfectly healthy fixture. params' gate draws the line in the
+//     same place and for the same reason (see isSpeculativePID's doc
+//     comment); DEVICE_LABEL sits just outside E1.20's required set but is
+//     kept ungated to stay on that established line rather than widening it
+//     on a PID no capture has implicated.
+//
+// And when the device gives us no list at all — SUPPORTED_PARAMETERS NACKs,
+// times out, or the responder does not implement it — every gate opens:
+// each setting is asked for exactly as before and lands "read" or
+// "unknown". "We don't know what it supports" must never be read as "it
+// supports nothing", which would silently blank every pan/tilt/curve field
+// on a device whose introspection had not completed.
 func (s *Server) readAsFound(ctx context.Context, uid rdm.UID) (patch.AsFoundSettings, error) {
 	node, ok := s.Registry.FixtureNode(uid)
 	if !ok {
@@ -86,6 +143,23 @@ func (s *Server) readAsFound(ctx context.Context, uid rdm.UID) (patch.AsFoundSet
 	now := time.Now()
 	af := patch.AsFoundSettings{UID: uid.String(), ReadAt: now}
 
+	// fitted(pid) reports whether this pass should spend a GET on pid. See
+	// the doc comment: false ONLY when the device supplied a list and that
+	// list omits pid.
+	fitted := func() func(rdm.ParameterID) bool {
+		c, cancel := context.WithTimeout(ctx, deviceParamTimeout)
+		defer cancel()
+		pids, known := client.SupportedParameters(c)
+		if !known {
+			return func(rdm.ParameterID) bool { return true }
+		}
+		set := make(map[rdm.ParameterID]bool, len(pids))
+		for _, p := range pids {
+			set[p] = true
+		}
+		return func(pid rdm.ParameterID) bool { return set[pid] }
+	}()
+
 	// Universe is NOT an RDM read. A fixture has no idea what Art-Net
 	// universe feeds it; the universe is a property of the node port the
 	// device answered discovery on, which the registry already knows. It is
@@ -93,9 +167,9 @@ func (s *Server) readAsFound(ctx context.Context, uid rdm.UID) (patch.AsFoundSet
 	// the kind of thing this screen exists to surface — it just is not
 	// pushable, and DiffEntry marks it so.
 	if f, ok := s.Registry.Fixture(uid); ok {
-		af.Universe = patch.SettingUint16{Known: true, Value: f.Port.RawValue(), At: now}
+		af.Universe = patch.SettingUint16{Known: true, Value: f.Port.RawValue(), At: now, State: patch.SettingRead}
 	} else {
-		af.Universe = patch.SettingUint16{Err: "device is not in the discovered-device registry"}
+		af.Universe = patch.SettingUint16{Err: "device is not in the discovered-device registry", State: patch.SettingUnknown}
 	}
 
 	// Phase 1: everything that needs no prior answer, concurrently.
@@ -127,44 +201,60 @@ func (s *Server) readAsFound(ctx context.Context, uid rdm.UID) (patch.AsFoundSet
 		v, err := client.DMXStartAddress(c)
 		mu.Lock()
 		if err != nil {
-			af.StartAddress = patch.SettingUint16{Err: err.Error()}
+			af.StartAddress = patch.SettingUint16{Err: err.Error(), State: patch.SettingUnknown}
 		} else {
-			af.StartAddress = patch.SettingUint16{Known: true, Value: v, At: now}
+			af.StartAddress = patch.SettingUint16{Known: true, Value: v, At: now, State: patch.SettingRead}
 		}
 		mu.Unlock()
 	})
-	run(func() {
-		c, cancel := sub()
-		defer cancel()
-		v, err := client.Curve(c)
-		mu.Lock()
-		af.DimmerCurve = indexSetting(uint8(v.Current), uint8(v.Count), now, err)
-		mu.Unlock()
-	})
-	run(func() {
-		c, cancel := sub()
-		defer cancel()
-		v, err := client.PanInvert(c)
-		mu.Lock()
-		af.PanInvert = boolSetting(v, now, err)
-		mu.Unlock()
-	})
-	run(func() {
-		c, cancel := sub()
-		defer cancel()
-		v, err := client.TiltInvert(c)
-		mu.Lock()
-		af.TiltInvert = boolSetting(v, now, err)
-		mu.Unlock()
-	})
-	run(func() {
-		c, cancel := sub()
-		defer cancel()
-		v, err := client.PanTiltSwap(c)
-		mu.Lock()
-		af.PanTiltSwap = boolSetting(v, now, err)
-		mu.Unlock()
-	})
+	if !fitted(rdm.PIDCurve) {
+		af.DimmerCurve = patch.NotFittedIndex()
+	} else {
+		run(func() {
+			c, cancel := sub()
+			defer cancel()
+			v, err := client.Curve(c)
+			mu.Lock()
+			af.DimmerCurve = indexSetting(uint8(v.Current), uint8(v.Count), now, err)
+			mu.Unlock()
+		})
+	}
+	if !fitted(rdm.PIDPanInvert) {
+		af.PanInvert = patch.NotFittedBool()
+	} else {
+		run(func() {
+			c, cancel := sub()
+			defer cancel()
+			v, err := client.PanInvert(c)
+			mu.Lock()
+			af.PanInvert = boolSetting(v, now, err)
+			mu.Unlock()
+		})
+	}
+	if !fitted(rdm.PIDTiltInvert) {
+		af.TiltInvert = patch.NotFittedBool()
+	} else {
+		run(func() {
+			c, cancel := sub()
+			defer cancel()
+			v, err := client.TiltInvert(c)
+			mu.Lock()
+			af.TiltInvert = boolSetting(v, now, err)
+			mu.Unlock()
+		})
+	}
+	if !fitted(rdm.PIDPanTiltSwap) {
+		af.PanTiltSwap = patch.NotFittedBool()
+	} else {
+		run(func() {
+			c, cancel := sub()
+			defer cancel()
+			v, err := client.PanTiltSwap(c)
+			mu.Lock()
+			af.PanTiltSwap = boolSetting(v, now, err)
+			mu.Unlock()
+		})
+	}
 	run(func() {
 		c, cancel := sub()
 		defer cancel()
@@ -177,13 +267,13 @@ func (s *Server) readAsFound(ctx context.Context, uid rdm.UID) (patch.AsFoundSet
 
 	if infoErr != nil {
 		e := infoErr.Error()
-		af.Footprint = patch.SettingUint16{Err: e}
-		af.Personality = patch.SettingIndex{Err: e}
+		af.Footprint = patch.SettingUint16{Err: e, State: patch.SettingUnknown}
+		af.Personality = patch.SettingIndex{Err: e, State: patch.SettingUnknown}
 	} else {
-		af.Footprint = patch.SettingUint16{Known: true, Value: info.DMXFootprint, At: now}
+		af.Footprint = patch.SettingUint16{Known: true, Value: info.DMXFootprint, At: now, State: patch.SettingRead}
 		af.Personality = patch.SettingIndex{
 			Known: true, Value: info.CurrentPersonality,
-			Count: info.PersonalityCount, CountKnown: true, At: now,
+			Count: info.PersonalityCount, CountKnown: true, At: now, State: patch.SettingRead,
 		}
 	}
 
@@ -232,25 +322,30 @@ func (s *Server) readAsFound(ctx context.Context, uid rdm.UID) (patch.AsFoundSet
 // stored shape. err != nil is recorded as Known:false plus the reason —
 // never as a zero value that would read as a real setting. This is the whole
 // point of the Known companion booleans (asfound.go's file comment).
+// indexSetting/boolSetting/textSetting turn one read's (value, err) into a
+// stored setting. A failure lands SettingUnknown WITH its Err — never
+// SettingNotFitted: a timeout or a NACK is us failing to find out, which is
+// a different fact from the fixture telling us it has no such hardware, and
+// only the SUPPORTED_PARAMETERS gate in readAsFound may claim the latter.
 func indexSetting(current, count uint8, now time.Time, err error) patch.SettingIndex {
 	if err != nil {
-		return patch.SettingIndex{Err: err.Error()}
+		return patch.SettingIndex{Err: err.Error(), State: patch.SettingUnknown}
 	}
-	return patch.SettingIndex{Known: true, Value: current, Count: count, CountKnown: true, At: now}
+	return patch.SettingIndex{Known: true, Value: current, Count: count, CountKnown: true, At: now, State: patch.SettingRead}
 }
 
 func boolSetting(v bool, now time.Time, err error) patch.SettingBool {
 	if err != nil {
-		return patch.SettingBool{Err: err.Error()}
+		return patch.SettingBool{Err: err.Error(), State: patch.SettingUnknown}
 	}
-	return patch.SettingBool{Known: true, Value: v, At: now}
+	return patch.SettingBool{Known: true, Value: v, At: now, State: patch.SettingRead}
 }
 
 func textSetting(v string, now time.Time, err error) patch.SettingText {
 	if err != nil {
-		return patch.SettingText{Err: err.Error()}
+		return patch.SettingText{Err: err.Error(), State: patch.SettingUnknown}
 	}
-	return patch.SettingText{Known: true, Value: v, At: now}
+	return patch.SettingText{Known: true, Value: v, At: now, State: patch.SettingRead}
 }
 
 // --- the two-pane board ----------------------------------------------------
@@ -290,12 +385,19 @@ type intendedPaneJSON struct {
 	// make([]DiffLine, 0, n) — a nil slice marshals to JSON `null` and has
 	// crashed the Patch screen before).
 	Diff []patch.DiffLine `json:"diff"`
-	// DiffersCount / UnreadCount summarise Diff so the pane can badge a row
-	// without the client re-deriving what the server already computed.
-	// Neither carries `omitempty`: 0 differences is the good outcome and
-	// the most important number on the screen.
-	DiffersCount int `json:"differsCount"`
-	UnreadCount  int `json:"unreadCount"`
+	// DiffersCount / UnreadCount / NotFittedCount summarise Diff so the
+	// pane can badge a row without the client re-deriving what the server
+	// already computed. None carries `omitempty`: 0 differences is the good
+	// outcome and the most important number on the screen.
+	//
+	// NotFittedCount is deliberately NOT folded into UnreadCount. "Three
+	// settings we could not read" is a row the owner should go and
+	// investigate; "three settings this fixture does not have" is a
+	// finished, correct row. Counting them together would put a JDC-1 —
+	// which simply has no pan — permanently in the first category.
+	DiffersCount   int `json:"differsCount"`
+	UnreadCount    int `json:"unreadCount"`
+	NotFittedCount int `json:"notFittedCount"`
 	// AsFoundAt is when the last as-found pass ran. Zero time when the
 	// entry has never been committed — "as-found in the shop three weeks
 	// ago" and "as-found ten minutes ago on site" are different facts and
@@ -384,13 +486,15 @@ func (s *Server) handleReconcileBoard(w http.ResponseWriter, r *http.Request) {
 	intended := make([]intendedPaneJSON, 0, len(p.Entries))
 	for _, e := range p.Entries {
 		diff := patch.DiffEntry(e)
-		differs, unread := 0, 0
+		differs, unread, notFitted := 0, 0, 0
 		for _, d := range diff {
 			switch d.State {
 			case patch.DiffDiffers:
 				differs++
 			case patch.DiffUnread:
 				unread++
+			case patch.DiffNotFitted:
+				notFitted++
 			}
 		}
 		row := intendedPaneJSON{
@@ -400,7 +504,7 @@ func (s *Server) handleReconcileBoard(w http.ResponseWriter, r *http.Request) {
 			Footprint: e.Footprint, Mode: e.Mode,
 			Committed: e.ConfirmedUID != "", CommittedUID: e.ConfirmedUID,
 			DeviceOnline: online[e.ConfirmedUID],
-			Diff:         diff, DiffersCount: differs, UnreadCount: unread,
+			Diff:         diff, DiffersCount: differs, UnreadCount: unread, NotFittedCount: notFitted,
 			AsFoundAt: e.AsFound.ReadAt,
 		}
 		intended = append(intended, row)
@@ -633,13 +737,15 @@ func (s *Server) writeCommitResponse(w http.ResponseWriter, id, readErr, stolenF
 	}
 	e := p.Entries[idx]
 	diff := patch.DiffEntry(e)
-	differs, unread := 0, 0
+	differs, unread, notFitted := 0, 0, 0
 	for _, d := range diff {
 		switch d.State {
 		case patch.DiffDiffers:
 			differs++
 		case patch.DiffUnread:
 			unread++
+		case patch.DiffNotFitted:
+			notFitted++
 		}
 	}
 	if stolenFrom != "" && readErr == "" {
@@ -657,7 +763,7 @@ func (s *Server) writeCommitResponse(w http.ResponseWriter, id, readErr, stolenF
 			Footprint: e.Footprint, Mode: e.Mode,
 			Committed: e.ConfirmedUID != "", CommittedUID: e.ConfirmedUID,
 			DeviceOnline: s.deviceOnline(e.ConfirmedUID),
-			Diff:         diff, DiffersCount: differs, UnreadCount: unread,
+			Diff:         diff, DiffersCount: differs, UnreadCount: unread, NotFittedCount: notFitted,
 			AsFoundAt: e.AsFound.ReadAt,
 		},
 		ReadError: readErr,
@@ -755,6 +861,15 @@ func (s *Server) handleReconcilePush(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case !pushable[f]:
 			res.Error = "this setting cannot be written to a fixture over RDM"
+		case e.AsFound.ReadFromUID(e.ConfirmedUID) && e.AsFound.StateOf(f) == patch.SettingNotFitted:
+			// The fixture's own SUPPORTED_PARAMETERS says it does not have
+			// this setting, so a SET would be a guaranteed NACK — the exact
+			// wasted transaction the as-found gate exists to stop, and the
+			// UI offers no Apply button for a not-fitted line anyway. Only
+			// refused when the reading belongs to the CURRENTLY committed
+			// device (ReadFromUID): a stale block from a substituted-out
+			// fixture must never veto a write to the one now in the rig.
+			res.Error = "this fixture does not have this setting (it is not in the device's own SUPPORTED_PARAMETERS)"
 		default:
 			ctx, cancel := context.WithTimeout(r.Context(), deviceParamTimeout)
 			err := s.pushField(ctx, client, e, f)
@@ -778,13 +893,15 @@ func (s *Server) handleReconcilePush(w http.ResponseWriter, r *http.Request) {
 	if i2 := p2.IndexOf(id); i2 >= 0 {
 		e2 := p2.Entries[i2]
 		diff := patch.DiffEntry(e2)
-		differs, unread := 0, 0
+		differs, unread, notFitted := 0, 0, 0
 		for _, d := range diff {
 			switch d.State {
 			case patch.DiffDiffers:
 				differs++
 			case patch.DiffUnread:
 				unread++
+			case patch.DiffNotFitted:
+				notFitted++
 			}
 		}
 		entry = intendedPaneJSON{
@@ -794,7 +911,7 @@ func (s *Server) handleReconcilePush(w http.ResponseWriter, r *http.Request) {
 			Footprint: e2.Footprint, Mode: e2.Mode,
 			Committed: e2.ConfirmedUID != "", CommittedUID: e2.ConfirmedUID,
 			DeviceOnline: s.deviceOnline(e2.ConfirmedUID),
-			Diff:         diff, DiffersCount: differs, UnreadCount: unread,
+			Diff:         diff, DiffersCount: differs, UnreadCount: unread, NotFittedCount: notFitted,
 			AsFoundAt: e2.AsFound.ReadAt,
 		}
 	}

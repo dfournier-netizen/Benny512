@@ -2,7 +2,7 @@ package patch
 
 import "time"
 
-// This file holds the schema-v4 "commit" model: the device settings a patch
+// This file holds the schema-v5 "commit" model: the device settings a patch
 // entry actually found on the fixture it is committed to ("as-found"), the
 // device-level settings the entry INTENDS ("intended"), and the pure
 // per-field diff between the two that the Reconcile screen renders.
@@ -61,14 +61,115 @@ import "time"
 // At is a time.Time and therefore always marshals (a zero time is
 // "0001-01-01T00:00:00Z", never an absent key). Consumers must look at Known
 // first; At on a Known==false setting is meaningless, not a claim.
+//
+// --- "not fitted" is not "we failed to read it" (schema v5) -----------------
+//
+// Known splits the world in two: read, or not read. Bench capture
+// RDM-LOG24 (2026-09-02, eight GLP JDC-1s) showed two is one too few. A
+// JDC-1 tilts but does not pan, and says so: its own SUPPORTED_PARAMETERS
+// response lists TILT_INVERT and omits PAN_INVERT and PAN_TILT_SWAP
+// entirely. Benny512 asked for them anyway — 18 GETs, 18 NACK
+// UNKNOWN_PID, 11% of the whole capture — and then showed the owner "Pan
+// invert: not read", with a NACK string beside it, as though something had
+// gone wrong. Nothing had. The fixture has no pan.
+//
+// So every setting now also carries an explicit SettingState:
+//
+//	"read"       — we asked and the device answered. Known is true.
+//	"not_fitted" — the device's own SUPPORTED_PARAMETERS does not list the
+//	               PID this setting comes from. A fact about the fixture,
+//	               established WITHOUT a round trip.
+//	"unknown"    — everything else: never asked, timed out, NACKed for some
+//	               other reason, or we have no supported-parameter list for
+//	               this device at all and therefore cannot say.
+//
+// State is an explicit string, never a smuggled zero: this file's whole
+// premise is that a false/0 must be readable as real data, and "not fitted"
+// is exactly the kind of meaning that would have been lost the eighth time
+// had it been encoded as `Value==false && Err==""`.
+//
+// Known is retained and is NOT redundant: it is the "is Value meaningful"
+// flag every existing consumer already reads, and the invariant
+// Known == (State == SettingRead) is enforced by normalizeSettingState (and
+// by patch migration on load). Nothing may set State to SettingNotFitted
+// while Known is true.
+//
+// IntendedSettings shares these structs, so intended values carry a State
+// too. There, only SettingRead ("the patch holds an intention") and
+// SettingUnknown ("it does not") are ever used — an INTENTION cannot be
+// "not fitted"; the fixture, not the patch, is what lacks the hardware.
+
+// SettingState is the three-state resolution of one stored setting. It is a
+// wire identifier: the client renders on it, so the values are stable API
+// surface. See the file comment for what each one means and why two states
+// were not enough.
+type SettingState string
+
+// Setting states.
+const (
+	// SettingUnknown is the zero-value-adjacent state and the only safe
+	// fallback: we could not determine this setting. An older show file, a
+	// device whose SUPPORTED_PARAMETERS never answered, a timeout and a
+	// non-UNKNOWN_PID NACK all land here. Never infer "not fitted" from a
+	// missing supported-parameter list — that would be inventing knowledge.
+	SettingUnknown SettingState = "unknown"
+	// SettingRead means the device answered and Value is real. Exactly
+	// equivalent to Known==true.
+	SettingRead SettingState = "read"
+	// SettingNotFitted means the device's own SUPPORTED_PARAMETERS omits
+	// the PID behind this setting, so the fixture does not have the thing
+	// at all. Known is false and Value is meaningless; Err is empty,
+	// because this is not an error.
+	SettingNotFitted SettingState = "not_fitted"
+)
+
+// normalizeSettingState enforces the Known == (State == SettingRead)
+// invariant and maps every unrecognized/absent state (a v4 show file has no
+// "state" key at all, so it unmarshals to "") onto SettingUnknown. It
+// deliberately preserves SettingNotFitted only when Known is false: a
+// caller that manages to claim both would otherwise leave the UI showing a
+// value for hardware it just said does not exist.
+func normalizeSettingState(state SettingState, known bool) SettingState {
+	if known {
+		return SettingRead
+	}
+	if state == SettingNotFitted {
+		return SettingNotFitted
+	}
+	return SettingUnknown
+}
+
+// NotFittedUint16 / NotFittedIndex / NotFittedBool / NotFittedText build the
+// "the fixture does not have this" reading for each setting type. They exist
+// so the state is never spelled out by hand at a call site (and so no call
+// site can accidentally pair SettingNotFitted with Known:true). No At: a
+// not-fitted setting is not a reading, and stamping it with a time would
+// invite the UI to say "read 10 minutes ago".
+func NotFittedUint16() SettingUint16 { return SettingUint16{State: SettingNotFitted} }
+
+// NotFittedIndex builds a not-fitted SettingIndex. See NotFittedUint16.
+func NotFittedIndex() SettingIndex { return SettingIndex{State: SettingNotFitted} }
+
+// NotFittedBool builds a not-fitted SettingBool. See NotFittedUint16.
+func NotFittedBool() SettingBool { return SettingBool{State: SettingNotFitted} }
+
+// NotFittedText builds a not-fitted SettingText. See NotFittedUint16.
+func NotFittedText() SettingText { return SettingText{State: SettingNotFitted} }
 
 // SettingUint16 is one 16-bit device setting (DMX address, universe,
 // footprint). See the file comment for why Known/At/Err are always present.
+//
+// State is last in the struct on purpose: encoding/json emits fields in
+// declaration order, so appending keeps every existing byte-level wire
+// assertion (and every hand-written fixture file) matching as a prefix.
 type SettingUint16 struct {
 	Known bool      `json:"known"`
 	Value uint16    `json:"value"`
 	At    time.Time `json:"at"`
 	Err   string    `json:"err"`
+	// State is the three-state resolution — see the file comment. Callers
+	// that only care whether Value is usable should keep reading Known.
+	State SettingState `json:"state"`
 }
 
 // SettingIndex is one RDM indexed choice (DMX personality, dimmer curve): a
@@ -87,6 +188,8 @@ type SettingIndex struct {
 	Label      string    `json:"label"`
 	At         time.Time `json:"at"`
 	Err        string    `json:"err"`
+	// State is the three-state resolution — see the file comment.
+	State SettingState `json:"state"`
 }
 
 // SettingBool is one boolean device setting (pan invert, tilt invert,
@@ -94,11 +197,15 @@ type SettingIndex struct {
 // "this fixture reports pan invert OFF" and "we never managed to read pan
 // invert" are different facts, and only one of them is worth pushing a
 // change against.
+// On a fixture that does not pan at all, PanInvert is neither of those: it
+// is SettingNotFitted, and asking the light was never necessary.
 type SettingBool struct {
 	Known bool      `json:"known"`
 	Value bool      `json:"value"`
 	At    time.Time `json:"at"`
 	Err   string    `json:"err"`
+	// State is the three-state resolution — see the file comment.
+	State SettingState `json:"state"`
 }
 
 // SettingText is one free-text device setting (device label).
@@ -107,6 +214,8 @@ type SettingText struct {
 	Value string    `json:"value"`
 	At    time.Time `json:"at"`
 	Err   string    `json:"err"`
+	// State is the three-state resolution — see the file comment.
+	State SettingState `json:"state"`
 }
 
 // IntendedSettings are the device-level settings this entry intends its
@@ -147,6 +256,104 @@ type AsFoundSettings struct {
 	TiltInvert   SettingBool   `json:"tiltInvert"`
 	PanTiltSwap  SettingBool   `json:"panTiltSwap"`
 	DeviceLabel  SettingText   `json:"deviceLabel"`
+}
+
+// normalizeSettingStates enforces the Known == (State == SettingRead)
+// invariant across every stored setting of every entry, in place. It is the
+// v4 -> v5 migration step AND the normalization every Store method runs on
+// entries installed from a caller that built them as plain literals (which
+// never set State at all) — exactly the dual role normalizeChannelFunctions
+// already plays for nil maps/slices, and for the same reason: load is not
+// the only way an un-normalized entry reaches this package.
+//
+// It invents nothing. A v4 file's settings unmarshal with State=="" and
+// come out SettingUnknown, never SettingNotFitted: "the file predates the
+// question" must never be dressed up as "we know this fixture has no pan".
+// Idempotent.
+func normalizeSettingStates(entries []Entry) {
+	for i := range entries {
+		e := &entries[i]
+		normalizeUint16State(&e.AsFound.Universe)
+		normalizeUint16State(&e.AsFound.StartAddress)
+		normalizeUint16State(&e.AsFound.Footprint)
+		normalizeIndexState(&e.AsFound.Personality)
+		normalizeIndexState(&e.AsFound.DimmerCurve)
+		normalizeBoolState(&e.AsFound.PanInvert)
+		normalizeBoolState(&e.AsFound.TiltInvert)
+		normalizeBoolState(&e.AsFound.PanTiltSwap)
+		normalizeTextState(&e.AsFound.DeviceLabel)
+
+		normalizeIndexState(&e.Intended.Personality)
+		normalizeIndexState(&e.Intended.DimmerCurve)
+		normalizeBoolState(&e.Intended.PanInvert)
+		normalizeBoolState(&e.Intended.TiltInvert)
+		normalizeBoolState(&e.Intended.PanTiltSwap)
+		normalizeTextState(&e.Intended.DeviceLabel)
+	}
+}
+
+func normalizeUint16State(s *SettingUint16) { s.State = normalizeSettingState(s.State, s.Known) }
+func normalizeIndexState(s *SettingIndex)   { s.State = normalizeSettingState(s.State, s.Known) }
+func normalizeBoolState(s *SettingBool)     { s.State = normalizeSettingState(s.State, s.Known) }
+func normalizeTextState(s *SettingText)     { s.State = normalizeSettingState(s.State, s.Known) }
+
+// Normalized returns a with every setting's State normalized (see
+// normalizeSettingStates). The store applies this on every write, so a
+// hand-built literal compared against a stored block must be normalized
+// first or the comparison fails on State alone.
+func (a AsFoundSettings) Normalized() AsFoundSettings {
+	entries := []Entry{{AsFound: a}}
+	normalizeSettingStates(entries)
+	return entries[0].AsFound
+}
+
+// Normalized returns i with every setting's State normalized. See
+// AsFoundSettings.Normalized.
+func (i IntendedSettings) Normalized() IntendedSettings {
+	entries := []Entry{{Intended: i}}
+	normalizeSettingStates(entries)
+	return entries[0].Intended
+}
+
+// EmptyAsFound is the normalized "this entry has never been committed and
+// nothing has ever been read" block: no UID, no timestamps, and every
+// setting explicitly SettingUnknown rather than carrying the empty-string
+// state a bare `AsFoundSettings{}` literal would.
+//
+// It exists because the states are normalized on every store write (see
+// normalizeSettingStates), so `e.AsFound == AsFoundSettings{}` stopped
+// being the right way to ask "is this block empty" the moment State was
+// added. Compare against EmptyAsFound() instead.
+func EmptyAsFound() AsFoundSettings { return AsFoundSettings{}.Normalized() }
+
+// StateOf returns the as-found SettingState for one diff field, or
+// SettingUnknown for a field this block has no reading for. It is the one
+// place a DiffField is mapped back onto the setting it names, so callers
+// outside this package (internal/web's push guard) never re-derive that
+// mapping and drift from it.
+func (a AsFoundSettings) StateOf(f DiffField) SettingState {
+	switch f {
+	case FieldUniverse:
+		return normalizeSettingState(a.Universe.State, a.Universe.Known)
+	case FieldStartAddress:
+		return normalizeSettingState(a.StartAddress.State, a.StartAddress.Known)
+	case FieldFootprint:
+		return normalizeSettingState(a.Footprint.State, a.Footprint.Known)
+	case FieldPersonality:
+		return normalizeSettingState(a.Personality.State, a.Personality.Known)
+	case FieldDimmerCurve:
+		return normalizeSettingState(a.DimmerCurve.State, a.DimmerCurve.Known)
+	case FieldPanInvert:
+		return normalizeSettingState(a.PanInvert.State, a.PanInvert.Known)
+	case FieldTiltInvert:
+		return normalizeSettingState(a.TiltInvert.State, a.TiltInvert.Known)
+	case FieldPanTiltSwap:
+		return normalizeSettingState(a.PanTiltSwap.State, a.PanTiltSwap.Known)
+	case FieldDeviceLabel:
+		return normalizeSettingState(a.DeviceLabel.State, a.DeviceLabel.Known)
+	default:
+		return SettingUnknown
+	}
 }
 
 // ReadFromUID reports whether this AsFound block was read off uid. A commit
@@ -201,6 +408,18 @@ const (
 	// the read failed (FoundErr says which). Never treated as a difference:
 	// an unread field is not evidence of a misconfigured light.
 	DiffUnread DiffState = "unread"
+	// DiffNotFitted: the fixture's own SUPPORTED_PARAMETERS says it does
+	// not have this setting at all (SettingNotFitted). Distinct from
+	// DiffUnread because it is knowledge, not the absence of it — "this
+	// JDC-1 has no pan" is a finished answer, and the row deserves to say
+	// so instead of showing a NACK string next to "Not read".
+	//
+	// It outranks the intended side deliberately: an entry that INTENDS
+	// pan invert on, committed to a fixture that cannot pan, is a real rig
+	// error the owner should see stated plainly — and it is emphatically
+	// not DiffDiffers, because there is nothing to apply. No Apply button
+	// is ever offered for a not-fitted line.
+	DiffNotFitted DiffState = "not_fitted"
 )
 
 // ValueKind tells the client HOW to render a field's numbers. It exists
@@ -318,8 +537,9 @@ func PushableFields() map[DiffField]bool {
 // DiffEntry compares e's intended settings against its as-found readings and
 // returns one DiffLine per comparable field, always in the same order and
 // always the full set (a field with nothing on either side still appears, as
-// DiffUnread — the owner needs to see that the curve was never read, not to
-// have the row silently vanish).
+// DiffUnread (or DiffNotFitted — the owner needs to see that the curve was
+// never read, or that this fixture has no curve at all, not to have the row
+// silently vanish).
 //
 // Pure: no RDM, no HTTP, no clock. The returned slice is built with
 // make([]DiffLine, 0, ...) and is never nil — a nil slice marshals to JSON
@@ -364,10 +584,17 @@ func DiffEntry(e Entry) []DiffLine {
 	return lines
 }
 
-// classify is the one place the four DiffStates are decided, so every field
+// classify is the one place the five DiffStates are decided, so every field
 // type answers the question identically.
-func classify(intendedKnown, foundKnown, equal bool) DiffState {
+//
+// foundState is checked before anything else: a not-fitted field is a
+// finished answer about the fixture and cannot be a match, a difference or
+// an adoptable value, whatever the patch intends. Everything else keeps the
+// pre-v5 ordering exactly.
+func classify(foundState SettingState, intendedKnown, foundKnown, equal bool) DiffState {
 	switch {
+	case foundState == SettingNotFitted && !foundKnown:
+		return DiffNotFitted
 	case !foundKnown:
 		return DiffUnread
 	case !intendedKnown:
@@ -387,7 +614,7 @@ func numLine(f DiffField, kind ValueKind, pushable bool, intendedKnown bool, int
 	l := base(f, kind, pushable)
 	l.IntendedKnown, l.IntendedNum = intendedKnown, intended
 	l.FoundKnown, l.FoundNum, l.FoundAt, l.FoundErr = found.Known, int64(found.Value), found.At, found.Err
-	l.State = classify(intendedKnown, found.Known, intended == int64(found.Value))
+	l.State = classify(found.State, intendedKnown, found.Known, intended == int64(found.Value))
 	return l
 }
 
@@ -407,7 +634,7 @@ func indexLine(f DiffField, intended, found SettingIndex, intendedNameFallback s
 	l.FoundKnown, l.FoundNum, l.FoundLabel = found.Known, int64(found.Value), found.Label
 	l.FoundCount, l.FoundCountKnown = found.Count, found.CountKnown
 	l.FoundAt, l.FoundErr = found.At, found.Err
-	l.State = classify(intended.Known, found.Known, intended.Value == found.Value)
+	l.State = classify(found.State, intended.Known, found.Known, intended.Value == found.Value)
 	return l
 }
 
@@ -415,7 +642,7 @@ func boolLine(f DiffField, intended, found SettingBool) DiffLine {
 	l := base(f, KindBool, true)
 	l.IntendedKnown, l.IntendedBool = intended.Known, intended.Value
 	l.FoundKnown, l.FoundBool, l.FoundAt, l.FoundErr = found.Known, found.Value, found.At, found.Err
-	l.State = classify(intended.Known, found.Known, intended.Value == found.Value)
+	l.State = classify(found.State, intended.Known, found.Known, intended.Value == found.Value)
 	return l
 }
 
@@ -423,7 +650,7 @@ func textLine(f DiffField, intended, found SettingText) DiffLine {
 	l := base(f, KindText, true)
 	l.IntendedKnown, l.IntendedText = intended.Known, intended.Value
 	l.FoundKnown, l.FoundText, l.FoundAt, l.FoundErr = found.Known, found.Value, found.At, found.Err
-	l.State = classify(intended.Known, found.Known, intended.Value == found.Value)
+	l.State = classify(found.State, intended.Known, found.Known, intended.Value == found.Value)
 	return l
 }
 
@@ -457,22 +684,22 @@ func (e *Entry) AdoptAsIntended(fields []DiffField, now time.Time) []DiffField {
 			}
 		case FieldPanInvert:
 			if e.AsFound.PanInvert.Known {
-				e.Intended.PanInvert = SettingBool{Known: true, Value: e.AsFound.PanInvert.Value, At: now}
+				e.Intended.PanInvert = SettingBool{Known: true, Value: e.AsFound.PanInvert.Value, At: now, State: SettingRead}
 				done = append(done, f)
 			}
 		case FieldTiltInvert:
 			if e.AsFound.TiltInvert.Known {
-				e.Intended.TiltInvert = SettingBool{Known: true, Value: e.AsFound.TiltInvert.Value, At: now}
+				e.Intended.TiltInvert = SettingBool{Known: true, Value: e.AsFound.TiltInvert.Value, At: now, State: SettingRead}
 				done = append(done, f)
 			}
 		case FieldPanTiltSwap:
 			if e.AsFound.PanTiltSwap.Known {
-				e.Intended.PanTiltSwap = SettingBool{Known: true, Value: e.AsFound.PanTiltSwap.Value, At: now}
+				e.Intended.PanTiltSwap = SettingBool{Known: true, Value: e.AsFound.PanTiltSwap.Value, At: now, State: SettingRead}
 				done = append(done, f)
 			}
 		case FieldDeviceLabel:
 			if e.AsFound.DeviceLabel.Known {
-				e.Intended.DeviceLabel = SettingText{Known: true, Value: e.AsFound.DeviceLabel.Value, At: now}
+				e.Intended.DeviceLabel = SettingText{Known: true, Value: e.AsFound.DeviceLabel.Value, At: now, State: SettingRead}
 				done = append(done, f)
 			}
 		}
@@ -490,7 +717,7 @@ func adoptIndex(src SettingIndex, now time.Time) SettingIndex {
 	return SettingIndex{
 		Known: true, Value: src.Value,
 		Count: src.Count, CountKnown: src.CountKnown,
-		Label: src.Label, At: now,
+		Label: src.Label, At: now, State: SettingRead,
 	}
 }
 
@@ -504,5 +731,5 @@ func adoptIndex(src SettingIndex, now time.Time) SettingIndex {
 func (e *Entry) Decommit() {
 	e.ConfirmedUID = ""
 	e.MatchState = MatchStateUnresolved
-	e.AsFound = AsFoundSettings{}
+	e.AsFound = EmptyAsFound()
 }
