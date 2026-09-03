@@ -1,0 +1,85 @@
+/* ===========================================================================
+   screens-tools.css — the ONE thing the Send / Rig Walk / Settings / Patch
+   Entries conversion needed that the shared screen kit
+   (benny512-components.css, "BENNY512 SCREEN KIT") cannot express.
+
+   Written under DESIGN.md's opening instruction: "find the component whose
+   JOB matches yours, copy its markup exactly, and only then think about
+   anything new." Everything else on those four screens uses the kit as it
+   ships — .b5-step-section, .b5-toolbar, .b5-actionbar, .b5-bigbtn,
+   .b5-statecard, .b5-pill, .b5-group, .b5-choicecard, .b5-field,
+   .b5-scrollbox, .b5-note, .b5-caption. One gap is left, and it is here.
+
+   NOTHING HERE IS A TOUCH-TARGET OVERRIDE. .b5-btn--sm was resolved
+   kit-wide (32px on a mouse, var(--b5-size-touch-min) on a coarse pointer,
+   benny512-components.css) and the Send park toggle deliberately uses that
+   class so the kit's own rule reaches it. The literal 44px is never written
+   here.
+
+   IF THIS FILE IS NOT LINKED, NOTHING BREAKS. The park toggle is a plain
+   .b5-btn .b5-btn--sm .b5-btn--ghost .b5-btn--block and renders, reads and
+   presses correctly without a single rule below; the only difference is
+   that its label sits a couple of pixels wider than a 64px grid cell and
+   crowds its neighbour. That was deliberate: a screen must not depend on a
+   stylesheet that has not been wired in yet.
+   =========================================================================== */
+
+/* ---------------------------------------------------------------------------
+   GAP — a kit button inside Send's 64px DMX cell.
+
+   Send's grid is .b5-dmx-grid's repeat(auto-fill, minmax(64px, 1fr)): at a
+   1024px tablet width that is a ~66px column, 512 of them, and density there
+   is the whole feature (DESIGN.md's worked example names "the Send grid" as
+   data a tech scans down rather than something to turn into cards).
+
+   The park control used to be a bare 13px native <input type=checkbox>,
+   which is not a target a gloved thumb can find on a truss and is not a
+   real button. It is now a kit .b5-btn .b5-btn--sm, which brings the
+   kit-wide coarse-pointer touch height with it — but .b5-btn's horizontal
+   padding (var(--b5-space-4), and var(--b5-space-3) at --sm) is sized for a
+   toolbar row, and "Parked" plus 2x12px of padding is wider than the cell
+   it has to live in.
+
+   So the only thing adjusted is the INLINE padding, and only for this one
+   control in this one place. The block padding, the min-height and every
+   state colour are left entirely to the kit, so a future change to the
+   touch minimum still reaches this button.
+   --------------------------------------------------------------------------- */
+.b5-dmx-cell .b5-tools-dmxpark {
+  padding-inline: var(--b5-space-1);
+  gap: var(--b5-space-1);
+  min-width: 0;
+}
+
+/* The label is the state, in a word (rule 1) — it must never be the thing
+   that gets clipped when a cell is narrow. */
+.b5-dmx-cell .b5-tools-dmxpark .b5-dmx-cell__park-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------
+   GAP — the DMX cell's own numeric entry on a coarse pointer.
+
+   This is NOT a per-screen override of a kit control: .b5-dmx-cell input is
+   the kit's own rule (benny512-components.css, "Send grid"), and it pins
+   every input in a cell to min-height: 36px — which beats .b5-numinput's 48px
+   on specificity, so the kit's compact-numeric component cannot be used here
+   to fix it.
+
+   The kit already treats this exact grid this exact way: app.css gives
+   .b5-range-touch the touch height ONLY on (hover: none) and (pointer:
+   coarse), explicitly "so Send's 512-cell desktop grid stays usable" on a
+   mouse. Without the rule below, the fader in a cell is 44px on the owner's
+   tablet and the number box beside it is 36px — the two halves of one control
+   disagreeing about whether this screen is touchable.
+
+   Same query, same token, opposite half of the same decision. On a mouse
+   nothing changes, and the literal 44px is never written.
+   --------------------------------------------------------------------------- */
+@media (hover: none) and (pointer: coarse) {
+  .b5-dmx-cell input[type="number"] {
+    min-height: var(--b5-size-touch-min);
+  }
+}

@@ -1454,3 +1454,218 @@
 }
 .b5-rcb-diff__lead { margin: 0 0 var(--b5-space-3); font-size: var(--b5-font-size-sm); line-height: 1.6; color: var(--b5-color-text-secondary); }
 .b5-rcb-adoptall { margin-top: var(--b5-space-2); }
+
+/* ============================================================
+   Reconcile board — per-pane scroll and per-pane sort.
+   APPENDED BLOCK: everything below is new and scoped to
+   .b5-rcb-board / .b5-rcb-*. Nothing above it is modified.
+
+     "Can we add separate scrollbars to the reconcile page, so the
+      'intended devices' has its own and so does the 'rdm devices' pane.
+      Also, let's add sorting options to each pane, as well as automatically
+      move committed devices to the bottom of sorting order, still following
+      the sort filter set."
+
+   Scoped to a .b5-rcb-board modifier rather than written against the kit's
+   own .b5-board / .b5-board__list, so the three other screens that use the
+   board component are untouched by any of it.
+   ============================================================ */
+
+/* ---- per-pane sort control ----------------------------------------------
+   Sits BETWEEN the pane's header and its scrolling list, so both the title
+   and the control that orders the list stay put while the list moves under
+   them. The <select> is a real .b5-select, which already carries
+   min-height: var(--b5-size-touch-min) — the literal 44px is never restated
+   here (kit rule 2). */
+.b5-rcb-panetools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--b5-space-2);
+  padding: var(--b5-space-2) var(--b5-space-4);
+  border-bottom: var(--b5-border-width-thin) solid var(--b5-color-border-default);
+  background: var(--b5-color-bg-surface-raised);
+}
+.b5-rcb-panetools__label {
+  font-size: var(--b5-font-size-sm);
+  font-weight: var(--b5-font-weight-bold);
+  color: var(--b5-color-text-secondary);
+}
+/* min-width: 0 so a long option label shrinks the control instead of widening
+   the pane and, through it, the page (kit rule 4). */
+.b5-rcb-panetools__select { flex: 1 1 12rem; min-width: 0; }
+
+/* ---- the two independent scroll boxes -----------------------------------
+   Only ABOVE 900px, which is exactly the width at which .b5-board stops
+   stacking and puts the panes side by side. That gate is deliberate and is
+   the whole point of the feature: two capped boxes let him hold a patch entry
+   on the left against the fixture he thinks it is on the right and move each
+   side separately. Stacked (820px portrait, phone), there is only ever one
+   pane in view at a time, nothing to line up against anything, and two short
+   nested scroll boxes on a long page would be a trap for a thumb — so below
+   900px the rules simply do not apply and the page scrolls as it always did.
+
+   overscroll-behavior: contain stops a flick that reaches the end of one pane
+   from carrying on into the page behind it. Momentum on iPad comes from the
+   platform for any element with overflow: auto; -webkit-overflow-scrolling is
+   the belt-and-braces for older WebKit. */
+@media (min-width: 900px) {
+  .b5-rcb-board .b5-board__list {
+    max-height: min(68vh, 60rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-gutter: stable;
+    scrollbar-color: var(--b5-color-border-strong) var(--b5-color-bg-surface);
+  }
+  /* A scrollbar wide enough to see and grab in the dark, and visible at all:
+     the default overlay bar on a touch device fades out entirely, which would
+     leave the pane with no standing sign that there is more below it. */
+  .b5-rcb-board .b5-board__list::-webkit-scrollbar { width: 14px; }
+  .b5-rcb-board .b5-board__list::-webkit-scrollbar-track {
+    background: var(--b5-color-bg-surface);
+    border-radius: var(--b5-radius-sm);
+  }
+  .b5-rcb-board .b5-board__list::-webkit-scrollbar-thumb {
+    background: var(--b5-color-border-strong);
+    border-radius: var(--b5-radius-sm);
+  }
+  .b5-rcb-board .b5-board__list:focus-visible { outline: none; box-shadow: var(--b5-shadow-focus); }
+}
+
+/* ---- the done / not-done divider ----------------------------------------
+   Committed rows sink to the bottom of their pane. That has to READ as "these
+   are finished", not as "the sort is broken", so the boundary is named rather
+   than merely positional — and it is named with a WORD and an ICON and a
+   border STYLE (dashed while a group is still open, solid once it is done —
+   the kit's own dashed = "nothing is attached here" convention), so it
+   survives greyscale and does not depend on hue at all (kit rule 1).
+
+   Deliberately not .b5-group__head: that one is text-transform: uppercase,
+   which is right for a three-word band label and wrong for a whole sentence
+   under the standing dyslexia-friendly constraint ("no all-caps runs longer
+   than a chip label"). See the report's note on this. */
+.b5-rcb-groupdiv {
+  display: flex;
+  align-items: center;
+  gap: var(--b5-space-2);
+  margin: var(--b5-space-2) 0 0;
+  padding-bottom: var(--b5-space-2);
+  font-size: var(--b5-font-size-md);
+  font-weight: var(--b5-font-weight-bold);
+  line-height: 1.4;
+  color: var(--b5-color-text-primary);
+}
+.b5-rcb-groupdiv:first-child { margin-top: 0; }
+.b5-rcb-groupdiv--todo {
+  border-bottom: var(--b5-border-width-thick) dashed var(--b5-color-border-strong);
+}
+.b5-rcb-groupdiv--done {
+  border-bottom: var(--b5-border-width-thick) solid var(--b5-color-border-strong);
+  color: var(--b5-color-text-secondary);
+}
+/* The count is a supporting fact, not the heading. Tabular figures so the two
+   dividers' numbers line up as the pane drains. */
+.b5-rcb-groupdiv__count {
+  margin-left: auto;
+  font-size: var(--b5-font-size-sm);
+  font-weight: var(--b5-font-weight-regular);
+  font-variant-numeric: tabular-nums;
+  color: var(--b5-color-text-muted);
+}
+
+/* ---- "not read" vs "this fixture doesn't have it" -----------------------
+   Two counts the server takes deliberate care to keep apart (see
+   NotFittedCount in internal/web/reconcilecommit.go). They are rendered as
+   two separate .b5-pill--tag chips, each carrying its own words, so they can
+   never merge into one number on screen the way they must never merge on the
+   wire. */
+.b5-rcb-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--b5-space-2);
+  margin: var(--b5-space-2) 0 0;
+}
+
+/* ==========================================================================
+   KIT-LEVEL TOUCH-TARGET AND TABLE-STACKING RESOLUTION
+   --------------------------------------------------------------------------
+   Two decisions the per-screen conversion agents correctly refused to make
+   inside their own boundaries, resolved here once for every screen.
+
+   1. .b5-btn--sm is a hard 32px, under this kit's own 44px minimum, and it is
+      used by ui.js's shared buildApplyField (12x on the device detail panel
+      alone) and by the global page-header Refresh button on EVERY screen. So
+      it could not be fixed per-screen: raising half a row's buttons produces
+      a mismatched row and leaves the other half under the minimum anyway.
+
+      The resolution follows the precedent app.css already set for
+      .b5-range-touch: give the touch size to COARSE pointers only. The owner
+      works on a tablet in the dark under a truss, which is where the rule
+      exists to protect him; on a laptop with a mouse the compact size is not
+      a hazard and density is a feature on screens like Devices and Analyzer
+      that are working instruments. A laptop touchscreen with a mouse also
+      present correctly stays compact via the (hover: none) half, exactly as
+      the slider rule does.
+
+      This deliberately does NOT change the desktop rendering of any screen,
+      so it cannot regress a layout that was signed off at a mouse pointer.
+
+   2. .b5-table--responsive stacked into per-row cards only below 768px, which
+      is narrower than every tablet this app is used on. At 820px portrait the
+      Analyzer's Detail column (the "Full hex" button) was pushed outside the
+      visible width and reachable only by scrolling the table sideways — the
+      "control you cannot see" shape. Raised to 900px so a tablet in portrait
+      gets the stacked card form, which is what that form was built for.
+      Desktop widths are unaffected.
+   ========================================================================== */
+
+@media (hover: none) and (pointer: coarse) {
+  .b5-btn--sm {
+    min-height: var(--b5-size-touch-min);
+    padding-block: var(--b5-space-2);
+  }
+}
+
+@media (min-width: 768px) and (max-width: 899px) {
+  .b5-table--responsive thead { display: none; }
+  .b5-table--responsive,
+  .b5-table--responsive tbody,
+  .b5-table--responsive tr,
+  .b5-table--responsive td { display: block; width: 100%; }
+  .b5-table--responsive tr {
+    border: 1px solid var(--b5-color-border);
+    border-radius: var(--b5-radius-md);
+    margin-bottom: var(--b5-space-3);
+    padding: var(--b5-space-2);
+  }
+  .b5-table--responsive td { border: 0; padding: var(--b5-space-1) 0; }
+  .b5-table--responsive td::before {
+    content: attr(data-label) ": ";
+    font-weight: 600;
+    color: var(--b5-color-text-muted);
+  }
+}
+
+/* 3. A bare <input type="radio">/<input type="checkbox"> renders ~20px and
+      cannot be resized reliably across browsers, so the LABEL wrapping it is
+      the real touch target. The port-selection radios on Nodes were 44px tall
+      but only 28px wide — tall enough to pass a height-only audit and still
+      awkward to hit with a thumb in the dark. Give any label that directly
+      contains one a 44px minimum in BOTH dimensions on a coarse pointer.
+
+      Scoped with :has() to labels that actually wrap such an input, so it
+      cannot inflate ordinary field labels, and gated to coarse pointers for
+      the same reason as rule 1 above: it must not change a desktop layout
+      that was signed off at a mouse pointer. Labels whose input is visually
+      hidden behind a styled control (the Patch row checkboxes, Rig Walk's
+      toggle) are unaffected — their visible control is the target and is
+      already sized by its own component. */
+
+@media (hover: none) and (pointer: coarse) {
+  label:has(> input[type="radio"]),
+  label:has(> input[type="checkbox"]) {
+    min-width: var(--b5-size-touch-min);
+    min-height: var(--b5-size-touch-min);
+  }
+}

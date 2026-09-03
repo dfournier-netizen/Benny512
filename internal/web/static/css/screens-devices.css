@@ -1,0 +1,166 @@
+/* ===========================================================================
+   screens-devices.css — the small number of things the Devices, device-detail
+   and Analyzer conversion needed that the shared screen kit
+   (benny512-components.css, "BENNY512 SCREEN KIT") does not yet have.
+
+   The rule this file was written under is DESIGN.md's opening instruction:
+   "find the component whose JOB matches yours, copy its markup exactly, and
+   only then think about anything new." Everything on those three screens that
+   the kit already covers uses the kit — .b5-step-section, .b5-toolbar,
+   .b5-statecard, .b5-pill, .b5-group, .b5-param, .b5-choicecard,
+   .b5-board__list, .b5-note, .b5-caption. What is left is three genuine gaps
+   and one scoped nicety, and each one is written here rather than in the kit
+   so that whoever folds these into benny512-components.css later can see
+   exactly what was added and why.
+
+   Nothing here introduces a colour-only state, and nothing here writes the
+   literal 44px — the touch minimum is always var(--b5-size-touch-min), so a
+   future change to that token still reaches every control on these screens.
+   =========================================================================== */
+
+/* ---------------------------------------------------------------------------
+   GAP 1 — .b5-scrollbox: rule 4's missing container.
+
+   DESIGN.md rule 4 says wide content "scrolls inside its own box" and that
+   the page body must never scroll horizontally, and the worked example ends
+   by telling you to put a genuinely tabular table "in its own overflow-x:
+   auto box" — but the kit ships no such box, so every screen that kept a
+   table had been inventing an inline style for it. The Analyzer's two packet
+   tables and the device-detail Status table are exactly the case DESIGN.md
+   blesses as "genuinely tabular data a tech scans down", so they need it.
+
+   min-width: 0 is the load-bearing half: without it a scrollbox nested in a
+   flex or grid parent takes its content's intrinsic width instead of its
+   parent's, the overflow never engages, and the PAGE scrolls sideways
+   instead — which is the failure rule 4 exists to prevent, arriving through
+   the very component meant to prevent it.
+
+   -webkit-overflow-scrolling gives the tablet its momentum scroll back,
+   which an overflow container otherwise takes away.
+   --------------------------------------------------------------------------- */
+.b5-scrollbox {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ---------------------------------------------------------------------------
+   GAP 2 — .b5-statecard.is-current: "this is the row the pane below is
+   showing".
+
+   The kit's state card has five states — is-ok, is-warn, is-danger, is-open,
+   is-armed — and they are all about the ITEM. None of them says "this is the
+   one you are currently looking at", which is the single most important thing
+   the Devices list has to communicate: the list and the detail pane are
+   stacked vertically on a tablet, so when the pane below changes, the only
+   way to know which card caused it is for that card to say so.
+
+   is-armed is the closest existing state and is deliberately NOT reused:
+   "armed" on this screen means a destructive action is one press from firing
+   (the Clear buttons in step 2), and painting an ordinary selection with the
+   same frame would teach the wrong reflex in the dark.
+
+   Three independent signals, per rule 1 — a thick accent frame (border
+   WIDTH, not just hue), the accent left rule, and a tinted ground. The word
+   is carried in the markup: the card also renders an "Open below" pill and
+   aria-current="true", so a greyscale screenshot and a screen reader both
+   still identify it.
+   --------------------------------------------------------------------------- */
+.b5-statecard.is-current {
+  border-color: var(--b5-color-accent-500);
+  border-width: var(--b5-border-width-thick);
+  border-left-width: 10px;
+  border-left-color: var(--b5-color-accent-500);
+  background: var(--b5-color-accent-500-a15);
+}
+
+/* ---------------------------------------------------------------------------
+   GAP 3 — a state card that is also a step section's own frame.
+
+   renderDestructiveActionsSection (device detail) renders the reset/factory-
+   defaults block as a .b5-statecard so its armed state gets the same frame
+   treatment every other armed thing in this app gets. A card used that way
+   holds a stack of prose and buttons rather than one row, so it needs a
+   little more room to breathe than a list row does.
+   --------------------------------------------------------------------------- */
+.b5-statecard.b5-panel--destructive {
+  padding: var(--b5-space-4);
+}
+
+/* ---------------------------------------------------------------------------
+   SCOPED NICETY — long read-only values inside a two-column fact grid.
+
+   The device-detail Info tab puts .b5-param rows in a .b5-grid-2. A .b5-param
+   value there can be a 17-character RDM UID, a manufacturer's full product
+   string, or a whole "not read from the device yet" sentence, and in a
+   half-width grid cell any of those will push the grid wider than its
+   container unless it is allowed to break. Scoped to the grid rather than
+   applied to .b5-param generally, because the kit's own .b5-param rows sit in
+   full-width stacks where this is not needed and wrapping mid-token would be
+   a regression.
+   --------------------------------------------------------------------------- */
+.b5-grid-2 > .b5-param { min-width: 0; }
+.b5-grid-2 > .b5-param > .b5-param__value { overflow-wrap: anywhere; }
+
+/* ---------------------------------------------------------------------------
+   GAP 4 — a toolbar row that actually packs. DENSITY IS A FEATURE.
+
+   `.b5-toolbar__row` is a `display: flex; flex-wrap: wrap` row, which is
+   exactly right. But `.b5-input, .b5-select` in the kit carry `width: 100%`
+   (benny512-components.css line ~237), and a flex item at width:100% claims
+   the whole line and forces every sibling onto its own line after it. So the
+   Devices screen's four filters — Class, Node, Universe, Sort — rendered as
+   FOUR full-width stacked rows at 1024px, and the Analyzer's Kind filter as
+   one more, pushing the actual list of devices and the actual packet feed
+   most of a screen further down.
+
+   That was caught by looking at a screenshot, not by an assertion: every
+   check passed, and the screen was simply much less useful. This app is read
+   standing up at arm's length while the tech is looking for one fixture in a
+   list of hundreds, and DESIGN.md is explicit that where the kit's default
+   treatment costs too much information per screen you say so and reach for
+   the tighter option rather than abandoning the kit or inventing a new look.
+   So this does not restyle the controls at all — same component, same border,
+   same focus ring, same min-height (the 44px touch minimum is untouched and
+   still comes from the token). It only lets them size to their content and
+   share a line.
+
+   Scoped to these two screens rather than written against `.b5-toolbar__row`
+   generally: the other screens converting to the kit have not been looked at
+   at this width yet, and a width change that reaches them unreviewed is the
+   kind of drive-by that this codebase has been bitten by. Whoever folds this
+   into the kit should widen the selector deliberately, with a screenshot.
+
+   min-width: 0 is rule 4: without it a select with a long option label takes
+   its intrinsic content width and pushes the toolbar — and therefore the
+   page — sideways, which is the exact failure the flex row is meant to avoid.
+   --------------------------------------------------------------------------- */
+#screen-devices .b5-toolbar__row > .b5-select,
+#screen-devices .b5-toolbar__row > .b5-input,
+#screen-analyzer .b5-toolbar__row > .b5-select,
+#screen-analyzer .b5-toolbar__row > .b5-input {
+  width: auto;
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   SCOPED NICETY — the Analyzer's per-row "Full hex" button on one line.
+
+   The packet feed is the densest thing in the app: a tech scans down it
+   looking for one packet among hundreds. That button is a full 44px control
+   (DESIGN.md rule 2 — it was --sm, i.e. 32px, and is not any more), and in the
+   narrow Detail column its two-word label wrapped onto a second line, which
+   added roughly 25px to EVERY row of a 500-row feed and cost about a third of
+   the rows visible on a 768px-tall tablet.
+
+   Keeping the label at two words is deliberate: "Full hex" says what the
+   button does, and DESIGN.md's worked example is explicit that an action's
+   label should say what it does rather than being trimmed to fit. So the
+   column gets wider instead of the label getting shorter — which is free
+   here, because this table already lives inside a .b5-scrollbox and scrolls
+   within its own box (rule 4). Nothing reaches the page edge.
+   --------------------------------------------------------------------------- */
+#screen-analyzer .b5-table td[data-label="Detail"] .b5-btn { white-space: nowrap; }

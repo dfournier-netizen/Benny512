@@ -36,9 +36,48 @@ const WalkScreen = (() => {
   let summary = null;   // walk.Summary JSON, or null
   let statusMsg = '';
 
+  // --- universe notation ----------------------------------------------------
+  //
+  // DESIGN.md rule 5: every universe on this screen goes through
+  // UI.formatUniverse, from the raw 0-based Art-Net Port-Address the server
+  // sent, and every typed one comes back through UI.parseUniverse. Never a
+  // raw canonical number on screen, never a re-parse of a string already
+  // displayed.
+  //
+  // WHAT WAS WRONG HERE (the open item this conversion was sent to close):
+  // three places on this screen printed or accepted a RAW Port-Address and
+  // called it a universe.
+  //
+  //   1. The scope picker's "One universe (Port-Address)" input was a bare
+  //      <input min=0 max=32767 value=0> read straight into scopeValue. At
+  //      the owner's default base of 1 the box therefore said 0 for a
+  //      universe every other screen in the app calls 1 — and worse, typing
+  //      the number he reads on Patch ("3") started a walk on wire universe
+  //      3, i.e. the one Patch calls 4. The universe he asked for and the
+  //      universe he got were one apart, silently, on the screen whose whole
+  //      job is walking a rig fixture by fixture.
+  //   2. The "One port" picker labelled each port "(addr 12)" — again the
+  //      raw Port-Address, next to a Nodes screen that has shown the display
+  //      base since its own conversion.
+  //   3. The active walk card's kicker printed "U${dev.portAddress}" and its
+  //      footer "port-addr ${dev.portAddress}" — the same raw number twice,
+  //      on the card he reads while standing under the fixture.
+  //
+  // This is the same class of defect as nodes.js's masked nibble and
+  // analyzer.js's phantom universe: one value spelled two ways. All three
+  // now go through uni() below, and scopeUniverseCanonical holds the true
+  // 0-based value so a display-base change re-labels it without ever
+  // re-reading the box.
+  const uni = (raw) => UI.formatUniverse(raw);
+
   // Setup-screen (pre-walk) state.
   let nodesCache = [];
   let scopeKind = sessionStorage.getItem('benny512.walk.scopeKind') || 'all';
+  // scopeUniverseCanonical: the 0-based wire Port-Address the "One universe"
+  // scope will start on. THIS is the source of truth; the input only ever
+  // shows/accepts the display-base-converted number, exactly as send.js's
+  // sendUniverseCanonical and nodes.js's staged port fields do.
+  let scopeUniverseCanonical = 0;
   let orderMode = sessionStorage.getItem('benny512.walk.order') || 'address';
   let fixturesOnly = sessionStorage.getItem('benny512.walk.fixturesOnly') !== 'false';
   let starting = false;
@@ -176,42 +215,77 @@ const WalkScreen = (() => {
 
   // --- setup screen -----------------------------------------------------------
 
+  const SCOPE_WORD = {
+    all: 'every discovered device',
+    node: 'one node',
+    port: 'one port',
+    universe: 'one universe',
+    class: 'one device class',
+  };
+
   function renderSetup(el) {
     el.innerHTML = `
-      <div class="b5-page-header"><h1 class="b5-page-header__title">Rig Walk</h1></div>
-      <p class="b5-text-muted b5-text-sm">Pick what to walk. Landing on a device flashes it (Identify ON); moving on turns it off and flashes the next one — exactly one fixture at a time. The full device panel — sensors, address, personality, standard and manufacturer parameters, status — is available below each device as expandable sections.</p>
-
-      <div class="b5-panel b5-shell--centered">
-        <div class="b5-panel__body b5-stack">
-          <div class="b5-field">
-            <label class="b5-field__label" for="walkScopeKind">Scope</label>
-            <select id="walkScopeKind" class="b5-select">
-              <option value="all">All devices</option>
-              <option value="node">One node</option>
-              <option value="port">One port</option>
-              <option value="universe">One universe (Port-Address)</option>
-              <option value="class">One device class</option>
-            </select>
-          </div>
-          <div id="walkScopeValueWrap"></div>
-
-          <div class="b5-field">
-            <label class="b5-field__label" for="walkOrder">Order</label>
-            <select id="walkOrder" class="b5-select">
-              <option value="address">Universe + DMX address (low&rarr;high)</option>
-              <option value="address_desc">Universe + DMX address (high&rarr;low)</option>
-              <option value="model">Model / fixture type</option>
-              <option value="uid">UID</option>
-              <option value="discovery">Discovery order</option>
-            </select>
-          </div>
-
-          <label class="b5-checkbox"><input type="checkbox" id="walkFixturesOnly" ${fixturesOnly ? 'checked' : ''}>Fixtures only (uncheck for all RDM devices)</label>
-
-          <button id="walkStartBtn" class="b5-btn b5-btn--primary b5-btn--block" ${starting ? 'disabled' : ''}>${starting ? UI.spinner() + 'Starting…' : 'Start Walk'}</button>
-          <span class="b5-text-muted b5-text-sm" id="walkSetupStatus">${escapeHtml(statusMsg)}</span>
-        </div>
+      <div class="b5-page-header">
+        <h1 class="b5-page-header__title">Rig Walk</h1>
+        <span class="b5-page-header__meta b5-text-muted b5-text-sm">One fixture flashing at a time, in your hand, down the truss.</span>
       </div>
+      <p class="b5-note">Landing on a device flashes it (Identify ON); moving on turns it off and flashes the next one &mdash; exactly one fixture is ever lit. Leaving this screen, backgrounding the tab or closing it also turns Identify off, so nothing is left flashing on a truss. The full device panel &mdash; sensors, address, personality, standard and manufacturer parameters, status &mdash; opens below each device.</p>
+
+      <section class="b5-step-section" aria-labelledby="walkScopeHead">
+        <h2 class="b5-step-section__head" id="walkScopeHead">
+          <span class="b5-step-num">1</span> What to walk
+          <span class="b5-step-section__note" id="walkScopeNote">${escapeHtml(SCOPE_WORD[scopeKind] || scopeKind)}</span>
+        </h2>
+        <div class="b5-field">
+          <label class="b5-field__label" for="walkScopeKind">Scope</label>
+          <select id="walkScopeKind" class="b5-select">
+            <option value="all">All devices</option>
+            <option value="node">One node</option>
+            <option value="port">One port</option>
+            <option value="universe">One universe</option>
+            <option value="class">One device class</option>
+          </select>
+        </div>
+        <div id="walkScopeValueWrap"></div>
+      </section>
+
+      <section class="b5-step-section" aria-labelledby="walkOrderHead">
+        <h2 class="b5-step-section__head" id="walkOrderHead">
+          <span class="b5-step-num">2</span> What order to walk it in
+          <span class="b5-step-section__note">the order you meet the fixtures, not the order they were found</span>
+        </h2>
+        <div class="b5-field">
+          <label class="b5-field__label" for="walkOrder">Order</label>
+          <select id="walkOrder" class="b5-select">
+            <option value="address">Universe + DMX address (low&rarr;high)</option>
+            <option value="address_desc">Universe + DMX address (high&rarr;low)</option>
+            <option value="model">Model / fixture type</option>
+            <option value="uid">UID</option>
+            <option value="discovery">Discovery order</option>
+          </select>
+        </div>
+        <label class="b5-choicecard ${fixturesOnly ? 'is-on' : ''}" id="walkFixturesOnlyCard">
+          <input type="checkbox" id="walkFixturesOnly" ${fixturesOnly ? 'checked' : ''}>
+          <span class="b5-choicecard__box" aria-hidden="true">${fixturesOnly ? UI.icon('status-ok') : ''}</span>
+          <span>
+            <span class="b5-choicecard__title">Fixtures only &mdash; ${fixturesOnly ? 'ON' : 'OFF'}</span>
+            <span class="b5-choicecard__body">${fixturesOnly
+              ? 'Splitters, gateways, dimmer racks and anything else that is not a light are skipped. Turn this off to walk every RDM device that answered.'
+              : 'Every RDM device that answered is walked, including splitters, gateways and dimmer racks — not just lights.'}</span>
+          </span>
+        </label>
+        <span class="b5-text-muted b5-text-sm" id="walkSetupStatus">${escapeHtml(statusMsg)}</span>
+      </section>
+
+      <section class="b5-actionbar" aria-label="Start the walk">
+        <div class="b5-actionbar__status">
+          <span class="b5-actionbar__title"><span class="b5-step-num">3</span> Start</span>
+          <span class="b5-pill b5-pill--lg b5-pill--open">${UI.icon('status-pending')}No walk running</span>
+        </div>
+        <div class="b5-actionbar__buttons">
+          <button id="walkStartBtn" class="b5-bigbtn b5-bigbtn--go" ${starting ? 'disabled' : ''}>${starting ? UI.spinner() + 'STARTING…' : UI.icon('identify') + 'START WALK'}</button>
+        </div>
+      </section>
     `;
     renderScopeValue();
     document.getElementById('walkScopeKind').value = scopeKind;
@@ -220,6 +294,8 @@ const WalkScreen = (() => {
     document.getElementById('walkScopeKind').addEventListener('change', (e) => {
       scopeKind = e.target.value;
       sessionStorage.setItem('benny512.walk.scopeKind', scopeKind);
+      const note = document.getElementById('walkScopeNote');
+      if (note) note.textContent = SCOPE_WORD[scopeKind] || scopeKind;
       renderScopeValue();
     });
     document.getElementById('walkOrder').addEventListener('change', (e) => {
@@ -229,6 +305,9 @@ const WalkScreen = (() => {
     document.getElementById('walkFixturesOnly').addEventListener('change', (e) => {
       fixturesOnly = e.target.checked;
       sessionStorage.setItem('benny512.walk.fixturesOnly', String(fixturesOnly));
+      // The choice card repeats its own state as a WORD ("— ON"/"— OFF"),
+      // so it has to be repainted, not merely re-tinted (rule 1).
+      render();
     });
     document.getElementById('walkStartBtn').addEventListener('click', startWalk);
   }
@@ -238,22 +317,45 @@ const WalkScreen = (() => {
     if (!wrap) return;
     switch (scopeKind) {
       case 'node': {
-        wrap.innerHTML = `<div class="b5-field"><label class="b5-field__label" for="walkScopeNode">Node</label><select id="walkScopeNode" class="b5-select">
+        wrap.innerHTML = nodesCache.length
+          ? `<div class="b5-field"><label class="b5-field__label" for="walkScopeNode">Node</label><select id="walkScopeNode" class="b5-select">
           ${nodesCache.map(n => `<option value="${escapeHtml(n.ip)}">${escapeHtml(n.shortName || n.longName || n.ip)} (${escapeHtml(n.ip)})</option>`).join('')}
-        </select></div>`;
+        </select></div>`
+          // Rule 3: an empty picker names what is missing and what to do.
+          : `<p class="b5-board__empty">No Art-Net nodes have answered a poll yet, so there is no node to scope to. Check the NIC in Settings and the gateway's power, then come back — or walk "All devices" instead.</p>`;
         break;
       }
       case 'port': {
         const opts = [];
         nodesCache.forEach(n => (n.ports || []).forEach(p => {
-          opts.push(`<option value='${JSON.stringify({ ip: n.ip, bindIndex: n.bindIndex, portAddress: p.outputAddress })}'>${escapeHtml(n.shortName || n.ip)} — port ${p.index} (addr ${p.outputAddress})</option>`);
+          // The port's outputAddress IS an Art-Net Port-Address — the same
+          // kind of number the Nodes screen and Patch both show through the
+          // display base. It used to be printed raw here as "(addr 12)".
+          opts.push(`<option value='${JSON.stringify({ ip: n.ip, bindIndex: n.bindIndex, portAddress: p.outputAddress })}'>${escapeHtml(n.shortName || n.ip)} — port ${p.index} (universe ${escapeHtml(uni(p.outputAddress))})</option>`);
         }));
-        wrap.innerHTML = `<div class="b5-field"><label class="b5-field__label" for="walkScopePort">Port</label><select id="walkScopePort" class="b5-select">${opts.join('')}</select></div>`;
+        wrap.innerHTML = opts.length
+          ? `<div class="b5-field"><label class="b5-field__label" for="walkScopePort">Port (universes ${escapeHtml(UI.universeBaseLabel())})</label><select id="walkScopePort" class="b5-select">${opts.join('')}</select></div>`
+          : `<p class="b5-board__empty">No node has reported a port yet, so there is no port to scope to. Refresh the Nodes screen, or walk "All devices" instead.</p>`;
         break;
       }
-      case 'universe':
-        wrap.innerHTML = `<div class="b5-field"><label class="b5-field__label" for="walkScopeUniverse">Universe (Port-Address)</label><input type="number" id="walkScopeUniverse" class="b5-input" min="0" max="32767" value="0"></div>`;
+      case 'universe': {
+        // The ONE place a universe is typed on this screen. The box shows
+        // the DISPLAY number and the canonical wire value is kept beside
+        // it — never re-derived from the box under a new base.
+        const ua = UI.universeInputAttrs();
+        wrap.innerHTML = `<div class="b5-field">
+          <label class="b5-field__label" for="walkScopeUniverse">Universe (${escapeHtml(UI.universeBaseLabel())})</label>
+          <input type="number" id="walkScopeUniverse" class="b5-input b5-input--mono" min="${ua.min}" max="${ua.max}" value="${escapeHtml(uni(scopeUniverseCanonical))}">
+          <span class="b5-field__hint" id="walkScopeUniverseHint"></span>
+        </div>`;
+        const inp = document.getElementById('walkScopeUniverse');
+        inp.addEventListener('input', () => {
+          scopeUniverseCanonical = UI.parseUniverse(inp.value);
+          syncScopeUniverseHint();
+        });
+        syncScopeUniverseHint();
         break;
+      }
       case 'class':
         wrap.innerHTML = `<div class="b5-field"><label class="b5-field__label" for="walkScopeClass">Class</label><select id="walkScopeClass" class="b5-select">
           <option value="Fixture">Fixture</option>
@@ -271,12 +373,22 @@ const WalkScreen = (() => {
     }
   }
 
+  function syncScopeUniverseHint() {
+    const hint = document.getElementById('walkScopeUniverseHint');
+    if (!hint) return;
+    hint.textContent =
+      `Universe ${uni(scopeUniverseCanonical)} is Art-Net Port-Address ${scopeUniverseCanonical} on the wire — ` +
+      `the same universe Patch, Nodes and Devices call ${uni(scopeUniverseCanonical)}.`;
+  }
+
   async function startWalk() {
     let scopeValue = '';
     switch (scopeKind) {
       case 'node': scopeValue = (document.getElementById('walkScopeNode') || {}).value || ''; break;
       case 'port': scopeValue = (document.getElementById('walkScopePort') || {}).value || ''; break;
-      case 'universe': scopeValue = (document.getElementById('walkScopeUniverse') || {}).value || '0'; break;
+      // The wire always gets the CANONICAL 0-based Port-Address, never what
+      // the box says.
+      case 'universe': scopeValue = String(scopeUniverseCanonical); break;
       case 'class': scopeValue = (document.getElementById('walkScopeClass') || {}).value || ''; break;
     }
     starting = true;
@@ -304,48 +416,81 @@ const WalkScreen = (() => {
     const pct = sum.total ? Math.round((doneCount / sum.total) * 100) : 0;
 
     el.innerHTML = `
-      <div class="b5-row" style="justify-content:space-between;margin-bottom:var(--b5-space-4)">
-        <button id="walkAllOffBtn" class="b5-btn b5-btn--danger b5-btn--sm">Identify off / all off</button>
-        <button id="walkEndBtn" class="b5-btn b5-btn--ghost b5-btn--sm">End walk</button>
+      <div class="b5-modebar">
+        ${UI.icon('identify')}
+        <span class="b5-modebar__label">Rig Walk is running. One fixture is flashing at a time; leaving this screen turns Identify off.</span>
+        <button id="walkAllOffBtn" class="b5-btn b5-btn--danger">${UI.icon('status-warning')}Identify off / all off</button>
+        <button id="walkEndBtn" class="b5-btn b5-btn--ghost">End walk</button>
       </div>
 
       <div class="b5-shell--centered">
-        <div class="b5-counter">
-          <div class="b5-counter__value">${dev ? (idx + 1) + ' of ' + devices.length : devices.length + ' of ' + devices.length}</div>
-          <div class="b5-counter__label">${dev ? escapeHtml(dev.model || dev.uid) : 'Walk complete'}</div>
-        </div>
-        <div class="b5-progress" style="margin-top:10px"><div class="b5-progress__fill" style="width:${pct}%"></div></div>
-        <div class="b5-tally">
-          <div class="b5-tally__item b5-tally__item--confirmed"><span class="b5-tally__value">${sum.confirmed}</span><span class="b5-tally__label">Confirmed</span></div>
-          <div class="b5-tally__item b5-tally__item--problem"><span class="b5-tally__value">${sum.problems}</span><span class="b5-tally__label">Problem</span></div>
-          <div class="b5-tally__item"><span class="b5-tally__value">${sum.remaining}</span><span class="b5-tally__label">Remaining</span></div>
-        </div>
+        <section class="b5-step-section" aria-labelledby="walkProgressHead">
+          <h2 class="b5-step-section__head" id="walkProgressHead">
+            <span class="b5-step-num">1</span> Where you are
+            <span class="b5-step-section__note">${sum.remaining} still to visit of ${sum.total}</span>
+          </h2>
+          <div class="b5-counter">
+            <div class="b5-counter__value">${dev ? (idx + 1) + ' of ' + devices.length : devices.length + ' of ' + devices.length}</div>
+            <div class="b5-counter__label">${dev ? escapeHtml(dev.model || dev.uid) : 'Walk complete'}</div>
+          </div>
+          <div class="b5-progress" style="margin-top:10px"><div class="b5-progress__fill" style="width:${pct}%"></div></div>
+          <div class="b5-tally">
+            <div class="b5-tally__item b5-tally__item--confirmed"><span class="b5-tally__value">${sum.confirmed}</span><span class="b5-tally__label">Confirmed</span></div>
+            <div class="b5-tally__item b5-tally__item--problem"><span class="b5-tally__value">${sum.problems}</span><span class="b5-tally__label">Problem</span></div>
+            <div class="b5-tally__item"><span class="b5-tally__value">${sum.remaining}</span><span class="b5-tally__label">Remaining</span></div>
+          </div>
+        </section>
 
-        ${dev ? renderDeviceCard(dev, idx, devices.length) : `<div class="b5-empty">${UI.icon('status-ok')}<span class="b5-empty__title">Walk complete</span><span class="b5-empty__body">Every device has been visited. Export below, or End walk to start a new one.</span></div>`}
+        <section class="b5-step-section" aria-labelledby="walkDeviceHead">
+          <h2 class="b5-step-section__head" id="walkDeviceHead">
+            <span class="b5-step-num">2</span> The fixture in front of you
+            <span class="b5-step-section__note">${dev ? 'this one is flashing now' : 'nothing left to visit'}</span>
+          </h2>
+          ${dev ? renderDeviceCard(dev, idx, devices.length) : `<div class="b5-empty">${UI.icon('status-ok')}<span class="b5-empty__title">Walk complete</span><span class="b5-empty__body">Every device has been visited. Export below, or End walk to start a new one.</span></div>`}
+          ${dev ? renderDeviceAccordion(dev) : ''}
+        </section>
 
         ${dev ? `
-        <div class="b5-row" style="margin-top:var(--b5-space-4);gap:12px">
-          <button id="walkConfirmBtn" class="b5-btn b5-btn--walk b5-btn--confirm">${UI.icon('status-ok')}Confirmed</button>
-          <button id="walkProblemBtn" class="b5-btn b5-btn--walk b5-btn--danger">${UI.icon('status-warning')}Problem</button>
-        </div>
-        <div id="walkProblemNoteWrap" class="b5-field__row" style="display:${showProblemNote ? 'flex' : 'none'};margin-top:var(--b5-space-3)">
-          <input id="walkProblemNote" class="b5-input" type="text" placeholder="what's wrong? (optional)" maxlength="120">
-          <span class="b5-field__actions">
-            <button id="walkProblemSubmit" class="b5-btn b5-btn--sm b5-btn--primary">Save problem</button>
-            <button id="walkProblemCancel" class="b5-btn b5-btn--sm b5-btn--ghost">Cancel</button>
-          </span>
-        </div>
-        <label class="b5-checkbox" style="margin-top:var(--b5-space-3)"><input type="checkbox" id="walkAutoAdvanceToggle" ${session.autoAdvance ? 'checked' : ''}>Auto-advance to next device after Confirmed</label>
-        ` : ''}
+        <section class="b5-step-section" aria-labelledby="walkVerdictHead">
+          <h2 class="b5-step-section__head" id="walkVerdictHead">
+            <span class="b5-step-num">3</span> What you found
+            <span class="b5-step-section__note">recorded against this fixture only</span>
+          </h2>
+          <div class="b5-row" style="gap:12px">
+            <button id="walkConfirmBtn" class="b5-btn b5-btn--walk b5-btn--confirm">${UI.icon('status-ok')}Confirmed</button>
+            <button id="walkProblemBtn" class="b5-btn b5-btn--walk b5-btn--danger">${UI.icon('status-warning')}Problem</button>
+          </div>
+          <div id="walkProblemNoteWrap" class="b5-field__row" style="display:${showProblemNote ? 'flex' : 'none'};margin-top:var(--b5-space-3)">
+            <label class="b5-visually-hidden" for="walkProblemNote">What is wrong with this fixture</label>
+            <input id="walkProblemNote" class="b5-input" type="text" placeholder="what's wrong? (optional)" maxlength="120">
+            <span class="b5-field__actions">
+              <button id="walkProblemSubmit" class="b5-btn b5-btn--primary">${UI.icon('apply')}Save problem</button>
+              <button id="walkProblemCancel" class="b5-btn b5-btn--ghost">Cancel</button>
+            </span>
+          </div>
+          <label class="b5-choicecard ${session.autoAdvance ? 'is-on' : ''}" style="margin-top:var(--b5-space-3)">
+            <input type="checkbox" id="walkAutoAdvanceToggle" ${session.autoAdvance ? 'checked' : ''}>
+            <span class="b5-choicecard__box" aria-hidden="true">${session.autoAdvance ? UI.icon('status-ok') : ''}</span>
+            <span>
+              <span class="b5-choicecard__title">Auto-advance after Confirmed &mdash; ${session.autoAdvance ? 'ON' : 'OFF'}</span>
+              <span class="b5-choicecard__body">${session.autoAdvance
+                ? 'Pressing Confirmed moves straight to the next fixture and flashes it. Turn this off to stay put after confirming.'
+                : 'Pressing Confirmed leaves you on this fixture. Turn this on to be moved to the next one automatically.'}</span>
+            </span>
+          </label>
+        </section>` : ''}
 
-        ${dev ? renderDeviceAccordion(dev) : ''}
-
-        <div class="b5-row" style="margin-top:var(--b5-space-5)">
-          <span class="b5-text-sm">Export for the architect:</span>
-          <button id="walkExportJsonBtn" class="b5-btn b5-btn--sm">${UI.icon('export')}Export JSON</button>
-          <button id="walkExportTxtBtn" class="b5-btn b5-btn--sm">${UI.icon('export')}Export TXT</button>
-        </div>
-        <span class="b5-text-muted b5-text-sm" id="walkStatusMsg">${escapeHtml(statusMsg)}</span>
+        <section class="b5-step-section" aria-labelledby="walkExportHead">
+          <h2 class="b5-step-section__head" id="walkExportHead">
+            <span class="b5-step-num">4</span> Hand it over
+            <span class="b5-step-section__note">${sum.confirmed} confirmed · ${sum.problems} problem${sum.problems === 1 ? '' : 's'} so far</span>
+          </h2>
+          <div class="b5-row">
+            <button id="walkExportJsonBtn" class="b5-btn">${UI.icon('export')}Export JSON</button>
+            <button id="walkExportTxtBtn" class="b5-btn">${UI.icon('export')}Export TXT</button>
+          </div>
+          <span class="b5-text-muted b5-text-sm" id="walkStatusMsg">${escapeHtml(statusMsg)}</span>
+        </section>
       </div>
 
       <div class="b5-walk-bar">
@@ -368,27 +513,63 @@ const WalkScreen = (() => {
   // two things a tech reads most), UID, node+port smallest. Status is never
   // color-only: every state pairs a b5-badge color with its own text. The
   // full device panel (accordion) renders separately, below.
+  // STATUS_TONE / STATUS_WORD: the walk session's own status enum mapped
+  // onto the kit's tone words in ONE table, the way reconcile.js's DIFF_TONE
+  // does. A tone says how alarmed to be; the word says what happened, and
+  // the word always ships (a pill is never icon-only).
+  const STATUS_TONE = { confirmed: 'ok', problem: 'danger' };
+  const STATUS_ICON = { confirmed: 'status-ok', problem: 'status-error' };
+  const STATUS_WORD = { confirmed: 'Confirmed', problem: 'Problem' };
+
   function renderDeviceCard(dev, idx, total) {
     const addr = Api.formatAddressRange(dev.dmxStartAddress, dev.dmxFootprint, dev.addressKnown);
-    const statusKind = dev.status === 'confirmed' ? 'ok' : dev.status === 'problem' ? 'error' : 'pending';
-    const statusText = dev.status === 'confirmed' ? 'Confirmed' : dev.status === 'problem' ? 'Problem' : 'Unvisited';
+    const tone = STATUS_TONE[dev.status] || 'open';
+    const ic = STATUS_ICON[dev.status] || 'status-pending';
+    const word = STATUS_WORD[dev.status] || 'Not visited yet';
+    const cls = dev.status === 'confirmed' ? 'is-ok' : dev.status === 'problem' ? 'is-danger' : 'is-open';
     const identifyBlock = dev.identifyErr
-      ? `<div class="b5-alert b5-alert--danger" style="margin-top:var(--b5-space-3);text-align:left">${UI.icon('status-error')}<div><p class="b5-alert__title">Identify failed</p><p class="b5-alert__body">${escapeHtml(dev.identifyErr)}</p><button id="walkRetryIdentifyBtn" class="b5-btn b5-btn--sm" style="margin-top:var(--b5-space-2)">Retry identify</button></div></div>`
-      : (dev.identifyOn ? `<div style="margin-top:var(--b5-space-2)">${UI.badge('ok', 'Identifying')}</div>` : '');
+      ? `<div class="b5-alert b5-alert--danger">${UI.icon('status-error')}<div><p class="b5-alert__title">Identify failed &mdash; this fixture is NOT flashing</p><p class="b5-alert__body">${escapeHtml(dev.identifyErr)}</p><button id="walkRetryIdentifyBtn" class="b5-btn" style="margin-top:var(--b5-space-2)">${UI.icon('refresh')}Retry identify</button></div></div>`
+      : (dev.identifyOn
+        ? `<span class="b5-pill b5-pill--md b5-pill--accent b5-pill--solid">${UI.icon('identify')}Flashing now</span>`
+        // Neither an error nor a success: the server has not said this one
+        // is identifying. Say that, rather than leaving a silent gap that
+        // reads as "it must be on".
+        : `<span class="b5-pill b5-pill--md b5-pill--unread">${UI.icon('status-pending')}Not reported as flashing</span>`);
+
+    // Universe: the raw wire Port-Address, through UI.formatUniverse, once,
+    // here. Address: through Api.formatAddressRange, which prints "—" when
+    // addressKnown is false rather than a plausible 0 — so the meta line
+    // says so in words instead.
+    const meta = [
+      `${escapeHtml(host_universeLabel())} ${escapeHtml(uni(dev.portAddress))}`,
+      dev.addressKnown ? `addr ${escapeHtml(addr)}` : 'addr unknown — this fixture has not reported one',
+      escapeHtml(dev.manufacturer || 'manufacturer unknown'),
+    ].join(' · ');
+
     return `
-      <div class="b5-card" style="margin-top:var(--b5-space-4);text-align:center">
-        <div class="b5-card__kicker">U${dev.portAddress} / ${escapeHtml(addr)}</div>
-        <div class="b5-card__title" style="font-size:var(--b5-font-size-xl)">${escapeHtml(dev.model || '—')}</div>
-        <span class="b5-text-muted b5-text-sm">${escapeHtml(dev.manufacturer || '—')}</span>
-        <div style="margin-top:var(--b5-space-2)">${UI.badge(statusKind, statusText)}</div>
-        <div class="b5-text-muted b5-text-xs" style="margin-top:var(--b5-space-2)">UID ${escapeHtml(dev.uid)}</div>
-        <div class="b5-text-muted b5-text-xs">${escapeHtml(dev.nodeIp)} bind ${dev.bindIndex} &middot; port-addr ${dev.portAddress}</div>
-        ${identifyBlock}
-        ${dev.note ? `<div class="b5-text-sm" style="margin-top:var(--b5-space-2)">note: ${escapeHtml(dev.note)}</div>` : ''}
-        <div id="walkAddrFieldWrap" style="margin-top:var(--b5-space-4);text-align:left"></div>
-      </div>
+      <article class="b5-statecard ${cls}">
+        <div class="b5-statecard__top">
+          <span class="b5-linkbadge">${idx + 1}</span>
+          <div class="b5-statecard__id">
+            <strong class="b5-statecard__name">${escapeHtml(dev.model || 'model unknown')}</strong>
+            <span class="b5-statecard__meta">${meta}</span>
+          </div>
+        </div>
+        <div class="b5-statecard__state">
+          <span class="b5-pill b5-pill--md b5-pill--${tone}">${UI.icon(ic)}${escapeHtml(word)}</span>
+          ${identifyBlock}
+          <span class="b5-text-mono b5-text-xs">UID ${escapeHtml(dev.uid)}</span>
+        </div>
+        <p class="b5-caption">${escapeHtml(dev.nodeIp)} bind ${dev.bindIndex} &middot; ${escapeHtml(host_universeLabel())} ${escapeHtml(uni(dev.portAddress))} (Art-Net Port-Address ${dev.portAddress} on the wire)</p>
+        ${dev.note ? `<p class="b5-note">Note: ${escapeHtml(dev.note)}</p>` : ''}
+        <div id="walkAddrFieldWrap"></div>
+      </article>
     `;
   }
+
+  // host_universeLabel: the word this install uses for a universe, kept in
+  // one place so the card, the caption and the scope picker cannot drift.
+  function host_universeLabel() { return 'Universe'; }
 
   // renderDeviceAccordion is the shared device-detail panel, task ask's
   // "sub-view after a device is selected... phone-optimized: sections as

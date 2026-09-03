@@ -516,50 +516,86 @@ const PatchScreen = (() => {
   // Entries view
   // ============================================================
 
+  // renderEntries — converted to the shared screen kit (css/DESIGN.md).
+  //
+  // The two old .b5-filterbar rows (the desktop-first chip bar the kit is
+  // replacing) are now two numbered .b5-step-section bands with .b5-toolbar
+  // rows inside them, so the screen reads top to bottom: what patch is
+  // this and where do entries come from (1), then what you are looking at
+  // (2), then the entries themselves (3).
+  //
+  // THE TABLE STAYS A TABLE. DESIGN.md's worked example ends by blessing
+  // exactly this case — "genuinely tabular data a tech scans down" — and a
+  // 200-fixture patch drawn as .b5-statecards would be about six entries
+  // per screen. It keeps .b5-table--responsive + data-label on every cell
+  // so it stacks on a narrow pane, and it now sits in a .b5-scrollbox so a
+  // wide row scrolls inside its own box and never takes the page sideways
+  // (rule 4).
   function renderEntries(body) {
     const p = patchData.active ? patchData.patch : null;
     const entries = (p && p.entries) || [];
+    const confirmedCount = entries.filter(e => e.confirmedUid).length;
     body.innerHTML = `
-      <div class="b5-filterbar">
-        <div class="b5-filterbar__group">
-          <button id="btnNewPatch" class="b5-btn b5-btn--sm">New patch…</button>
-          <button id="btnAddEntry" class="b5-btn b5-btn--sm b5-btn--primary">Add entry</button>
-          <button id="btnAdoptMerge" class="b5-btn b5-btn--sm">Adopt discovered (merge)</button>
-          <button id="btnAdoptFresh" class="b5-btn b5-btn--sm">Adopt discovered (replace patch)</button>
-          <button id="btnImportMvr" class="b5-btn b5-btn--sm">Import MVR&hellip;</button>
-          <button id="btnImportGdtf" class="b5-btn b5-btn--sm">Import GDTF&hellip;</button>
+      <section class="b5-step-section" aria-labelledby="patchSourceHead">
+        <h2 class="b5-step-section__head" id="patchSourceHead">
+          <span class="b5-step-num">1</span> This patch
+          <span class="b5-step-section__note">${p
+            ? escapeHtml(p.name || '(unnamed)') + ' · ' + entries.length + ' entr' + (entries.length === 1 ? 'y' : 'ies') + ' · ' + confirmedCount + ' matched to a real fixture'
+            : 'no patch yet'}</span>
+        </h2>
+        <div class="b5-toolbar">
+          <div class="b5-toolbar__row">
+            <button id="btnAddEntry" class="b5-btn b5-btn--primary">${UI.icon('apply')}Add entry</button>
+            <button id="btnNewPatch" class="b5-btn b5-btn--danger">New patch&hellip;</button>
+            <button id="btnAdoptMerge" class="b5-btn">Adopt discovered (merge)</button>
+            <button id="btnAdoptFresh" class="b5-btn b5-btn--danger">Adopt discovered (replace patch)</button>
+            <button id="btnImportMvr" class="b5-btn">Import MVR&hellip;</button>
+            <button id="btnImportGdtf" class="b5-btn">Import GDTF&hellip;</button>
+            <button id="btnExportPatchJson" class="b5-btn">${UI.icon('export')}Export JSON</button>
+            <button id="btnExportPatchTxt" class="b5-btn">${UI.icon('export')}Export TXT</button>
+          </div>
+          <p class="b5-caption">Universe numbers on this screen are ${escapeHtml(UI.universeBaseLabel())} &mdash; the same numbering as Send, Nodes, Devices and Rig Walk. Change it on Settings.</p>
         </div>
-        <span class="b5-filterbar__summary">${p ? escapeHtml(p.name || '(unnamed)') + ' — ' + entries.length + ' entr' + (entries.length === 1 ? 'y' : 'ies') : 'No patch yet — add an entry or adopt the discovered rig to start one.'}</span>
-      </div>
-      <div class="b5-filterbar">
-        <div class="b5-filterbar__group">
-          <label class="b5-visually-hidden" for="patchFilter">Filter</label>
-          <input type="text" id="patchFilter" class="b5-input" style="width:16em" placeholder="Filter: name, type, fixture #…" value="${escapeHtml(filterText)}">
-          <label class="b5-visually-hidden" for="patchSort">Sort</label>
-          <select id="patchSort" class="b5-select" style="width:auto">
-            <option value="address">Sort: Universe + address</option>
-            <option value="name">Sort: Name</option>
-            <option value="type">Sort: Fixture type</option>
-            <option value="fixtureNumber">Sort: Fixture number</option>
-          </select>
-          <button id="btnExportPatchJson" class="b5-btn b5-btn--sm">${UI.icon('export')}Export JSON</button>
-          <button id="btnExportPatchTxt" class="b5-btn b5-btn--sm">${UI.icon('export')}Export TXT</button>
-        </div>
-      </div>
+      </section>
+
       ${renderCollisionBanner(collisions)}
       <div id="mvrImportPreview"></div>
       <div id="gdtfImportPreview"></div>
-      <div class="b5-panel">
-        <div class="b5-panel__body--flush">
-          <table class="b5-table b5-table--responsive" id="patchEntriesTable">
-            <thead><tr>
-              <th><label class="b5-visually-hidden" for="patchSelectAll">Select all in view</label><input type="checkbox" id="patchSelectAll" aria-label="Select all in view"></th>
-              <th>Universe</th><th>Address</th><th>Name</th><th>Fixture type</th><th>Fixture #</th><th>RDM match</th><th>Actions</th>
-            </tr></thead>
-            <tbody></tbody>
-          </table>
+
+      <section class="b5-step-section" aria-labelledby="patchEntriesHead">
+        <h2 class="b5-step-section__head" id="patchEntriesHead">
+          <span class="b5-step-num">2</span> Entries
+          <span class="b5-step-section__note" id="patchEntriesNote"></span>
+        </h2>
+        <div class="b5-toolbar">
+          <div class="b5-toolbar__row">
+            <label class="b5-toolbar__search">
+              <span class="b5-visually-hidden">Filter entries</span>
+              <input type="search" id="patchFilter" placeholder="Filter by name, type, position, fixture #…" value="${escapeHtml(filterText)}">
+            </label>
+            <label class="b5-visually-hidden" for="patchSort">Sort</label>
+            <select id="patchSort" class="b5-select">
+              <option value="address">Sort: Universe + address</option>
+              <option value="name">Sort: Name</option>
+              <option value="type">Sort: Fixture type</option>
+              <option value="fixtureNumber">Sort: Fixture number</option>
+            </select>
+          </div>
         </div>
-      </div>
+        <div class="b5-panel">
+          <div class="b5-panel__body--flush">
+            <div class="b5-scrollbox">
+              <table class="b5-table b5-table--responsive" id="patchEntriesTable">
+                <thead><tr>
+                  <th><label class="b5-checkbox"><input type="checkbox" id="patchSelectAll" aria-label="Select all in view"><span class="b5-visually-hidden">Select all in view</span></label></th>
+                  <th>Universe</th><th>Address</th><th>Name</th><th>Fixture type</th><th>Fixture #</th><th>RDM match</th><th>Actions</th>
+                </tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
       <div id="patchEntryEditor" class="b5-patch-editor"></div>
     `;
     document.getElementById('patchSort').value = sortMode;
@@ -620,7 +656,7 @@ const PatchScreen = (() => {
               </div>
             </div>
           ` : ''}
-          <div class="b5-panel__body--flush" style="max-height:40vh;overflow-y:auto">
+          <div class="b5-panel__body--flush b5-scrollbox" style="max-height:40vh">
             <table class="b5-table b5-table--responsive">
               <thead><tr><th>Universe</th><th>Address</th><th>Name</th><th>Fixture type</th><th>Footprint</th></tr></thead>
               <tbody>
@@ -744,7 +780,7 @@ const PatchScreen = (() => {
             </select>
           </div>
         ` : `<p class="b5-text-sm b5-text-muted">Mode: ${escapeHtml(mode.name || '(unnamed mode)')} — ${mode.footprint} channels (only mode in this file).</p>`}
-        <div class="b5-panel__body--flush" style="max-height:40vh;overflow-y:auto">
+        <div class="b5-panel__body--flush b5-scrollbox" style="max-height:40vh">
           <table class="b5-table b5-table--responsive">
             <thead><tr><th>Name</th><th>Universe</th><th>Address</th><th>Footprint (old &rarr; new)</th></tr></thead>
             <tbody>
@@ -958,8 +994,18 @@ const PatchScreen = (() => {
     // toward "N selected").
     const liveIds = new Set(entries.map(x => x.id));
     Object.keys(selectedIds).forEach(id => { if (!liveIds.has(id)) delete selectedIds[id]; });
+    // The section head says what is on screen right now, in words — how many
+    // of how many, and how many are selected — so the count is never
+    // something the eye has to work out from the rows.
+    const note = document.getElementById('patchEntriesNote');
+    if (note) {
+      const sel = selectedCount();
+      note.textContent =
+        (filterText ? `${sorted.length} of ${entries.length} shown · filtered` : `${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}`) +
+        (sel ? ` · ${sel} selected` : '');
+    }
     if (!sorted.length) {
-      tbody.innerHTML = `<tr><td colspan="8"><div class="b5-empty">${UI.icon('nav-devices')}<span class="b5-empty__title">${entries.length ? 'No entries match the filter' : 'No entries yet'}</span><span class="b5-empty__body">${entries.length ? 'Try a different filter.' : 'Add entry, or Adopt the discovered rig.'}</span></div></td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8"><div class="b5-empty">${UI.icon('nav-devices')}<span class="b5-empty__title">${entries.length ? 'No entries match the filter' : 'No entries yet'}</span><span class="b5-empty__body">${entries.length ? 'Nothing in this patch matches "' + escapeHtml(filterText) + '". Clear the filter above to see all ' + entries.length + ' entries.' : 'This patch has no fixtures in it. Press "Add entry" to write one by hand, "Adopt discovered" to build entries from what is answering on the network right now, or import an MVR or GDTF file.'}</span></div></td></tr>`;
       updateSelectAllCheckbox([]);
       renderEntryEditor();
       return;
@@ -1014,25 +1060,58 @@ const PatchScreen = (() => {
     };
   }
 
+  // renderEntryRow: one dense scannable row. Every state on it is carried by
+  // a WORD in the kit's one pill component (never a bare coloured word, and
+  // never colour alone — rule 1), and every "we don't know" says so out loud
+  // rather than printing a plausible number (rule 3):
+  //
+  //   - RDM match: a --ok pill "Confirmed", a --warn pill "Suggestions
+  //     rejected", or a dashed --open pill "No fixture matched yet". The
+  //     last one used to be the muted grey word "Unresolved", which
+  //     desaturates to look exactly like a disabled control.
+  //   - Address: an entry with no start address prints "no address set",
+  //     not "0". Api.formatAddressRange's own `known` flag is what says so;
+  //     it was being passed a hard-coded `true` here, which meant a
+  //     never-addressed entry rendered as a real address of 0.
+  //   - Name / type / fixture number: an em dash is fine in a dense column
+  //     the header already names, but the NAME column falls back to the
+  //     fixture type and finally says "unnamed entry", because a blank
+  //     leading cell is the one that reads as a broken row.
   function renderEntryRow(e, findings) {
-    const issue = findings.length ? `<div class="b5-field__error">${UI.icon('status-warning')}${findings.map(f => escapeHtml(f.kind)).join(', ')}</div>` : '';
-    const match = e.confirmedUid
-      ? UI.badge('ok', 'Confirmed')
-      : (e.matchState === 'rejected' ? UI.badge('warning', 'Rejected candidates') : '<span class="b5-text-muted b5-text-sm">Unresolved</span>');
+    const issue = findings.length
+      ? `<div class="b5-field__error">${UI.icon('status-warning')}${findings.map(f => escapeHtml(f.kind)).join(', ')}</div>`
+      : '';
+    let match;
+    if (e.confirmedUid) {
+      // The word stays "Confirmed": it is the server's own vocabulary for
+      // this state (patch.Entry.MatchState "confirmed" / ConfirmedUID), it
+      // is what Reconcile's own board says, and patch_lifecycle_test.js
+      // asserts the Entries table shows it. Only the drawing changed.
+      match = `<span class="b5-pill b5-pill--tag b5-pill--ok">${UI.icon('status-ok')}Confirmed</span>`;
+    } else if (e.matchState === 'rejected') {
+      match = `<span class="b5-pill b5-pill--tag b5-pill--warn">${UI.icon('status-warning')}Suggestions rejected</span>`;
+    } else {
+      match = `<span class="b5-pill b5-pill--tag b5-pill--open">No fixture matched yet</span>`;
+    }
+    const hasAddr = !!e.startAddress;
+    const addr = hasAddr
+      ? escapeHtml(Api.formatAddressRange(e.startAddress, e.footprint, true))
+      : '<span class="b5-text-muted">no address set</span>';
     const selected = !!selectedIds[e.id];
+    const label = e.name || e.fixtureType || 'unnamed entry';
     return `
       <tr data-entry-id="${escapeHtml(e.id)}" class="${selected ? 'b5-patch-row--selected' : ''}">
-        <td data-label="Select"><label class="b5-visually-hidden" for="sel-${escapeHtml(e.id)}">Select ${escapeHtml(e.name || e.fixtureType || e.id)}</label><input type="checkbox" id="sel-${escapeHtml(e.id)}" data-row-select="${escapeHtml(e.id)}" ${selected ? 'checked' : ''} aria-label="Select ${escapeHtml(e.name || e.fixtureType || e.id)}"></td>
-        <td data-label="Universe">${UI.formatUniverse(e.universe)}</td>
-        <td data-label="Address" class="b5-table__mono">${escapeHtml(Api.formatAddressRange(e.startAddress, e.footprint, true))}${issue}</td>
-        <td data-label="Name">${escapeHtml(e.name || '—')}</td>
+        <td data-label="Select"><label class="b5-checkbox"><input type="checkbox" id="sel-${escapeHtml(e.id)}" data-row-select="${escapeHtml(e.id)}" ${selected ? 'checked' : ''} aria-label="Select ${escapeHtml(label)}"><span class="b5-visually-hidden">Select ${escapeHtml(label)}</span></label></td>
+        <td data-label="Universe" class="b5-table__mono">${escapeHtml(UI.formatUniverse(e.universe))}</td>
+        <td data-label="Address" class="b5-table__mono">${addr}${issue}</td>
+        <td data-label="Name">${escapeHtml(e.name || '')}${e.name ? '' : `<span class="b5-text-muted">${escapeHtml(e.fixtureType ? e.fixtureType + ' (no name)' : 'unnamed entry')}</span>`}</td>
         <td data-label="Fixture type">${escapeHtml(e.fixtureType || '—')}</td>
         <td data-label="Fixture #">${escapeHtml(e.fixtureNumber || '—')}</td>
         <td data-label="RDM match">${match}</td>
         <td data-label="Actions">
-          <button class="b5-btn b5-btn--sm" data-edit="${escapeHtml(e.id)}">Edit</button>
-          <button class="b5-btn b5-btn--sm b5-btn--icon" data-move-up="${escapeHtml(e.id)}" aria-label="Move up">&uarr;</button>
-          <button class="b5-btn b5-btn--sm b5-btn--icon" data-move-down="${escapeHtml(e.id)}" aria-label="Move down">&darr;</button>
+          <button class="b5-btn b5-btn--sm" data-edit="${escapeHtml(e.id)}">${UI.icon('apply')}Edit</button>
+          <button class="b5-btn b5-btn--sm b5-btn--icon" data-move-up="${escapeHtml(e.id)}" aria-label="Move ${escapeHtml(label)} up">&uarr;</button>
+          <button class="b5-btn b5-btn--sm b5-btn--icon" data-move-down="${escapeHtml(e.id)}" aria-label="Move ${escapeHtml(label)} down">&darr;</button>
           <button class="b5-btn b5-btn--sm b5-btn--danger" data-delete="${escapeHtml(e.id)}">Delete</button>
         </td>
       </tr>
@@ -1127,6 +1206,7 @@ const PatchScreen = (() => {
       <div class="b5-panel b5-patch-editor__panel">
         <div class="b5-panel__header">
           <h3 class="b5-panel__title">${editingEntry === 'new' ? 'Add entry' : 'Edit entry'}</h3>
+          <span class="b5-pill b5-pill--tag b5-pill--open">Staged &mdash; not saved</span>
           <button id="peClose" class="b5-btn b5-btn--sm b5-btn--ghost" aria-label="Close editor">Close</button>
         </div>
         <div class="b5-panel__body b5-grid-2">
@@ -1214,10 +1294,11 @@ const PatchScreen = (() => {
       <div class="b5-panel b5-patch-editor__panel">
         <div class="b5-panel__header">
           <h3 class="b5-panel__title">Bulk edit — ${n} entries selected</h3>
+          <span class="b5-pill b5-pill--tag b5-pill--open">Staged &mdash; each field applies on its own press</span>
           <button id="bulkClose" class="b5-btn b5-btn--sm b5-btn--ghost" aria-label="Close editor">Close</button>
         </div>
         <div class="b5-panel__body b5-stack">
-          <p class="b5-text-sm b5-text-muted">${selected.map(e => escapeHtml(e.name || e.fixtureType || e.id)).join(', ')}</p>
+          <p class="b5-note">These ${n} entries will change: ${selected.map(e => escapeHtml(e.name || e.fixtureType || e.id)).join(', ')}. Typing changes nothing &mdash; each Apply below asks you to confirm exactly what it will do before it writes anything.</p>
           <div class="b5-field">
             <label class="b5-field__label" for="bulkUniverse">Move to universe (${UI.universeBaseLabel()})</label>
             <div class="b5-field__row">

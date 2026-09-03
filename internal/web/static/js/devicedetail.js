@@ -36,6 +36,32 @@
 // throttled. Sensor WS subscriptions strictly follow `selectedUID`:
 // unsubscribed on every reselect before the new selection is recorded, and
 // (re)subscribed only once settle fires with sensors in view.
+// --- Touch targets (DESIGN.md rule 2), 2026-09 screen-kit conversion ---
+// Rule 2 is "44px minimum on anything pressable", and `.b5-btn` carries
+// min-height: var(--b5-size-touch-min) to deliver it. `.b5-btn--sm` overrides
+// that with a hard 32px (benny512-components.css line 53), so any button
+// wearing --sm is BELOW the touch minimum.
+//
+// Neither screen the owner signed off on leans on it: reconcile.js uses --sm
+// zero times, and rigcheck.js only for the two "Unison"/"Chase" preset chips.
+// So on this panel every button that WRITES to a device or ARMS a write —
+// the §10.11 control confirms and cancels, power state, self test run and
+// turn-off, preset and capture, the E1.37-2 network arm/confirm/revert, and
+// the sensor Record/Reset (both of which send RDM SET) — has had --sm removed
+// and is now a full 44px. A mis-tap on any of them moves real hardware.
+//
+// FIVE --sm sites remain, deliberately:
+//   * the two read-only helpers ("Show all N personality names", "Introspect")
+//     — they only fetch, and they sit inline in dense prose;
+//   * the three Apply/Revert buttons of this file's local apply-field builder
+//     (and the disabled placeholder that mirrors it). Those must keep the
+//     exact silhouette of the ones ui.js's shared UI.buildApplyField emits,
+//     which this panel uses twelve times side by side with them. ui.js
+//     hard-codes --sm there, and ui.js is not this file's to change — raising
+//     only half of a row's Apply buttons to 44px would produce a mismatched
+//     row and still leave the other half under the minimum. That is a
+//     kit-level fix (ui.js + benny512-components.css together), not a
+//     per-screen one, and is reported as such rather than half-done here.
 const DeviceDetail = (() => {
   // SHELVED (owner, 2026-09-01): bench-confirmed that setting a gateway's
   // own IP works over Art-Net (ArtIpProg — see internal/session/
@@ -705,8 +731,20 @@ const DeviceDetail = (() => {
     st.deviceInfo = deviceInfo;
   }
 
+  // infoRow: one read-only fact. The value slot never receives a bare '—'
+  // any more — see unknownValue below (DESIGN.md rule 3: "a value the app
+  // doesn't have is said out loud, never printed as a plausible 0"). The
+  // markup is the kit's .b5-param, so a fact here lines up with an editable
+  // field on the Parameters tab instead of being its own private layout.
   function infoRow(label, valueHtml) {
-    return `<div><span class="b5-text-muted b5-text-sm">${escapeHtml(label)}</span><br>${valueHtml}</div>`;
+    return `<div class="b5-param"><span class="b5-param__label">${escapeHtml(label)}</span><span class="b5-param__value">${valueHtml}</span></div>`;
+  }
+
+  // unknownValue names WHY a fact is missing rather than printing a dash the
+  // tech has to guess at. Two honest answers, and no third: the device has
+  // not answered this yet, or it never reports it at all.
+  function unknownValue(text) {
+    return `<span class="b5-text-muted">${escapeHtml(text)}</span>`;
   }
 
   // formatPersonalitySummary renders the owner-actionable line (task ask:
@@ -728,7 +766,7 @@ const DeviceDetail = (() => {
       return;
     }
     const di = st.deviceInfo;
-    let detailsHtml = '<span class="b5-text-muted b5-text-sm">none reported</span>';
+    let detailsHtml = '<span class="b5-text-muted b5-text-sm">this device reports no product details</span>';
     if (st.prodDetailHex) {
       const hex = st.prodDetailHex;
       const names = [];
@@ -739,7 +777,7 @@ const DeviceDetail = (() => {
       if (names.length) detailsHtml = names.map(n => UI.tag(n)).join(' ');
     }
     const effectiveMfr = st.mfrLabelVal || f.manufacturerName;
-    const modelText = st.modelVal || (di ? `0x${di.DeviceModelID.toString(16).toUpperCase().padStart(4, '0')}` : '—');
+    const modelText = st.modelVal || (di ? `0x${di.DeviceModelID.toString(16).toUpperCase().padStart(4, '0')}` : 'model not read from the device yet');
     // Proxy status badge (Phase D task 1): PROXIED_DEVICES/PROXIED_DEVICE_
     // COUNT are Hidden-tier now (never a generic-editor row), but the owner
     // asked that the fact not vanish — surfaced here from the same
@@ -760,23 +798,53 @@ const DeviceDetail = (() => {
     // flagged twice elsewhere: this row and the Devices table row it sits
     // directly beneath disagreeing about the same fixture's universe at any
     // base other than 0.
+    // notRead: the sentence every DEVICE_INFO-derived row falls back to. One
+    // wording, used everywhere, so a tech never has to work out whether two
+    // different dashes mean two different things.
+    const notRead = unknownValue('not read from the device yet');
     container.innerHTML = `
       ${proxyBadgeHtml}
-      <div class="b5-grid-2">
-        ${infoRow('Manufacturer', `${escapeHtml(effectiveMfr)} (0x${f.manufacturerId.toString(16).toUpperCase().padStart(4, '0')})`)}
-        ${infoRow('Model / fixture type', escapeHtml(modelText))}
-        ${infoRow('Manufacturer label (device-reported)', st.mfrLabelVal ? escapeHtml(st.mfrLabelVal) : '<span class="b5-text-muted b5-text-sm">not reported by device</span>')}
-        ${infoRow('Software version', st.swVersion ? escapeHtml(st.swVersion) : '—')}
-        ${infoRow('Node / port', `${escapeHtml(f.nodeIp)} (bind ${f.bindIndex}) / universe ${UI.formatUniverse(f.portAddress)}`)}
-        ${infoRow('DMX footprint', di ? String(di.DMXFootprint) : '—')}
-        ${infoRow('DMX start address', di ? escapeHtml(Api.formatAddressRange(di.DMXStartAddress, di.DMXFootprint, true)) : '—')}
-        ${infoRow('Personality', di ? escapeHtml(formatPersonalitySummary(di, st.currentPersonalityDesc)) : '—')}
-        ${infoRow('Sub-devices', di ? String(di.SubDeviceCount) : '—')}
-        ${infoRow('Sensors', di ? String(di.SensorCount) : '—')}
-      </div>
-      <div style="margin-top:var(--b5-space-4)">
-        <span class="b5-text-muted b5-text-sm">Product details</span><br>${detailsHtml}
-      </div>
+      <section class="b5-group" aria-labelledby="ddIdentityHead">
+        <h4 class="b5-group__head" id="ddIdentityHead">What this device says it is</h4>
+        <div class="b5-grid-2">
+          ${infoRow('Manufacturer', `${escapeHtml(effectiveMfr)} (0x${f.manufacturerId.toString(16).toUpperCase().padStart(4, '0')})`)}
+          ${infoRow('Model / fixture type', escapeHtml(modelText))}
+          ${infoRow('Manufacturer label (device-reported)', st.mfrLabelVal ? escapeHtml(st.mfrLabelVal) : unknownValue('not reported by this device'))}
+          ${infoRow('Software version', st.swVersion ? escapeHtml(st.swVersion) : notRead)}
+        </div>
+      </section>
+      <section class="b5-group" aria-labelledby="ddPatchHead">
+        <h4 class="b5-group__head" id="ddPatchHead">Where it sits on the line</h4>
+        <div class="b5-grid-2">
+          ${infoRow('Node / port', `${escapeHtml(f.nodeIp)} (bind ${escapeHtml(String(f.bindIndex))}) / universe ${escapeHtml(UI.formatUniverse(f.portAddress))}`)}
+          ${infoRow('DMX footprint', di ? `${escapeHtml(String(di.DMXFootprint))} slot${di.DMXFootprint === 1 ? '' : 's'}` : notRead)}
+          ${/* Rule 3, third and last site of the same "addr 0" defect. The
+                Devices card, the Parameters tab's Start address hint and THIS
+                Info row all rendered the DMX start address of a footprint-0
+                responder as the bare string "0". A screenshot caught this one
+                after assertions had already cleared the other two — it sits
+                directly under "DMX footprint: 0 slots", so the panel was
+                stating in one row that the device occupies no DMX slots and
+                in the next that it starts at address 0. */
+            infoRow('DMX start address', !di
+              ? notRead
+              : (di.DMXFootprint
+                ? escapeHtml(Api.formatAddressRange(di.DMXStartAddress, di.DMXFootprint, true))
+                : '<span class="b5-text-muted">none — this device occupies no DMX slots</span>'))}
+          ${infoRow('Personality', di ? escapeHtml(formatPersonalitySummary(di, st.currentPersonalityDesc)) : notRead)}
+        </div>
+        <p class="b5-caption">Universe numbers are ${escapeHtml(UI.universeBaseLabel())} — the same numbering as the device list above, Nodes, Patch and the Analyzer.</p>
+      </section>
+      <section class="b5-group" aria-labelledby="ddExtrasHead">
+        <h4 class="b5-group__head" id="ddExtrasHead">What else it carries</h4>
+        <div class="b5-grid-2">
+          ${infoRow('Sub-devices', di ? escapeHtml(String(di.SubDeviceCount)) : notRead)}
+          ${infoRow('Sensors', di ? escapeHtml(String(di.SensorCount)) : notRead)}
+        </div>
+        <div style="margin-top:var(--b5-space-4)">
+          <span class="b5-param__label">Product details</span><br>${detailsHtml}
+        </div>
+      </section>
     `;
   }
 
@@ -1038,7 +1106,20 @@ const DeviceDetail = (() => {
     UI.wireApplyField(labelField, lbl, async (v) => { await saveParam(uid, 'device_label', v, statusSetter); }, statusSetter);
 
     if (!opts.hideAddressField) {
-      const addrHint = di ? `Currently ${Api.formatAddressRange(di.DMXStartAddress, di.DMXFootprint, true)}` : undefined;
+      // Rule 3: never a plausible 0. A responder with DMXFootprint 0 takes
+      // up no DMX slots and so has no start address; the input below already
+      // renders blank and disabled for exactly that case, but this hint used
+      // to print "Currently 0" beside it and contradict it. Observed on the
+      // demo rig's Netron EN4 gateway (UID 1900:00000001), whose card on the
+      // Devices list said "addr 0" for the same reason — the same value
+      // spelled two ways in two files, which is this project's most
+      // expensive defect class. Both call sites are fixed together;
+      // Api.formatAddressRange itself is correct and unchanged.
+      const addrHint = !di
+        ? undefined
+        : (di.DMXFootprint
+          ? `Currently ${Api.formatAddressRange(di.DMXStartAddress, di.DMXFootprint, true)}`
+          : 'This device has no DMX footprint, so there is no start address to set.');
       const addrField = UI.buildApplyField({
         label: 'Start address', kind: 'number', mono: true, min: 1, max: 512,
         value: di && di.DMXFootprint ? di.DMXStartAddress : '', enabled: !!(di && di.DMXFootprint), hint: addrHint,
@@ -1305,8 +1386,8 @@ const DeviceDetail = (() => {
     } else if (armed) {
       row.innerHTML = `
         <span class="b5-badge b5-badge--warning">${UI.icon('status-warning')}Confirm</span>
-        <button type="button" class="b5-btn b5-btn--sm b5-btn--danger btn-ctrl-confirm">${escapeHtml(armed.label)}</button>
-        <button type="button" class="b5-btn b5-btn--sm b5-btn--ghost btn-ctrl-cancel">${UI.icon('revert')}Cancel</button>
+        <button type="button" class="b5-btn b5-btn--danger btn-ctrl-confirm">${escapeHtml(armed.label)}</button>
+        <button type="button" class="b5-btn b5-btn--ghost btn-ctrl-cancel">${UI.icon('revert')}Cancel</button>
       `;
       row.querySelector('.btn-ctrl-confirm').addEventListener('click', () => confirmControl(uid, statusSetter));
       row.querySelector('.btn-ctrl-cancel').addEventListener('click', disarmControl);
@@ -1331,7 +1412,7 @@ const DeviceDetail = (() => {
     }
     const actions = controlActionRow(uid, 'power', () => `
       <select class="b5-select ctrl-power-select">${options.map(o => `<option value="${o.value}" ${o.value === current ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('')}</select>
-      <button type="button" class="b5-btn b5-btn--sm b5-btn--danger ctrl-power-apply">Set power state</button>
+      <button type="button" class="b5-btn b5-btn--danger ctrl-power-apply">Set power state</button>
     `, (row) => {
       row.querySelector('.ctrl-power-apply').addEventListener('click', () => {
         const v = parseInt(row.querySelector('.ctrl-power-select').value, 10);
@@ -1398,7 +1479,7 @@ const DeviceDetail = (() => {
         badge.innerHTML = UI.badge(selfTestBadgeStatus(entry.statusCode), entry.statusLabel);
         row.appendChild(badge);
         const kind = 'selftest:' + entry.number;
-        const actions = controlActionRow(uid, kind, () => `<button type="button" class="b5-btn b5-btn--sm b5-btn--danger btn-run-selftest">Run</button>`, (r) => {
+        const actions = controlActionRow(uid, kind, () => `<button type="button" class="b5-btn b5-btn--danger btn-run-selftest">Run</button>`, (r) => {
           r.querySelector('.btn-run-selftest').addEventListener('click', () => {
             armControl(uid, kind, { test: entry.number }, `Yes, run "${name}" on ${deviceLabel}`);
           });
@@ -1415,7 +1496,7 @@ const DeviceDetail = (() => {
       numInput.className = 'b5-input b5-input--mono';
       numInput.style.width = '6rem';
       row.appendChild(numInput);
-      const actions = controlActionRow(uid, 'selftest:manual', () => `<button type="button" class="b5-btn b5-btn--sm b5-btn--danger btn-run-selftest-manual">Run</button>`, (r) => {
+      const actions = controlActionRow(uid, 'selftest:manual', () => `<button type="button" class="b5-btn b5-btn--danger btn-run-selftest-manual">Run</button>`, (r) => {
         r.querySelector('.btn-run-selftest-manual').addEventListener('click', () => {
           const n = parseInt(numInput.value, 10);
           if (!Number.isFinite(n) || n < 1 || n > 254) return;
@@ -1439,7 +1520,7 @@ const DeviceDetail = (() => {
     offRow.style.marginTop = 'var(--b5-space-2)';
     const offBtn = document.createElement('button');
     offBtn.type = 'button';
-    offBtn.className = 'b5-btn b5-btn--sm b5-btn--ghost';
+    offBtn.className = 'b5-btn b5-btn--ghost';
     offBtn.textContent = 'Turn off self test';
     offBtn.disabled = !activeNow;
     offBtn.addEventListener('click', async () => {
@@ -1480,7 +1561,7 @@ const DeviceDetail = (() => {
       </select>
       <input type="number" min="1" max="65534" class="b5-input b5-input--mono ctrl-preset-scene" style="width:6rem" value="${isScene ? current : 1}" ${isScene ? '' : 'hidden'}>
       <input type="number" min="0" max="255" class="b5-input b5-input--mono ctrl-preset-level" style="width:5rem" value="${level}" title="Master level 0-255 (255 = full)">
-      <button type="button" class="b5-btn b5-btn--sm b5-btn--danger ctrl-preset-apply">Set</button>
+      <button type="button" class="b5-btn b5-btn--danger ctrl-preset-apply">Set</button>
     `, (row) => {
       const modeSel = row.querySelector('.ctrl-preset-mode');
       const sceneInput = row.querySelector('.ctrl-preset-scene');
@@ -1521,7 +1602,7 @@ const DeviceDetail = (() => {
       <input type="number" min="0" max="65535" value="0" class="b5-input b5-input--mono ctrl-capture-up" style="width:6rem" placeholder="Up fade (0.1s)" hidden>
       <input type="number" min="0" max="65535" value="0" class="b5-input b5-input--mono ctrl-capture-down" style="width:6rem" placeholder="Down fade (0.1s)" hidden>
       <input type="number" min="0" max="65535" value="0" class="b5-input b5-input--mono ctrl-capture-wait" style="width:6rem" placeholder="Wait (0.1s)" hidden>
-      <button type="button" class="b5-btn b5-btn--sm b5-btn--danger ctrl-capture-apply">Capture</button>
+      <button type="button" class="b5-btn b5-btn--danger ctrl-capture-apply">Capture</button>
     `, (row) => {
       const timingToggle = row.querySelector('.ctrl-capture-timing');
       const timingInputs = [row.querySelector('.ctrl-capture-up'), row.querySelector('.ctrl-capture-down'), row.querySelector('.ctrl-capture-wait')];
@@ -1598,13 +1679,25 @@ const DeviceDetail = (() => {
     const factorySupported = !!(ac.factoryDefaults && ac.factoryDefaults.known && ac.factoryDefaults.supported);
     if (!resetSupported && !factorySupported) return;
 
-    const panel = document.createElement('div');
-    panel.className = 'b5-panel b5-panel--destructive';
+    const armedNow = destructiveArmed && destructiveArmed.uid === uid;
+    const panel = document.createElement('section');
+    // .is-armed carries the armed state as a thick accent frame, alongside
+    // the word "Confirm" and the exact sentence naming the device — three
+    // signals, so the state survives greyscale (DESIGN.md rule 1).
+    panel.className = 'b5-statecard b5-panel--destructive' + (armedNow ? ' is-armed' : ' is-danger');
     panel.style.marginTop = 'var(--b5-space-5)';
-    panel.innerHTML = `<div class="b5-panel__header"><h3 class="b5-panel__title">Reset &amp; factory defaults</h3></div>`;
+    panel.setAttribute('aria-label', 'Reset and factory defaults');
+    panel.innerHTML = `
+      <div class="b5-statecard__top">
+        <div class="b5-statecard__id">
+          <strong class="b5-statecard__name">Reset &amp; factory defaults</strong>
+          <span class="b5-statecard__meta">Writes to the physical fixture. Every button here asks you to confirm first, and stops asking after 8 seconds.</span>
+        </div>
+      </div>`;
 
     const body = document.createElement('div');
-    body.className = 'b5-panel__body b5-stack';
+    body.className = 'b5-stack';
+    body.style.marginTop = 'var(--b5-space-3)';
     panel.appendChild(body);
 
     if (resetSupported) {
@@ -1614,14 +1707,14 @@ const DeviceDetail = (() => {
       // both facts stated plainly rather than implied by two buttons that
       // might look like a meaningful choice on their own.
       const note = document.createElement('p');
-      note.className = 'b5-text-muted b5-text-sm';
+      note.className = 'b5-note';
       note.textContent = 'This fixture advertises RESET_DEVICE with both Warm and Cold modes offered — RDM has no way to confirm it actually treats them differently; some fixtures respond to both identically. Either mode clears the fixture’s Discovery Mute flag, so it will drop off the bus: run Discover again once it comes back.';
       body.appendChild(note);
     }
 
-    const armed = destructiveArmed && destructiveArmed.uid === uid ? destructiveArmed.kind : null;
+    const armed = armedNow ? destructiveArmed.kind : null;
     const actionsRow = document.createElement('div');
-    actionsRow.className = 'b5-row';
+    actionsRow.className = 'b5-statecard__actions';
     body.appendChild(actionsRow);
 
     if (destructiveBusy && armed) {
@@ -1631,20 +1724,20 @@ const DeviceDetail = (() => {
         ? `Yes, reset ${escapeHtml(deviceLabel)} to factory defaults`
         : `Yes, ${armed === 'warm' ? 'warm' : 'cold'}-reset ${escapeHtml(deviceLabel)}`;
       actionsRow.innerHTML = `
-        <span class="b5-badge b5-badge--warning">${UI.icon('status-warning')}Confirm</span>
-        <button type="button" class="b5-btn b5-btn--sm b5-btn--danger btn-destructive-confirm">${confirmLabel}</button>
-        <button type="button" class="b5-btn b5-btn--sm b5-btn--ghost btn-destructive-cancel">${UI.icon('revert')}Cancel</button>
+        <span class="b5-pill b5-pill--md b5-pill--warn">${UI.icon('status-warning')}Confirm</span>
+        <button type="button" class="b5-btn b5-btn--danger btn-destructive-confirm">${UI.icon('status-warning')}${confirmLabel}</button>
+        <button type="button" class="b5-btn b5-btn--ghost btn-destructive-cancel">${UI.icon('revert')}Cancel</button>
       `;
       actionsRow.querySelector('.btn-destructive-confirm').addEventListener('click', () => confirmDestructive(uid, statusSetter));
       actionsRow.querySelector('.btn-destructive-cancel').addEventListener('click', disarmDestructive);
     } else {
       let html = '';
       if (resetSupported) {
-        html += `<button type="button" class="b5-btn b5-btn--sm b5-btn--danger btn-reset-warm">Warm reset</button>`;
-        html += `<button type="button" class="b5-btn b5-btn--sm b5-btn--danger btn-reset-cold">Cold reset</button>`;
+        html += `<button type="button" class="b5-btn b5-btn--danger btn-reset-warm">${UI.icon('refresh')}Warm reset</button>`;
+        html += `<button type="button" class="b5-btn b5-btn--danger btn-reset-cold">${UI.icon('refresh')}Cold reset</button>`;
       }
       if (factorySupported) {
-        html += `<button type="button" class="b5-btn b5-btn--sm b5-btn--danger btn-factory-defaults">Factory defaults</button>`;
+        html += `<button type="button" class="b5-btn b5-btn--danger btn-factory-defaults">${UI.icon('revert')}Factory defaults</button>`;
       }
       actionsRow.innerHTML = html;
       const bw = actionsRow.querySelector('.btn-reset-warm'); if (bw) bw.addEventListener('click', () => armDestructive(uid, 'warm'));
@@ -1654,7 +1747,7 @@ const DeviceDetail = (() => {
 
     if (ac.lastNote) {
       const msg = document.createElement('p');
-      msg.className = 'b5-text-sm b5-text-muted';
+      msg.className = 'b5-note';
       msg.style.marginTop = 'var(--b5-space-2)';
       msg.textContent = ac.lastNote;
       body.appendChild(msg);
@@ -1844,14 +1937,14 @@ const DeviceDetail = (() => {
       return;
     }
     if (!es.applied) {
-      area.innerHTML = `<div class="b5-row"><button type="button" class="b5-btn b5-btn--sm b5-btn--primary btn-net-apply">${UI.icon('apply')}Apply</button><span class="b5-field__hint">stages this address; sending still requires arming + confirming.</span></div>`;
+      area.innerHTML = `<div class="b5-row"><button type="button" class="b5-btn b5-btn--primary btn-net-apply">${UI.icon('apply')}Apply</button><span class="b5-field__hint">stages this address; sending still requires arming + confirming.</span></div>`;
       area.querySelector('.btn-net-apply').addEventListener('click', () => { es.applied = true; renderNetworkInterfaceStaticConfirm(uid, ifc, deviceLabel, statusSetter, editorWrap); });
     } else if (!armedHere) {
       area.innerHTML = `
         <div class="b5-row">
           ${UI.badge('ok', 'Applied')}
-          <button type="button" class="b5-btn b5-btn--sm b5-btn--danger btn-net-arm">Arm send…</button>
-          <button type="button" class="b5-btn b5-btn--sm b5-btn--ghost btn-net-revert">${UI.icon('revert')}Revert</button>
+          <button type="button" class="b5-btn b5-btn--danger btn-net-arm">Arm send…</button>
+          <button type="button" class="b5-btn b5-btn--ghost btn-net-revert">${UI.icon('revert')}Revert</button>
         </div>`;
       area.querySelector('.btn-net-arm').addEventListener('click', () => armNetwork(uid, 'static', ifc.id, { ip: es.ip, mask: es.mask }, deviceLabel));
       area.querySelector('.btn-net-revert').addEventListener('click', () => {
@@ -1866,8 +1959,8 @@ const DeviceDetail = (() => {
             <p class="b5-alert__title">Confirm static IP change</p>
             <p class="b5-alert__body">A mis-set address can strand <strong>${escapeHtml(deviceLabel)}</strong> off the show network. Confirm: set interface ${ifc.id} to <strong>${escapeHtml(es.ip)} / ${escapeHtml(es.mask)}</strong>.</p>
             <div class="b5-row" style="margin-top:var(--b5-space-2)">
-              <button type="button" class="b5-btn b5-btn--sm b5-btn--danger btn-net-confirm">Yes, send now</button>
-              <button type="button" class="b5-btn b5-btn--sm b5-btn--ghost btn-net-cancel">Cancel</button>
+              <button type="button" class="b5-btn b5-btn--danger btn-net-confirm">Yes, send now</button>
+              <button type="button" class="b5-btn b5-btn--ghost btn-net-cancel">Cancel</button>
             </div>
           </div>
         </div>`;
@@ -1897,8 +1990,8 @@ const DeviceDetail = (() => {
             <p class="b5-alert__title">Confirm DHCP change</p>
             <p class="b5-alert__body">Switching DHCP ${toState} on <strong>${escapeHtml(deviceLabel)}</strong> can change its address and, if no DHCP server answers, strand it off the network. Confirm?</p>
             <div class="b5-row" style="margin-top:var(--b5-space-2)">
-              <button type="button" class="b5-btn b5-btn--sm b5-btn--danger btn-dhcp-confirm">Yes, send now</button>
-              <button type="button" class="b5-btn b5-btn--sm b5-btn--ghost btn-dhcp-cancel">Cancel</button>
+              <button type="button" class="b5-btn b5-btn--danger btn-dhcp-confirm">Yes, send now</button>
+              <button type="button" class="b5-btn b5-btn--ghost btn-dhcp-cancel">Cancel</button>
             </div>
           </div>
         </div>`;
@@ -2342,7 +2435,7 @@ const DeviceDetail = (() => {
       actions.style.marginTop = 'var(--b5-space-2)';
       if (r.recordsValue) {
         const btn = document.createElement('button');
-        btn.className = 'b5-btn b5-btn--sm';
+        btn.className = 'b5-btn';
         btn.textContent = 'Record';
         btn.addEventListener('click', async () => {
           try { await Api.recordDeviceSensors(uid, r.number); await refreshSensorsNow(uid); }
@@ -2351,7 +2444,7 @@ const DeviceDetail = (() => {
         actions.appendChild(btn);
       }
       const resetBtn = document.createElement('button');
-      resetBtn.className = 'b5-btn b5-btn--sm b5-btn--ghost';
+      resetBtn.className = 'b5-btn b5-btn--ghost';
       resetBtn.textContent = 'Reset';
       resetBtn.addEventListener('click', async () => {
         try { await Api.resetDeviceSensors(uid, r.number); await refreshSensorsNow(uid); }
@@ -2422,6 +2515,27 @@ const DeviceDetail = (() => {
     notify('status');
   }
 
+  // STATUS_TYPE_TONE maps E1.20 status types onto the kit's TONE words in one
+  // table (DESIGN.md: "map your screen's own vocabulary onto them in one
+  // table in your JS"). A type not in the table gets NO tone class — an
+  // untoned pill is honest, and borrowing a neighbouring state's colour is
+  // forbidden.
+  const STATUS_TYPE_TONE = {
+    STATUS_ERROR: ['danger', 'status-error'],
+    STATUS_WARNING: ['warn', 'status-warning'],
+    STATUS_ADVISORY: ['info', 'status-pending'],
+    STATUS_ERROR_CLEARED: ['ok', 'status-ok'],
+    STATUS_WARNING_CLEARED: ['ok', 'status-ok'],
+    STATUS_ADVISORY_CLEARED: ['ok', 'status-ok'],
+  };
+
+  function statusTypePill(typeName) {
+    const t = STATUS_TYPE_TONE[typeName];
+    const tone = t ? ` b5-pill--${t[0]}` : '';
+    const ic = t ? UI.icon(t[1]) : '';
+    return `<span class="b5-pill b5-pill--tag${tone}">${ic}${escapeHtml(typeName || 'unnamed status type')}</span>`;
+  }
+
   function renderStatusSection(container, f) {
     const uid = f.uid;
     const st = statusCache[uid] || (statusCache[uid] = { filter: 'advisory', messages: [], loading: true, error: null });
@@ -2429,31 +2543,33 @@ const DeviceDetail = (() => {
       ? `<span class="b5-inline-wait">${UI.spinner()}loading…</span>`
       : (st.error ? `<span class="b5-field__error">${UI.icon('status-error')}error: ${escapeHtml(st.error)}</span>` : `<span class="b5-text-muted b5-text-sm">${st.messages.length} message(s)</span>`);
     container.innerHTML = `
-      <div class="b5-filterbar">
-        <div class="b5-filterbar__group">
-          <label class="b5-visually-hidden">Severity</label>
-          <select class="b5-select status-filter" style="width:auto">
-            <option value="advisory" ${st.filter === 'advisory' ? 'selected' : ''}>Severity: Advisory</option>
-            <option value="warning" ${st.filter === 'warning' ? 'selected' : ''}>Severity: Warning</option>
-            <option value="error" ${st.filter === 'error' ? 'selected' : ''}>Severity: Error</option>
+      <div class="b5-toolbar">
+        <div class="b5-toolbar__row">
+          <label class="b5-visually-hidden" for="ddStatusSeverity">Severity</label>
+          <select id="ddStatusSeverity" class="b5-select status-filter">
+            <option value="advisory" ${st.filter === 'advisory' ? 'selected' : ''}>Severity: Advisory and above</option>
+            <option value="warning" ${st.filter === 'warning' ? 'selected' : ''}>Severity: Warning and above</option>
+            <option value="error" ${st.filter === 'error' ? 'selected' : ''}>Severity: Error only</option>
           </select>
-          <button class="b5-btn b5-btn--sm btn-refresh-status">${UI.icon('refresh')}Refresh</button>
+          <button type="button" class="b5-btn btn-refresh-status">${UI.icon('refresh')}Re-read status messages</button>
+          <span class="b5-caption">${statusText}</span>
         </div>
-        <span class="b5-filterbar__summary">${statusText}</span>
       </div>
       ${st.messages.length ? `
-      <table class="b5-table b5-table--responsive">
-        <thead><tr><th>Sub-device</th><th>Type</th><th>Message ID</th><th>Value 1</th><th>Value 2</th></tr></thead>
-        <tbody>${st.messages.map(m => `
-          <tr>
-            <td data-label="Sub-device">${m.subDevice}</td>
-            <td data-label="Type">${escapeHtml(m.typeName)}</td>
-            <td data-label="Message ID" class="b5-table__mono">0x${m.messageId.toString(16).toUpperCase().padStart(4, '0')}</td>
-            <td data-label="Value 1">${m.value1}</td>
-            <td data-label="Value 2">${m.value2}</td>
-          </tr>`).join('')}
-        </tbody>
-      </table>` : (st.loading ? '' : `<div class="b5-empty">${UI.icon('status-ok')}<span class="b5-empty__title">No messages at this severity</span></div>`)}
+      <div class="b5-scrollbox">
+        <table class="b5-table b5-table--responsive">
+          <thead><tr><th>Sub-device</th><th>Type</th><th>Message ID</th><th>Value 1</th><th>Value 2</th></tr></thead>
+          <tbody>${st.messages.map(m => `
+            <tr>
+              <td data-label="Sub-device">${escapeHtml(String(m.subDevice))}</td>
+              <td data-label="Type">${statusTypePill(m.typeName)}</td>
+              <td data-label="Message ID" class="b5-table__mono">0x${m.messageId.toString(16).toUpperCase().padStart(4, '0')}</td>
+              <td data-label="Value 1">${escapeHtml(String(m.value1))}</td>
+              <td data-label="Value 2">${escapeHtml(String(m.value2))}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>` : (st.loading ? '' : `<div class="b5-empty">${UI.icon('status-ok')}<span class="b5-empty__title">No messages at this severity</span><span class="b5-empty__body">Nothing this device is reporting reaches the level chosen above. Widen the severity to see advisories too.</span></div>`)}
     `;
     container.querySelector('.status-filter').addEventListener('change', (e) => {
       ensureStatus(uid, selectGen, e.target.value);

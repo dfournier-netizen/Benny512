@@ -430,13 +430,23 @@ type RDMConfig struct {
 	Scope SerializationScope
 	// AckTimerUnit is the time unit of ACK_TIMER's 2-byte Parameter Data.
 	//
-	// SPEC AMBIGUITY (flagged for architect review): ANSI E1.20 §6.3.3
-	// specifies 10 ms increments, but the project's protocol reference
-	// (§2.4) describes the field as a plain millisecond count. The
-	// difference is a 10× error in retry pacing on exactly the rig where it
-	// matters most (the wireless proxies). It is configurable for that
-	// reason; the default follows the standard (10 ms) and must be
-	// confirmed against real hardware in Phase 1d.
+	// SETTLED: 10 ms per unit, per ANSI E1.20 §6.3.3, and CONFIRMED against
+	// real hardware — the ACK_TIMER chains in bench capture RDM-LOG8 were
+	// measured and match the 10 ms reading. Benny512 was already correct.
+	//
+	// This field previously carried a "spec ambiguity" hedge, because the
+	// project's own protocol reference (§2.4) described the field as a plain
+	// millisecond count and nobody had measured which was right. That
+	// mattered: the difference is a 10x error in retry pacing on exactly the
+	// rig where pacing matters most, the wireless proxies whose shared
+	// buffer three bench logs document filling and then refusing unrelated
+	// devices. The measurement resolved it in the standard's favour, so the
+	// hedge is gone and the derived reference is the document that is wrong.
+	//
+	// It stays configurable, not because the unit is in doubt, but because a
+	// non-conforming responder is a real possibility on a rig this app is
+	// meant to debug, and being able to pace around one without a rebuild is
+	// worth one field.
 	AckTimerUnit time.Duration
 	// AckTimerCollect selects the continuation after an ACK_TIMER's
 	// estimated time elapses. The zero value, CollectQueuedMessageFirst, is

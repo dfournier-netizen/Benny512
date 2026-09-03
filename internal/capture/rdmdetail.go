@@ -107,11 +107,33 @@ type TodDetail struct {
 	// Addresses holds the low-byte Port-Address value(s): the requested
 	// universe list for a Request, or the single target universe for
 	// Data/Control.
-	Addresses  []byte `json:"addresses,omitempty"`
-	RdmVersion byte   `json:"rdmVersion,omitempty"` // Data only
-	Port       byte   `json:"port,omitempty"`       // Data only
-	UidTotal   uint16 `json:"uidTotal,omitempty"`   // Data only
-	BlockCount byte   `json:"blockCount,omitempty"` // Data only
+	Addresses []byte `json:"addresses,omitempty"`
+	// RdmVersion/Port/UidTotal/BlockCount are ArtTodData's decoded wire
+	// fields, and NONE of them carries omitempty, because every one of their
+	// zeroes is a real reading rather than an absent value:
+	//
+	//   UidTotal   0 — an empty rig genuinely has no devices, and "the ToD
+	//                  came back empty" is one of the more important things
+	//                  this capture can tell a tech chasing a dead line.
+	//   BlockCount 0 — the first (and usually only) block of a ToD is block 0.
+	//   RdmVersion 0 — a device answering 0 is telling us something real
+	//                  about itself; silently erasing it hides a
+	//                  non-conforming responder, which is exactly the sort
+	//                  of thing a packet analyzer exists to surface.
+	//   Port       0 — E1.31/Art-Net number these 1-4, so a 0 on the wire is
+	//                  out of range and therefore MORE worth showing, not
+	//                  less. Omitting it would render a malformed packet
+	//                  indistinguishable from a well-formed one.
+	//
+	// RDM-LOG24 contains real ArtTodData packets carrying uidTotal=0 AND
+	// blockCount=0 together, so this is not hypothetical: under the old tags
+	// both keys vanished from the JSON and the client saw undefined, which is
+	// the same defect class this codebase has now been bitten by nine times
+	// (see internal/patch/entry.go's rule and the handoff's seam list).
+	RdmVersion byte   `json:"rdmVersion"` // Data only
+	Port       byte   `json:"port"`       // Data only
+	UidTotal   uint16 `json:"uidTotal"`   // Data only
+	BlockCount byte   `json:"blockCount"` // Data only
 	// UIDs is the Table of Devices block carried by this ArtTodData packet
 	// (empty for Request/Control).
 	UIDs []string `json:"uids,omitempty"`

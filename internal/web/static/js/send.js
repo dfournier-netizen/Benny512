@@ -90,6 +90,114 @@ const SendScreen = (() => {
     await fireSend();
   }
 
+  // --- screen markup (the kit) ---------------------------------------------
+  //
+  // Built here rather than in index.html, exactly the way analyzer.js's
+  // screenHtml does, so this screen can use the shared kit
+  // (css/DESIGN.md): numbered .b5-step-section bands top to bottom, a
+  // .b5-toolbar instead of the older desktop-first .b5-filterbar, the
+  // Start/Stop pair in the kit's .b5-actionbar (an outlined GO pill and a
+  // square STOP slab — two silhouettes, so the shape reads before the hue
+  // at arm's length), and the 512-cell grid in its own scroll box so the
+  // page body never scrolls sideways (rule 4). Every id the old markup
+  // carried is unchanged.
+  //
+  // WHAT IS DELIBERATELY *NOT* CONVERTED: the grid itself. DESIGN.md's
+  // worked example ends by blessing "genuinely tabular data a tech scans
+  // down (… the Send grid)" — 512 channels as .b5-statecards would be one
+  // screen per eight channels. Density is the feature here, so the cells
+  // stay .b5-dmx-cell and only their state markers are brought up to the
+  // kit's standard.
+  function screenHtml() {
+    const ua = UI.universeInputAttrs();
+    return `
+      <div class="b5-page-header">
+        <h1 class="b5-page-header__title">Send</h1>
+        <span class="b5-page-header__meta b5-text-muted b5-text-sm">Drive one Art-Net universe by hand.</span>
+      </div>
+
+      <section class="b5-step-section" aria-labelledby="sendUniverseHead">
+        <h2 class="b5-step-section__head" id="sendUniverseHead">
+          <span class="b5-step-num">1</span> Universe to send on
+          <span class="b5-step-section__note" id="sendUniverseNote"></span>
+        </h2>
+        <div class="b5-toolbar">
+          <div class="b5-toolbar__row">
+            <label class="b5-field__label" for="sendUniverse">Universe</label>
+            <input type="number" id="sendUniverse" class="b5-input b5-input--mono"
+                   min="${ua.min}" max="${ua.max}" value="${escapeHtml(UI.formatUniverse(0))}">
+          </div>
+          <p class="b5-caption" id="sendUniverseHint"></p>
+        </div>
+        <div class="b5-alert b5-alert--caution">
+          ${UI.icon('status-warning')}
+          <div>
+            <p class="b5-alert__title">Manual send overrides live console output</p>
+            <p class="b5-alert__body">Every channel transmits live while you drag, zeros included &mdash; a channel pulled down to 0 goes dark immediately, it does not hold its last value. Park a channel to freeze it against a stray drag; a parked channel still transmits at its frozen value, park does not hand it back to a console. Confirm no board is patched to this universe before sending.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="b5-step-section" aria-labelledby="sendGridHead">
+        <h2 class="b5-step-section__head" id="sendGridHead">
+          <span class="b5-step-num">2</span> Channel levels
+          <span class="b5-step-section__note" id="sendGridTally"></span>
+        </h2>
+        <div class="b5-panel">
+          <div class="b5-panel__body">
+            <div class="b5-scrollbox">
+              <div class="b5-dmx-grid" id="dmxGrid"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="b5-actionbar" aria-label="Output">
+        <div class="b5-actionbar__status">
+          <span class="b5-actionbar__title"><span class="b5-step-num">3</span> Output</span>
+          <span id="sendOutputPill"></span>
+        </div>
+        <div class="b5-actionbar__buttons">
+          <button id="btnDmxAllOff" class="b5-btn b5-btn--danger">${UI.icon('revert')}All off</button>
+          <button id="btnDmxStart" class="b5-bigbtn b5-bigbtn--go">${UI.icon('status-ok')}START</button>
+          <button id="btnDmxStop" class="b5-bigbtn b5-bigbtn--stop">${UI.icon('status-error')}STOP</button>
+        </div>
+      </section>
+    `;
+  }
+
+  // outputState: what this PAGE last told the server to do. The server
+  // exposes no "am I transmitting?" endpoint and broadcasts no DMX state
+  // (POST /api/dmx/start and /stop both answer with a bare status string —
+  // see server.go handleDMXStart/handleDMXStop), so a pill claiming "LIVE"
+  // as though it had been read back would be inventing a fact. Rule 3:
+  // name the unknown. Before either button is pressed this says so in
+  // words rather than guessing "stopped".
+  let outputState = 'unknown'; // 'unknown' | 'started' | 'stopped'
+
+  function renderOutputPill() {
+    const el = document.getElementById('sendOutputPill');
+    if (!el) return;
+    if (outputState === 'started') {
+      el.innerHTML = `<span class="b5-pill b5-pill--lg b5-pill--ok b5-pill--solid">${UI.icon('status-ok')}SENDING</span>`;
+    } else if (outputState === 'stopped') {
+      el.innerHTML = `<span class="b5-pill b5-pill--lg b5-pill--open">${UI.icon('status-pending')}STOPPED</span>`;
+    } else {
+      el.innerHTML = `<span class="b5-pill b5-pill--lg b5-pill--unread">${UI.icon('status-pending')}Not started from this page</span>`;
+    }
+  }
+
+  // tally: how many channels are above zero and how many are frozen, in
+  // words, in the section head — the one thing a tech wants to know about a
+  // 512-cell grid without reading all of it.
+  function renderTally() {
+    const el = document.getElementById('sendGridTally');
+    if (!el) return;
+    let up = 0, park = 0;
+    for (let ch = 1; ch <= 512; ch++) { if (channels[ch] > 0) up++; if (parked[ch]) park++; }
+    el.textContent = `${up} channel${up === 1 ? '' : 's'} above zero · ${park} parked`;
+  }
+
   function buildGrid() {
     const grid = document.getElementById('dmxGrid');
     grid.innerHTML = '';
@@ -97,19 +205,37 @@ const SendScreen = (() => {
       const cell = document.createElement('div');
       cell.className = 'b5-dmx-cell';
       cell.dataset.ch = String(ch);
+      // Park is a real <button aria-pressed> rather than a bare checkbox
+      // (DESIGN.md: "Use <button>, not a clickable <div>", and rule 2's
+      // touch minimum — a 13px native checkbox is not reachable with a
+      // gloved thumb on a truss). Its state is carried by the WORD
+      // Park/Parked, by the icon, and by the cell's own border/ground —
+      // three signals, none of them hue alone.
       cell.innerHTML = `
         <span class="b5-dmx-cell__ch">${String(ch).padStart(3, '0')}</span>
-        <label class="b5-dmx-cell__park" title="Park: freeze this channel and ignore drags. It still transmits at its frozen value — this protects against a stray drag (a hazer, a dowser), it does not hand the channel back to a console.">
-          <input type="checkbox" class="dmx-park" data-ch="${ch}">
+        <button type="button" class="b5-btn b5-btn--sm b5-btn--ghost b5-btn--block b5-tools-dmxpark dmx-park" data-ch="${ch}" aria-pressed="false"
+                title="Park: freeze this channel and ignore drags. It still transmits at its frozen value — this protects against a stray drag (a hazer, a dowser), it does not hand the channel back to a console.">
           <span class="b5-dmx-cell__park-label">Park</span>
-        </label>
-        <input type="number" min="0" max="255" value="0" data-ch="${ch}" class="dmx-num">
-        <input type="range" min="0" max="255" value="0" data-ch="${ch}" class="dmx-fader b5-dmx-cell__range b5-range-touch">
+        </button>
+        <input type="number" min="0" max="255" value="0" data-ch="${ch}" class="dmx-num" aria-label="Channel ${ch} level">
+        <input type="range" min="0" max="255" value="0" data-ch="${ch}" class="dmx-fader b5-dmx-cell__range b5-range-touch" aria-label="Channel ${ch} fader">
       `;
       grid.appendChild(cell);
     }
     grid.addEventListener('input', onInput);
     grid.addEventListener('change', onChange);
+    grid.addEventListener('click', onGridClick);
+  }
+
+  // onGridClick handles the park button (a <button> fires 'click', not
+  // 'change' — the checkbox it replaced was handled in onChange below).
+  function onGridClick(e) {
+    const btn = e.target.closest && e.target.closest('.dmx-park');
+    if (!btn) return;
+    const ch = parseInt(btn.dataset.ch, 10);
+    if (!ch) return;
+    setParked(ch, !parked[ch]);
+    renderTally();
   }
 
   function cellFor(ch) {
@@ -118,7 +244,7 @@ const SendScreen = (() => {
 
   function onInput(e) {
     const t = e.target;
-    if (t.classList.contains('dmx-park')) return; // toggled on 'change' below
+    if (t.classList.contains('dmx-park')) return; // a button, handled in onGridClick
     const ch = parseInt(t.dataset.ch, 10);
     if (!ch || parked[ch]) return;
     const val = clamp(parseInt(t.value, 10) || 0);
@@ -131,16 +257,13 @@ const SendScreen = (() => {
     cell.querySelector('.dmx-num').value = val;
     cell.querySelector('.dmx-fader').value = val;
     cell.classList.toggle('is-active', val > 0);
+    renderTally();
     markDirty();
   }
 
   function onChange(e) {
     const t = e.target;
-    if (t.classList.contains('dmx-park')) {
-      const ch = parseInt(t.dataset.ch, 10);
-      if (ch) setParked(ch, t.checked);
-      return;
-    }
+    if (t.classList.contains('dmx-park')) return; // a button, handled in onGridClick
     const ch = parseInt(t.dataset.ch, 10);
     if (!ch || parked[ch]) return;
     // Belt-and-suspenders: 'input' already staged+scheduled this value;
@@ -163,6 +286,8 @@ const SendScreen = (() => {
     cell.querySelector('.dmx-num').disabled = isParked;
     cell.querySelector('.dmx-fader').disabled = isParked;
     cell.querySelector('.b5-dmx-cell__park-label').textContent = isParked ? 'Parked' : 'Park';
+    const btn = cell.querySelector('.dmx-park');
+    if (btn) btn.setAttribute('aria-pressed', isParked ? 'true' : 'false');
   }
 
   function clamp(v) { return Math.max(0, Math.min(255, v)); }
@@ -185,6 +310,19 @@ const SendScreen = (() => {
     const ua = UI.universeInputAttrs();
     el.min = ua.min; el.max = ua.max;
     el.value = UI.formatUniverse(sendUniverseCanonical);
+    // The section head and the caption both restate the ACTIVE notation, so
+    // a number on this screen can never be read against the wrong base —
+    // and both are rewritten from the canonical value on every base change,
+    // never re-parsed from what is already in the box.
+    const note = document.getElementById('sendUniverseNote');
+    if (note) note.textContent = 'universe ' + UI.formatUniverse(sendUniverseCanonical) + ' · ' + UI.universeBaseLabel();
+    const hint = document.getElementById('sendUniverseHint');
+    if (hint) {
+      hint.textContent =
+        `Numbering is ${UI.universeBaseLabel()} — the same numbering as Patch, Devices and Nodes. ` +
+        `Universe ${UI.formatUniverse(sendUniverseCanonical)} here is Art-Net Port-Address ${sendUniverseCanonical} on the wire. ` +
+        'Change the numbering on the Settings screen.';
+    }
   }
 
   async function commit() {
@@ -204,19 +342,36 @@ const SendScreen = (() => {
         cell.classList.remove('is-active');
       }
     }
+    renderTally();
     markDirty();
     flushNow();
   }
 
   function init() {
+    const screen = document.getElementById('screen-send');
+    if (screen) screen.innerHTML = screenHtml();
     buildGrid();
-    document.getElementById('btnDmxStart').addEventListener('click', () => Api.dmxStart());
-    document.getElementById('btnDmxStop').addEventListener('click', () => Api.dmxStop());
+    document.getElementById('btnDmxStart').addEventListener('click', async () => {
+      try { await Api.dmxStart(); outputState = 'started'; } catch (e) { console.error('DMX start failed', e); }
+      renderOutputPill();
+    });
+    document.getElementById('btnDmxStop').addEventListener('click', async () => {
+      try { await Api.dmxStop(); outputState = 'stopped'; } catch (e) { console.error('DMX stop failed', e); }
+      renderOutputPill();
+    });
     document.getElementById('btnDmxAllOff').addEventListener('click', allOff);
     const uniEl = document.getElementById('sendUniverse');
     syncUniverseFieldDisplay();
-    uniEl.addEventListener('input', () => { sendUniverseCanonical = UI.parseUniverse(uniEl.value); });
+    uniEl.addEventListener('input', () => {
+      sendUniverseCanonical = UI.parseUniverse(uniEl.value);
+      // Head/caption only — never the input's own value, which the tech is
+      // still typing into.
+      const note = document.getElementById('sendUniverseNote');
+      if (note) note.textContent = 'universe ' + UI.formatUniverse(sendUniverseCanonical) + ' · ' + UI.universeBaseLabel();
+    });
     window.addEventListener('b5-universe-base-changed', syncUniverseFieldDisplay);
+    renderOutputPill();
+    renderTally();
   }
 
   return { init };

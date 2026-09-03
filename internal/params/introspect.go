@@ -798,7 +798,26 @@ func isSpeculativePID(pid rdm.ParameterID) bool {
 		rdm.PIDDeviceHours, rdm.PIDLampHours, rdm.PIDLampStrikes, rdm.PIDLampState,
 		rdm.PIDDevicePowerCycles, rdm.PIDFactoryDefaults,
 		rdm.PIDPowerState, rdm.PIDPerformSelfTest, rdm.PIDSelfTestDescription,
-		rdm.PIDSelfTestEnhanced, rdm.PIDPresetPlayback:
+		rdm.PIDSelfTestEnhanced, rdm.PIDPresetPlayback,
+		// Pan/tilt orientation, added after RDM-LOG24. Eight GLP JDC-1s were
+		// asked for PAN_INVERT and PAN_TILT_SWAP nine times each and NACKed
+		// UNKNOWN_PID every time — 18 of that capture's 26 NACKs. The fixture
+		// advertises TILT_INVERT and not the other two, which is correct: a
+		// JDC-1 tilts but does not pan. It was telling us exactly what it has
+		// and we asked anyway.
+		//
+		// All three are optional per E1.37-1 (never in E1.20's minimum-support
+		// list), so absence from SUPPORTED_PARAMETERS genuinely means "this
+		// device does not have it" rather than the spec-mandated silence that
+		// makes gating a REQUIRED PID wrong — see TestAsFound_CorePIDsAreNeverGated
+		// for the other side of that line.
+		//
+		// TILT_INVERT is listed alongside its siblings deliberately: gating is
+		// per-PID against what the device actually advertised, so a fixture
+		// that advertises tilt-invert still gets asked, and one that doesn't is
+		// spared the round trip. Listing only the two that NACKed in one
+		// capture would encode that capture's fixture into the rule.
+		rdm.PIDPanInvert, rdm.PIDTiltInvert, rdm.PIDPanTiltSwap:
 		// CAPTURE_PRESET is deliberately NOT here, same reason RESET_DEVICE
 		// isn't (see this func's doc comment): it has no GET form at all, so
 		// the SUPPORTED_PARAMETERS-driven "ask only if advertised" gate below
