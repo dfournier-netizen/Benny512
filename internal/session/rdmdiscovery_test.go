@@ -177,16 +177,47 @@ func TestToDSingleBlockWithSeveralUIDs(t *testing.T) {
 	}
 }
 
-func TestEmptyToDCompletesImmediately(t *testing.T) {
+// TestEmptyToDAfterAFlushDoesNotCompleteImmediately REPLACES a test that
+// asserted the opposite, and the reversal is deliberate rather than a
+// convenience.
+//
+// The old TestEmptyToDCompletesImmediately drove Discover() — an ArtTodControl
+// AtcFlush — fed it a single empty ArtTodData, and required "an immediate
+// empty completion". That was written before anyone had watched a real
+// gateway do it. Bench capture RDM-LOG25 did: the flush went out, and 225ms
+// later the node answered uidTotal=0. A full RDM discovery walks a 48-bit UID
+// space with DISC_UNIQUE_BRANCH and takes seconds, so that reply is the
+// node's just-flushed EMPTY table, not a result — and treating it as one meant
+// the owner could not discover a rig of Elation Paladin Cubes on any port with
+// any cable.
+//
+// The old assertion was therefore encoding the defect, which is exactly the
+// hazard of writing a test from what the code does rather than from what the
+// wire does. Kept here as a named replacement rather than deleted, so the
+// reversal is visible to anyone who goes looking for it.
+//
+// The immediate-completion behaviour it wanted is still correct for a plain
+// ArtTodRequest and is covered by TestRequestToDEmptyTodCompletesImmediately
+// in rdmdiscoveryempty_test.go, alongside the LOG25 reproduction itself.
+func TestEmptyToDAfterAFlushDoesNotCompleteImmediately(t *testing.T) {
 	h := newHarness(t)
 	port := mustPortAddress(t, 0, 0, 0)
 	node := nodeRef("2.11.90.2", 1, port)
 	d := h.ctrl.Discover(node)
 
 	h.ctrl.HandleInbound(todDataInbound(port, 0, 0, nil, node.Addr))
-	res := awaitDiscovery(t, h, d, time.Second)
-	if !res.Complete || len(res.UIDs) != 0 || res.Err != nil {
-		t.Fatalf("res = %+v, want an immediate empty completion", res)
+	select {
+	case res := <-d.Done():
+		t.Fatalf("res = %+v — a flush-initiated discovery must not close on the "+
+			"node's empty just-flushed table", res)
+	default:
+	}
+
+	// It still terminates: the port may genuinely be empty, and the node's own
+	// count (zero) is satisfied, so this is a result rather than a failure.
+	res := awaitDiscovery(t, h, d, 2*DefaultDiscoveryTimeout)
+	if res.Err != nil || len(res.UIDs) != 0 {
+		t.Fatalf("res = %+v, want a clean empty result once the window closes", res)
 	}
 }
 

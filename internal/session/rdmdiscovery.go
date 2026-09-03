@@ -77,10 +77,24 @@ type Discovery struct {
 	blocks    int
 	total     uint16
 	haveTotal bool
-	startedAt time.Time
-	timer     Timer
-	gen       uint64
-	finished  bool
+	// forcedFlush records that this discovery began with an ArtTodControl
+	// AtcFlush ("flush your ToD and run a full discovery") rather than a
+	// plain ArtTodRequest ("send me the table you already have"). It is the
+	// difference between the two meanings of an empty ToD — see the
+	// completion rule in HandleTodData.
+	forcedFlush bool
+	// sawTodData records that the node answered at all, which is a different
+	// fact from what it answered WITH. On the discovery timeout it separates
+	// "the node reported an empty table and nothing more arrived" from "the
+	// node never said anything", and RDM-LOG25 contains one of each: a flush
+	// to universe 11 that was answered empty, and a flush to universe 3 that
+	// drew no reply in the whole capture. Reporting both as the same timeout
+	// would hide the more diagnostic of the two.
+	sawTodData bool
+	startedAt  time.Time
+	timer      Timer
+	gen        uint64
+	finished   bool
 }
 
 // Done delivers the DiscoveryResult exactly once, then closes.
@@ -109,7 +123,7 @@ func (c *RDMController) Discover(node NodeRef) *Discovery {
 		Command:         AtcFlush,
 		Address:         node.Port.SubUni(),
 	}}
-	return c.startDiscovery(node, artnet.Encode(pkt))
+	return c.startDiscovery(node, artnet.Encode(pkt), true)
 }
 
 // RequestToD asks a node for its cached Table of Devices without forcing a
@@ -121,17 +135,18 @@ func (c *RDMController) RequestToD(node NodeRef) *Discovery {
 		Command:         TodFull,
 		Address:         []byte{node.Port.SubUni()},
 	}}
-	return c.startDiscovery(node, artnet.Encode(pkt))
+	return c.startDiscovery(node, artnet.Encode(pkt), false)
 }
 
-func (c *RDMController) startDiscovery(node NodeRef, wire []byte) *Discovery {
+func (c *RDMController) startDiscovery(node NodeRef, wire []byte, forcedFlush bool) *Discovery {
 	key := todKey{ip: node.Key.IP, port: node.Port.RawValue()}
 	d := &Discovery{
-		node:     node,
-		key:      key,
-		done:     make(chan DiscoveryResult, 1),
-		seen:     make(map[rdm.UID]struct{}),
-		blockIDs: make(map[byte]struct{}),
+		node:        node,
+		key:         key,
+		done:        make(chan DiscoveryResult, 1),
+		seen:        make(map[rdm.UID]struct{}),
+		blockIDs:    make(map[byte]struct{}),
+		forcedFlush: forcedFlush,
 	}
 
 	c.mu.Lock()
@@ -166,6 +181,21 @@ func (c *RDMController) armDiscoveryTimerLocked(d *Discovery) {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		if d.finished || d.gen != gen {
+			return
+		}
+		// The node answering an empty table and then going quiet is a
+		// RESULT, not a failure: the port really has nothing on it. The node
+		// never answering at all is a genuine timeout, and usually means the
+		// port is not carrying that universe — RDM-LOG25 contains one of
+		// each, and collapsing them into the same error would throw away the
+		// more diagnostic half.
+		// The test is the node's OWN count, not merely "did it answer":
+		// satisfied means we hold everything it said it had, which for an
+		// empty table is trivially true and for a partial one is false. A
+		// node that promised 3 UIDs and sent 1 has genuinely failed to
+		// deliver and must still surface as ErrTodTimeout.
+		if d.sawTodData && d.haveTotal && len(d.seen) >= int(d.total) {
+			c.finishDiscoveryLocked(d, nil)
 			return
 		}
 		c.finishDiscoveryLocked(d, ErrTodTimeout)
@@ -213,6 +243,7 @@ func (c *RDMController) HandleTodData(td artnet.TodData, from netip.AddrPort) {
 	}
 
 	d.blocks++
+	d.sawTodData = true
 	d.blockIDs[td.BlockCount] = struct{}{}
 	if !d.haveTotal || td.UidTotal > d.total {
 		d.total = td.UidTotal
@@ -224,6 +255,36 @@ func (c *RDMController) HandleTodData(td artnet.TodData, from netip.AddrPort) {
 
 	uids := sortedUIDs(d.seen)
 	complete := d.haveTotal && len(uids) >= int(d.total)
+	// An EMPTY table is not a completion signal for a flush-initiated
+	// discovery, and this is the whole of bench capture RDM-LOG25's defect.
+	//
+	// AtcFlush means "flush your Table of Devices and run a full discovery".
+	// The node therefore has an empty table the instant it obeys, and the
+	// first thing it can say is "I have nothing" — LOG25 shows exactly that,
+	// 225ms after the flush. A real RDM discovery walks a 48-bit UID space
+	// with DISC_UNIQUE_BRANCH and takes SECONDS; nothing meaningful can have
+	// happened in a quarter of a second. The real table follows.
+	//
+	// The old rule was `len(uids) >= int(d.total)`, and with total 0 and no
+	// UIDs that is `0 >= 0` — true. So discovery closed as successfully
+	// complete with zero fixtures, abandoning the 20-second window that
+	// exists precisely to let the node finish looking. The owner could not
+	// discover a rig of Elation Paladin Cubes on any port with any cable,
+	// because neither the port nor the cable was the variable.
+	//
+	// A plain ArtTodRequest is the opposite case and must NOT be delayed:
+	// nothing was flushed, the node is reporting the table it already holds,
+	// and an empty answer there is real and final. Hence forcedFlush rather
+	// than a blanket "never complete empty" — making the user wait out the
+	// discovery window for a cached empty table would be its own regression.
+	//
+	// This is the tenth instance on this project of one defect class: a
+	// plausible zero mistaken for a real answer. `uidTotal=0` carries two
+	// entirely different meanings — "I have no devices" and "I have not
+	// looked yet" — and immediately after a flush it is always the second.
+	if complete && d.forcedFlush && len(uids) == 0 {
+		complete = false
+	}
 	c.tod[key] = &todEntry{uids: uids, complete: complete, updated: c.cfg.Clock.Now()}
 	c.emitLocked(Event{Kind: EventToDUpdate, Node: node, UIDs: uids, Complete: complete, At: c.cfg.Clock.Now()})
 
