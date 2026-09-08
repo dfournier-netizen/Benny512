@@ -21,6 +21,7 @@ const Live = (() => {
     socket.onopen = () => {
       retryMs = 1000;
       setStatus(true);
+      (listeners.connected || []).forEach(fn => fn({type: 'connected'}));
     };
     socket.onclose = () => {
       if (shuttingDown) return;

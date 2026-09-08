@@ -94,7 +94,8 @@ const DevicesScreen = (() => {
   // the session") rather than localStorage, which the rest of this app
   // reserves for cross-restart preferences like the active tab.
   let classFilter = sessionStorage.getItem('benny512.devices.classFilter') || '';
-  let nodeFilter = sessionStorage.getItem('benny512.devices.nodeFilter') || '';
+  // Older sessions stored IP|BindIndex. A binding is not a physical node.
+  let nodeFilter = (sessionStorage.getItem('benny512.devices.nodeFilter') || '').split('|')[0];
   let universeFilter = sessionStorage.getItem('benny512.devices.universeFilter') || '';
   let sortOrder = sessionStorage.getItem('benny512.devices.sort') || 'address';
   let activeTab = 'info'; // info | params | sensors | status
@@ -102,6 +103,10 @@ const DevicesScreen = (() => {
   // classifying tracks the background device_info/PRODUCT_DETAIL_ID_LIST
   // classification sweep below — unrelated to DeviceDetail's own caches.
   let classifying = {};
+  let nodesRevision = 0, fixturesRevision = 0;
+  let nodesLoaded = false, fixturesLoaded = false;
+  let liveTimer = null, liveBusy = false, liveNodes = false, liveFixtures = false;
+  let discoveryBusy = false, discoveryStopped = false;
 
   // --- Clear discovered devices (POST /api/devices/clear) -----------------
   // Arm-then-confirm, same shape as the node-config IP editor's Apply →
@@ -125,13 +130,7 @@ const DevicesScreen = (() => {
   const CLEAR_ARM_TIMEOUT_MS = 8000;
 
   // --- Node/port picker -----------------------------------------------------
-  // A flat <select> of every node/port, one <option> per port, driving
-  // Discover and the port-scoped Clear controls. (The "group ports on one
-  // physical device into an expandable block, inspector selects per device"
-  // feature briefly lived here — owner clarified it belongs on the Nodes
-  // screen instead ("apply that same sorting and feature set... to the
-  // nodes tab, not devices... revert the changes to the device tab"); see
-  // nodes.js for the grouped accordion + per-device port picker.)
+  // One group per physical IP, retaining the binding in every wire target.
   //
   // selectedPort is the {ip,bindIndex,portAddress} of the currently
   // targeted port — the value Discover and armClear('port') act on.
@@ -141,20 +140,39 @@ const DevicesScreen = (() => {
 
   function portKey(s) { return s ? `${s.ip}|${s.bindIndex}|${s.portAddress}` : ''; }
 
+  function nodeGroups() {
+    const groups = new Map();
+    nodes.forEach(n => {
+      if (!groups.has(n.ip)) groups.set(n.ip, {ip: n.ip, entries: []});
+      groups.get(n.ip).entries.push(n);
+    });
+    return [...groups.values()].sort((a, b) => a.ip.localeCompare(b.ip, undefined, {numeric: true})).map(g => {
+      g.entries.sort((a, b) => a.bindIndex - b.bindIndex);
+      // ShortName may name a single binding/port; prefer the parent LongName.
+      g.name = g.entries[0].longName || (g.entries.length === 1 ? g.entries[0].shortName : '') || g.ip;
+      return g;
+    });
+  }
+
   // portOptions flattens `nodes` (one entry per NodeKey, each with its own
   // ports[]) into one flat list, one entry per port, for the <select>.
   function portOptions() {
     const list = [];
-    nodes.forEach(n => {
-      (n.ports || []).forEach(p => {
-        const name = n.shortName || n.longName || n.ip;
+    nodeGroups().forEach(g => g.entries.forEach(n => {
+      const ports = n.ports || [];
+      ports.forEach(p => {
+        if (p.output === false) return; // RDM discovery targets DMX outputs.
+        const name = ports.length === 1 && n.shortName ? n.shortName : '';
+        const local = ports.length > 1 ? `Port ${p.index + 1}` : '';
+        const portName = [g.entries.length > 1 ? `Bind ${n.bindIndex}` : '', name || local].filter(Boolean).join(' · ') || 'Port 1';
         list.push({
           ip: n.ip, bindIndex: n.bindIndex, portAddress: p.outputAddress, index: p.index,
-          label: `${name} (${n.ip}) — Port ${p.index} — universe ${UI.formatUniverse(p.outputAddress)}`,
+          group: `${g.name} (${n.ip})`,
+          label: `${portName} — universe ${UI.formatUniverse(p.outputAddress)}`,
         });
       });
-    });
-    return list;
+    }));
+    return [...new Map(list.map(p => [portKey(p), p])).values()];
   }
 
   function setSelectedPort(port) {
@@ -172,9 +190,13 @@ const DevicesScreen = (() => {
     const stillValid = selectedPort && opts.some(o => portKey(o) === portKey(selectedPort));
     if (!stillValid) selectedPort = opts.length ? opts[0] : null;
     sel.innerHTML = opts.length
-      ? opts.map(o => `<option value="${escapeHtml(portKey(o))}" ${selectedPort && portKey(selectedPort) === portKey(o) ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('')
+      ? nodeGroups().map(g => {
+          const own = opts.filter(o => o.ip === g.ip);
+          return own.length ? `<optgroup label="${escapeHtml(own[0].group)}">${own.map(o => `<option value="${escapeHtml(portKey(o))}" ${selectedPort && portKey(selectedPort) === portKey(o) ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('')}</optgroup>` : '';
+        }).join('')
       : '<option value="">No nodes discovered yet</option>';
     renderClearGroup();
+    renderDiscoveryControls();
   }
 
   function nodePortLabel(scope) {
@@ -185,6 +207,7 @@ const DevicesScreen = (() => {
   }
 
   function armClear(kind) {
+    if (discoveryBusy) return;
     if (kind === 'port') {
       clearArmedScope = selectedNodePort();
       if (!clearArmedScope) return;
@@ -254,8 +277,8 @@ const DevicesScreen = (() => {
         <p class="b5-note">Benny512 memory only; fixtures are unchanged.</p>`;
     } else {
       group.innerHTML = `
-        <button id="btnClearPort" type="button" class="b5-btn b5-btn--danger" ${sel ? '' : 'disabled'}>${UI.icon('revert')}Clear this port</button>
-        <button id="btnClearAll" type="button" class="b5-btn b5-btn--danger">${UI.icon('revert')}Clear ALL ports</button>
+        <button id="btnClearPort" type="button" class="b5-btn b5-btn--danger" ${sel && !discoveryBusy ? '' : 'disabled'}>${UI.icon('revert')}Clear this port</button>
+        <button id="btnClearAll" type="button" class="b5-btn b5-btn--danger" ${discoveryBusy ? 'disabled' : ''}>${UI.icon('revert')}Clear ALL ports</button>
         <p class="b5-note">Clears Benny512’s discovered-device memory only. Confirmation expires after 8 seconds.</p>`;
     }
     if (statusRow) {
@@ -274,35 +297,65 @@ const DevicesScreen = (() => {
   }
 
   async function refreshNodes() {
-    nodes = await Api.getNodes();
+    const revision = ++nodesRevision;
+    const snapshot = await Api.getNodes();
+    if (revision !== nodesRevision) return;
+    nodes = snapshot;
+    nodesLoaded = true;
     renderNodeSelect();
     refreshFilterOptions();
   }
 
-  async function refreshFixtures() {
-    fixtures = await Api.getFixtures();
+  async function refreshFixtures(probe = true) {
+    const revision = ++fixturesRevision;
+    const snapshot = await Api.getFixtures();
+    if (revision !== fixturesRevision) return;
+    fixtures = snapshot;
+    fixturesLoaded = true;
     refreshFilterOptions();
     render();
     renderNodeSelect();
-    classifyUnknown();
+    if (probe) classifyUnknown();
+  }
+
+  // Events refresh registry snapshots only. No automatic RDM probe loop, and
+  // no inspector redraw that could steal focus from an in-progress edit.
+  function scheduleLiveRefresh(wantNodes, wantFixtures) {
+    liveNodes ||= wantNodes;
+    liveFixtures ||= wantFixtures;
+    if (liveTimer !== null || liveBusy) return;
+    liveTimer = setTimeout(async () => {
+      liveTimer = null;
+      liveBusy = true;
+      const getNodes = liveNodes, getFixtures = liveFixtures;
+      liveNodes = liveFixtures = false;
+      try {
+        await Promise.all([getNodes ? refreshNodes() : null, getFixtures ? refreshFixtures(false) : null]);
+      } catch (e) {
+        if (!discoveryBusy) document.getElementById('discoverStatus').textContent = 'Refresh failed: ' + e.message;
+      } finally {
+        liveBusy = false;
+        if (liveNodes || liveFixtures) scheduleLiveRefresh(false, false);
+      }
+    }, 250);
   }
 
   function nodeFilterKey(ipLike) {
-    return `${ipLike.nodeIp || ipLike.ip}|${ipLike.bindIndex}`;
+    return ipLike.nodeIp || ipLike.ip;
   }
 
   function refreshFilterOptions() {
     const nodeSel = document.getElementById('deviceNodeFilter');
     if (nodeSel) {
       nodeSel.innerHTML = '<option value="">Node: all</option>';
-      nodes.forEach(n => {
+      nodeGroups().forEach(n => {
         const opt = document.createElement('option');
         opt.value = nodeFilterKey(n);
-        opt.textContent = n.shortName || n.longName || n.ip;
+        opt.textContent = `${n.name} (${n.ip})`;
         nodeSel.appendChild(opt);
       });
       nodeSel.value = nodeFilter;
-      if (nodeSel.value !== nodeFilter) { nodeFilter = ''; persistFilters(); }
+      if (nodesLoaded && nodeSel.value !== nodeFilter) { nodeFilter = ''; persistFilters(); }
     }
     const uniSel = document.getElementById('deviceUniverseFilter');
     if (uniSel) {
@@ -315,7 +368,7 @@ const DevicesScreen = (() => {
         uniSel.appendChild(opt);
       });
       uniSel.value = universeFilter;
-      if (uniSel.value !== universeFilter) { universeFilter = ''; persistFilters(); }
+      if (fixturesLoaded && uniSel.value !== universeFilter) { universeFilter = ''; persistFilters(); }
     }
   }
 
@@ -341,9 +394,8 @@ const DevicesScreen = (() => {
       Api.getDeviceParam(f.uid, '0080'),
     ]))).then(async () => {
       targets.forEach(f => { classifying[f.uid] = false; });
-      fixtures = await Api.getFixtures();
-      render();
-    });
+      await refreshFixtures(false);
+    }).catch(() => {}); // A subsequent live event/reconnect retries the snapshot.
   }
 
   function filteredFixtures() {
@@ -379,8 +431,8 @@ const DevicesScreen = (() => {
     const parts = [];
     if (classFilter) parts.push(`class=${classFilter}`);
     if (nodeFilter) {
-      const n = nodes.find(x => nodeFilterKey(x) === nodeFilter);
-      parts.push(`node=${n ? (n.shortName || n.ip) : nodeFilter}`);
+      const n = nodeGroups().find(x => x.ip === nodeFilter);
+      parts.push(`node=${n ? n.name + ' (' + n.ip + ')' : nodeFilter}`);
     }
     // Rule 5: the summary names the universe the tech reads on his gateway,
     // not the raw wire value the filter is keyed on.
@@ -528,7 +580,7 @@ const DevicesScreen = (() => {
     if (!items.length) {
       list.innerHTML = fixtures.length
         ? `<p class="b5-board__empty">No device matches the filters set above. Clear the filters to see all ${fixtures.length} discovered device(s).</p>`
-        : `<p class="b5-board__empty">No device has been discovered yet. Pick a node and port in step 1 and press Discover — every RDM responder that answers on that port lands here, fixtures and infrastructure alike.</p>`;
+        : `<p class="b5-board__empty">No devices yet. Discover this port or all ports.</p>`;
       return;
     }
     list.innerHTML = items.map(deviceCardHtml).join('');
@@ -665,8 +717,10 @@ const DevicesScreen = (() => {
         <div class="b5-toolbar__row">
             <label class="b5-visually-hidden" for="fixtureNodeSelect">Node and port</label>
             <select id="fixtureNodeSelect" class="b5-select" style="flex:1 1 260px;min-width:0"><option value="">No nodes discovered yet</option></select>
-            <button id="btnDiscover" type="button" class="b5-btn b5-btn--primary">${UI.icon('signal')}Discover</button>
-            <span class="b5-inline-wait" id="discoverStatus"></span>
+            <button id="btnDiscover" type="button" class="b5-btn b5-btn--primary">${UI.icon('signal')}Discover this port</button>
+            <button id="btnDiscoverAll" type="button" class="b5-btn">${UI.icon('signal')}Discover all ports</button>
+            <button id="btnStopDiscovery" type="button" class="b5-btn" hidden>Stop after this port</button>
+            <span class="b5-inline-wait" id="discoverStatus" role="status" aria-live="polite"></span>
         </div>
       </div>
 
@@ -724,6 +778,11 @@ const DevicesScreen = (() => {
     if (screen) screen.innerHTML = screenHtml();
 
     document.getElementById('btnDiscover').addEventListener('click', discover);
+    document.getElementById('btnDiscoverAll').addEventListener('click', () => discoverPorts(portOptions()));
+    document.getElementById('btnStopDiscovery').addEventListener('click', () => {
+      discoveryStopped = true;
+      document.getElementById('discoverStatus').textContent = 'Stopping after the current port…';
+    });
     // Changing the port selection while a 'port'-scope clear is armed would
     // let a confirm click fire against a port the tech isn't looking at any
     // more — setSelectedPort (wired to the select's 'change' below) disarms
@@ -741,7 +800,10 @@ const DevicesScreen = (() => {
     // this one's list either way; our own confirmClear() already awaits
     // refreshFixtures() itself, so this is a harmless extra refresh when
     // it's our own action, and the only refresh when it's someone else's.
-    Live.on('devices_cleared', () => { refreshFixtures(); });
+    Live.on('devices_cleared', () => scheduleLiveRefresh(false, true));
+    Live.on('node', () => scheduleLiveRefresh(true, false));
+    Live.on('rdm', () => scheduleLiveRefresh(false, true));
+    Live.on('connected', () => scheduleLiveRefresh(true, true));
     // Universe base changed on the Settings screen — refresh the universe
     // filter dropdown's labels, the device/port picker's universe labels,
     // every card's meta line and the open detail pane, in place.
@@ -801,21 +863,57 @@ const DevicesScreen = (() => {
       }
     });
 
-    refreshNodes();
-    refreshFixtures();
+    Promise.all([refreshNodes(), refreshFixtures()]).catch(e => {
+      document.getElementById('discoverStatus').textContent = 'Refresh failed: ' + e.message;
+    });
   }
 
-  async function discover() {
+  function renderDiscoveryControls() {
+    const single = document.getElementById('btnDiscover');
+    const all = document.getElementById('btnDiscoverAll');
+    const stop = document.getElementById('btnStopDiscovery');
+    if (single) single.disabled = discoveryBusy || clearBusy || !selectedPort;
+    if (all) all.disabled = discoveryBusy || clearBusy || !portOptions().length;
+    if (stop) stop.hidden = !discoveryBusy;
+  }
+
+  function discover() {
+    return discoverPorts(selectedPort ? [{...selectedPort}] : []);
+  }
+
+  async function discoverPorts(targets) {
+    if (discoveryBusy || clearBusy) return;
     const status = document.getElementById('discoverStatus');
-    if (!selectedPort) { status.textContent = 'no device/port selected'; return; }
-    const { ip, bindIndex, portAddress } = selectedPort;
-    status.innerHTML = UI.spinner() + 'discovering…';
+    if (!targets.length) { status.textContent = 'No output ports discovered yet'; return; }
+    // Snapshot and serialize. Switching targets or receiving node updates must
+    // not redirect an active scan or flush several ports on a gateway at once.
+    const queue = targets.map(p => ({...p}));
+    discoveryBusy = true;
+    discoveryStopped = false;
+    disarmClear();
+    renderDiscoveryControls();
+    const uids = new Set(), errors = [];
+    let scanned = 0, incomplete = 0, refreshFailed = false;
     try {
-      const res = await Api.discover(ip, bindIndex, portAddress);
-      status.textContent = `found ${res.uids.length} device(s)${res.complete ? '' : ' (incomplete)'}`;
-      await refreshFixtures();
-    } catch (e) {
-      status.textContent = 'error: ' + e.message;
+      for (const p of queue) {
+        if (discoveryStopped) break;
+        status.textContent = `Discovering ${scanned + 1}/${queue.length} — ${p.ip} · ${p.label}`;
+        try {
+          const res = await Api.discover(p.ip, p.bindIndex, p.portAddress);
+          (res.uids || []).forEach(uid => uids.add(uid));
+          if (!res.complete) incomplete++;
+        } catch (e) {
+          errors.push(`${p.ip} · ${p.label}: ${e.message}`);
+        }
+        scanned++;
+        try { await refreshFixtures(); } catch (_) { refreshFailed = true; }
+      }
+      status.textContent = `${discoveryStopped ? 'Stopped' : 'Done'} — ${scanned}/${queue.length} ports · ${uids.size} unique device(s) · ${errors.length} failed · ${incomplete} incomplete` +
+        (errors.length ? '. ' + errors.join('; ') : '') + (refreshFailed ? '. Device-list refresh failed.' : '');
+    } finally {
+      discoveryBusy = false;
+      renderClearGroup();
+      renderDiscoveryControls();
     }
   }
 
