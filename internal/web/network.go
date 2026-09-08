@@ -30,6 +30,7 @@ import (
 	"net/netip"
 	"strconv"
 
+	"benny512/internal/params"
 	"benny512/internal/rdm"
 )
 
@@ -48,16 +49,33 @@ var ErrNetworkConfirmationRequired = errors.New("confirmation required")
 type networkInterfaceJSON struct {
 	ID uint32 `json:"id"`
 
+	// HardwareType is LIST_INTERFACES' 16-bit Interface Hardware Type (IANA
+	// ARP-PARAMETERS). No omitempty: 0 is a real value the responder can
+	// send, and an unrecognised type is exactly the thing worth showing.
+	HardwareType     uint16 `json:"hardwareType"`
+	HardwareTypeName string `json:"hardwareTypeName,omitempty"`
+
 	Label      string `json:"label,omitempty"`
 	LabelKnown bool   `json:"labelKnown"`
 
-	CurrentIP    string `json:"currentIp,omitempty"`
-	CurrentMask  string `json:"currentMask,omitempty"`
-	CurrentKnown bool   `json:"currentKnown"`
+	CurrentIP string `json:"currentIp,omitempty"`
+	// CurrentMask is the dotted rendering of CurrentPrefixLen, for display.
+	// The prefix length is what E1.37-2 actually puts on the wire; both are
+	// sent so the UI can show whichever reads better without re-deriving it.
+	// No omitempty on the prefix: /0 is a legal, meaningful value.
+	CurrentMask      string `json:"currentMask,omitempty"`
+	CurrentPrefixLen uint8  `json:"currentPrefixLen"`
+	CurrentKnown     bool   `json:"currentKnown"`
+	// CurrentDHCPStatus comes from IPV4_CURRENT_ADDRESS itself and answers
+	// "was the address in use obtained via DHCP". DHCPStatus below answers
+	// the different question of whether DHCP is enabled on the interface.
+	CurrentDHCPStatus string `json:"currentDhcpStatus,omitempty"`
+	CurrentDHCPKnown  bool   `json:"currentDhcpKnown"`
 
-	StaticIP    string `json:"staticIp,omitempty"`
-	StaticMask  string `json:"staticMask,omitempty"`
-	StaticKnown bool   `json:"staticKnown"`
+	StaticIP        string `json:"staticIp,omitempty"`
+	StaticMask      string `json:"staticMask,omitempty"`
+	StaticPrefixLen uint8  `json:"staticPrefixLen"`
+	StaticKnown     bool   `json:"staticKnown"`
 
 	// DHCPStatus is DHCPStatus.String()'s label ("inactive"/"active"/
 	// "unknown"/a raw hex fallback) — never a bare bool, since IPV4_DHCP_
@@ -135,8 +153,14 @@ func (s *Server) handleGetDeviceNetwork(w http.ResponseWriter, r *http.Request) 
 			staticSupported, _ := client.IsAdvertised(ctx, rdm.PIDIPv4StaticAddress)
 			dhcpSupported, _ := client.IsAdvertised(ctx, rdm.PIDIPv4DHCPMode)
 			hwSupported, _ := client.IsAdvertised(ctx, rdm.PIDInterfaceHardwareAddressType1)
-			for _, id := range ids {
-				row := networkInterfaceJSON{ID: id, ApplySupported: applySupported}
+			for _, iface := range ids {
+				id := iface.ID
+				row := networkInterfaceJSON{
+					ID:               id,
+					HardwareType:     iface.HardwareType,
+					HardwareTypeName: iface.HardwareTypeLabel(),
+					ApplySupported:   applySupported,
+				}
 				if hwSupported {
 					if raw, err := client.InterfaceHardwareAddress(ctx, id); err == nil {
 						row.HardwareAddressHex, row.HardwareAddressKnown = hex.EncodeToString(raw), true
@@ -149,12 +173,22 @@ func (s *Server) handleGetDeviceNetwork(w http.ResponseWriter, r *http.Request) 
 				}
 				if currentSupported {
 					if cfg, err := client.IPv4CurrentAddress(ctx, id); err == nil {
-						row.CurrentIP, row.CurrentMask, row.CurrentKnown = cfg.IP.String(), cfg.SubnetMask.String(), true
+						row.CurrentIP, row.CurrentKnown = cfg.IP.String(), true
+						row.CurrentMask, row.CurrentPrefixLen = cfg.SubnetMask().String(), cfg.PrefixLen
+						// IPV4_CURRENT_ADDRESS carries its own DHCP status
+						// (E1.37-2 §4.6), which is the authoritative answer to
+						// "did this address come from DHCP" for the address
+						// actually in use. IPV4_DHCP_MODE below reports whether
+						// DHCP is *enabled*, which is a different question.
+						if cfg.DHCPStatusKnown {
+							row.CurrentDHCPStatus, row.CurrentDHCPKnown = cfg.DHCPStatus.String(), true
+						}
 					}
 				}
 				if staticSupported {
 					if cfg, err := client.IPv4StaticAddress(ctx, id); err == nil {
-						row.StaticIP, row.StaticMask, row.StaticKnown = cfg.IP.String(), cfg.SubnetMask.String(), true
+						row.StaticIP, row.StaticKnown = cfg.IP.String(), true
+						row.StaticMask, row.StaticPrefixLen = cfg.SubnetMask().String(), cfg.PrefixLen
 					}
 				}
 				if dhcpSupported {
@@ -258,9 +292,18 @@ func (s *Server) handleSetNetworkStatic(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, errors.New("mask must be a valid IPv4 subnet mask"))
 		return
 	}
+	// E1.37-2 carries the netmask as a prefix length, so a mask that is not a
+	// contiguous run of ones cannot be expressed at all. Reject it here
+	// rather than counting bits and writing an address the operator did not
+	// ask for — this request configures a gateway's network interface.
+	prefixLen, err := params.PrefixLenFromMask(mask)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), deviceParamTimeout)
 	defer cancel()
-	if err := client.SetIPv4StaticAddress(ctx, id, ip, mask); err != nil {
+	if err := client.SetIPv4StaticAddress(ctx, id, ip, prefixLen); err != nil {
 		writeParamError(w, err)
 		return
 	}

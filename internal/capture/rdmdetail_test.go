@@ -138,11 +138,19 @@ func TestDecodeEntry_NackReasonZeroSurvivesJSON(t *testing.T) {
 // brief's core ask: a --logrdm capture must show a human-readable
 // interpretation of IPV4_STATIC_ADDRESS alongside the raw hex, not hex
 // alone, so Dom can check the byte layout by hand against a real device.
+//
+// The fixture is PDL 0x09 — interface ID, address, and the netmask as a
+// ONE-BYTE PREFIX LENGTH (§4.7). It used to be twelve bytes with a dotted
+// 4-byte mask, which is not a shape a conforming responder ever sends: the
+// test was built from the same misreading as the decoder it exercised, so it
+// passed against a build that could not read a real gateway's reply. See
+// internal/params/ipconfig_appendixb_test.go, which pins the same layouts
+// against the standard's own printed bytes instead.
 func TestDecodeEntry_E137_2IPv4StaticAddress(t *testing.T) {
-	data := make([]byte, 12)
+	data := make([]byte, 9)
 	binary.BigEndian.PutUint32(data[0:4], 1)
 	copy(data[4:8], []byte{2, 11, 90, 5})
-	copy(data[8:12], []byte{255, 255, 0, 0})
+	data[8] = 16 // /16, i.e. 255.255.0.0
 	msg := rdm.Message{
 		DestinationUID:    rdm.UID{ManufacturerID: 0x7FF0, DeviceID: 1},
 		SourceUID:         rdm.UID{ManufacturerID: 0x1900, DeviceID: 1},
@@ -161,18 +169,32 @@ func TestDecodeEntry_E137_2IPv4StaticAddress(t *testing.T) {
 	if e.RDM.ParamDataHex == "" {
 		t.Error("ParamDataHex is empty, want raw hex always present regardless of Decoded")
 	}
-	want := "interface=1 ip=2.11.90.5 mask=255.255.0.0"
+	// The prefix is shown as both /16 and its dotted form, because the wire
+	// carries the prefix and the faceplate shows the mask, and a capture is
+	// only checkable by hand if it prints what is actually on the wire.
+	want := "interface=1 ip=2.11.90.5/16 (mask 255.255.0.0)"
 	if e.RDM.Decoded != want {
 		t.Errorf("Decoded = %q, want %q", e.RDM.Decoded, want)
 	}
+	// Nine bytes carry no DHCP Status field, and the render must not invent
+	// one: DHCP_STATUS_UNKNOWN is a real answer, not a stand-in for silence.
+	if strings.Contains(e.RDM.Decoded, "dhcp=") {
+		t.Errorf("Decoded = %q reports a DHCP status from a 9-byte payload that has no such field", e.RDM.Decoded)
+	}
 }
 
-// TestDecodeEntry_E137_2ListInterfaces covers LIST_INTERFACES' flat-array
-// decode.
+// TestDecodeEntry_E137_2ListInterfaces covers LIST_INTERFACES' decode.
+//
+// The payload is a packed list of 48-BIT descriptors — 32-bit Interface
+// Identifier plus 16-bit hardware type (§4.1) — not the flat array of 4-byte
+// IDs this fixture used to build. Those eight bytes are the shape no device
+// sends; the twelve below are Appendix B's.
 func TestDecodeEntry_E137_2ListInterfaces(t *testing.T) {
-	data := make([]byte, 8)
+	data := make([]byte, 12)
 	binary.BigEndian.PutUint32(data[0:4], 1)
-	binary.BigEndian.PutUint32(data[4:8], 2)
+	binary.BigEndian.PutUint16(data[4:6], 0x0001) // Ethernet
+	binary.BigEndian.PutUint32(data[6:10], 2)
+	binary.BigEndian.PutUint16(data[10:12], 0x0001)
 	msg := rdm.Message{
 		DestinationUID:    rdm.UID{ManufacturerID: 0x7FF0, DeviceID: 1},
 		SourceUID:         rdm.UID{ManufacturerID: 0x1900, DeviceID: 1},
@@ -185,8 +207,10 @@ func TestDecodeEntry_E137_2ListInterfaces(t *testing.T) {
 	if e.RDM == nil {
 		t.Fatal("RDM detail is nil")
 	}
-	if e.RDM.Decoded != "interfaces=[1,2]" {
-		t.Errorf("Decoded = %q, want interfaces=[1,2]", e.RDM.Decoded)
+	want := "interfaces=[1 (Ethernet), 2 (Ethernet)]"
+	if e.RDM.Decoded != want {
+		t.Errorf("Decoded = %q, want %q — a 4-byte reading of these same bytes "+
+			"renders three interfaces, two of which do not exist", e.RDM.Decoded, want)
 	}
 }
 

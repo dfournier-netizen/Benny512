@@ -12,30 +12,49 @@ import (
 func TestIPv4ConfigRoundTrip(t *testing.T) {
 	uid := rdm.UID{ManufacturerID: 0x1900, DeviceID: 1} // ADJ/Obsidian-candidate, per report §7.3
 	staticIP := [4]byte{2, 11, 90, 2}
-	staticMask := [4]byte{255, 255, 0, 0}
+	staticPrefix := byte(16) // 255.255.0.0, as E1.37-2 carries it: a prefix length
 	dhcpMode := byte(rdm.DHCPStatusInactive)
 	applied := false
 
 	client, clock := newTestClient(t, uid, func(msg rdm.Message) ([]byte, bool, rdm.NackReason) {
 		switch msg.ParameterID {
 		case rdm.PIDListInterfaces:
-			b := make([]byte, 8)
+			// Packed 6-byte descriptors: 32-bit ID + 16-bit hardware type
+			// (E1.37-2 §4.1). This responder previously emitted bare 4-byte
+			// IDs, i.e. it simulated a NON-CONFORMING device, which is how the
+			// 4-byte decoder passed its own test.
+			b := make([]byte, 12)
 			binary.BigEndian.PutUint32(b[0:4], 1)
-			binary.BigEndian.PutUint32(b[4:8], 2)
+			binary.BigEndian.PutUint16(b[4:6], 0x0001) // Ethernet
+			binary.BigEndian.PutUint32(b[6:10], 2)
+			binary.BigEndian.PutUint16(b[10:12], 0x0001)
 			return b, false, 0
 		case rdm.PIDInterfaceLabel:
 			b := append([]byte{}, msg.ParameterData[:4]...)
 			return append(b, []byte("eth0")...), false, 0
 		case rdm.PIDIPv4CurrentAddress, rdm.PIDIPv4StaticAddress:
 			if msg.CommandClass == rdm.SetCommand {
+				// SET IPV4_STATIC_ADDRESS is PDL 0x09 (§4.7). A conforming
+				// responder is entitled to reject anything else, so assert the
+				// length here rather than tolerating the old 12-byte form.
+				if len(msg.ParameterData) != 9 {
+					t.Errorf("SET IPV4_STATIC_ADDRESS PDL = %d, want 9 (interface ID + address + 1-byte prefix)",
+						len(msg.ParameterData))
+					return nil, true, rdm.NackFormatError
+				}
 				copy(staticIP[:], msg.ParameterData[4:8])
-				copy(staticMask[:], msg.ParameterData[8:12])
+				staticPrefix = msg.ParameterData[8]
 				return nil, false, 0
 			}
-			b := make([]byte, 12)
+			// GET IPV4_STATIC_ADDRESS response is PDL 0x09;
+			// IPV4_CURRENT_ADDRESS appends a DHCP Status byte, PDL 0x0a (§4.6).
+			b := make([]byte, 9, 10)
 			copy(b[0:4], msg.ParameterData[:4])
 			copy(b[4:8], staticIP[:])
-			copy(b[8:12], staticMask[:])
+			b[8] = staticPrefix
+			if msg.ParameterID == rdm.PIDIPv4CurrentAddress {
+				b = append(b, dhcpMode)
+			}
 			return b, false, 0
 		case rdm.PIDIPv4DHCPMode:
 			if msg.CommandClass == rdm.SetCommand {
@@ -60,14 +79,17 @@ func TestIPv4ConfigRoundTrip(t *testing.T) {
 		}
 	})
 
-	var ifaces []uint32
+	var ifaces []Interface
 	var err error
 	runAsync(t, clock, func() { ifaces, err = client.ListInterfaces(context.Background()) })
 	if err != nil {
 		t.Fatalf("ListInterfaces: %v", err)
 	}
-	if len(ifaces) != 2 || ifaces[0] != 1 || ifaces[1] != 2 {
-		t.Fatalf("ifaces=%v", ifaces)
+	if len(ifaces) != 2 || ifaces[0].ID != 1 || ifaces[1].ID != 2 {
+		t.Fatalf("ifaces=%+v, want two descriptors with IDs 1 and 2", ifaces)
+	}
+	if ifaces[0].HardwareType != 0x0001 || ifaces[0].HardwareTypeLabel() != "Ethernet" {
+		t.Fatalf("ifaces[0]=%+v, want hardware type 0x0001 Ethernet", ifaces[0])
 	}
 
 	var label string
@@ -86,13 +108,15 @@ func TestIPv4ConfigRoundTrip(t *testing.T) {
 	}
 
 	newIP := netip.MustParseAddr("2.11.90.50")
-	newMask := netip.MustParseAddr("255.255.0.0")
-	runAsync(t, clock, func() { err = client.SetIPv4StaticAddress(context.Background(), 1, newIP, newMask) })
+	runAsync(t, clock, func() { err = client.SetIPv4StaticAddress(context.Background(), 1, newIP, 24) })
 	if err != nil {
 		t.Fatalf("SetIPv4StaticAddress: %v", err)
 	}
 	if staticIP != newIP.As4() {
 		t.Fatalf("device-side IP = %v, want %v", staticIP, newIP.As4())
+	}
+	if staticPrefix != 24 {
+		t.Fatalf("device-side prefix = /%d, want /24", staticPrefix)
 	}
 
 	runAsync(t, clock, func() { err = client.SetIPv4DHCPMode(context.Background(), 1, true) })

@@ -9,35 +9,94 @@ import (
 	"benny512/internal/rdm"
 )
 
-// This file exposes E1.37-2's IPv4/DNS configuration PIDs (report §6.2) for
-// RDM-capable network devices (a Netron-EN4-style gateway's own root
-// device, if it turns out to implement E1.37-2 — report §7.3 flags this as
-// UNVERIFIED for the EN4 specifically, confirm tomorrow) through the same
-// generic Get/Set path package rdm/params already provide: these are
-// ordinary PIDs, decoded/encoded like any other once introspected via
-// PARAMETER_DESCRIPTION (report §1.1's "no hardcoded vendor tables"
-// principle applies here too — a device the report didn't anticipate can
-// still describe its own E1.37-2 PIDs the same way).
+// This file exposes E1.37-2's IPv4/DNS configuration PIDs for RDM-capable
+// network devices through the same generic Get/Set path package rdm/params
+// already provides: these are ordinary PIDs, decoded/encoded like any other
+// once introspected via PARAMETER_DESCRIPTION, so a device this package
+// never anticipated can still describe its own E1.37-2 PIDs the same way.
 //
-// The typed helpers below are a convenience layer on top of that generic
-// path, not a replacement for it — Introspect/GetParam/SetParam still work
-// on these PIDs directly (their DS_IPV4/DS_GROUP-shaped payloads fall
-// through to ParamValueRaw per report §5.1's DS_* uncertainty notes, so a
-// UI that doesn't know about IPv4 rendering can still show/edit them as
-// hex). Wire layout here (interface-ID-prefixed request/response) is this
-// package's best reading of the common E1.37-2 responder convention
-// (matching how OLA's own e137_2 responder shapes these PIDs) — UNVERIFIED
-// against ANSI/ESTA E1.37-2 primary text or a real device this session;
-// confirm against hardware (the EN4, if it answers) before relying on it.
+// --- Wire layouts: VERIFIED against primary text -------------------------
+//
+// These layouts were CONFIRMED against ANSI E1.37-2:2015 (R2021), including
+// the worked example in its Appendix B, on 2026-09-08. They previously
+// carried a note saying they were "this package's best reading of the common
+// E1.37-2 responder convention (matching how OLA's own e137_2 responder
+// shapes these PIDs) — UNVERIFIED against ANSI/ESTA E1.37-2 primary text or
+// a real device". That reading was wrong in three places, and the errors are
+// recorded here because each one is the kind that a length check waves
+// through:
+//
+//	LIST_INTERFACES (§4.1) — the response is a packed list of interface
+//	  descriptors of 48 BITS (6 bytes) each: Interface Identifier (32-bit)
+//	  plus Interface Hardware Type (16-bit, IANA ARP-PARAMETERS; 0x0001 is
+//	  Ethernet). This package read 4-byte identifiers and guarded on
+//	  len(data)%4 != 0 — which CANNOT catch the error, because Appendix B's
+//	  real two-interface response is 12 bytes and 12 % 4 == 0. It decoded
+//	  three phantom interfaces (0x00000001, 0x00010000, 0x00020001) from two
+//	  real ones, and every per-interface GET that followed carried a
+//	  fabricated identifier and earned NR_DATA_OUT_OF_RANGE.
+//
+//	IPV4_CURRENT_ADDRESS (§4.6) — response PDL 0x0a: interface ID (32-bit),
+//	  IPv4 address (32-bit), netmask as a ONE-BYTE PREFIX LENGTH (0-32), and
+//	  a DHCP Status byte. This package required >= 12 bytes and read the mask
+//	  as a 4-byte dotted address, so a conforming 10-byte response was
+//	  REJECTED OUTRIGHT and the DHCP status was discarded.
+//
+//	IPV4_STATIC_ADDRESS (§4.7) — GET response and SET request are both PDL
+//	  0x09: interface ID, address, 1-byte prefix. Appendix B sets 10.0.0.32/8
+//	  as 00000001 0a000020 08. This package built a 12-byte SET with a 4-byte
+//	  mask, i.e. it would have written a MALFORMED SET to a real gateway.
+//
+// The netmask is a prefix length everywhere in this package for that reason.
+// It is converted to a dotted mask only at a presentation boundary; storing
+// it as an address is precisely what produced the defect above.
+//
+// Byte order is big-endian throughout (§3.4). Every per-interface PID returns
+// NR_DATA_OUT_OF_RANGE if the interface identifier is not one that
+// LIST_INTERFACES would report (§4.2 and following).
 var (
-	// ErrBadInterfaceList is returned when LIST_INTERFACES data isn't a
-	// whole number of 4-byte interface IDs.
-	ErrBadInterfaceList = fmt.Errorf("%w: LIST_INTERFACES data not a multiple of 4 bytes", ErrBadLength)
+	// ErrBadInterfaceList is returned when LIST_INTERFACES data is not a
+	// whole number of 6-byte interface descriptors. Six, not four: see this
+	// file's doc comment for why a 4-byte reading passed its own length
+	// check against a real device and still decoded the wrong interfaces.
+	ErrBadInterfaceList = fmt.Errorf("%w: LIST_INTERFACES data not a multiple of 6 bytes", ErrBadLength)
 )
 
-// ListInterfaces issues GET LIST_INTERFACES (PID 0x0700), decoding a flat
-// array of 4-byte interface IDs.
-func (c *Client) ListInterfaces(ctx context.Context) ([]uint32, error) {
+// InterfaceDescriptorSize is the wire size of one LIST_INTERFACES entry:
+// a 32-bit Interface Identifier followed by a 16-bit Interface Hardware
+// Type, 48 bits in total (E1.37-2 §4.1).
+const InterfaceDescriptorSize = 6
+
+// Interface is one decoded LIST_INTERFACES descriptor.
+type Interface struct {
+	// ID is the 32-bit Interface Identifier every other per-interface PID
+	// takes as its first four bytes. The standard says these range from 1 to
+	// 0xFFFFFF00 and are not required to be contiguous, so they are opaque
+	// handles: never assume 1..n, and never synthesise one.
+	ID uint32
+	// HardwareType is the interface's underlying hardware, from IANA's
+	// ARP-PARAMETERS "Hardware Types" registry. 0x0001 is Ethernet.
+	HardwareType uint16
+}
+
+// HardwareTypeLabel names the common hardware types and falls back to the
+// raw value, so an unrecognised interface is reported rather than hidden.
+func (i Interface) HardwareTypeLabel() string {
+	switch i.HardwareType {
+	case 0x0001:
+		return "Ethernet"
+	case 0x0006:
+		return "IEEE 802"
+	case 0x0018:
+		return "IEEE 1394"
+	default:
+		return fmt.Sprintf("hardware type %d", i.HardwareType)
+	}
+}
+
+// ListInterfaces issues GET LIST_INTERFACES (PID 0x0700), decoding the
+// packed list of interface descriptors.
+func (c *Client) ListInterfaces(ctx context.Context) ([]Interface, error) {
 	data, err := c.getRaw(ctx, rdm.PIDListInterfaces, nil)
 	if err != nil {
 		return nil, err
@@ -45,17 +104,20 @@ func (c *Client) ListInterfaces(ctx context.Context) ([]uint32, error) {
 	return DecodeInterfaceList(data)
 }
 
-// DecodeInterfaceList decodes LIST_INTERFACES' response shape (a flat array
-// of 4-byte interface IDs) — exported so internal/capture can render the
-// same interpretation in a --logrdm capture without duplicating the wire
-// format. See ListInterfaces above and this file's doc comment.
-func DecodeInterfaceList(data []byte) ([]uint32, error) {
-	if len(data)%4 != 0 {
+// DecodeInterfaceList decodes LIST_INTERFACES' response: a packed list of
+// 6-byte descriptors (E1.37-2 §4.1). Exported so internal/capture can render
+// the same interpretation in a --logrdm capture without duplicating the wire
+// format.
+func DecodeInterfaceList(data []byte) ([]Interface, error) {
+	if len(data)%InterfaceDescriptorSize != 0 {
 		return nil, ErrBadInterfaceList
 	}
-	out := make([]uint32, 0, len(data)/4)
-	for i := 0; i+4 <= len(data); i += 4 {
-		out = append(out, binary.BigEndian.Uint32(data[i:i+4]))
+	out := make([]Interface, 0, len(data)/InterfaceDescriptorSize)
+	for i := 0; i+InterfaceDescriptorSize <= len(data); i += InterfaceDescriptorSize {
+		out = append(out, Interface{
+			ID:           binary.BigEndian.Uint32(data[i : i+4]),
+			HardwareType: binary.BigEndian.Uint16(data[i+4 : i+6]),
+		})
 	}
 	return out, nil
 }
@@ -100,32 +162,93 @@ func DecodeInterfaceLabel(data []byte) (interfaceID uint32, label string, err er
 	return binary.BigEndian.Uint32(data[0:4]), string(data[4:]), nil
 }
 
-// IPv4Config is the decoded shape of IPV4_CURRENT_ADDRESS / IPV4_STATIC_
-// ADDRESS's response: interface ID, IP, and subnet mask (12 bytes total —
-// 4+4+4 — per this package's best reading; see file doc comment).
+// IPv4Config is the decoded shape of IPV4_STATIC_ADDRESS's 9-byte response
+// (interface ID, IP, 1-byte prefix length — §4.7) and of IPV4_CURRENT_
+// ADDRESS's 10-byte response, which appends a DHCP Status byte (§4.6).
 type IPv4Config struct {
 	InterfaceID uint32
 	IP          netip.Addr
-	SubnetMask  netip.Addr
+	// PrefixLen is the netmask expressed the way E1.37-2 puts it on the
+	// wire: the NUMBER OF BITS in the network portion, 0-32 (§4.6, §4.7).
+	// It is deliberately not a netip.Addr — storing a prefix as a dotted
+	// address is what produced the 12-byte payloads this package used to
+	// send. Use SubnetMask for display.
+	PrefixLen uint8
+	// DHCPStatus is only carried by IPV4_CURRENT_ADDRESS (§4.6), whose
+	// response is one byte longer than IPV4_STATIC_ADDRESS's for exactly
+	// this field. DHCPStatusKnown separates "the responder told us" from
+	// "this reply had no such field", because the standard's own
+	// DHCP_STATUS_UNKNOWN is a REAL answer meaning "this device cannot tell
+	// whether its address came from DHCP" — collapsing the two would turn a
+	// missing field into a confident statement about the device.
+	DHCPStatus      rdm.DHCPStatus
+	DHCPStatusKnown bool
+}
+
+// SubnetMask renders PrefixLen as the dotted IPv4 mask a lighting tech
+// expects to read. Presentation only — never store or transmit this.
+func (c IPv4Config) SubnetMask() netip.Addr {
+	n := c.PrefixLen
+	if n > 32 {
+		n = 32
+	}
+	var m uint32
+	if n > 0 {
+		m = ^uint32(0) << (32 - n)
+	}
+	var b [4]byte
+	binary.BigEndian.PutUint32(b[:], m)
+	return netip.AddrFrom4(b)
+}
+
+// PrefixLenFromMask converts a dotted IPv4 mask to E1.37-2's prefix length.
+// It REJECTS a non-contiguous mask (255.0.255.0 and friends) rather than
+// silently counting bits, because such a mask cannot be expressed in this
+// field at all and quietly reinterpreting one would write an address the
+// operator never asked for.
+func PrefixLenFromMask(mask netip.Addr) (uint8, error) {
+	if !mask.Is4() {
+		return 0, fmt.Errorf("params: subnet mask must be IPv4")
+	}
+	b := mask.As4()
+	v := binary.BigEndian.Uint32(b[:])
+	// A valid mask is a run of ones then a run of zeros: inverting it must
+	// yield a value whose bits are all contiguous from the bottom.
+	inv := ^v
+	if inv&(inv+1) != 0 {
+		return 0, fmt.Errorf("params: %s is not a contiguous subnet mask", mask)
+	}
+	n := uint8(0)
+	for ; v&0x80000000 != 0; v <<= 1 {
+		n++
+	}
+	return n, nil
 }
 
 func decodeIPv4Config(data []byte) (IPv4Config, error) {
 	return DecodeIPv4Config(data)
 }
 
-// DecodeIPv4Config decodes IPV4_CURRENT_ADDRESS/IPV4_STATIC_ADDRESS's
-// interface-ID+IP+mask response shape (also the shape of a SET IPV4_
-// STATIC_ADDRESS request's payload). Exported for internal/capture's
-// benefit — see DecodeInterfaceList's doc comment.
+// DecodeIPv4Config decodes IPV4_STATIC_ADDRESS's 9-byte shape (interface ID,
+// address, 1-byte prefix — E1.37-2 §4.7, and the shape of a SET request's
+// payload) and IPV4_CURRENT_ADDRESS's 10-byte shape, which appends a DHCP
+// Status byte (§4.6). Exported for internal/capture's benefit.
+//
+// Anything shorter than 9 bytes is rejected. The previous >=12 floor is what
+// made a conforming responder's reply unreadable.
 func DecodeIPv4Config(data []byte) (IPv4Config, error) {
-	if len(data) < 12 {
-		return IPv4Config{}, fmt.Errorf("%w: IPv4 config wants >=12 bytes, got %d", ErrBadLength, len(data))
+	if len(data) < 9 {
+		return IPv4Config{}, fmt.Errorf("%w: IPv4 config wants >=9 bytes, got %d", ErrBadLength, len(data))
 	}
-	return IPv4Config{
+	cfg := IPv4Config{
 		InterfaceID: binary.BigEndian.Uint32(data[0:4]),
 		IP:          netip.AddrFrom4([4]byte(data[4:8])),
-		SubnetMask:  netip.AddrFrom4([4]byte(data[8:12])),
-	}, nil
+		PrefixLen:   data[8],
+	}
+	if len(data) >= 10 {
+		cfg.DHCPStatus, cfg.DHCPStatusKnown = rdm.DHCPStatus(data[9]), true
+	}
+	return cfg, nil
 }
 
 // IPv4CurrentAddress issues GET IPV4_CURRENT_ADDRESS for one interface —
@@ -149,19 +272,31 @@ func (c *Client) IPv4StaticAddress(ctx context.Context, interfaceID uint32) (IPv
 }
 
 // SetIPv4StaticAddress issues SET IPV4_STATIC_ADDRESS for one interface.
-// Per report §6.2, a device typically requires a follow-up SET
-// INTERFACE_APPLY_CONFIGURATION (PIDInterfaceApplyConfiguration) to commit
-// pending interface changes — call ApplyInterfaceConfiguration afterward.
-func (c *Client) SetIPv4StaticAddress(ctx context.Context, interfaceID uint32, ip, mask netip.Addr) error {
-	if !ip.Is4() || !mask.Is4() {
-		return fmt.Errorf("params: SetIPv4StaticAddress: ip and mask must be IPv4")
+//
+// PDL 0x09 per E1.37-2 §4.7: interface ID (32-bit), IPv4 address (32-bit),
+// and the netmask as a ONE-BYTE PREFIX LENGTH. Appendix B's worked example
+// sets 10.0.0.32/8 as 00000001 0a000020 08.
+//
+// This previously built a 12-byte payload with a 4-byte dotted mask, which
+// is a malformed SET to a conforming responder — and this PID writes network
+// configuration to a gateway, so a malformed write is how a device ends up
+// stranded off the lighting network.
+//
+// The change does not take effect on the device until a subsequent SET
+// INTERFACE_APPLY_CONFIGURATION (§4.8), and the standard warns that some
+// devices reboot when that is applied.
+func (c *Client) SetIPv4StaticAddress(ctx context.Context, interfaceID uint32, ip netip.Addr, prefixLen uint8) error {
+	if !ip.Is4() {
+		return fmt.Errorf("params: SetIPv4StaticAddress: ip must be IPv4")
 	}
-	b := make([]byte, 12)
+	if prefixLen > 32 {
+		return fmt.Errorf("params: SetIPv4StaticAddress: prefix length %d out of range (0-32)", prefixLen)
+	}
+	b := make([]byte, 9)
 	binary.BigEndian.PutUint32(b[0:4], interfaceID)
 	ipb := ip.As4()
-	maskb := mask.As4()
 	copy(b[4:8], ipb[:])
-	copy(b[8:12], maskb[:])
+	b[8] = prefixLen
 	return c.setRaw(ctx, rdm.PIDIPv4StaticAddress, b)
 }
 

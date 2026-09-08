@@ -19,7 +19,13 @@ func (h *testHarness) wireNetworkDevice(uid rdm.UID, startIP [4]byte, startMask 
 		rdm.PIDIPv4StaticAddress, rdm.PIDIPv4DHCPMode, rdm.PIDInterfaceApplyConfiguration,
 		rdm.PIDDNSHostname, rdm.PIDDNSDomainName, rdm.PIDDNSNameServer,
 	})
-	staticIP, staticMask := startIP, startMask
+	staticIP := startIP
+	// E1.37-2 carries the netmask as a prefix length, not a dotted address
+	// (§4.6, §4.7). This responder previously spoke a 12-byte dialect with a
+	// 4-byte mask AND rejected anything else as a format error, so it not only
+	// tolerated the defect but enforced it: a conforming 9-byte SET would have
+	// been NACKed by this fake device.
+	staticPrefix := byte(16)
 	dhcp := byte(rdm.DHCPStatusInactive)
 	hostname := []byte("netron-en4")
 	domain := []byte("local")
@@ -30,30 +36,36 @@ func (h *testHarness) wireNetworkDevice(uid rdm.UID, startIP [4]byte, startMask 
 		case rdm.PIDSupportedParameters:
 			return supported, false, 0, 0
 		case rdm.PIDListInterfaces:
-			b := make([]byte, 4)
-			binary.BigEndian.PutUint32(b, 1)
+			// One 6-byte descriptor: 32-bit ID + 16-bit hardware type (§4.1).
+			b := make([]byte, 6)
+			binary.BigEndian.PutUint32(b[0:4], 1)
+			binary.BigEndian.PutUint16(b[4:6], 0x0001) // Ethernet
 			return b, false, 0, 0
 		case rdm.PIDInterfaceLabel:
 			return append([]byte{0, 0, 0, 1}, []byte("eth0")...), false, 0, 0
 		case rdm.PIDIPv4CurrentAddress:
-			b := make([]byte, 12)
+			// PDL 0x0a: interface ID, address, 1-byte prefix, DHCP status.
+			b := make([]byte, 10)
 			binary.BigEndian.PutUint32(b[0:4], 1)
 			copy(b[4:8], staticIP[:])
-			copy(b[8:12], staticMask[:])
+			b[8] = staticPrefix
+			b[9] = dhcp
 			return b, false, 0, 0
 		case rdm.PIDIPv4StaticAddress:
 			if msg.CommandClass == rdm.SetCommand {
-				if len(msg.ParameterData) != 12 {
+				// PDL 0x09 (§4.7). Enforced, so a regression back to the
+				// 12-byte form fails here rather than silently passing.
+				if len(msg.ParameterData) != 9 {
 					return nil, true, rdm.NackFormatError, 0
 				}
 				copy(staticIP[:], msg.ParameterData[4:8])
-				copy(staticMask[:], msg.ParameterData[8:12])
+				staticPrefix = msg.ParameterData[8]
 				return nil, false, 0, 0
 			}
-			b := make([]byte, 12)
+			b := make([]byte, 9)
 			binary.BigEndian.PutUint32(b[0:4], 1)
 			copy(b[4:8], staticIP[:])
-			copy(b[8:12], staticMask[:])
+			b[8] = staticPrefix
 			return b, false, 0, 0
 		case rdm.PIDIPv4DHCPMode:
 			if msg.CommandClass == rdm.SetCommand {

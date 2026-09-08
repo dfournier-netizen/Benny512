@@ -392,19 +392,19 @@ func decodeParamDataString(pid rdm.ParameterID, isResponse bool, data []byte) st
 	// --- E1.37-2 IPv4 & DNS Configuration (pids_ext.go/ipconfig.go) ---
 	//
 	// Decoded per internal/params/ipconfig.go's own best-reading wire
-	// layout (interface-ID-prefixed convention) — UNVERIFIED against ANSI/
-	// ESTA E1.37-2 primary text or real hardware this session (see that
-	// file's doc comment). Rendered here anyway, clearly labeled, so a
-	// --logrdm capture from a real bench session gives Dom something to
-	// check the actual bytes against by hand, not just hex.
+	// layout, now VERIFIED against ANSI E1.37-2:2015 (R2021) including its
+	// Appendix B worked example (see internal/params/ipconfig.go's doc
+	// comment, which records the three layouts that were wrong before that
+	// check and why a length guard waved one of them through). Decoded
+	// alongside the raw hex so a --logrdm capture stays checkable by hand.
 	case rdm.PIDListInterfaces:
 		if isResponse {
 			if ifaces, err := params.DecodeInterfaceList(data); err == nil {
 				parts := make([]string, 0, len(ifaces))
-				for _, id := range ifaces {
-					parts = append(parts, fmt.Sprintf("%d", id))
+				for _, iface := range ifaces {
+					parts = append(parts, fmt.Sprintf("%d (%s)", iface.ID, iface.HardwareTypeLabel()))
 				}
-				return fmt.Sprintf("interfaces=[%s]", strings.Join(parts, ","))
+				return fmt.Sprintf("interfaces=[%s]", strings.Join(parts, ", "))
 			}
 		}
 
@@ -418,9 +418,10 @@ func decodeParamDataString(pid rdm.ParameterID, isResponse bool, data []byte) st
 		}
 
 	case rdm.PIDIPv4CurrentAddress, rdm.PIDIPv4StaticAddress:
-		// A bare 4-byte payload is a GET request (interface ID only); 12
-		// bytes is either a SET request or any GET response — same shape
-		// either way, per ipconfig.go's IPv4Config.
+		// A bare 4-byte payload is a GET request (interface ID only). 9 bytes
+		// is a SET request or an IPV4_STATIC_ADDRESS response; 10 bytes is an
+		// IPV4_CURRENT_ADDRESS response, which appends a DHCP Status byte.
+		// See ipconfig.go's IPv4Config and E1.37-2 §4.6/§4.7.
 		if !isResponse && len(data) == 4 {
 			if id, err := params.DecodeInterfaceID(data); err == nil {
 				return fmt.Sprintf("requesting address for interface=%d", id)
@@ -430,7 +431,12 @@ func decodeParamDataString(pid rdm.ParameterID, isResponse bool, data []byte) st
 			if !isResponse {
 				verb = "SET "
 			}
-			return fmt.Sprintf("%sinterface=%d ip=%s mask=%s", verb, cfg.InterfaceID, cfg.IP, cfg.SubnetMask)
+			out := fmt.Sprintf("%sinterface=%d ip=%s/%d (mask %s)",
+				verb, cfg.InterfaceID, cfg.IP, cfg.PrefixLen, cfg.SubnetMask())
+			if cfg.DHCPStatusKnown {
+				out += fmt.Sprintf(" dhcp=%s", cfg.DHCPStatus)
+			}
+			return out
 		}
 
 	case rdm.PIDIPv4DHCPMode:
