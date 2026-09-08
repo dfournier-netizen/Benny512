@@ -455,6 +455,57 @@ func TestPattern_StartPattern_EmptyScopeErrors(t *testing.T) {
 	}
 }
 
+// TestPattern_DefaultRangeIsUsable pins the server-side default for a
+// minimal JSON/API request. Before this, Max's Go zero value survived into
+// the engine and made every range-based pattern a silent 0..0 no-op unless a
+// particular browser happened to compensate with Max:255.
+func TestPattern_DefaultRangeIsUsable(t *testing.T) {
+	rc, _, _ := harness(t)
+	e := dimmerEntry("d1", 0)
+	st, err := rc.StartPattern([]Entry{e}, PatternSpec{Kind: PatternDimmerSine})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Tests) != 1 {
+		t.Fatalf("tests = %d, want 1", len(st.Tests))
+	}
+	if got := st.Tests[0].Params; got.Min != 0 || got.Max != 255 {
+		t.Fatalf("normalized range = %d..%d, want 0..255", got.Min, got.Max)
+	}
+}
+
+// TestPattern_SubDevicePhaseWeightConsumesPhaseSlots proves a multi-cell
+// fixture affects only phase placement. It is still one scope entry and has
+// one resolved output target, but its RDM-derived weight advances later
+// fixtures by its sub-device count rather than by one.
+func TestPattern_SubDevicePhaseWeightConsumesPhaseSlots(t *testing.T) {
+	rc, _, _ := harness(t)
+	multi := dimmerEntry("rayzor", 0)
+	multi.PhaseWeight = 16
+	second := dimmerEntry("wash", 0)
+	second.StartAddress = 20
+	third := dimmerEntry("spot", 0)
+	third.StartAddress = 30
+	st, err := rc.StartPattern([]Entry{multi, second, third}, PatternSpec{
+		Kind: PatternDimmerSine, Params: PatternParams{RateHz: 1, Max: 255, OffsetMax: 360},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Tests) != 1 || len(st.Tests[0].Entries) != 3 {
+		t.Fatalf("status = %+v, want one test over three fixture entries", st)
+	}
+	got := map[string]float64{}
+	for _, e := range st.Tests[0].Entries {
+		got[e.EntryID] = e.PhaseDegrees
+	}
+	for id, want := range map[string]float64{"rayzor": 0, "wash": 320, "spot": 340} {
+		if got[id] != want {
+			t.Errorf("%s phase = %v°, want %v°", id, got[id], want)
+		}
+	}
+}
+
 // TestPattern_MoveExtreme_InvalidTargetRejected pins the Target grammar's
 // validation for move_extreme (axis_extreme) and manual_value/frost's
 // narrower enums, all via the public StartPattern boundary.

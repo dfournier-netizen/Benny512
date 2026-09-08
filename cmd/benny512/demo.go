@@ -535,6 +535,7 @@ func buildDemo(ctx context.Context, legacyRdmStartCode bool, logNodes bool) (*we
 	// and the export endpoints, not just the synthetic ArtDmx feed below.
 	srv := web.New(nodes, rdmc, dmx, reg, ring, rdmRing)
 	srv.NIC = "demo (fake transport)"
+	srv.Simulation = true
 	// unknownOpcodeThrottle mirrors buildReal's — demo traffic never
 	// actually produces an unrecognized opcode, but wiring the tap
 	// identically to production keeps this a faithful exercise of the same

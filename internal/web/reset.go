@@ -121,7 +121,9 @@ func (s *Server) handleReset(w http.ResponseWriter, r *http.Request) {
 	}
 	deleteTracked(s.patchStorePath)
 	deleteTracked(s.walkStorePath)
-	s.PatchStore.Clear()
+	if err := s.PatchStore.Clear(); err != nil {
+		resetErrs = append(resetErrs, err.Error())
+	}
 	s.walkStore.Clear()
 	// DELIBERATELY ABSENT: the Fixture Library (s.LibraryStore, see
 	// internal/library and library.go). It is the owner's explicit, standing

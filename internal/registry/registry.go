@@ -9,6 +9,7 @@
 package registry
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -54,6 +55,11 @@ type Fixture struct {
 	ProductDetails  []rdm.ProductDetail
 	DMXFootprint    uint16
 	IsWirelessProxy bool
+	// SubDeviceCount is DEVICE_INFO's reported number of sub-devices. It is
+	// meaningful only once HasDeviceInfo is true; zero then means a root-only
+	// responder, while a non-zero value can be used by a phase-aware client
+	// without changing this registry's one-root-fixture identity model.
+	SubDeviceCount uint16
 
 	// DeviceModelID/HasDeviceInfo cache DEVICE_INFO's numeric model ID (the
 	// Devices screen's Model column fallback when DEVICE_MODEL_DESCRIPTION
@@ -227,10 +233,18 @@ func publishNonBlocking[T any](ch chan T, ev T) {
 // kind, is also republished on NodeEvents()/RDMEvents() — see the Registry
 // doc comment.
 func (reg *Registry) Run() {
+	reg.RunContext(context.Background())
+}
+
+// RunContext allows temporary rehearsal registries to shut down without
+// leaving an event-pump goroutine behind.
+func (reg *Registry) RunContext(ctx context.Context) {
 	nodeEvents := reg.artnet.Events()
 	rdmEvents := reg.rdmc.Events()
 	for nodeEvents != nil || rdmEvents != nil {
 		select {
+		case <-ctx.Done():
+			return
 		case ev, ok := <-nodeEvents:
 			if !ok {
 				nodeEvents = nil
@@ -426,6 +440,7 @@ func reclassify(f *Fixture, pid rdm.ParameterID, data []byte) {
 			f.ProductCategory = di.category
 			f.DMXFootprint = di.dmxFootprint
 			f.DeviceModelID = di.deviceModelID
+			f.SubDeviceCount = di.subDeviceCount
 			f.HasDeviceInfo = true
 		}
 	case rdm.PIDProductDetailIDList:
@@ -468,9 +483,10 @@ func reclassify(f *Fixture, pid rdm.ParameterID, data []byte) {
 // today, but keeping registry PID-decoding self-contained via package rdm
 // directly avoids a needless params<->registry coupling for two fields).
 type deviceInfoFields struct {
-	category      rdm.ProductCategory
-	dmxFootprint  uint16
-	deviceModelID uint16
+	category       rdm.ProductCategory
+	dmxFootprint   uint16
+	deviceModelID  uint16
+	subDeviceCount uint16
 }
 
 func decodeDeviceInfoFields(data []byte) (deviceInfoFields, error) {
@@ -478,9 +494,10 @@ func decodeDeviceInfoFields(data []byte) (deviceInfoFields, error) {
 		return deviceInfoFields{}, fmt.Errorf("registry: DEVICE_INFO wants 19 bytes, got %d", len(data))
 	}
 	return deviceInfoFields{
-		deviceModelID: uint16(data[2])<<8 | uint16(data[3]),
-		category:      rdm.ProductCategory(uint16(data[4])<<8 | uint16(data[5])),
-		dmxFootprint:  uint16(data[10])<<8 | uint16(data[11]),
+		deviceModelID:  uint16(data[2])<<8 | uint16(data[3]),
+		category:       rdm.ProductCategory(uint16(data[4])<<8 | uint16(data[5])),
+		dmxFootprint:   uint16(data[10])<<8 | uint16(data[11]),
+		subDeviceCount: uint16(data[16])<<8 | uint16(data[17]),
 	}, nil
 }
 

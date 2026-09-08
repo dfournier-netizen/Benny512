@@ -96,7 +96,7 @@ func TestRegistryReclassifiesOnDeviceInfo(t *testing.T) {
 	}
 
 	deviceInfo := params.EncodeDeviceInfo(params.DeviceInfo{
-		ProtocolVersionMajor: 1, ProductCategory: uint16(rdm.CategoryDataDistribution), DMXFootprint: 0,
+		ProtocolVersionMajor: 1, ProductCategory: uint16(rdm.CategoryDataDistribution), DMXFootprint: 0, SubDeviceCount: 16,
 	})
 	r.Get(nodeRef, uid, rdm.PIDDeviceInfo, nil) // enqueue, but we drive the result via HandleRDMResponse below directly
 	resp := rdm.Message{
@@ -116,5 +116,8 @@ func TestRegistryReclassifiesOnDeviceInfo(t *testing.T) {
 			t.Fatalf("fixture never reclassified as gateway/node, last Class=%v", f.Class)
 		}
 		time.Sleep(time.Millisecond)
+	}
+	if !f.HasDeviceInfo || f.SubDeviceCount != 16 {
+		t.Fatalf("DEVICE_INFO sub-device count = known=%v count=%d, want true/16", f.HasDeviceInfo, f.SubDeviceCount)
 	}
 }

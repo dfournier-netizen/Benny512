@@ -83,6 +83,7 @@ func main() {
 		defer closeTransport()
 	}
 	defer srv.Close()
+	srv.OnRehearse = makeRehearsalLauncher(ctx)
 
 	// Wire the full-reset flow's "Reset and exit" behavior (task ask; see
 	// internal/web's reset.go) to the exact same context-cancel func the

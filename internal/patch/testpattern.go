@@ -413,13 +413,11 @@ const (
 
 // PatternParams parameterizes one selected test. Every field is optional —
 // RateHz<=0 falls back to a sensible per-kind default (defaultRateForKind),
-// Min/Max default to their zero values ({0,0} is NOT treated as "unset":
-// Min==Max==0 is a legitimate (if useless) "stay dark" configuration a caller
-// could deliberately choose, matching every other numeric field's
-// zero-is-real-data convention in this codebase — a caller that wants the
-// full range must send Max:255 explicitly). Target/Direction/Value/On are
-// used only by the PatternKinds documented against them above; ignored
-// otherwise.
+// and Max:0 is normalized to 255. A JSON request with only a pattern kind
+// otherwise produces a zero-span range that silently drives nothing; 0 is
+// therefore the request-level shorthand for the useful full-range default.
+// Target/Direction/Value/On are used only by the PatternKinds documented
+// against them above; ignored otherwise.
 type PatternParams struct {
 	RateHz    float64
 	Min       byte
@@ -465,11 +463,10 @@ func (s PatternSpec) TestID() TestID {
 // --- validation ----------------------------------------------------------
 
 // normalizePatternSpec applies the wire-compatibility rewrites (legacy
-// dimmer_snap -> dimmer_sine + snap) and resolves RateHz<=0 to its per-kind
-// default. The rate is resolved HERE, once, rather than leaving every tick to
-// do it: PatternStatus echoes Params verbatim, and a caller reading rateHz:0
-// back after sending 0 (meaning "give me the default") would otherwise have
-// no way to learn what rate is actually in effect.
+// dimmer_snap -> dimmer_sine + snap) and resolves omitted/default request
+// values. They are resolved HERE, once, rather than leaving every tick to do
+// it: PatternStatus echoes Params verbatim, so callers can see what is
+// actually in effect.
 func normalizePatternSpec(spec PatternSpec) PatternSpec {
 	if spec.Kind == PatternDimmerSnap {
 		spec.Kind = PatternDimmerSine
@@ -480,6 +477,9 @@ func normalizePatternSpec(spec PatternSpec) PatternSpec {
 	}
 	if spec.Params.RateHz <= 0 {
 		spec.Params.RateHz = defaultRateForKind(spec.Kind)
+	}
+	if spec.Params.Max == 0 {
+		spec.Params.Max = 255
 	}
 	return spec
 }
@@ -727,6 +727,7 @@ type patternEntryTarget struct {
 	inferred      bool
 	detailMissing bool
 	phase         float64 // cycles (0..1+), computed from the test's OffsetMin/OffsetMax spread
+	phaseWeight   uint16  // RDM sub-device phase weight; 0 means the normal single slot
 	functions     []patternFuncTarget
 }
 
@@ -734,7 +735,7 @@ type patternEntryTarget struct {
 // e has no matching function at all (mixed rigs are skipped silently and
 // counted, never treated as an error).
 func resolveEntry(spec PatternSpec, e Entry) (target patternEntryTarget, ok bool) {
-	target = patternEntryTarget{entryID: e.ID, universe: e.Universe, startAddr: e.StartAddress}
+	target = patternEntryTarget{entryID: e.ID, universe: e.Universe, startAddr: e.StartAddress, phaseWeight: e.PhaseWeight}
 	groups := ResolveEntryGroups(e)
 
 	add := func(f patternFuncTarget) {
@@ -1593,15 +1594,14 @@ func (sel *patternSelection) rebuild() {
 }
 
 // assignPhases spreads pt's OffsetMin..OffsetMax across the fixtures the test
-// actually drives, ordered by universe then start address — see this file's
-// phase doc section for why the divisor is n and not n-1, and why n counts
-// applied targets rather than the whole scope.
+// actually drives, ordered by universe then start address. A target's
+// runtime-only PhaseWeight consumes that many positions in the calculation,
+// while it remains one normal fixture everywhere else.
 func assignPhases(pt *patternTest) {
-	n := len(pt.targets)
-	if n == 0 {
+	if len(pt.targets) == 0 {
 		return
 	}
-	ordered := make([]int, n)
+	ordered := make([]int, len(pt.targets))
 	for i := range ordered {
 		ordered[i] = i
 	}
@@ -1615,10 +1615,24 @@ func assignPhases(pt *patternTest) {
 		}
 		return ta.entryID < tb.entryID
 	})
+	totalWeight := 0
+	for _, idx := range ordered {
+		weight := int(pt.targets[idx].phaseWeight)
+		if weight < 1 {
+			weight = 1
+		}
+		totalWeight += weight
+	}
 	min, max := pt.spec.Params.OffsetMin, pt.spec.Params.OffsetMax
-	for i, idx := range ordered {
-		deg := min + (max-min)*float64(i)/float64(n)
+	position := 0
+	for _, idx := range ordered {
+		deg := min + (max-min)*float64(position)/float64(totalWeight)
 		pt.targets[idx].phase = deg / 360
+		weight := int(pt.targets[idx].phaseWeight)
+		if weight < 1 {
+			weight = 1
+		}
+		position += weight
 	}
 }
 
@@ -1758,6 +1772,21 @@ func (r *RigCheck) StartPatternOutput() (PatternStatus, error) {
 	r.recomputePatternLocked(0)
 	r.armPatternTickLocked()
 	return r.patternStatusLocked(), nil
+}
+
+// SavedPattern captures settings only, without touching the watchdog or output.
+func (r *RigCheck) SavedPattern() ([]string, []PatternSpec, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	ids := make([]string, 0, len(r.selection.scope))
+	for _, e := range r.selection.scope {
+		ids = append(ids, e.ID)
+	}
+	specs := make([]PatternSpec, 0, len(r.selection.order))
+	for _, id := range r.selection.order {
+		specs = append(specs, r.selection.tests[id])
+	}
+	return ids, specs, r.selection.isolate
 }
 
 // StopPatternOutput blacks out and ceases output while leaving the selection

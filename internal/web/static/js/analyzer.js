@@ -67,6 +67,7 @@ const AnalyzerScreen = (() => {
   let rdmRows = [];       // flat entries from the RDM-only ring
   let rdmFilters = { uid: '', pid: '', cc: '', dir: '' };
   let rdmPaired = true;
+  let rdmDiagnostics = null;
 
   function matches(e) {
     if (filterKind && e.Kind !== filterKind) return false;
@@ -209,8 +210,26 @@ const AnalyzerScreen = (() => {
     if (status) status.innerHTML = UI.spinner() + 'loading…';
     try {
       const params = { uid: rdmFilters.uid, pid: rdmFilters.pid, cc: rdmFilters.cc, dir: rdmFilters.dir };
-      rdmRows = await Api.rdmCaptureSnapshot(params);
-      if (status) status.textContent = `${rdmRows.length} entr${rdmRows.length === 1 ? 'y' : 'ies'}`;
+      const result = await Promise.all([Api.rdmCaptureSnapshot(params), Api.getRdmDiagnostics()]);
+      rdmRows = result[0];
+      rdmDiagnostics = result[1];
+      if (status) {
+        const d = rdmDiagnostics;
+        // Timeouts and proxy-buffer-full are shown alongside reissues, not
+        // folded into them. A reissue can be ordinary policy; a reissue that
+        // follows a COLLECT TIMEOUT is the expensive failure path, and
+        // reporting only the total leaves an operator unable to tell a busy
+        // line from a misbehaving responder. Shown only when non-zero so the
+        // healthy case stays quiet — the zero is still on the wire either way.
+        const parts = [
+          `${rdmRows.length} entr${rdmRows.length === 1 ? 'y' : 'ies'}`,
+          `ACK_TIMER collected ${d.ackTimerCollectHits}/${d.ackTimerCollects}`,
+          `reissued ${d.ackTimerReissues}`,
+        ];
+        if (d.ackTimerCollectTimeouts) parts.push(`collect timeouts ${d.ackTimerCollectTimeouts}`);
+        if (d.proxyBufferFull) parts.push(`proxy buffer full ${d.proxyBufferFull}`);
+        status.textContent = parts.join(' · ');
+      }
       renderRDM();
     } catch (e) {
       if (status) status.innerHTML = `${UI.icon('status-error')}error: ${escapeHtml(e.message)}`;

@@ -73,6 +73,43 @@ func TestNodeAddressUnknownCommand(t *testing.T) {
 	}
 }
 
+func TestNodeAddressPerPortDirectionAndRDMCommands(t *testing.T) {
+	cases := []struct {
+		name    string
+		command string
+		want    artnet.AcCommand
+	}{
+		{"direction output", "direction_tx_2", artnet.AcDirectionTx2},
+		{"direction input", "direction_rx_3", artnet.AcDirectionRx3},
+		{"enable RDM", "rdm_enable_1", artnet.AcRdmEnable1},
+		{"disable RDM", "rdm_disable_0", artnet.AcRdmDisable0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.seedNode(t)
+			var got artnet.AcCommand
+			h.tport.OnSend = func(sp session.SentPacket) {
+				if sp.Packet.Kind != artnet.KindAddress {
+					return
+				}
+				got = sp.Packet.Address.Command
+				addr := netip.MustParseAddr("10.0.0.5")
+				h.nodes.HandlePollReply(artnet.PollReply{
+					IPAddress: addr.As4(), NumPorts: 1, PortTypes: [4]byte{0x80}, Status1: 0x02,
+				}, netip.AddrPortFrom(addr, session.ArtNetUDPPort))
+			}
+			rr := h.runHTTPAsyncNoRDM(t, "POST", "/api/node/10.0.0.5/address", map[string]any{"command": tc.command})
+			if rr.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", rr.Code, string(rr.Body))
+			}
+			if got != tc.want {
+				t.Fatalf("wire command = 0x%02X, want 0x%02X", byte(got), byte(tc.want))
+			}
+		})
+	}
+}
+
 func TestNodeAddressUnknownNode(t *testing.T) {
 	h := newHarness(t)
 	rr := h.runHTTPAsyncNoRDM(t, "POST", "/api/node/10.0.0.99/address", map[string]any{})

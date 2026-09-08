@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -84,6 +85,57 @@ func TestPatchCRUD(t *testing.T) {
 	}
 }
 
+func TestSavedPatchCatalogKeepsIndependentShows(t *testing.T) {
+	h := newHarness(t)
+	h.srv.SetPatchStorePath(filepath.Join(t.TempDir(), "benny512-patch.json"))
+
+	// The pre-catalog/default patch remains a valid first show.
+	doJSON(t, h.srv.Handler(), "POST", "/api/patch/new", newPatchRequest{Name: "Show A"})
+	doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", entryRequest{Name: "A fixture", Universe: 0, StartAddress: 1, Footprint: 10})
+
+	rr := doJSON(t, h.srv.Handler(), "POST", "/api/patches", newPatchRequest{Name: "Show B"})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("create Show B: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var created patchResponse
+	mustUnmarshal(t, rr, &created)
+	if !created.Active || created.Patch.Name != "Show B" || len(created.Patch.Entries) != 0 {
+		t.Fatalf("created show = %+v", created)
+	}
+	doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", entryRequest{Name: "B fixture", Universe: 0, StartAddress: 20, Footprint: 10})
+
+	rr = doJSON(t, h.srv.Handler(), "GET", "/api/patches", nil)
+	var catalog patchCatalogResponse
+	mustUnmarshal(t, rr, &catalog)
+	if len(catalog.Patches) != 2 {
+		t.Fatalf("catalog = %+v, want two shows", catalog)
+	}
+	var showBID string
+	for _, ref := range catalog.Patches {
+		if ref.Name == "Show B" {
+			showBID = ref.ID
+			if !ref.Active {
+				t.Fatal("Show B should be active after creation")
+			}
+		}
+	}
+	if showBID == "" {
+		t.Fatalf("Show B missing from catalog: %+v", catalog.Patches)
+	}
+
+	rr = doJSON(t, h.srv.Handler(), "POST", "/api/patches/default/load", nil)
+	var loaded patchResponse
+	mustUnmarshal(t, rr, &loaded)
+	if loaded.Patch.Name != "Show A" || len(loaded.Patch.Entries) != 1 || loaded.Patch.Entries[0].Name != "A fixture" {
+		t.Fatalf("loaded Show A = %+v", loaded.Patch)
+	}
+	rr = doJSON(t, h.srv.Handler(), "POST", "/api/patches/"+showBID+"/load", nil)
+	mustUnmarshal(t, rr, &loaded)
+	if loaded.Patch.Name != "Show B" || len(loaded.Patch.Entries) != 1 || loaded.Patch.Entries[0].Name != "B fixture" {
+		t.Fatalf("loaded Show B = %+v", loaded.Patch)
+	}
+}
+
 func TestPatchCollisions(t *testing.T) {
 	h := newHarness(t)
 	doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", entryRequest{Name: "A", Universe: 0, StartAddress: 1, Footprint: 10})
@@ -100,6 +152,19 @@ func TestPatchCollisions(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected an overlap finding, got %+v", findings)
+	}
+}
+
+func TestRDMDiagnosticsKeepsMeaningfulZeroCounters(t *testing.T) {
+	h := newHarness(t)
+	rr := doJSON(t, h.srv.Handler(), "GET", "/api/diagnostics/rdm", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("diagnostics status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	for _, key := range []string{"\"ackTimerCollectHits\":0", "\"ackTimerReissues\":0", "\"ackTimerCollects\":0"} {
+		if !strings.Contains(rr.Body.String(), key) {
+			t.Errorf("diagnostics response omitted meaningful zero %s: %s", key, rr.Body.String())
+		}
 	}
 }
 
@@ -411,7 +476,8 @@ func TestRigCheckPattern_StartStatusStopViaREST(t *testing.T) {
 
 // TestRigCheckPattern_JSONShape_NoOmittedZeros pins this codebase's hard
 // JSON rules directly on the wire: a numeric/boolean field whose zero is
-// real data must still appear in the marshalled bytes, and Entries must be
+// real data must still appear in the marshalled bytes, normalized defaults
+// must be echoed as their resolved values, and Entries must be
 // `[]`, never `null`, for a pattern that (deliberately, via an empty
 // selection scope) applies to nothing.
 func TestRigCheckPattern_JSONShape_NoOmittedZeros(t *testing.T) {
@@ -420,14 +486,14 @@ func TestRigCheckPattern_JSONShape_NoOmittedZeros(t *testing.T) {
 	doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", entryRequest{Name: "No functions", Universe: pa.RawValue(), StartAddress: 1, Footprint: 1})
 
 	rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/start", patternStartRequest{
-		ScopeKind: "all", Kind: "dimmer_snap", // Min/Max/Value/On/RateHz all left at their zero values on purpose
+		ScopeKind: "all", Kind: "dimmer_snap", // fields left at zero to exercise server defaults and zero preservation
 	})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("pattern start: status=%d body=%s", rr.Code, rr.Body.String())
 	}
 	body := rr.Body.String()
 	for _, want := range []string{
-		`"min":0`, `"max":0`, `"value":0`, `"on":false`,
+		`"min":0`, `"max":255`, `"value":0`, `"on":false`,
 		`"appliedCount":0`, `"skippedCount":1`, `"inferredCount":0`, `"missingDetailCount":0`,
 		`"entries":[{`,
 	} {
@@ -867,7 +933,8 @@ func TestRigCheckPattern_StackedJSONShape(t *testing.T) {
 	rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/start", patternStartRequest{
 		ScopeKind: "all",
 		Tests: []patternTestRequest{
-			// Every numeric/boolean parameter deliberately left at its zero.
+			// Every numeric/boolean parameter deliberately left at zero. Max
+			// must be normalized by the server to the usable full range.
 			{Kind: "ballyhoo"},
 			{Kind: "move_extreme", Target: "tilt_max"},
 		},
@@ -880,7 +947,7 @@ func TestRigCheckPattern_StackedJSONShape(t *testing.T) {
 		`"outputEnabled":true`, `"running":true`, `"selectedCount":2`,
 		`"tests":[{`, `"id":"move_extreme:tilt_max"`, `"id":"ballyhoo"`,
 		`"waveform":"sine"`, `"offsetMin":0`, `"offsetMax":0`,
-		`"min":0`, `"max":0`, `"value":0`, `"on":false`, `"direction":""`,
+		`"min":0`, `"max":255`, `"value":0`, `"on":false`, `"direction":""`,
 		`"phaseDegrees":0`, `"applied":true`, `"inferred":false`, `"detailMissing":false`,
 		`"contested":[{`, `"tests":["move_extreme:tilt_max","ballyhoo"]`,
 		`"baseState":{"isolate":false`, `"defaultsKnownCount":`, `"defaultsUnknownCount":`,
@@ -1195,6 +1262,10 @@ func TestRigCheckPatternEndpoints_ScopeAndIsolate(t *testing.T) {
 		t.Fatalf("after scope change: totalScope=%d selectedCount=%d outputEnabled=%v, want 2,1,true",
 			st.TotalScope, st.SelectedCount, st.OutputEnabled)
 	}
+	if st.ScopeKind != "position" || st.ScopePosition != "US Truss 1" || st.ScopeUniverse != 0 || len(st.ScopeEntryIDs) != 0 {
+		t.Fatalf("scope readback = kind=%q position=%q universe=%d ids=%v, want position/US Truss 1/0/[]",
+			st.ScopeKind, st.ScopePosition, st.ScopeUniverse, st.ScopeEntryIDs)
+	}
 
 	// A scope resolving to no entries is a 422, and leaves the old scope be.
 	rr = doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/scope", patternScopeRequest{
@@ -1202,6 +1273,11 @@ func TestRigCheckPatternEndpoints_ScopeAndIsolate(t *testing.T) {
 	})
 	if rr.Code != http.StatusUnprocessableEntity {
 		t.Errorf("empty scope: status=%d body=%s, want 422", rr.Code, rr.Body.String())
+	}
+	rr = doJSON(t, h.srv.Handler(), "GET", "/api/patch/rigcheck/pattern", nil)
+	mustUnmarshal(t, rr, &st)
+	if st.ScopeKind != "position" || st.ScopePosition != "US Truss 1" {
+		t.Fatalf("failed scope change replaced server readback: %+v", st)
 	}
 	rr = doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/scope", patternScopeRequest{
 		patternScopeFields: patternScopeFields{ScopeKind: "not_a_kind"},

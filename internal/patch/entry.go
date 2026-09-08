@@ -24,19 +24,20 @@
 // just another producer of []Entry that slots in beside AdoptFromDiscovered
 // without this package changing shape.
 //
-// Persistence choice: ONE active patch per install (mirrors internal/walk's
-// "Dom is one tech with one phone, one active session" precedent — here,
-// one tech with one active show patch at a time). Supporting multiple named
-// patches would mean threading a patch-name selector through every REST
-// endpoint and the whole UI for a feature nobody asked for yet; the Patch
-// struct's Name field and SchemaVersion leave room to grow into that later
-// without a breaking file-format change.
+// Persistence choice: one active patch at a time, with a small on-disk
+// catalog of named shows. Every existing patch endpoint still operates only
+// on the active show; the catalog endpoints switch it explicitly. This keeps
+// the normal programming path simple while letting one installation retain
+// independent rigs for concurrent shows.
 package patch
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -223,6 +224,16 @@ type Entry struct {
 	// per-entry side-fact that can drift out of sync with what the map
 	// actually contains — see ChannelFunction's doc comment.
 	ChannelFunctions map[uint16]ChannelFunction `json:"channelFunctions"`
+
+	// PhaseWeight is runtime-only Rig Check metadata. A web caller may set it
+	// from a committed fixture's RDM DEVICE_INFO sub-device count so one
+	// multi-cell fixture consumes several positions when calculating a phase
+	// spread. It never changes patch identity, normal scope counts, or the
+	// stored show file, and it must never be used to invent DMX channel maps.
+	PhaseWeight uint16 `json:"-"`
+	// Zero selects automatic profile/RDM detection; a positive count is an
+	// operator-confirmed phase-slot override, unrelated to footprint/counts.
+	PhaseCount uint16 `json:"phaseCount"`
 }
 
 // ChannelFunctionSource records how a ChannelFunction's attribute mapping
@@ -272,6 +283,7 @@ type ChannelSet struct {
 // approximation when it is not — see Source's doc comment for why the two
 // can never be confused.
 type ChannelFunction struct {
+	GeometryInstance string `json:"geometryInstance,omitempty"`
 	// Source is never omitted from the JSON (no `omitempty`) — an absent
 	// Source next to real Attribute/FunctionName data would be exactly the
 	// silent-guess failure mode decision (3) forbids; every consumer of
@@ -427,11 +439,12 @@ func (e Entry) EndAddress() int {
 // it's the default rig-check walk order and the default Patch-screen table
 // order (task ask: "ordered entries").
 type Patch struct {
-	SchemaVersion int       `json:"schemaVersion,omitempty"`
-	Name          string    `json:"name,omitempty"`
-	CreatedAt     time.Time `json:"createdAt,omitempty"`
-	ModifiedAt    time.Time `json:"modifiedAt,omitempty"`
-	Entries       []Entry   `json:"entries,omitempty"`
+	Workspace     json.RawMessage `json:"workspace,omitempty"`
+	SchemaVersion int             `json:"schemaVersion,omitempty"`
+	Name          string          `json:"name,omitempty"`
+	CreatedAt     time.Time       `json:"createdAt,omitempty"`
+	ModifiedAt    time.Time       `json:"modifiedAt,omitempty"`
+	Entries       []Entry         `json:"entries,omitempty"`
 }
 
 // migrate upgrades p in place to CurrentSchemaVersion. There is only one
@@ -528,7 +541,15 @@ func (p Patch) IndexOf(id string) int {
 // boundary.
 func clonePatch(p Patch) Patch {
 	cp := p
+	cp.Workspace = append(json.RawMessage(nil), p.Workspace...)
 	cp.Entries = append([]Entry(nil), p.Entries...)
+	for i := range cp.Entries {
+		cp.Entries[i].ChannelFunctions = make(map[uint16]ChannelFunction, len(p.Entries[i].ChannelFunctions))
+		for offset, cf := range p.Entries[i].ChannelFunctions {
+			cf.ChannelSets = append([]ChannelSet{}, cf.ChannelSets...)
+			cp.Entries[i].ChannelFunctions[offset] = cf
+		}
+	}
 	return cp
 }
 
@@ -538,9 +559,11 @@ func clonePatch(p Patch) Patch {
 // tmp+rename atomic-write pattern as internal/walk.Store, same "only one
 // active at a time" model (see package doc comment for why).
 type Store struct {
-	mu    sync.Mutex
-	path  string // empty disables persistence (tests)
-	patch *Patch
+	mu         sync.Mutex
+	path       string // legacy/default patch path; empty disables persistence (tests)
+	activePath string // current named patch path (path for the default show)
+	catalogDir string // sibling directory holding additional named patches
+	patch      *Patch
 }
 
 // NewStore builds a Store persisting to path (pass "" to disable
@@ -549,7 +572,7 @@ type Store struct {
 // than crashing the server — the corrupt file is left on disk untouched
 // (never silently overwritten) so it can be inspected/recovered by hand.
 func NewStore(path string) *Store {
-	st := &Store{path: path}
+	st := &Store{path: path, activePath: path}
 	if path != "" {
 		if data, err := os.ReadFile(path); err == nil {
 			var p Patch
@@ -565,6 +588,7 @@ func NewStore(path string) *Store {
 			}
 		}
 	}
+	st.initCatalogActive()
 	return st
 }
 
@@ -588,7 +612,7 @@ func (st *Store) EnsureActive() Patch {
 	if st.patch == nil {
 		now := time.Now()
 		st.patch = &Patch{SchemaVersion: CurrentSchemaVersion, Name: "Patch", CreatedAt: now, ModifiedAt: now}
-		st.persistLocked()
+		// The first mutation persists this draft and reports any write failure.
 	}
 	return clonePatch(*st.patch)
 }
@@ -598,6 +622,12 @@ func (st *Store) EnsureActive() Patch {
 // discarding whatever was active, and persists it. Used by fresh-create
 // (manual "start a new patch") and AdoptFromDiscovered's fresh-create mode.
 func (st *Store) Replace(p Patch) Patch {
+	result, _ := st.ReplaceChecked(p) // compatibility for in-memory demo/test builders
+	return result
+}
+
+// ReplaceChecked is the fallible replacement API used by all HTTP callers.
+func (st *Store) ReplaceChecked(p Patch) (Patch, error) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	now := time.Now()
@@ -608,9 +638,12 @@ func (st *Store) Replace(p Patch) Patch {
 	p.SchemaVersion = CurrentSchemaVersion
 	normalizeChannelFunctions(p.Entries)
 	normalizeSettingStates(p.Entries)
+	p = clonePatch(p)
+	if err := savePatch(st.activePath, p); err != nil {
+		return Patch{}, err
+	}
 	st.patch = &p
-	st.persistLocked()
-	return clonePatch(*st.patch)
+	return clonePatch(p), nil
 }
 
 // ErrNoPatch is returned by Mutate when no patch is active. Callers that
@@ -633,40 +666,50 @@ func (st *Store) Mutate(fn func(*Patch) error) (Patch, error) {
 	if st.patch == nil {
 		return Patch{}, ErrNoPatch
 	}
-	if err := fn(st.patch); err != nil {
+	next := clonePatch(*st.patch)
+	if err := fn(&next); err != nil {
 		return Patch{}, err
 	}
-	st.patch.ModifiedAt = time.Now()
-	normalizeChannelFunctions(st.patch.Entries)
-	normalizeSettingStates(st.patch.Entries)
-	st.persistLocked()
-	return clonePatch(*st.patch), nil
+	next.ModifiedAt = time.Now()
+	normalizeChannelFunctions(next.Entries)
+	normalizeSettingStates(next.Entries)
+	if err := savePatch(st.activePath, next); err != nil {
+		return Patch{}, err
+	}
+	st.patch = &next
+	return clonePatch(next), nil
 }
 
-// Clear discards the active patch (if any) and removes the on-disk file —
-// mirrors internal/walk.Store.Clear exactly, for the same reason: the
-// full-reset flow's "everything, including the patch" (task ask) must not
-// leave a stale file for the next server start to accidentally resurrect.
-func (st *Store) Clear() {
+// Clear discards every saved show, including the active patch. The full-reset
+// flow promises to clear this rig's state, so leaving a non-active saved show
+// behind would allow stale fixture commitments to resurrect after restart.
+func (st *Store) Clear() error {
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	st.patch = nil
+	var errs []error
 	if st.path != "" {
-		_ = os.Remove(st.path)
+		paths := []string{st.path, st.path + ".bak", st.catalogDir + ".active"}
+		files, err := os.ReadDir(st.catalogDir)
+		if err != nil && !os.IsNotExist(err) {
+			errs = append(errs, err)
+		}
+		for _, file := range files {
+			name := file.Name()
+			id := strings.TrimSuffix(strings.TrimSuffix(name, ".bak"), ".json")
+			if !file.IsDir() && validSavedPatchID(id) && (name == id+".json" || name == id+".json.bak") {
+				paths = append(paths, filepath.Join(st.catalogDir, name))
+			}
+		}
+		for _, path := range paths {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				errs = append(errs, err)
+			}
+		}
 	}
-}
-
-func (st *Store) persistLocked() {
-	if st.path == "" || st.patch == nil {
-		return
+	if err := errors.Join(errs...); err != nil {
+		return err
 	}
-	data, err := json.MarshalIndent(st.patch, "", "  ")
-	if err != nil {
-		return
-	}
-	tmp := st.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
-		return
-	}
-	_ = os.Rename(tmp, st.path)
+	st.patch = nil
+	st.activePath = st.path
+	return nil
 }

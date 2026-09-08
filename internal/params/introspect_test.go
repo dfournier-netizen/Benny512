@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"net/netip"
+	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -107,6 +109,93 @@ func newTestClient(t *testing.T, uid rdm.UID, handler func(msg rdm.Message) (dat
 		Port: port,
 	}
 	return New(ctrl, node, uid), clock
+}
+
+// TestResolveSupportedSetCoalescesConcurrentFetches pins the cache's
+// single-flight boundary. A controller serializes wire traffic, but without
+// this guard every goroutine can pass the old supportedAttempted check before
+// the first response records it, leaving a queue of identical GETs behind the
+// first one. That is especially costly through a wireless RDM proxy.
+func TestResolveSupportedSetCoalescesConcurrentFetches(t *testing.T) {
+	uid := rdm.UID{ManufacturerID: 0x5370, DeviceID: 0x51}
+	supported := rdm.EncodeSupportedParameters([]rdm.ParameterID{rdm.PIDCurve})
+	firstSent := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	var mu sync.Mutex
+	supportedGets := 0
+
+	client, clock := newTestClient(t, uid, func(msg rdm.Message) ([]byte, bool, rdm.NackReason) {
+		if msg.ParameterID != rdm.PIDSupportedParameters {
+			return nil, true, rdm.NackUnknownPID
+		}
+		mu.Lock()
+		supportedGets++
+		first := supportedGets == 1
+		mu.Unlock()
+		if first {
+			close(firstSent)
+			<-releaseFirst
+		}
+		return supported, false, 0
+	})
+
+	const callers = 12
+	start := make(chan struct{})
+	results := make(chan bool, callers)
+	var workers sync.WaitGroup
+	workers.Add(callers)
+	for range callers {
+		go func() {
+			defer workers.Done()
+			<-start
+			got, known := client.IsAdvertised(context.Background(), rdm.PIDCurve)
+			results <- known && got
+		}()
+	}
+	close(start)
+	select {
+	case <-firstSent:
+	case <-time.After(time.Second):
+		t.Fatal("first SUPPORTED_PARAMETERS request was not sent")
+	}
+
+	// The first send holds the controller mutex. With one logical processor,
+	// each remaining worker gets a chance to reach resolveSupportedSet and, in
+	// the broken implementation, pass its stale attempted=false check before
+	// it blocks on that mutex.
+	oldProcs := runtime.GOMAXPROCS(1)
+	defer runtime.GOMAXPROCS(oldProcs)
+	for range callers * 4 {
+		runtime.Gosched()
+	}
+	close(releaseFirst)
+
+	done := make(chan struct{})
+	go func() {
+		workers.Wait()
+		close(done)
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		clock.Advance(2 * time.Millisecond)
+		select {
+		case <-done:
+			for range callers {
+				if !<-results {
+					t.Fatal("IsAdvertised returned an unknown or unsupported result")
+				}
+			}
+			mu.Lock()
+			got := supportedGets
+			mu.Unlock()
+			if got != 1 {
+				t.Fatalf("SUPPORTED_PARAMETERS GETs = %d, want 1", got)
+			}
+			return
+		case <-time.After(time.Millisecond):
+		}
+	}
+	t.Fatal("timed out waiting for concurrent supported-parameter lookups")
 }
 
 // --- Introspect -------------------------------------------------------------

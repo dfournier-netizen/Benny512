@@ -61,6 +61,7 @@
   }
 
   tabs.forEach(t => t.addEventListener('click', () => activate(t.dataset.tab)));
+  window.addEventListener('b5-navigate', e => activate(e.detail));
 
   // 'fixtures' migrates to 'devices' (Phase 1c+ screen rename) for anyone
   // with a stale localStorage value from before this change.
@@ -82,5 +83,6 @@
     SendScreen.init();
     WalkScreen.init();
     SettingsScreen.init();
+    Workspace.init();
   });
 })();

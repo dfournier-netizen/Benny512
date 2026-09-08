@@ -24,17 +24,11 @@ import "benny512/internal/bytesio"
 // unless bit 7 is high... Send 0x00 to reset this value to the physical
 // switch setting").
 //
-// ArtInput's layout (NumPorts field, whole-byte "disabled" semantics) could
-// NOT be confirmed against the primary spec PDF directly this session — the
-// PDF's ArtInput section (page 75) falls past this fetch tooling's
-// extraction cutoff every time it was tried. The ArtInput layout below is
-// sourced from Wireshark's packet-artnet.c dissector alone (every other
-// packet that dissector encoded was independently confirmed byte-for-byte
-// against the primary PDF text, so it is trusted as a secondary source
-// here), NOT from the primary spec text or a byte capture. Treat ArtInput as
-// "best available reading, one source, unconfirmed on hardware" and verify
-// it on the bench before relying on it — a wrong guess here costs a rig
-// session exactly like the ArtIpProg bug did.
+// ArtInput's layout (NumPorts field and bit-0 input-disable semantics) was
+// confirmed against the Art-Net 4 Protocol Release V1.4 primary PDF on
+// 2026-09-06 (pages 75-76). Its actual effect on an EN4 still needs a bench
+// check; a correct packet layout alone does not prove a particular node
+// honors the command.
 
 // --- ArtAddress (OpCode 0x6000) --------------------------------------------
 
@@ -78,10 +72,23 @@ const (
 	AcMergeLTP1 AcCommand = 0x11
 	AcMergeLTP2 AcCommand = 0x12
 	AcMergeLTP3 AcCommand = 0x13
-	AcMergeHTP0 AcCommand = 0x50
-	AcMergeHTP1 AcCommand = 0x51
-	AcMergeHTP2 AcCommand = 0x52
-	AcMergeHTP3 AcCommand = 0x53
+
+	// AcDirectionTx0-3 make one port a DMX output; AcDirectionRx0-3 make
+	// one port a DMX input. The Rx action also flushes that port's subscriber
+	// list. Ports 1-3 are deprecated in Art-Net 4, but their defined values
+	// are retained for hardware that still exposes those physical ports.
+	AcDirectionTx0 AcCommand = 0x20
+	AcDirectionTx1 AcCommand = 0x21
+	AcDirectionTx2 AcCommand = 0x22
+	AcDirectionTx3 AcCommand = 0x23
+	AcDirectionRx0 AcCommand = 0x30
+	AcDirectionRx1 AcCommand = 0x31
+	AcDirectionRx2 AcCommand = 0x32
+	AcDirectionRx3 AcCommand = 0x33
+	AcMergeHTP0    AcCommand = 0x50
+	AcMergeHTP1    AcCommand = 0x51
+	AcMergeHTP2    AcCommand = 0x52
+	AcMergeHTP3    AcCommand = 0x53
 
 	// AcArtNetSel0-3 select Art-Net as the protocol (DMX512 and RDM) for
 	// one port (the spec's default); AcAcnSel0-3 select sACN (E1.31) for
@@ -105,6 +112,19 @@ const (
 	AcClearOp1 AcCommand = 0x91
 	AcClearOp2 AcCommand = 0x92
 	AcClearOp3 AcCommand = 0x93
+
+	// AcRdmEnable0-3 and AcRdmDisable0-3 enable or disable RDM for one
+	// physical port. The values are from the Art-Net 4 ArtAddress Command
+	// table (Protocol Release V1.4, page 45); ports 1-3 are deprecated but
+	// remain defined so a four-port gateway can expose its real controls.
+	AcRdmEnable0  AcCommand = 0xC0
+	AcRdmEnable1  AcCommand = 0xC1
+	AcRdmEnable2  AcCommand = 0xC2
+	AcRdmEnable3  AcCommand = 0xC3
+	AcRdmDisable0 AcCommand = 0xD0
+	AcRdmDisable1 AcCommand = 0xD1
+	AcRdmDisable2 AcCommand = 0xD2
+	AcRdmDisable3 AcCommand = 0xD3
 )
 
 // SwitchEntry is one byte of ArtAddress's SwIn[]/SwOut[]/NetSwitch/
@@ -251,13 +271,11 @@ func encodeAddress(p Address) []byte {
 
 // --- ArtInput (OpCode 0x7000) ----------------------------------------------
 
-// InputDisable is one byte of ArtInput's Input[] field. SOURCE: Wireshark's
-// packet-artnet.c dissector registers this field with FT_BOOLEAN mask 0xff
-// ("Disabled", artnet.input.disabled) — i.e. the whole byte is the disable
-// flag (any non-zero value means disabled), not a single low bit. NOT
-// independently confirmed against the primary spec PDF text this session
-// (see file doc comment) — verify on hardware before relying on any value
-// other than plain 0x00/0x01.
+// InputDisable is one byte of ArtInput's Input[] field. Art-Net 4 Protocol
+// Release V1.4's ArtInput table (page 76) defines bit 0 as "Set to disable
+// this input" and bits 7-1 as unused. Benny512 writes only the documented
+// 0x00/0x01 values; non-zero remains treated as disabled on decode so a
+// malformed packet is never presented as enabled.
 type InputDisable byte
 
 // Disabled reports whether the byte is non-zero (see InputDisable's doc
@@ -265,9 +283,9 @@ type InputDisable byte
 func (i InputDisable) Disabled() bool { return i != 0 }
 
 // Input is ArtInput (OpCode 0x7000) — per-port DMX input enable/disable.
-// Fixed 20-byte layout, per Wireshark's packet-artnet.c dissector (NOT
-// independently confirmed against the primary spec PDF text this session —
-// see file doc comment). Corrects a previous best-recollection reading that
+// Fixed 20-byte layout, confirmed against the Art-Net 4 Protocol Release
+// V1.4 ArtInput table (pages 75-76). Corrects a previous best-recollection
+// reading that
 // omitted the NumPorts field entirely, which would have misaligned every
 // byte from Input[] onward and put a real node's byte 0 of Input[] where
 // this package expected BindIndex's continuation:

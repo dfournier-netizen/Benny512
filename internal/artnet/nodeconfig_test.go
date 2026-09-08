@@ -84,17 +84,21 @@ func TestArtAddressTooShort(t *testing.T) {
 }
 
 func TestArtAddressCommandConstants(t *testing.T) {
-	// Sanity: LTP/HTP/protocol-select/clear-buffer families are 4 wide
+	// Sanity: LTP/HTP/direction/protocol-select/RDM/clear-buffer families are 4 wide
 	// (one per port) and non-overlapping, per the task brief's requirement
 	// to cover "merge LTP/HTP, cancel merge, clear buffers, direction/
 	// protocol flags".
 	all := []AcCommand{
 		AcNone, AcCancelMerge, AcLedNormal, AcLedMute, AcLedLocate, AcResetRxFlags,
 		AcMergeLTP0, AcMergeLTP1, AcMergeLTP2, AcMergeLTP3,
+		AcDirectionTx0, AcDirectionTx1, AcDirectionTx2, AcDirectionTx3,
+		AcDirectionRx0, AcDirectionRx1, AcDirectionRx2, AcDirectionRx3,
 		AcMergeHTP0, AcMergeHTP1, AcMergeHTP2, AcMergeHTP3,
 		AcArtNetSel0, AcArtNetSel1, AcArtNetSel2, AcArtNetSel3,
 		AcAcnSel0, AcAcnSel1, AcAcnSel2, AcAcnSel3,
 		AcClearOp0, AcClearOp1, AcClearOp2, AcClearOp3,
+		AcRdmEnable0, AcRdmEnable1, AcRdmEnable2, AcRdmEnable3,
+		AcRdmDisable0, AcRdmDisable1, AcRdmDisable2, AcRdmDisable3,
 	}
 	seen := map[AcCommand]bool{}
 	for _, c := range all {
@@ -123,6 +127,10 @@ func TestArtAddressCommandWireValuesFromSpec(t *testing.T) {
 		{"AcArtNetSel0", AcArtNetSel0, 0x60}, // was wrongly 0x30 before this fix
 		{"AcAcnSel0", AcAcnSel0, 0x70},       // was wrongly 0x40 before this fix
 		{"AcClearOp0", AcClearOp0, 0x90},     // was wrongly 0x60 before this fix
+		{"AcDirectionTx0", AcDirectionTx0, 0x20},
+		{"AcDirectionRx0", AcDirectionRx0, 0x30},
+		{"AcRdmEnable0", AcRdmEnable0, 0xC0},
+		{"AcRdmDisable0", AcRdmDisable0, 0xD0},
 	}
 	for _, c := range cases {
 		if byte(c.got) != c.want {
@@ -175,8 +183,8 @@ func TestArtInputRoundTrip(t *testing.T) {
 }
 
 // TestArtInputWireLayout is a byte-exact golden-fixture test for the
-// NumPorts field (Wireshark packet-artnet.c: hf_artnet_input_num_ports at
-// offset 14-15, UINT16 BE) — a field a previous reading of this file
+// NumPorts field (Art-Net 4 Protocol Release V1.4, ArtInput table, fields
+// 7-8, at offsets 14-15, UINT16 BE) — a field a previous reading of this file
 // omitted entirely, which would have misread every real ArtInput packet's
 // Input[] bytes from the wrong offset.
 func TestArtInputWireLayout(t *testing.T) {
@@ -204,9 +212,8 @@ func TestArtInputWireLayout(t *testing.T) {
 }
 
 func TestArtInputDisabledIsWholeByteNonZero(t *testing.T) {
-	// Wireshark's packet-artnet.c registers artnet.input.disabled with
-	// FT_BOOLEAN mask 0xff — the whole byte is the disable flag, not a
-	// single low bit.
+	// The primary spec assigns bit 0 as the disable flag. Decode remains
+	// defensive about malformed non-zero reserved bits.
 	if InputDisable(0x01).Disabled() != true {
 		t.Fatal("0x01 should be disabled")
 	}

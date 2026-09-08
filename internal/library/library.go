@@ -107,6 +107,9 @@ type Origin struct {
 // Mode is one DMX personality of a fixture type: its name, how many DMX
 // slots it occupies, and what each of those slots does.
 type Mode struct {
+	VerifiedAt       time.Time `json:"verifiedAt"`
+	VerificationNote string    `json:"verificationNote"`
+	VerifiedHash     string    `json:"verifiedHash"`
 	// Name is the personality/mode name as the manufacturer spells it
 	// ("Standard", "Extended 32ch"). Matched case-insensitively when
 	// merging (see mergeModes) so a re-import with different casing
@@ -137,6 +140,7 @@ type Mode struct {
 // Record is one fixture TYPE: the library's unit of storage. See the
 // package doc comment for the owner's manufacturer+model keying decision.
 type Record struct {
+	SourceFiles []SourceFile `json:"sourceFiles"`
 	// Manufacturer and Model together are the record's identity, stored
 	// verbatim as the best-known human spelling (this is what a UI shows).
 	// Key below is the machine-comparable form.
@@ -252,6 +256,11 @@ func normalizeMode(m Mode) Mode {
 			m.ChannelFunctions[off] = cf
 		}
 	}
+	if m.VerifiedHash == "" || m.VerifiedHash != modeHash(m) {
+		m.VerifiedHash = ""
+		m.VerifiedAt = time.Time{}
+		m.VerificationNote = ""
+	}
 	return m
 }
 
@@ -261,6 +270,7 @@ func normalizeMode(m Mode) Mode {
 // caller's struct literal is normal and must not be able to produce a
 // record that marshals `null` anywhere.
 func normalizeRecord(r Record) Record {
+	r.SourceFiles = mergeSourceFiles(nil, r.SourceFiles)
 	r.Key = KeyFor(r.Manufacturer, r.Model)
 	if r.SupportedPIDs == nil {
 		r.SupportedPIDs = make([]uint16, 0)
@@ -316,6 +326,11 @@ func sortPIDs(p []uint16) {
 // field by field, so the deeper copy is required rather than merely tidy.
 func cloneRecord(r Record) Record {
 	out := r
+	out.SourceFiles = make([]SourceFile, len(r.SourceFiles))
+	for i, f := range r.SourceFiles {
+		out.SourceFiles[i] = f
+		out.SourceFiles[i].Data = append([]byte(nil), f.Data...)
+	}
 	out.SupportedPIDs = append(make([]uint16, 0, len(r.SupportedPIDs)), r.SupportedPIDs...)
 	out.Modes = make([]Mode, len(r.Modes))
 	for i, m := range r.Modes {

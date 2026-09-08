@@ -268,6 +268,11 @@ type uidState struct {
 	supportedSet       map[rdm.ParameterID]bool
 	supportedKnown     bool
 	supportedAttempted bool
+	// supportedFlight is non-nil while one caller is resolving
+	// SUPPORTED_PARAMETERS. It is closed after that caller publishes either
+	// a decoded set or the remembered unknown result, so simultaneous callers
+	// share one wire transaction instead of queueing a GET each.
+	supportedFlight chan struct{}
 
 	// unsupportedPIDs records, per speculative PID, that a live GET has
 	// already come back NACK UNKNOWN_PID for this UID — independent of
@@ -830,29 +835,44 @@ func isSpeculativePID(pid rdm.ParameterID) bool {
 }
 
 // resolveSupportedSet returns this UID's SUPPORTED_PARAMETERS set,
-// resolving and caching it (at most once per UID per process, via
-// supportedAttempted) if not already known. known=false means the device's
-// support status could not be determined at all (SUPPORTED_PARAMETERS
-// itself NACKed, timed out, or a prior attempt already failed) — callers
-// must treat that as "don't know", never as "nothing is supported".
+// resolving and caching it (at most once per UID per process) if not already
+// known. Simultaneous callers wait for the in-flight resolution rather than
+// each queueing a GET. known=false means the device's support status could
+// not be determined at all (SUPPORTED_PARAMETERS itself NACKed, timed out,
+// or a prior attempt already failed) — callers must treat that as "don't
+// know", never as "nothing is supported".
 func (c *Client) resolveSupportedSet(ctx context.Context) (set map[rdm.ParameterID]bool, known bool) {
 	st := stateFor(c.uid)
-	st.mu.RLock()
+	st.mu.Lock()
 	if st.supportedKnown {
 		set, known = st.supportedSet, true
-		st.mu.RUnlock()
+		st.mu.Unlock()
 		return set, known
 	}
-	attempted := st.supportedAttempted
-	st.mu.RUnlock()
-	if attempted {
+	if st.supportedAttempted {
+		st.mu.Unlock()
 		return nil, false
 	}
+	if flight := st.supportedFlight; flight != nil {
+		st.mu.Unlock()
+		select {
+		case <-flight:
+			st.mu.RLock()
+			set, known = st.supportedSet, st.supportedKnown
+			st.mu.RUnlock()
+			return set, known
+		case <-ctx.Done():
+			return nil, false
+		}
+	}
+
+	flight := make(chan struct{})
+	st.supportedFlight = flight
+	st.mu.Unlock()
 
 	data, err := c.getRaw(ctx, rdm.PIDSupportedParameters, nil)
 
 	st.mu.Lock()
-	defer st.mu.Unlock()
 	st.supportedAttempted = true
 	if err == nil {
 		if pids, decErr := rdm.DecodeSupportedParameters(data); decErr == nil {
@@ -864,7 +884,11 @@ func (c *Client) resolveSupportedSet(ctx context.Context) (set map[rdm.Parameter
 			st.supportedKnown = true
 		}
 	}
-	return st.supportedSet, st.supportedKnown
+	set, known = st.supportedSet, st.supportedKnown
+	close(flight)
+	st.supportedFlight = nil
+	st.mu.Unlock()
+	return set, known
 }
 
 // ensureAdvertised is getRaw's speculative-PID gate: it returns

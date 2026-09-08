@@ -1025,5 +1025,11 @@ const ReconcilePanel = (() => {
     return (d.textContent || '').replace(/\s+/g, ' ').trim();
   }
 
-  return { init, attach, enter, leave, render, refresh };
+  function focusEntry(id) {
+    armedEntryId=id; armedDeviceUid=null; openEntryId=id;
+    filterText=''; needsAttentionOnly=false; render();
+  }
+  window.addEventListener('b5-show-changed', () => { board=null;armedEntryId=null;armedDeviceUid=null;openEntryId=null; });
+  window.addEventListener('b5-selection', e => { if(e.detail.length===1) {openEntryId=e.detail[0];} });
+  return { init, attach, enter, leave, render, refresh, focusEntry };
 })();

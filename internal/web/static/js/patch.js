@@ -22,6 +22,7 @@ const PatchScreen = (() => {
   let active = false; // this screen is the current tab
   let view = 'entries'; // 'entries' | 'reconcile' | 'rigcheck'
   let patchData = { active: false };
+  let patchCatalog = [];
   // collisions: findings from GET /api/patch/collisions. Every fetch of it
   // below is guarded with `|| []` — found during Phase C render-proofing
   // against a real ~20MB show file: internal/patch.DetectCollisions
@@ -109,6 +110,13 @@ const PatchScreen = (() => {
   // --- lifecycle ------------------------------------------------------------
 
   function init() {
+	window.addEventListener('b5-selection', e => {
+	  selectedIds = Object.fromEntries(e.detail.map(id => [id, true]));
+	});
+	window.addEventListener('b5-show-changed', () => {
+	  clearSelection(); editingEntry = null; entryDraft = null;
+	  mvrPreview = null; gdtfPreview = null; rcSelection = {};
+	});
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden' && active) {
         Api.rigCheckStopBeacon();
@@ -391,7 +399,9 @@ const PatchScreen = (() => {
 
   async function refresh() {
     try {
-      patchData = await Api.getPatch();
+      const data = await Promise.all([Api.getPatch(), Api.getPatches()]);
+      patchData = data[0];
+      patchCatalog = (data[1] && data[1].patches) || [];
     } catch (e) {
       statusMsg = 'error: ' + e.message;
     }
@@ -432,7 +442,9 @@ const PatchScreen = (() => {
   // refreshing the data is all that is needed for those to be correct.
   async function refreshPatchDataOnly() {
     try {
-      patchData = await Api.getPatch();
+      const data = await Promise.all([Api.getPatch(), Api.getPatches()]);
+      patchData = data[0];
+      patchCatalog = (data[1] && data[1].patches) || [];
     } catch (e) {
       return; // best-effort: keep the last good snapshot rather than blanking the screen
     }
@@ -535,6 +547,8 @@ const PatchScreen = (() => {
     const p = patchData.active ? patchData.patch : null;
     const entries = (p && p.entries) || [];
     const confirmedCount = entries.filter(e => e.confirmedUid).length;
+    const activeRef = patchCatalog.find(ref => ref.active);
+    const savedShows = patchCatalog.map(ref => `<option value="${escapeHtml(ref.id)}"${ref.active ? ' selected' : ''}>${escapeHtml(ref.name || '(unnamed show)')}</option>`).join('');
     body.innerHTML = `
       <section class="b5-step-section" aria-labelledby="patchSourceHead">
         <h2 class="b5-step-section__head" id="patchSourceHead">
@@ -545,8 +559,14 @@ const PatchScreen = (() => {
         </h2>
         <div class="b5-toolbar">
           <div class="b5-toolbar__row">
+            <label class="b5-toolbar__search" for="patchShowSelect">
+              <span class="b5-visually-hidden">Active show</span>
+              <select id="patchShowSelect" class="b5-select" ${savedShows ? '' : 'disabled'}>
+                ${savedShows || '<option>No saved show</option>'}
+              </select>
+            </label>
+            <button id="btnCreateSavedPatch" class="b5-btn">New show&hellip;</button>
             <button id="btnAddEntry" class="b5-btn b5-btn--primary">${UI.icon('apply')}Add entry</button>
-            <button id="btnNewPatch" class="b5-btn b5-btn--danger">New patch&hellip;</button>
             <button id="btnAdoptMerge" class="b5-btn">Adopt discovered (merge)</button>
             <button id="btnAdoptFresh" class="b5-btn b5-btn--danger">Adopt discovered (replace patch)</button>
             <button id="btnImportMvr" class="b5-btn">Import MVR&hellip;</button>
@@ -600,16 +620,31 @@ const PatchScreen = (() => {
     `;
     document.getElementById('patchSort').value = sortMode;
 
-    document.getElementById('btnNewPatch').addEventListener('click', async () => {
-      const name = prompt('New patch name (this discards the current patch):', 'Patch');
+    document.getElementById('btnCreateSavedPatch').addEventListener('click', async () => {
+      const name = prompt('Name the new show:', 'New show');
       if (name === null) return;
       try {
-        patchData = await Api.newPatch(name);
-        setStatus('new patch created');
+        patchData = await Api.createSavedPatch(name);
+        setStatus('new show created');
         editingEntry = null; entryDraft = null;
         await refresh();
       } catch (e) { setStatus('error: ' + e.message); }
     });
+    const showSelect = document.getElementById('patchShowSelect');
+    if (showSelect && activeRef) {
+      showSelect.addEventListener('change', async () => {
+        if (showSelect.value === activeRef.id) return;
+        try {
+          patchData = await Api.loadSavedPatch(showSelect.value);
+          editingEntry = null; entryDraft = null;
+          setStatus('show loaded');
+          await refresh();
+        } catch (e) {
+          setStatus('error: ' + e.message);
+          await refresh();
+        }
+      });
+    }
     document.getElementById('btnAddEntry').addEventListener('click', openNewEntry);
     document.getElementById('btnAdoptMerge').addEventListener('click', () => runAdopt('merge'));
     document.getElementById('btnAdoptFresh').addEventListener('click', () => runAdopt('fresh'));
@@ -1036,11 +1071,13 @@ const PatchScreen = (() => {
         for (let i = lo; i <= hi; i++) {
           if (checked) selectedIds[ids[i]] = true; else delete selectedIds[ids[i]];
         }
+        window.dispatchEvent(new CustomEvent('b5-patch-selection', {detail:Object.keys(selectedIds)}));
         renderEntriesTableBody();
         return;
       }
     }
     if (evt.currentTarget.checked) selectedIds[id] = true; else delete selectedIds[id];
+    window.dispatchEvent(new CustomEvent('b5-patch-selection', {detail:Object.keys(selectedIds)}));
     lastClickedEntryId = id;
     updateSelectAllCheckbox(sortedInView);
     renderEntryEditor();
@@ -1056,6 +1093,7 @@ const PatchScreen = (() => {
     all.onclick = () => {
       if (all.checked) sortedInView.forEach(e => { selectedIds[e.id] = true; });
       else sortedInView.forEach(e => { delete selectedIds[e.id]; });
+      window.dispatchEvent(new CustomEvent('b5-patch-selection', {detail:Object.keys(selectedIds)}));
       renderEntriesTableBody();
     };
   }
@@ -1147,7 +1185,7 @@ const PatchScreen = (() => {
   function openNewEntry() {
     clearSelection();
     editingEntry = 'new';
-    entryDraft = { name: '', fixtureType: '', mode: '', footprint: 0, universe: 0, startAddress: 1, position: '', fixtureNumber: '', notes: '' };
+    entryDraft = { name: '', fixtureType: '', mode: '', footprint: 0, universe: 0, startAddress: 1, position: '', fixtureNumber: '', notes: '', phaseCount: 0 };
     renderEntryEditor();
   }
 
@@ -1158,6 +1196,7 @@ const PatchScreen = (() => {
       name: e.name || '', fixtureType: e.fixtureType || '', mode: e.mode || '',
       footprint: e.footprint || 0, universe: e.universe || 0, startAddress: e.startAddress || 1,
       position: e.position || '', fixtureNumber: e.fixtureNumber || '', notes: e.notes || '',
+      phaseCount: e.phaseCount || 0,
     };
     renderEntryEditor();
   }
@@ -1214,6 +1253,7 @@ const PatchScreen = (() => {
           <div class="b5-field"><label class="b5-field__label" for="peType">Fixture type</label><input id="peType" class="b5-input" type="text" maxlength="80" placeholder="e.g. Chauvet Rogue Outcast 2X Wash"></div>
           <div class="b5-field"><label class="b5-field__label" for="peMode">Mode / personality</label><input id="peMode" class="b5-input" type="text" maxlength="40"></div>
           <div class="b5-field"><label class="b5-field__label" for="peFootprint">Footprint (DMX channels)</label><input id="peFootprint" class="b5-input" type="number" min="0" max="512"></div>
+          <div class="b5-field"><label class="b5-field__label" for="pePhaseCount">Phase slots (0 = auto)</label><input id="pePhaseCount" class="b5-input" type="number" min="0" max="512"><span class="b5-caption">Function-test spacing only</span></div>
           <div class="b5-field"><label class="b5-field__label" for="peUniverse">Universe (${UI.universeBaseLabel()})</label><input id="peUniverse" class="b5-input" type="number" min="${ua.min}" max="${ua.max}"></div>
           <div class="b5-field"><label class="b5-field__label" for="peAddress">Start address</label><input id="peAddress" class="b5-input" type="number" min="1" max="512"></div>
           <div class="b5-field"><label class="b5-field__label" for="pePosition">Position</label><input id="pePosition" class="b5-input" type="text" maxlength="60" placeholder="e.g. US Truss 3"></div>
@@ -1238,6 +1278,7 @@ const PatchScreen = (() => {
     bind('peType', 'fixtureType', false);
     bind('peMode', 'mode', false);
     bind('peFootprint', 'footprint', true);
+    bind('pePhaseCount', 'phaseCount', true);
     bind('peAddress', 'startAddress', true);
     bind('pePosition', 'position', false);
     bind('peFixtureNumber', 'fixtureNumber', false);
@@ -1622,5 +1663,17 @@ const PatchScreen = (() => {
   }
 
 
-  return { init, onEnterScreen, onLeaveScreen };
+  async function focusEntry(targetView, id) {
+    await refreshPatchDataOnly();
+    await setView(targetView === 'reconcile' ? 'reconcile' : 'entries');
+    if (targetView === 'reconcile') ReconcilePanel.focusEntry(id);
+    else { const entry=(patchData.patch?.entries||[]).find(e=>e.id===id); if(entry) openEditEntry(entry); }
+  }
+  async function openFunctionCheck() {
+    await refreshPatchDataOnly();
+    await RigCheckPanel.refreshStatus();
+    rcSubView='function';
+    await setView('rigcheck');
+  }
+  return { init, onEnterScreen, onLeaveScreen, focusEntry, openFunctionCheck };
 })();

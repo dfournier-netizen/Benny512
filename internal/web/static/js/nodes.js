@@ -82,16 +82,11 @@
 const NodesScreen = (() => {
   let nodes = [];
   let selectedKey = null;   // "ip|bindIndex" — the NodeKey currently backing the inspector
+  let selectedPortIndex = null; // zero-based physical port slot within that bind
   let selectedIP = null;    // IP of the currently focused device group (accordion selection)
   let detailBuiltFor = null; // key whose config section is currently in the DOM
-  // expandedGroups tracks which device-group <details> the user has opened,
-  // keyed by IP, surviving the accordion's own re-renders (same pattern
-  // devices.js used for its now-reverted picker, and walk.js's
-  // expandedSections) — a re-render must not silently collapse a group the
-  // tech just opened, and periodic refresh() rebuilds this accordion every
-  // ~3s (WS 'node' events), so this matters far more here than a
-  // one-shot picker.
-  let expandedGroups = {};
+  // The editor tab and staged port values survive background node refreshes.
+  let editorTab = 'port';
 
   // Per-node editable config, keyed by node key. Populated once per
   // selection from the node's current known values; mutated in place by
@@ -101,9 +96,16 @@ const NodesScreen = (() => {
   // and are clearly hinted as "not read from the node" rather than implying
   // they reflect current hardware state.
   let configState = {};
+  const networkState = {};
+  const networkDraft = n => networkState[n.ip] || (networkState[n.ip] = {ip:"",mask:"",gateway:"",dhcp:false,ipApplied:false,ipArmed:false});
   let actionStatus = {}; // key -> { addressing, merge, input, ip }
 
   function keyOf(n) { return n.ip + '|' + n.bindIndex; }
+  function targetKey() { return selectedKey === null ? null : selectedKey + '|' + selectedPortIndex; }
+  function selectPort(key, index, ip) {
+    selectedKey = key; selectedPortIndex = index; selectedIP = ip;
+    render();
+  }
 
   // --- universe notation ---------------------------------------------------
   // The ONE place a universe number becomes text on this screen, and the ONE
@@ -297,12 +299,20 @@ const NodesScreen = (() => {
     const el = document.getElementById('nodeDetail');
     const n = nodes.find(x => keyOf(x) === selectedKey);
     if (!n) {
+      selectedKey = null; selectedPortIndex = null; selectedIP = null;
       detailBuiltFor = null;
-      el.innerHTML = `<div class="b5-panel__body"><div class="b5-empty">${UI.icon('network-node')}<span class="b5-empty__title">No port targeted</span><span class="b5-empty__body">Pick a port on the left. Names, universes, merge mode and IP settings are all sent to one port's node at a time, so nothing here can be shown until you choose which one.</span></div></div>`;
+      el.innerHTML = `<div class="b5-panel__body"><div class="b5-empty">${UI.icon('network-node')}<span class="b5-empty__title">No node selected</span><span class="b5-empty__body">Choose a node to edit.</span></div></div>`;
       return;
     }
-    if (detailBuiltFor !== selectedKey) {
-      detailBuiltFor = selectedKey;
+    if (selectedPortIndex!==null && !(n.ports||[]).some(p=>p.index===selectedPortIndex)) {
+      delete configState[selectedKey];
+      selectedKey=null; selectedIP=null; selectedPortIndex=null; detailBuiltFor=null;
+      renderAccordion(groups);
+      el.innerHTML='<div class="b5-panel__body">The selected port is no longer reported. Choose a node again.</div>';
+      return;
+    }
+    if (detailBuiltFor !== targetKey()) {
+      detailBuiltFor = targetKey();
       if (!configState[selectedKey]) initConfigState(n);
       buildDetailShell(n);
     } else {
@@ -310,204 +320,70 @@ const NodesScreen = (() => {
     }
   }
 
+  // The left pane lists physical nodes only. Ports appear once, in the editor.
   function renderAccordion(groups) {
     const el = document.getElementById('nodesAccordion');
     if (!el) return;
     const scrollTop = el.scrollTop;
-    // If the current selection no longer exists (a node disappeared) default
-    // to nothing selected rather than silently pointing at a stale key.
     if (selectedKey && !groups.some(g => g.entries.some(n => keyOf(n) === selectedKey))) {
-      selectedKey = null;
-      selectedIP = null;
+      selectedKey=null; selectedPortIndex=null; selectedIP=null;
     }
-    if (!groups.length) {
-      // Rule 3: name what is missing and what to do about it.
-      el.innerHTML = `<p class="b5-board__empty">No Art-Net nodes have answered a poll yet. Check the NIC selected in Settings is on the node's network, that the gateway is powered, and press Refresh above.</p>`;
-      return;
-    }
-    const focusedKey = document.activeElement && document.activeElement.name === 'nodePortTarget' ? document.activeElement.value : null;
-    el.innerHTML = groups.map(renderDeviceGroup).join('');
-    // ROOT CAUSE (found verifying an earlier round): per the HTML spec, a
-    // <details> element that is PARSED with the `open` attribute already
-    // present still queues a 'toggle' event — it is not limited to genuine
-    // user clicks or script setting .open on an already-connected element.
-    // render() re-parses every expanded group's `<details open>` from scratch
-    // via innerHTML on every call, so a 'toggle' listener that itself calls
-    // render() (the earlier version of this code did, to auto-default the
-    // inspector to a device's first port on expand) re-queues a fresh
-    // 'toggle' for every open group on every one of those re-renders — an
-    // unbounded cascade across all open groups that pegs the main thread
-    // (confirmed via a MutationObserver: >1800 render() calls inside 300ms
-    // with 4 groups open). This listener therefore only tracks open/closed
-    // state; it must never call render() (or anything that touches this
-    // <details>'s own markup) from inside 'toggle'. Picking a port (the
-    // explicit port-target control below) is what selects a device now —
-    // opening a group alone does not.
-    el.querySelectorAll('details.b5-accordion__item').forEach(d => {
-      d.addEventListener('toggle', () => { expandedGroups[d.dataset.ip] = d.open; });
-      // Opening a device with nothing targeted in it yet defaults the
-      // inspector to that device's first port — "select per device" (task
-      // ask) shouldn't require a second click on a port row too. Driven off
-      // 'click' on the summary (a genuine, trusted user gesture) rather than
-      // 'toggle' (see the ROOT CAUSE comment above for why 'toggle' itself
-      // must stay render()-free); setTimeout(0) lets the browser's own
-      // open/close default action land first so d.open reflects the click's
-      // actual result before this reads it.
-      const summary = d.querySelector('summary');
-      if (summary) {
-        summary.addEventListener('click', () => {
-          setTimeout(() => {
-            if (d.open && !(selectedKey && d.dataset.ip === selectedIP)) {
-              const g = groups.find(x => x.ip === d.dataset.ip);
-              if (g && g.ports.length) {
-                selectedKey = g.ports[0].key;
-                selectedIP = g.ip;
-                render();
-              }
-            }
-          }, 0);
-        });
-      }
-    });
-    el.querySelectorAll('input[name="nodePortTarget"]').forEach(r => {
-      r.addEventListener('change', () => {
-        selectedKey = r.value;
-        selectedIP = r.dataset.ip;
-        render();
-      });
-    });
-    if (focusedKey) {
-      const toRefocus = el.querySelector(`input[name="nodePortTarget"][value="${CSS.escape(focusedKey)}"]`);
-      if (toRefocus) toRefocus.focus();
-    }
-    el.scrollTop = scrollTop;
+    const focusedIP=document.activeElement && document.activeElement.dataset && document.activeElement.dataset.nodeIp;
+    el.innerHTML = groups.map(g => `
+      <button type="button" class="b5-statecard b5-nodes-parent ${g.ip===selectedIP?'is-armed':''}" data-node-ip="${escapeHtml(g.ip)}" aria-pressed="${g.ip===selectedIP}">
+        <strong class="b5-statecard__name">${escapeHtml(g.name)}</strong>
+        <span class="b5-statecard__meta">${escapeHtml(g.ip)} · ${g.ports.length} ports</span>
+        <span class="b5-statecard__state">${deviceStatusPill(g)}${g.ip===selectedIP?pill('tag','accent','','Selected'):''}</span>
+      </button>`).join('') || '<p class="b5-board__empty">No nodes found. Check the interface and refresh.</p>';
+    el.querySelectorAll('[data-node-ip]').forEach(button=>button.addEventListener('click',()=>{
+      const g=groups.find(g=>g.ip===button.dataset.nodeIp);
+      if(g.ip===selectedIP) return;
+      const p=g.ports[0];
+      if(!p) editorTab='node';
+      selectPort(p?p.key:keyOf(g.entries[0]),p?p.index:null,g.ip);
+    }));
+    if(focusedIP) {const button=[...el.querySelectorAll('[data-node-ip]')].find(b=>b.dataset.nodeIp===focusedIP);if(button)button.focus({preventScroll:true});}
+    el.scrollTop=scrollTop;
   }
 
-  function renderDeviceGroup(g) {
-    const open = expandedGroups[g.ip] || g.ip === selectedIP;
-    const lastSeen = deviceLastSeen(g);
-    const body = g.ports.length
-      ? `<div class="b5-board__list">${g.ports.map(p => renderPortCard(g, p)).join('')}</div>`
-      : `<p class="b5-board__empty">This device answered an ArtPoll but reported no ports at all (NumPorts 0). Nothing here can be targeted or configured until it advertises one.</p>`;
-    return `
-      <details class="b5-accordion__item" data-ip="${escapeHtml(g.ip)}" ${open ? 'open' : ''}>
-        <summary class="b5-accordion__trigger">
-          <span class="b5-nodes-summary">
-            <span class="b5-nodes-summary__name">${escapeHtml(g.name)}</span>
-            <span class="b5-nodes-summary__meta b5-text-mono">${escapeHtml(g.ip)}</span>
-            ${pill('tag', '', '', `${g.ports.length} port${g.ports.length === 1 ? '' : 's'}`)}
-            ${deviceStatusPill(g)}
-            <span class="b5-caption">${lastSeen ? 'last seen ' + escapeHtml(new Date(lastSeen).toLocaleTimeString()) : 'never seen answering'}</span>
-          </span>
-          ${UI.icon('chevron-expand')}
-        </summary>
-        <div class="b5-accordion__panel">${body}</div>
-      </details>`;
+  function setEditorTab(tab) {
+    editorTab=tab;
+    for(const kind of ['node','port']) {
+      const button=byId('nodeTab-'+kind),panel=byId('nodePanel-'+kind);
+      if(button) {button.setAttribute('aria-selected',String(kind===tab));button.classList.toggle('is-active',kind===tab);}
+      if(panel) panel.hidden=kind!==tab;
+    }
+    const picker=byId('nodePortPicker'),info=byId('nodeInfoStatic');
+    if(picker) picker.hidden=tab!=='port';
+    if(info) info.hidden=tab!=='port';
   }
-
-  // renderPortCard is the explicit "which port is targeted" control (owner's
-  // original ask) — the output selection area Task 2 refers to. Its radio
-  // value is the port's owning NodeKey: a bind-per-port device (demo.go's
-  // realEN4PortReplies) has one NodeKey per port, so picking a port here
-  // switches which NodeKey backs the entire inspector below (names,
-  // addressing, merge, input-enable, IP config all apply to one NodeKey at a
-  // time — there is no finer-grained wire primitive to target). A
-  // single-reply multi-port node (demo.go's en4Reply) has one NodeKey for all
-  // its ports, so every card in that device shares one radio value/key —
-  // selecting any of them targets the same node, whose own per-port config
-  // below already edits each port's universe/merge/input individually.
-  //
-  // Was a five-column <table> until this round. DESIGN.md's worked example is
-  // this exact conversion, for the reason its diff-line note gives: at
-  // 1024x768 the trailing columns of a control-bearing table sit outside the
-  // visible pane, reachable only through a nested horizontal scrollbar, and a
-  // control a tablet user cannot see is a control that does not exist.
-  function renderPortCard(g, p) {
-    const checked = selectedKey === p.key;
-    // Only worth calling out which NodeKey (bind index) a port came from
-    // when the group actually spans more than one — the bind-per-port
-    // gateway shape. A single-node group would just repeat "Port N" (the
-    // port's own name is already shown), which reads as noise rather than
-    // disambiguation.
-    const bindNote = g.entries.length > 1 ? ` · bind ${p.bindIndex}` : '';
-    const name = portNameOf(p);
-    const dir = portDirectionLabel(p.raw);
-    const label = `Port ${p.index}${name.text ? ' — ' + name.text : ''}`;
-    // The port's name is the node's ShortName. Say which of the two real
-    // shapes it is rather than letting a shared node name read as a name
-    // somebody typed for this port (rule 3).
-    const nameLine = name.text
-      ? (name.perPort
-        ? `<span class="b5-caption">port name reported by the node (its own ArtPollReply short name for bind ${p.bindIndex})</span>`
-        : `<span class="b5-caption">node short name — this node reports one name for all ${g.ports.length} of its ports, not one per port</span>`)
-      : `<span class="b5-caption">this node reports no short name</span>`;
-    const known = p.raw.input || p.raw.output;
-    const cls = checked ? 'is-armed' : (known ? 'is-ok' : 'is-warn');
-    const targetPill = checked
-      ? pill('md', 'accent', 'status-ok', 'Targeted — shown on the right', true)
-      : pill('md', 'open', '', 'Not targeted');
-    return `
-      <article class="b5-statecard ${cls}">
-        <div class="b5-statecard__top">
-          <label class="b5-checkbox b5-nodes-target">
-            <input type="radio" name="nodePortTarget" value="${escapeHtml(p.key)}" data-ip="${escapeHtml(g.ip)}" ${checked ? 'checked' : ''}>
-            <span class="b5-visually-hidden">Target ${escapeHtml(label)}</span>
-          </label>
-          <div class="b5-statecard__id">
-            <strong class="b5-statecard__name">${escapeHtml(label)}</strong>
-            <span class="b5-statecard__meta">${escapeHtml(dir)}${escapeHtml(bindNote)} · ${escapeHtml(portUniverseLabel(p.raw))}</span>
-            ${nameLine}
-          </div>
-        </div>
-        <div class="b5-statecard__state">
-          ${targetPill}
-          ${p.raw.rdmEnabled ? pill('tag', 'ok', '', 'RDM on') : pill('tag', 'open', '', 'RDM not reported')}
-        </div>
-      </article>`;
-  }
-
-  // --- read-only info/ports block (rebuilt every refresh) -----------------
 
   function buildDetailShell(n) {
     const el = document.getElementById('nodeDetail');
-    const group = deviceGroups().find(g => g.ip === n.ip);
-    // devicePortPicker: when this physical device is more than one NodeKey
-    // (bind-per-port shape), surface the same port-target control inline in
-    // the inspector header too, so "which port" is visible without having
-    // to look back up at the accordion — selecting here just proxies to the
-    // same radios (same name, same value semantics). The short name rides
-    // along in each option for the same reason it does in the cards.
-    const portPicker = (group && group.entries.length > 1) ? `
-      <div class="b5-field">
-        <label class="b5-field__label" for="nodeDetailPortTarget">Target port</label>
-        <select id="nodeDetailPortTarget" class="b5-select">
-          ${group.ports.map(p => {
-            const nm = portNameOf(p);
-            return `<option value="${escapeHtml(p.key)}" ${p.key === selectedKey ? 'selected' : ''}>Port ${p.index}${nm.text ? ' — ' + escapeHtml(nm.text) : ''} (bind ${p.bindIndex})</option>`;
-          }).join('')}
-        </select>
-        <span class="b5-field__hint">Port names come from each bind's own ArtPollReply short name — the only per-port label this gateway shape puts on the wire.</span>
-      </div>` : '';
+    const group=deviceGroups().find(g=>g.ip===n.ip);
     el.innerHTML = `
       <div class="b5-panel__header">
-        <h2 class="b5-panel__title">${escapeHtml(n.longName || n.shortName || n.ip)}</h2>
-        ${nodeStatusPill(n)}
+        <div><h2 class="b5-panel__title" id="nodeEditorTitle">${escapeHtml(group.name)}</h2><span class="b5-caption">${escapeHtml(n.ip)}</span></div>
+        <button class="b5-btn b5-btn--sm" id="btnCloseNodeEditor">Close editor</button>
       </div>
-      <div class="b5-panel__body b5-stack">
-        ${portPicker}
+      <div class="b5-nodes-tabs" role="tablist" aria-label="Node editor">
+        <button class="b5-btn" id="nodeTab-node" role="tab" aria-controls="nodePanel-node">Node settings</button>
+        <button class="b5-btn" id="nodeTab-port" role="tab" aria-controls="nodePanel-port">Port settings</button>
+      </div>
+      <div class="b5-panel__body b5-stack b5-nodes-editor__body">
+        <div id="nodePortPicker" class="b5-field"><label for="nodeDetailPortTarget" class="b5-field__label">Port</label>
+          <select class="b5-select" id="nodeDetailPortTarget">${group.ports.map(p=>`<option value="${escapeHtml(p.key+'|'+p.index)}" ${p.key===selectedKey&&p.index===selectedPortIndex?'selected':''}>${escapeHtml(p.nameIsPerPort&&p.nodeShortName?p.nodeShortName:'Port '+p.index)}${group.entries.length>1?' · bind '+p.bindIndex:''} · ${escapeHtml(portUniverseLabel(p.raw))}</option>`).join('')||'<option>No ports reported</option>'}</select>
+        </div>
         <div id="nodeInfoStatic"></div>
         <div id="nodeConfigSection"></div>
       </div>
     `;
-    const picker = document.getElementById('nodeDetailPortTarget');
-    if (picker) {
-      picker.addEventListener('change', (e) => {
-        selectedKey = e.target.value;
-        render();
-      });
-    }
+    byId('btnCloseNodeEditor').addEventListener('click', () => {selectedKey=null;selectedPortIndex=null;selectedIP=null;render();});
+    byId('nodeDetailPortTarget').addEventListener('change',e=>{const p=group.ports.find(p=>p.key+'|'+p.index===e.target.value);if(p)selectPort(p.key,p.index,p.ip);});
+    for(const kind of ['node','port']) byId('nodeTab-'+kind).addEventListener('click',()=>setEditorTab(kind));
     renderInfoStatic(n);
     renderConfigSection(n);
+    setEditorTab(editorTab);
   }
 
   // portDirectionLabel/portUniverseLabel: a node port is an input OR an
@@ -552,9 +428,10 @@ const NodesScreen = (() => {
   }
 
   function renderInfoStatic(n) {
+    if(keyOf(n)!==selectedKey)return;
     const target = document.getElementById('nodeInfoStatic');
     if (!target) return;
-    const ports = n.ports || [];
+    const ports = (n.ports || []).filter(p => p.index === selectedPortIndex);
     const portRows = ports.map(p => `
       <tr>
         <td data-label="Port">${p.index}</td>
@@ -562,28 +439,16 @@ const NodesScreen = (() => {
         <td data-label="Universe" class="b5-text-mono">${escapeHtml(portUniverseLabel(p))}</td>
         <td data-label="RDM">${p.rdmEnabled ? pill('tag', 'ok', '', 'RDM on') : pill('tag', 'open', '', 'Not reported')}</td>
       </tr>`).join('');
-    const nameLine = n.shortName
-      ? `${escapeHtml(n.shortName)} <span class="b5-caption">${ports.length === 1 ? 'names this one port' : 'shared by all ' + ports.length + ' ports on this bind'}</span>`
-      : '<span class="b5-caption">no short name reported</span>';
     target.innerHTML = `
-      <section class="b5-step-section" aria-labelledby="nodeInfoHead">
-        <h3 class="b5-step-section__head" id="nodeInfoHead">
-          <span class="b5-step-num">1</span> As the node reports itself
-          <span class="b5-step-section__note">read from ArtPollReply · universes shown ${escapeHtml(UI.universeBaseLabel())}</span>
-        </h3>
-        <div class="b5-grid-2">
-          <div><span class="b5-caption">IP</span><br><span class="b5-text-mono">${escapeHtml(n.ip)}</span> (bind ${n.bindIndex})</div>
-          <div><span class="b5-caption">Style</span><br>${escapeHtml(n.style)}</div>
-          <div><span class="b5-caption">Short name</span><br>${nameLine}</div>
-          <div><span class="b5-caption">Fixtures seen</span><br>${n.fixtureCount}</div>
-        </div>
+      <details><summary>Reported state · ${ports.map(p=>escapeHtml(portDirectionLabel(p))+' · '+escapeHtml(portUniverseLabel(p))).join('')}</summary>
+        ${nodeStatusPill(n)}
         <div class="b5-scrollbox">
           <table class="b5-table b5-table--responsive">
             <thead><tr><th>Port</th><th>Direction</th><th>Universe</th><th>RDM</th></tr></thead>
             <tbody>${portRows || '<tr><td colspan="4">This bind reports no ports.</td></tr>'}</tbody>
           </table>
         </div>
-      </section>
+      </details>
     `;
   }
 
@@ -630,7 +495,7 @@ const NodesScreen = (() => {
       // gets three deliberate steps: Apply, Arm, Confirm/send).
       ip: '', mask: '', gateway: '', dhcp: false, ipApplied: false, ipArmed: false,
     };
-    actionStatus[keyOf(n)] = { addressing: '', merge: '', input: '', ip: '' };
+    actionStatus[keyOf(n)] = { addressing: '', merge: '', input: '', direction: '', rdm: '', ip: '' };
   }
 
   // --- addressing derivation + the shared-block constraint ------------------
@@ -642,10 +507,11 @@ const NodesScreen = (() => {
   // selected — the direction the tech is looking at and editing. The other
   // direction is left untouched rather than being rewritten from a value
   // nobody typed.
-  function programmedPorts(st) {
+  function programmedPorts(st, onlyIndex) {
     const out = [];
     st.ports.forEach((p, i) => {
       if (i > 3) return; // ArtAddress has exactly four SwIn/SwOut slots
+      if (onlyIndex !== undefined && p.index !== onlyIndex) return;
       if (!p.input && !p.output) return;
       const dir = p.direction === 'input' && p.input ? 'input' : (p.output ? 'output' : 'input');
       out.push({
@@ -669,8 +535,8 @@ const NodesScreen = (() => {
   // returns ok:false with a message naming the offending ports and the block
   // they would have to share — and saveAddressing sends nothing. No clamping,
   // no truncation, no partial write.
-  function deriveAddressing(st) {
-    const used = programmedPorts(st);
+  function deriveAddressing(st, onlyIndex) {
+    const used = programmedPorts(st, onlyIndex);
     const swIn = [null, null, null, null];
     const swOut = [null, null, null, null];
 
@@ -715,9 +581,22 @@ const NodesScreen = (() => {
     const sub = block & 0x0F;
     used.forEach(u => {
       const nibble = u.canonical % UNIVERSES_PER_BLOCK;
-      if (u.dir === 'input') swIn[u.i] = nibble; else swOut[u.i] = nibble;
+      if (u.dir === 'input') swIn[u.index] = nibble; else swOut[u.index] = nibble;
     });
     return { ok: true, netSwitch: net, subSwitch: sub, swIn, swOut, used, block };
+  }
+
+  function deriveSelectedAddressing(n, st, portIndex) {
+    if(portIndex!==null && !(n.ports||[]).some(p=>p.index===portIndex)) return {ok:false,message:'Port is no longer reported. Refresh and select a port again.'};
+    const d=deriveAddressing(st,portIndex);
+    if(!d.ok || !d.used.length) return d;
+    // Net/Sub-Net are shared by a bind. A port-only save must not move
+    // an unselected port (or the other advertised direction) to a new block.
+    const dir=d.used[0].dir;
+    const conflicts=(n.ports||[]).filter(p=>['input','output'].some(side=>
+      p[side] && !(p.index===portIndex&&side===dir) && blockOf(portCanonical(p,side))!==d.block));
+    if(conflicts.length) return {ok:false,message:'Nothing sent. This universe changes the shared 16-universe block and would move other port addresses. Change the node’s shared block on the gateway first.'};
+    return d;
   }
 
   function resultText(res) {
@@ -726,8 +605,10 @@ const NodesScreen = (() => {
     return t;
   }
 
-  function setStatus(key, section, msg) {
-    actionStatus[key][section] = msg;
+  const statusTarget=(key,section,port)=>section==='ip'?key.split('|')[0]+'|ip':key+'|'+(['names'].includes(section)?section:port+'|'+section);
+  function setStatus(key, section, msg, port=selectedPortIndex) {
+    actionStatus[statusTarget(key,section,port)] = msg;
+    if(statusTarget(key,section,port)!==statusTarget(selectedKey||'',section,selectedPortIndex)) return; // a late reply must not paint another node's editor
     const el = document.getElementById('status-' + section);
     if (el) el.textContent = msg;
   }
@@ -742,7 +623,7 @@ const NodesScreen = (() => {
     const area = document.getElementById('addrPreview');
     if (!area) return;
     const st = configState[keyOf(n)];
-    const d = deriveAddressing(st);
+    const d = deriveSelectedAddressing(n, st, selectedPortIndex);
     if (!d.ok) {
       area.innerHTML = `
         <div class="b5-alert b5-alert--error">
@@ -762,78 +643,82 @@ const NodesScreen = (() => {
     area.innerHTML = `
       <div class="b5-inset">
         <p class="b5-inset__head">${UI.icon('apply')}What will be sent</p>
-        <p class="b5-note">${escapeHtml(list)}. On the wire that is Net ${d.netSwitch} · Sub-Net ${d.subSwitch} · per-port universe ${d.used.map(u => u.canonical % UNIVERSES_PER_BLOCK).join(', ')} — Benny512 works those out for you. All ports on this node share the ${blockRangeLabel(d.block)} block, which is the only thing Art-Net lets one node do.</p>
+        <p class="b5-note">${escapeHtml(list)}. Other port addresses stay unchanged.</p>
       </div>`;
   }
 
   function renderConfigSection(n) {
     const key = keyOf(n);
+    if(key!==selectedKey)return;
+    const net=networkDraft(n);
     const st = configState[key];
     const target = document.getElementById('nodeConfigSection');
     if (!target) return;
     const ua = UI.universeInputAttrs();
-
-    target.innerHTML = `
-      <div class="b5-alert b5-alert--caution">
-        ${UI.icon('status-warning')}
-        <div>
-          <p class="b5-alert__title">Node configuration — partially verified against real hardware</p>
-          <p class="b5-alert__body">ArtIpProg's Command bits and gateway field were corrected and confirmed against a real node capture (RDM-LOG19) and the Art-Net 4 spec. ArtAddress and ArtInput wire formats have not been confirmed the same way — ArtInput in particular is sourced from a single secondary reference, not a primary spec fetch or capture this session. Verify results on the node's own display/web UI before relying on any change made here.</p>
-          <button id="btnReloadConfig" type="button" class="b5-btn b5-btn--sm">${UI.icon('refresh')}Reload current values</button>
-        </div>
-      </div>
-
-      <section class="b5-step-section" aria-labelledby="nodeCfgHead">
-        <h3 class="b5-step-section__head" id="nodeCfgHead">
-          <span class="b5-step-num">2</span> Names &amp; universes
-          <span class="b5-step-section__note">staged — nothing is sent until you press Save</span>
-        </h3>
-
-        <div class="b5-field">
+    const nameFields=`<div class="b5-field">
           <label class="b5-field__label" for="cfgShortName">Short name</label>
           <input id="cfgShortName" class="b5-input" type="text" maxlength="18" value="${escapeHtml(st.shortName)}">
-          <span class="b5-field__hint">The 18-character ArtPollReply short name for this bind. On a gateway that answers with one reply per physical port, this is the name that appears against the port in the list on the left.</span>
+          <span class="b5-field__hint">${st.ports.length>1?'Names are shared by all ports on this bind.':'Name reported for this port’s bind.'}</span>
         </div>
         <div class="b5-field">
           <label class="b5-field__label" for="cfgLongName">Long name</label>
           <input id="cfgLongName" class="b5-input" type="text" maxlength="64" value="${escapeHtml(st.longName)}">
+        </div>`;
+
+    target.innerHTML = `
+      <div class="b5-row">
+        <div>
+          <p class="b5-caption">Verify sent changes on the gateway; a reply alone is not proof.</p>
+          <button id="btnReloadConfig" type="button" class="b5-btn b5-btn--sm">${UI.icon('refresh')}Reload current values</button>
         </div>
+      </div>
+
+      <section class="b5-step-section" id="nodePanel-port" role="tabpanel" aria-labelledby="nodeTab-port" ${editorTab==='port'?'':'hidden'}>
+        <h3 class="b5-step-section__head" id="nodeCfgHead">
+          Port settings
+          <span class="b5-step-section__note">staged — nothing is sent until you press Save</span>
+        </h3>
+
+        ${st.ports.length<=1?nameFields:''}
 
         <div class="b5-board__list b5-nodes-portcfg">
-          ${st.ports.map((p, i) => renderPortConfigCard(p, i, ua)).join('')
+          ${st.ports.map((p, i) => p.index===selectedPortIndex?renderPortConfigCard(p, i, ua, st.ports.length===1):'').join('')
             || '<p class="b5-board__empty">This bind reports no ports, so there is nothing here to address.</p>'}
         </div>
 
         <div id="addrPreview"></div>
 
-        <span class="b5-field__hint">Universe edits above are staged: use “Save names &amp; addressing” to commit them. Merge mode and input-enable have no read-back from ArtPollReply — the values shown there are editable defaults, not confirmed current state, and each has its own separate send button.</span>
+        <span class="b5-field__hint">Merge and input-enable values are not read back from the node.</span>
 
         <div class="b5-row">
-          <button id="btnSaveAddressing" class="b5-btn b5-btn--primary">${UI.icon('apply')}Save names &amp; addressing</button>
-          <button id="btnSaveInput" class="b5-btn">Save input enable</button>
+          <button id="btnSaveAddressing" class="b5-btn b5-btn--primary">${UI.icon('apply')}${st.ports.length>1?'Save port addressing':'Save names &amp; addressing'}</button>
+          <button id="btnSaveInput" class="b5-btn" ${st.ports.length===1&&st.ports[0].input?'':'disabled'}>Save input enable</button>
         </div>
         <div class="b5-row"><span class="b5-field__status" id="status-addressing"></span></div>
         <div class="b5-row"><span class="b5-field__status" id="status-merge"></span></div>
         <div class="b5-row"><span class="b5-field__status" id="status-input"></span></div>
+        <div class="b5-row"><span class="b5-field__status" id="status-direction"></span></div>
+        <div class="b5-row"><span class="b5-field__status" id="status-rdm"></span></div>
       </section>
 
-      <section class="b5-step-section" aria-labelledby="nodeIpHead">
+      <section class="b5-step-section" id="nodePanel-node" role="tabpanel" aria-labelledby="nodeTab-node" ${editorTab==='node'?'':'hidden'}>
+        ${st.ports.length>1?nameFields+'<button class="b5-btn" id="btnSaveNames">Save node names</button><p id="status-names" role="status"></p>':''}
         <h3 class="b5-step-section__head" id="nodeIpHead">
-          <span class="b5-step-num">3</span> IP configuration
-          <span class="b5-step-section__note">apply, then arm, then confirm</span>
+          IP configuration
+          <span class="b5-step-section__note">Affects the whole node · apply, arm, confirm</span>
         </h3>
-        <label class="b5-toggle"><input id="cfgDhcp" type="checkbox" ${st.dhcp ? 'checked' : ''}><span class="b5-toggle__track"></span>DHCP</label>
+        <label class="b5-toggle"><input id="cfgDhcp" type="checkbox" ${net.dhcp ? 'checked' : ''}><span class="b5-toggle__track"></span>DHCP</label>
         <div class="b5-field">
           <label class="b5-field__label" for="cfgIp">Static IP</label>
-          <input id="cfgIp" class="b5-input b5-input--mono" type="text" placeholder="e.g. 2.11.90.5" value="${escapeHtml(st.ip)}" ${st.dhcp ? 'disabled' : ''}>
+          <input id="cfgIp" class="b5-input b5-input--mono" type="text" placeholder="e.g. 2.11.90.5" value="${escapeHtml(net.ip)}" ${net.dhcp ? 'disabled' : ''}>
         </div>
         <div class="b5-field">
           <label class="b5-field__label" for="cfgMask">Subnet mask</label>
-          <input id="cfgMask" class="b5-input b5-input--mono" type="text" placeholder="e.g. 255.0.0.0" value="${escapeHtml(st.mask)}" ${st.dhcp ? 'disabled' : ''}>
+          <input id="cfgMask" class="b5-input b5-input--mono" type="text" placeholder="e.g. 255.0.0.0" value="${escapeHtml(net.mask)}" ${net.dhcp ? 'disabled' : ''}>
         </div>
         <div class="b5-field">
           <label class="b5-field__label" for="cfgGateway">Gateway</label>
-          <input id="cfgGateway" class="b5-input b5-input--mono" type="text" placeholder="optional" value="${escapeHtml(st.gateway)}" ${st.dhcp ? 'disabled' : ''}>
+          <input id="cfgGateway" class="b5-input b5-input--mono" type="text" placeholder="optional" value="${escapeHtml(net.gateway)}" ${net.dhcp ? 'disabled' : ''}>
         </div>
         <div id="ipConfirmArea"></div>
         <div class="b5-row"><span class="b5-field__status" id="status-ip"></span></div>
@@ -903,8 +788,8 @@ const NodesScreen = (() => {
     target.querySelectorAll('.btn-apply-merge').forEach(btn => {
       btn.addEventListener('click', async e => {
         const i = +e.target.closest('button').dataset.i;
-        await setMergeMode(n, st.ports[i].index, st.ports[i].mergeMode);
-        st.ports[i].mergeModeApplied = st.ports[i].mergeMode;
+        const sentMode=st.ports[i].mergeMode;
+        if(await setMergeMode(n, st.ports[i].index, sentMode)) st.ports[i].mergeModeApplied = sentMode;
         renderConfigSection(n);
       });
     });
@@ -915,32 +800,49 @@ const NodesScreen = (() => {
         renderConfigSection(n);
       });
     });
+    target.querySelectorAll('.btn-set-direction').forEach(btn => {
+      btn.addEventListener('click', async e => {
+        const button = e.currentTarget;
+        const i = +button.dataset.i;
+        const direction = button.dataset.direction;
+        await setPortDirection(n, st.ports[i].index, direction);
+      });
+    });
+    target.querySelectorAll('.btn-set-rdm').forEach(btn => {
+      btn.addEventListener('click', async e => {
+        const button = e.currentTarget;
+        const i = +button.dataset.i;
+        const enabled = button.dataset.enabled === 'true';
+        await setPortRDM(n, st.ports[i].index, enabled);
+      });
+    });
 
+    if(byId('btnSaveNames'))byId('btnSaveNames').addEventListener('click',()=>saveNames(n));
     byId('btnSaveAddressing').addEventListener('click', () => saveAddressing(n));
     byId('btnSaveInput').addEventListener('click', () => saveInputEnabled(n));
-    byId('btnReloadConfig').addEventListener('click', () => { initConfigState(n); renderConfigSection(n); });
+    byId('btnReloadConfig').addEventListener('click', () => { if(editorTab==='node')delete networkState[n.ip];else initConfigState(n); renderConfigSection(n); });
 
     // --- IP config: DHCP toggle re-renders (structural change: disables
     // static fields), everything else is oninput-state / explicit confirm.
     // Any edit here re-dirties ipApplied, so re-editing after Apply forces
     // re-applying before Arm/Confirm are reachable again.
-    byId('cfgDhcp').addEventListener('change', e => { st.dhcp = e.target.checked; st.ipApplied = false; st.ipArmed = false; renderConfigSection(n); });
-    if (!st.dhcp) {
+    byId('cfgDhcp').addEventListener('change', e => { net.dhcp = e.target.checked; net.ipApplied = false; net.ipArmed = false; renderConfigSection(n); });
+    if (!net.dhcp) {
       // Re-editing after Apply/Arm collapses the confirm box back to
       // "needs Apply" — this only touches the separate #ipConfirmArea
       // subtree (renderIPConfirmArea), never the field being typed into, so
       // it doesn't disturb focus/cursor position while typing.
-      const dirtyIP = () => { st.ipApplied = false; st.ipArmed = false; renderIPConfirmArea(n); };
-      byId('cfgIp').addEventListener('input', e => { st.ip = e.target.value; dirtyIP(); });
-      byId('cfgMask').addEventListener('input', e => { st.mask = e.target.value; dirtyIP(); });
-      byId('cfgGateway').addEventListener('input', e => { st.gateway = e.target.value; dirtyIP(); });
+      const dirtyIP = () => { net.ipApplied = false; net.ipArmed = false; renderIPConfirmArea(n); };
+      byId('cfgIp').addEventListener('input', e => { net.ip = e.target.value; dirtyIP(); });
+      byId('cfgMask').addEventListener('input', e => { net.mask = e.target.value; dirtyIP(); });
+      byId('cfgGateway').addEventListener('input', e => { net.gateway = e.target.value; dirtyIP(); });
     }
     renderIPConfirmArea(n);
     renderAddressingPreview(n);
 
     // Restore any status text already recorded for this node.
-    ['addressing', 'merge', 'input', 'ip'].forEach(section => {
-      const s = actionStatus[key] && actionStatus[key][section];
+    ['addressing', 'names', 'merge', 'input', 'direction', 'rdm', 'ip'].forEach(section => {
+      const s = actionStatus[statusTarget(key,section,selectedPortIndex)];
       if (s) setStatus(key, section, s);
     });
   }
@@ -948,17 +850,17 @@ const NodesScreen = (() => {
   // renderPortConfigCard: one port's editable universe/merge/input, as a
   // state card rather than a table row. Its state word is "Staged change" vs
   // "Matches the node", reinforced by the card's left-border weight.
-  function renderPortConfigCard(p, i, ua) {
+  function renderPortConfigCard(p, i, ua, canSetInput=true) {
     const both = p.input && p.output;
     const known = p.input || p.output;
     const dirCell = both
       ? `<div class="b5-field">
-           <label class="b5-field__label" for="cfgDir${i}">Direction being edited</label>
+           <label class="b5-field__label" for="cfgDir${i}">Universe direction being edited</label>
            <select id="cfgDir${i}" class="b5-select cfg-dir" data-i="${i}">
              <option value="output" ${p.direction === 'output' ? 'selected' : ''}>Output</option>
              <option value="input" ${p.direction === 'input' ? 'selected' : ''}>Input</option>
            </select>
-           <span class="b5-field__hint">This port advertises both. Only the direction selected here has its universe written when you save; the other is left as the node has it.</span>
+           <span class="b5-field__hint">This port advertises both. Only the direction selected here has its universe written when you save; the other is left as the node has it. This does not change the physical port direction; use the control below for that.</span>
          </div>`
       : '';
     const dirWord = p.output && !p.input ? 'Output' : (p.input && !p.output ? 'Input' : (both ? 'Input + Output' : `Direction not reported (PortTypes ${portTypeHex(p)})`));
@@ -970,7 +872,7 @@ const NodesScreen = (() => {
            <label class="b5-field__label" for="cfgUni${i}">Universe <span class="b5-caption">(${escapeHtml(UI.universeBaseLabel())})</span></label>
            <input id="cfgUni${i}" class="b5-input b5-numinput b5-input--mono cfg-universe" data-i="${i}" type="number" min="${ua.min}" max="${ua.max}" value="${escapeHtml(uni(canonical))}" inputmode="numeric">
            <span class="b5-field__status" id="cfgUniStatus${i}">${p.uniError ? escapeHtml(p.uniError) : (uniDirty ? 'Staged — not sent yet' : '')}</span>
-           <span class="b5-field__hint">Type the universe as it reads on the gateway’s own faceplate. Benny512 works out Net and Sub-Net for you when you save.</span>
+           <span class="b5-field__hint">Uses your selected universe display base.</span>
          </div>`
       : `<p class="b5-note">This port advertises neither an input nor an output (PortTypes ${escapeHtml(portTypeHex(p))}), so it has no universe to set.</p>`;
     const mergeDirty = p.mergeMode !== p.mergeModeApplied;
@@ -996,8 +898,34 @@ const NodesScreen = (() => {
     // "invented value that looks confirmed" failure mode this guards against.
     const inputCell = p.input
       ? `<div class="b5-field">
-           <label class="b5-checkbox"><input class="cfg-input-en" data-i="${i}" type="checkbox" ${p.inputEnabled ? 'checked' : ''}>Input enabled</label>
-           <span class="b5-field__hint">Not confirmed by the node — ArtPollReply reports no input-enable state, so this starts at a default rather than at what the hardware is doing. Sent by “Save input enable”.</span>
+           <label class="b5-checkbox"><input class="cfg-input-en" data-i="${i}" type="checkbox" ${p.inputEnabled ? 'checked' : ''} ${canSetInput?'':'disabled'}>Input enabled</label>
+           <span class="b5-field__hint">${canSetInput?'Not read from the node. Apply with Save input enable.':'Unavailable per port on this bind: ArtInput rewrites every port’s enable state.'}</span>
+         </div>`
+      : '';
+    const directionCell = known
+      ? `<div class="b5-field">
+           <p class="b5-field__label">Physical port direction</p>
+           <div class="b5-field__row">
+             <span class="b5-field__status">Reported: ${escapeHtml(dirWord)}</span>
+             <span class="b5-field__actions">
+               <button type="button" class="b5-btn b5-btn--sm btn-set-direction" data-i="${i}" data-direction="output">Set output</button>
+               <button type="button" class="b5-btn b5-btn--sm btn-set-direction" data-i="${i}" data-direction="input">Set input</button>
+             </span>
+           </div>
+           <span class="b5-field__hint">Setting input also clears this port’s subscriber list.</span>
+         </div>`
+      : '';
+    const rdmCell = p.output
+      ? `<div class="b5-field">
+           <p class="b5-field__label">RDM on this port</p>
+           <div class="b5-field__row">
+             <span class="b5-field__status">Reported: ${p.rdmEnabled ? 'enabled' : 'disabled'}</span>
+             <span class="b5-field__actions">
+               <button type="button" class="b5-btn b5-btn--sm b5-btn--primary btn-set-rdm" data-i="${i}" data-enabled="true">Enable RDM</button>
+               <button type="button" class="b5-btn b5-btn--sm b5-btn--danger btn-set-rdm" data-i="${i}" data-enabled="false">Disable RDM</button>
+             </span>
+           </div>
+           <span class="b5-field__hint"></span>
          </div>`
       : '';
     const statePill = p.uniError
@@ -1016,8 +944,10 @@ const NodesScreen = (() => {
         <div class="b5-statecard__state">${statePill}</div>
         ${dirCell}
         ${uniCell}
+        ${directionCell}
         ${mergeCell}
         ${inputCell}
+        ${rdmCell}
       </article>`;
   }
 
@@ -1071,14 +1001,15 @@ const NodesScreen = (() => {
   // ceremony on top of the baseline Apply-to-confirm rule.
   function renderIPConfirmArea(n) {
     const key = keyOf(n);
-    const st = configState[key];
+    if(key!==selectedKey)return;
+    const st = networkDraft(n);
     const area = document.getElementById('ipConfirmArea');
     if (!area) return;
     if (!st.ipApplied) {
       area.innerHTML = `
         <div class="b5-row">
           <button id="btnApplyIP" class="b5-btn b5-btn--primary">${UI.icon('apply')}Apply</button>
-          <span class="b5-field__hint">stages the IP fields above; sending still requires arming + confirming below.</span>
+          <span class="b5-field__hint">Sending still requires Arm and Confirm.</span>
         </div>`;
       byId('btnApplyIP').addEventListener('click', () => { st.ipApplied = true; renderIPConfirmArea(n); });
     } else if (!st.ipArmed) {
@@ -1089,7 +1020,7 @@ const NodesScreen = (() => {
           <button id="btnRevertIP" class="b5-btn b5-btn--ghost">${UI.icon('revert')}Revert</button>
         </div>`;
       byId('btnArmIP').addEventListener('click', () => { st.ipArmed = true; renderIPConfirmArea(n); });
-      byId('btnRevertIP').addEventListener('click', () => { initConfigState(n); renderConfigSection(n); });
+      byId('btnRevertIP').addEventListener('click', () => { delete networkState[n.ip]; renderConfigSection(n); });
     } else {
       area.innerHTML = `
         <div class="b5-alert b5-alert--warning">
@@ -1109,68 +1040,111 @@ const NodesScreen = (() => {
     }
   }
 
+  async function saveNames(n) {
+    const key=keyOf(n),st=configState[key];setStatus(key,'names','sending…');
+    try {const res=await Api.setNodeAddress(n.ip,{bindIndex:n.bindIndex,shortName:st.shortName,longName:st.longName});setStatus(key,'names',resultText(res));}
+    catch(e){setStatus(key,'names','error: '+e.message);}
+  }
+
   async function saveAddressing(n) {
     const key = keyOf(n);
+    const portStatus=(section,msg)=>setStatus(key,section,msg,portIndex);
+    const portIndex=selectedPortIndex;
     const st = configState[key];
-    const derived = deriveAddressing(st);
+    const derived = deriveSelectedAddressing(n, st, selectedPortIndex);
     if (!derived.ok) {
       // REFUSE. Nothing is sent, nothing is clamped, no partial configuration
       // is written. A wrong universe here points a gateway's output at the
       // wrong fixtures on a show.
-      setStatus(key, 'addressing', derived.message);
+      portStatus('addressing', derived.message);
       renderAddressingPreview(n);
       return;
     }
     const body = {
-      bindIndex: n.bindIndex, shortName: st.shortName, longName: st.longName,
+      bindIndex: n.bindIndex, ...(st.ports.length<=1?{shortName:st.shortName,longName:st.longName}:{}),
       netSwitch: derived.netSwitch, subSwitch: derived.subSwitch,
       swIn: derived.swIn, swOut: derived.swOut,
     };
-    setStatus(key, 'addressing', 'sending…');
+    portStatus('addressing', 'sending…');
     try {
       const res = await Api.setNodeAddress(n.ip, body);
       // Only now does the staged canonical value become the baseline the
       // "Staged — not sent yet" marker is measured against.
       derived.used.forEach(u => {
         const p = st.ports[u.i];
-        if (u.dir === 'input') p.universeInApplied = p.universeIn;
-        else p.universeOutApplied = p.universeOut;
+        if (u.dir === 'input') p.universeInApplied = u.canonical;
+        else p.universeOutApplied = u.canonical;
       });
-      updatePortDirtyMarkers(st);
-      setStatus(key, 'addressing', resultText(res));
+      if(key===selectedKey) updatePortDirtyMarkers(st);
+      portStatus('addressing', resultText(res));
     } catch (e) {
-      setStatus(key, 'addressing', 'error: ' + e.message);
+      portStatus('addressing', 'error: ' + e.message);
     }
   }
 
   async function setMergeMode(n, portIndex, mode) {
     const key = keyOf(n);
+    const portStatus=(section,msg)=>setStatus(key,section,msg,portIndex);
     const cmd = (mode === 'ltp' ? 'merge_ltp_' : 'merge_htp_') + portIndex;
-    setStatus(key, 'merge', `setting port ${portIndex} to ${mode.toUpperCase()}…`);
+    portStatus('merge', `setting port ${portIndex} to ${mode.toUpperCase()}…`);
     try {
       const res = await Api.setNodeAddress(n.ip, { bindIndex: n.bindIndex, command: cmd });
-      setStatus(key, 'merge', `port ${portIndex} ${mode.toUpperCase()}: ` + resultText(res));
+      portStatus('merge', `port ${portIndex} ${mode.toUpperCase()}: ` + resultText(res));
+      return true;
     } catch (e) {
-      setStatus(key, 'merge', 'error: ' + e.message);
+      portStatus('merge', 'error: ' + e.message);
+      return false;
+    }
+  }
+
+  async function setPortDirection(n, portIndex, direction) {
+    const key = keyOf(n);
+    const portStatus=(section,msg)=>setStatus(key,section,msg,portIndex);
+    const word = direction === 'input' ? 'input' : 'output';
+    if (!confirm(`Set port ${portIndex} on ${n.shortName || n.ip} to ${word}?${word === 'input' ? '\n\nThis also flushes that port’s subscriber list.' : ''}\n\nThis sends an ArtAddress command to the node now.`)) return;
+    portStatus('direction', `setting port ${portIndex} to ${word}…`);
+    try {
+      const res = await Api.setNodeAddress(n.ip, { bindIndex: n.bindIndex, command: `direction_${word === 'input' ? 'rx' : 'tx'}_${portIndex}` });
+      portStatus('direction', `port ${portIndex} ${word}: ` + resultText(res));
+    } catch (e) {
+      portStatus('direction', 'error: ' + e.message);
+    }
+  }
+
+  async function setPortRDM(n, portIndex, enabled) {
+    const key = keyOf(n);
+    const portStatus=(section,msg)=>setStatus(key,section,msg,portIndex);
+    const word = enabled ? 'enable' : 'disable';
+    if (!confirm(`${enabled ? 'Enable' : 'Disable'} RDM on port ${portIndex} of ${n.shortName || n.ip}?\n\nThis sends an ArtAddress command to the node now.`)) return;
+    portStatus('rdm', `${word} RDM on port ${portIndex}…`);
+    try {
+      const res = await Api.setNodeAddress(n.ip, { bindIndex: n.bindIndex, command: `rdm_${word}_${portIndex}` });
+      portStatus('rdm', `port ${portIndex} RDM ${enabled ? 'enabled' : 'disabled'}: ` + resultText(res));
+    } catch (e) {
+      portStatus('rdm', 'error: ' + e.message);
     }
   }
 
   async function saveInputEnabled(n) {
     const key = keyOf(n);
+    const portStatus=(section,msg)=>setStatus(key,section,msg,portIndex);
+    const portIndex=selectedPortIndex;
     const st = configState[key];
-    const enabled = [0, 1, 2, 3].map(i => (st.ports[i] ? st.ports[i].inputEnabled : false));
-    setStatus(key, 'input', 'sending…');
+    const p=st.ports.find(p=>p.index===selectedPortIndex);
+    if(st.ports.length!==1 || !p || !p.input) {setStatus(key,'input','Nothing sent. ArtInput cannot safely change only this port.');return;}
+    const enabled = [0, 1, 2, 3].map(i => i===p.index ? p.inputEnabled : false);
+    portStatus('input', 'sending…');
     try {
       const res = await Api.setNodeInput(n.ip, { bindIndex: n.bindIndex, enabled });
-      setStatus(key, 'input', resultText(res));
+      portStatus('input', resultText(res));
     } catch (e) {
-      setStatus(key, 'input', 'error: ' + e.message);
+      portStatus('input', 'error: ' + e.message);
     }
   }
 
   async function sendIPConfig(n) {
     const key = keyOf(n);
-    const st = configState[key];
+    const st = networkDraft(n);
     setStatus(key, 'ip', 'sending…');
     try {
       const res = await Api.setNodeIPConfig(n.ip, {
@@ -1203,7 +1177,7 @@ const NodesScreen = (() => {
   // Test seam: the JS suites in static/js/testdata drive this screen through
   // its own handlers, exactly as the browser does, and need to seed the node
   // list without an HTTP round trip.
-  return { init, refresh, __setNodesForTest: (v) => { nodes = v; }, __configStateForTest: () => configState, __deriveForTest: (st) => deriveAddressing(st) };
+  return { init, refresh, __setNodesForTest: (v) => { nodes = v; }, __configStateForTest: () => configState, __deriveForTest: (st) => deriveAddressing(st), __deriveSelectedForTest: deriveSelectedAddressing, __selectPortForTest: selectPort, __networkDraftForTest: networkDraft };
 })();
 
 function escapeHtml(s) {

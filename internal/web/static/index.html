@@ -11,6 +11,8 @@
 <link rel="stylesheet" href="/css/screens-devices.css">
 <link rel="stylesheet" href="/css/screens-tools.css">
 <link rel="stylesheet" href="/css/app.css">
+<link rel="stylesheet" href="/css/workspace.css">
+<link rel="stylesheet" href="/css/screens-nodes.css">
 </head>
 <body>
 <div class="b5-app">
@@ -19,6 +21,7 @@
     <span class="b5-header__spacer"></span>
     <span class="b5-connection" id="connStatus"><span class="b5-connection__dot"></span>connecting&hellip;</span>
   </header>
+  <div id="showContext" class="b5-show-context" aria-label="Show and output context"></div>
 
   <nav class="b5-nav" id="tabs">
     <button class="b5-nav__item" data-tab="nodes"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-nodes"/></svg>Nodes</button>
@@ -46,14 +49,12 @@
         <h1 class="b5-page-header__title">Nodes</h1>
         <span class="b5-page-header__meta"><button id="btnRefreshNodes" class="b5-btn b5-btn--sm"><svg><use href="/icons/benny512-icons.svg#b5-icon-refresh"/></svg>Refresh</button></span>
       </div>
-      <p class="b5-text-muted b5-text-sm">Art-Net nodes on this network, grouped by physical device (ports on the same box share one block) and sorted by IP. RDM capability shown per device.</p>
-      <div class="b5-split">
-        <div class="b5-panel">
-          <div class="b5-panel__body--flush">
-            <div class="b5-accordion" id="nodesAccordion"></div>
-          </div>
+      <div class="b5-nodes-workspace">
+        <div class="b5-panel b5-nodes-picker" role="region" aria-label="Nodes">
+          <div class="b5-panel__header"><div><h2 class="b5-panel__title">Nodes</h2><span class="b5-caption">Physical devices on this network</span></div></div>
+          <div class="b5-board__list" id="nodesAccordion"></div>
         </div>
-        <div class="b5-panel" id="nodeDetail">
+        <div class="b5-panel b5-nodes-editor" id="nodeDetail" role="region" aria-label="Node editor">
           <div class="b5-panel__body">
             <div class="b5-empty"><svg><use href="/icons/benny512-icons.svg#b5-icon-network-node"/></svg><span class="b5-empty__title">No node selected</span><span class="b5-empty__body">Select a node to see its ports and universes.</span></div>
           </div>
@@ -334,6 +335,8 @@
 <script src="/js/send.js"></script>
 <script src="/js/settings.js"></script>
 <script src="/js/walk.js"></script>
+<script src="/js/workspace.js"></script>
+<script src="/js/library.js"></script>
 <script src="/js/app.js"></script>
 </body>
 </html>

@@ -164,3 +164,75 @@
    within its own box (rule 4). Nothing reaches the page edge.
    --------------------------------------------------------------------------- */
 #screen-analyzer .b5-table td[data-label="Detail"] .b5-btn { white-space: nowrap; }
+
+/* Devices is a working picker, not a four-step form. Keep discovery and the
+   list compact; the inspector stays beside the list until it is explicitly
+   closed, so changing from one device to another does not mean travelling to
+   the bottom of the page. */
+#screen-devices .b5-devices-target { margin-bottom: var(--b5-space-3); }
+#screen-devices .b5-devices-clear { margin-bottom: var(--b5-space-4); }
+#screen-devices .b5-devices-clear > summary { cursor: pointer; }
+#screen-devices .b5-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--b5-space-3);
+  margin: 0 0 var(--b5-space-3);
+}
+#screen-devices .b5-section-head h2 { margin: 0; font-size: var(--b5-font-size-lg); }
+
+.b5-inspector {
+  position: fixed;
+  z-index: 20;
+  top: var(--b5-space-4);
+  right: var(--b5-space-4);
+  bottom: var(--b5-space-4);
+  width: min(34rem, calc(100vw - (var(--b5-space-4) * 2)));
+  overflow: auto;
+  padding: var(--b5-space-4);
+  border: var(--b5-border-width-thick) solid var(--b5-color-accent-500);
+  border-radius: var(--b5-radius-lg);
+  background: var(--b5-color-bg-surface-raised);
+  box-shadow: var(--b5-shadow-lg);
+  transform: translateX(calc(100% + var(--b5-space-4)));
+  visibility: hidden;
+  pointer-events: none;
+  transition: transform 160ms ease, visibility 160ms ease;
+}
+.b5-inspector.is-open {
+  transform: translateX(0);
+  visibility: visible;
+  pointer-events: auto;
+}
+.b5-inspector__bar {
+  position: sticky;
+  z-index: 1;
+  top: calc(var(--b5-space-4) * -1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--b5-space-3);
+  min-height: var(--b5-size-touch-min);
+  margin: calc(var(--b5-space-4) * -1) calc(var(--b5-space-4) * -1) var(--b5-space-4);
+  padding: var(--b5-space-3) var(--b5-space-4);
+  border-bottom: 1px solid var(--b5-color-border);
+  background: var(--b5-color-bg-surface-raised);
+}
+.b5-inspector__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--b5-space-2); }
+
+@media (max-width: 899px) {
+  .b5-inspector {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: auto;
+    max-height: min(82vh, 52rem);
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: var(--b5-radius-lg) var(--b5-radius-lg) 0 0;
+    transform: translateY(110%);
+  }
+  .b5-inspector.is-open { transform: translateY(0); }
+}

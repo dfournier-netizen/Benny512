@@ -46,7 +46,14 @@ function parseXmlToTinyDom(xmlString) {
   const root = new Element('#document');
   const stack = [root];
   let m;
+  let cursor = 0;
   while ((m = tagRe.exec(s))) {
+	// Keep direct text on its containing element. Earlier fixture-parser
+	// tests used attributes only; MVR's <Position>UUID</Position> and
+	// <Address>1</Address> need this small, literal text-node subset.
+	const text = decodeEntities(s.slice(cursor, m.index)).trim();
+	if (text) stack[stack.length - 1].textContent += text;
+	cursor = tagRe.lastIndex;
     const closing = m[1] === '/';
     const tag = m[2];
     const attrsStr = m[3];
@@ -65,6 +72,8 @@ function parseXmlToTinyDom(xmlString) {
     stack[stack.length - 1].children.push(el);
     if (!selfClose) stack.push(el);
   }
+	const tail = decodeEntities(s.slice(cursor)).trim();
+	if (tail) stack[stack.length - 1].textContent += tail;
   return root;
 }
 

@@ -74,12 +74,11 @@ const RigCheckPanel = (() => {
   // state. null only before the first fetch. See rule 1 in the file comment.
   let snap = null;
 
-  // scope: the only genuinely client-side state here, and it is an INPUT to
-  // the server rather than a mirror of anything it reports — the status
-  // object echoes a resolved fixture count (totalScope) but not the scope
-  // expression that produced it, so the expression lives here and is re-sent
-  // whenever it changes. Persisted per session like the other Rig Check
-  // scope pickers in patch.js.
+  // scope is an input control, but the server echoes its accepted expression
+  // on every snapshot. That matters after a rejected change or another
+  // client changes the test: the controls must return to the server truth,
+  // not preserve a browser-side guess. Persisted per session for a useful
+  // first visit only; an accepted server scope wins after that.
   let scopeKind = sessionStorage.getItem('benny512.rigcheck.scopeKind') || 'all';
   let scopeUniverse = 0;
   let scopePosition = '';
@@ -100,6 +99,11 @@ const RigCheckPanel = (() => {
   // so it happens once per visit to the sub-tab rather than on every
   // re-render of the owning screen.
   let mounted = false;
+
+  window.addEventListener('b5-show-changed', () => {
+    snap = null; scopeKind = 'all'; scopeUniverse = 0; scopePosition = '';
+    scopeSelection = {}; mounted = false; expanded = {};
+  });
 
   // ---- taxonomy / presentation ------------------------------------------
 
@@ -239,6 +243,18 @@ const RigCheckPanel = (() => {
     return b;
   }
 
+  function syncScopeFromSnapshot() {
+    if (!snap || !snap.scopeKind) return;
+    const kind = snap.scopeKind;
+    if (!['all', 'universe', 'position', 'selection'].includes(kind)) return;
+    scopeKind = kind;
+    scopeUniverse = Number(snap.scopeUniverse || 0);
+    scopePosition = snap.scopePosition || '';
+    scopeSelection = {};
+    (snap.scopeEntryIds || []).forEach(id => { scopeSelection[id] = true; });
+    sessionStorage.setItem('benny512.rigcheck.scopeKind', scopeKind);
+  }
+
   // apply: the single funnel every mutator goes through. It exists so that
   // "re-render from the returned snapshot, never from local state" is one
   // line that cannot be forgotten at a call site — and so an error leaves
@@ -247,6 +263,7 @@ const RigCheckPanel = (() => {
     errMsg = '';
     try {
       snap = await fn();
+      syncScopeFromSnapshot();
       watchdogFired = false;
       syncPolling();
       return true;
@@ -254,7 +271,7 @@ const RigCheckPanel = (() => {
       errMsg = e && e.message ? e.message : String(e);
       // Re-read the truth: a rejected mutation means the server's state is
       // whatever it was, and the screen must show that, not the attempt.
-      try { snap = await Api.getPattern(); } catch (e2) { /* keep last snapshot */ }
+      try { snap = await Api.getPattern(); syncScopeFromSnapshot(); } catch (e2) { /* keep last snapshot */ }
       return false;
     } finally {
       render();
@@ -349,6 +366,7 @@ const RigCheckPanel = (() => {
       }
       const before = snap;
       snap = next;
+      syncScopeFromSnapshot();
       if (!snap.outputEnabled) {
         stopPolling();
         if (snap.lastEndReason === 'watchdog') {
@@ -415,14 +433,16 @@ const RigCheckPanel = (() => {
   // computed over) and paints whatever comes back.
   async function enter(container) {
     containerEl = container;
-    errMsg = '';
-    try {
-      snap = await Api.patternSetScope(scopeBody());
+      errMsg = '';
+      try {
+        snap = await Api.getPattern();
+        if (!snap.scopeKind) snap = await Api.patternSetScope(scopeBody());
+        syncScopeFromSnapshot();
     } catch (e) {
       // A scope that resolves to nothing is a 422 — legitimate and worth
       // saying plainly rather than leaving a blank screen.
       errMsg = e && e.message ? e.message : String(e);
-      try { snap = await Api.getPattern(); } catch (e2) { /* leave snap as-is */ }
+      try { snap = await Api.getPattern(); syncScopeFromSnapshot(); } catch (e2) { /* leave snap as-is */ }
     }
     syncPolling();
     render();
@@ -431,7 +451,7 @@ const RigCheckPanel = (() => {
   function leave() { mounted = false; stopPolling(); containerEl = null; }
 
   async function refreshStatus() {
-    try { snap = await Api.getPattern(); } catch (e) { /* best effort */ }
+    try { snap = await Api.getPattern(); syncScopeFromSnapshot(); } catch (e) { /* best effort */ }
     syncPolling();
     return snap;
   }
@@ -835,7 +855,14 @@ const RigCheckPanel = (() => {
     }));
 
     const uni = el.querySelector('#rcpScopeUniverse');
-    if (uni) uni.addEventListener('change', async (e) => { scopeUniverse = UI.parseUniverse(e.target.value); await setScope(); });
+    if (uni) uni.addEventListener('change', async (e) => {
+      // A universe-base flip re-renders this input. Chromium can still emit
+      // the old focused input's queued change afterward; it must never write
+      // a stale display-base value into the newly-rendered scope.
+      if (!e.target.isConnected) return;
+      scopeUniverse = UI.parseUniverse(e.target.value);
+      await setScope();
+    });
 
     const pos = el.querySelector('#rcpScopePosition');
     if (pos) pos.addEventListener('change', async (e) => { scopePosition = e.target.value; await setScope(); });

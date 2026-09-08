@@ -231,6 +231,13 @@ func (e *DMXOutputEngine) Universes() []artnet.PortAddress {
 	return out
 }
 
+// OutputRunning is a read-only status query, not a controller heartbeat.
+func (e *DMXOutputEngine) OutputRunning() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.running && len(e.universes) > 0
+}
+
 // SetFrame replaces a universe's buffer starting at slot 1. Slots beyond
 // len(data) are zeroed — this is a whole-frame set, not a merge.
 func (e *DMXOutputEngine) SetFrame(addr artnet.PortAddress, data []byte) error {

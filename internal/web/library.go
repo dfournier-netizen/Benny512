@@ -42,6 +42,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -92,6 +93,13 @@ type libraryListResponse struct {
 func (s *Server) handleGetLibrary(w http.ResponseWriter, r *http.Request) {
 	st := s.LibraryStore
 	lib := st.Get()
+	// Browsing needs source metadata, not every base64 archive. Export and
+	// the source download retain the original bytes.
+	for i := range lib.Records {
+		for j := range lib.Records[i].SourceFiles {
+			lib.Records[i].SourceFiles[j].Data = nil
+		}
+	}
 	writeJSON(w, http.StatusOK, libraryListResponse{
 		Format:        lib.Format,
 		SchemaVersion: lib.SchemaVersion,
@@ -110,6 +118,31 @@ func (s *Server) handleGetLibraryRecord(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusOK, rec)
+}
+
+func (s *Server) handleVerifyLibraryMode(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Key      string        `json:"key"`
+		Mode     string        `json:"mode"`
+		Note     string        `json:"note"`
+		Verified bool          `json:"verified"`
+		Confirm  string        `json:"confirm"`
+		Expected *library.Mode `json:"expected"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, 400, err)
+		return
+	}
+	if req.Confirm != "VERIFY" || len(req.Note) > 500 || req.Expected == nil {
+		writeError(w, 400, fmt.Errorf("confirm VERIFY with the reviewed mode; note must be at most 500 characters"))
+		return
+	}
+	rec, err := s.LibraryStore.VerifyMode(req.Key, req.Mode, strings.TrimSpace(req.Note), req.Verified, req.Expected)
+	if err != nil {
+		writeError(w, 400, err)
+		return
+	}
+	writeJSON(w, 200, rec)
 }
 
 // --- delete ------------------------------------------------------------
@@ -145,7 +178,12 @@ func (s *Server) handleDeleteLibraryRecord(w http.ResponseWriter, r *http.Reques
 	}
 	key := r.PathValue("key")
 	st := s.LibraryStore
-	if !st.Delete(key) {
+	deleted, err := st.DeleteChecked(key)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if !deleted {
 		writeError(w, http.StatusNotFound, fmt.Errorf("no library record with key %q", key))
 		return
 	}
@@ -199,6 +237,7 @@ type libraryImportRequest struct {
 }
 
 func (s *Server) handleLibraryImport(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 128<<20)
 	var req libraryImportRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -234,6 +273,21 @@ func (s *Server) handleLibraryImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) handleLibrarySource(w http.ResponseWriter, r *http.Request) {
+	rec, ok := s.LibraryStore.GetByKey(r.URL.Query().Get("key"))
+	if ok {
+		for _, f := range rec.SourceFiles {
+			if f.SHA256 == r.URL.Query().Get("hash") {
+				w.Header().Set("Content-Type", "application/octet-stream")
+				w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": f.Name}))
+				_, _ = w.Write(f.Data)
+				return
+			}
+		}
+	}
+	writeError(w, http.StatusNotFound, fmt.Errorf("source file not found"))
 }
 
 // --- populate the library from the patch --------------------------------
@@ -408,7 +462,11 @@ func (s *Server) handleLibraryFromPatch(w http.ResponseWriter, r *http.Request) 
 			res.Entries = append(res.Entries, line)
 			continue
 		}
-		stored, outcome := st.Upsert(recordFromEntry(e, now))
+		stored, outcome, err := st.UpsertChecked(recordFromEntry(e, now))
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Errorf("library save failed (earlier profiles may have saved): %w", err))
+			return
+		}
 		line.Key, line.Manufacturer, line.Model = stored.Key, stored.Manufacturer, stored.Model
 		line.Outcome = outcome
 		switch outcome {

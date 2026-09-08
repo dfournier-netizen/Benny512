@@ -298,9 +298,9 @@ const SettingsScreen = (() => {
       <div class="b5-alert b5-alert--danger">
         ${UI.icon('status-warning')}
         <div>
-          <p class="b5-alert__title">This deletes the patch and shuts Benny512 down</p>
+          <p class="b5-alert__title">Erase ALL saved shows and shut down</p>
           <p class="b5-alert__body">
-            Full reset permanently deletes the patch and the Rig Walk session (on disk and in memory) &mdash;
+            Full reset permanently deletes ALL saved shows, their recovery copies, and the Rig Walk session &mdash;
             if your patch is hand-built, export it first (Patch tab &rarr; Export) or it is gone for good.
             It also clears every discovered node and device, empties the Art-Net/RDM capture buffers, closes
             any RDM log file, and resets these Settings to their defaults. Benny512 then shuts down and has

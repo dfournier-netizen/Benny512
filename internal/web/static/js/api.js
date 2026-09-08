@@ -1,6 +1,7 @@
 // api.js — thin fetch wrappers for the REST surface. No framework, no
 // build step (Rackmaster-style, per architecture rev 5 §4).
 const Api = (() => {
+	let showToken = '';
   function stripEmpty(obj) {
     const out = {};
     Object.keys(obj).forEach(k => { if (obj[k] !== '' && obj[k] !== null && obj[k] !== undefined) out[k] = obj[k]; });
@@ -18,11 +19,17 @@ const Api = (() => {
 
   async function req(method, path, body) {
     const opts = { method, headers: {} };
+	if (showToken && method !== 'GET') opts.headers['X-Benny-Show'] = showToken;
     if (body !== undefined) {
       opts.headers['Content-Type'] = 'application/json';
       opts.body = JSON.stringify(body);
     }
     const res = await fetch(path, opts);
+	const token = res.headers && res.headers.get('X-Benny-Show');
+	if (token !== null && token !== undefined && (path === '/api/patch' || method !== 'GET')) {
+	  if (showToken && showToken !== token) window.dispatchEvent(new CustomEvent('b5-show-changed'));
+	  showToken = token;
+	}
     const text = await res.text();
     let data = null;
     if (text) {
@@ -119,9 +126,17 @@ const Api = (() => {
   }
 
   return {
+    getContext: () => req('GET', '/api/context'),
+    stopAllOutput: () => req('POST', '/api/output/stop'),
+    getWorkspace: () => req('GET', '/api/workspace'),
+    workspaceAction: (action, body) => req('POST', '/api/patch/workspace/' + action, body),
+    resetActiveShow: () => req('POST', '/api/patch/reset-active', {confirm:'RESET SHOW'}),
+    recoverShow: () => req('POST', '/api/patch/recover', {confirm:'RECOVER'}),
+    baselineReport: (id) => req('GET', '/api/patch/workspace/report/' + encodeURIComponent(id)),
     formatAddressRange,
     compareDevices,
     getNodes: () => req('GET', '/api/nodes'),
+    getRdmDiagnostics: () => req('GET', '/api/diagnostics/rdm'),
     getFixtures: () => req('GET', '/api/fixtures'),
     discover: (node, bindIndex, portAddress) =>
       req('POST', '/api/discover', { node, bindIndex, portAddress }),
@@ -239,6 +254,9 @@ const Api = (() => {
 
     // --- Phase 2a: patch model, patch<->RDM reconcile, rig check ---
     getPatch: () => req('GET', '/api/patch'),
+    getPatches: () => req('GET', '/api/patches'),
+    createSavedPatch: (name) => req('POST', '/api/patches', { name }),
+    loadSavedPatch: (id) => req('POST', `/api/patches/${encodeURIComponent(id)}/load`),
     newPatch: (name) => req('POST', '/api/patch/new', { name }),
     createPatchEntry: (entry) => req('POST', '/api/patch/entries', entry),
     updatePatchEntry: (id, entry) => req('PUT', `/api/patch/entries/${encodeURIComponent(id)}`, entry),
@@ -366,6 +384,9 @@ const Api = (() => {
     // EXEMPT from fullReset above — a reset clears this show, never the
     // fixture knowledge accumulated across shows.
     getLibrary: () => req('GET', '/api/library'),
+    verifyLibraryMode: body => req('POST','/api/library/verify', {...body,confirm:'VERIFY'}),
+    libraryFromPatch: ids => req('POST','/api/library/from-patch',{entryIds:ids||[]}),
+    libraryReprofile: body => req('POST','/api/library/reprofile',{...body,confirm:'REPROFILE'}),
     // key is the record's normalised "manufacturer|model" identity as
     // returned in each record's `key` field — always encode it, it
     // contains a pipe and may contain spaces.

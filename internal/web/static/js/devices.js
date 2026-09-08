@@ -85,6 +85,7 @@ const DevicesScreen = (() => {
   let nodes = [];
   let fixtures = [];
   let selectedUID = null;
+  let inspectorOpen = false;
   // Filters combine (AND) — class + node + universe (task ask, item 3: the
   // Devices table already aggregates every node/port's devices in one
   // rig-wide list, per Registry.Devices()/handleGetFixtures; these three
@@ -173,12 +174,6 @@ const DevicesScreen = (() => {
     sel.innerHTML = opts.length
       ? opts.map(o => `<option value="${escapeHtml(portKey(o))}" ${selectedPort && portKey(selectedPort) === portKey(o) ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('')
       : '<option value="">No nodes discovered yet</option>';
-    const note = document.getElementById('devicePickerNote');
-    if (note) {
-      note.textContent = opts.length
-        ? `${opts.length} port${opts.length === 1 ? '' : 's'} to choose from. Universes are ${UI.universeBaseLabel()}.`
-        : 'No Art-Net node has answered a poll yet. Check the NIC chosen in Settings is on the node’s network and that the gateway is powered, then press Refresh on the Nodes screen.';
-    }
     renderClearGroup();
   }
 
@@ -250,18 +245,18 @@ const DevicesScreen = (() => {
         <span class="b5-pill b5-pill--md b5-pill--warn">${UI.icon('status-warning')}Confirm</span>
         <button id="btnClearConfirm" type="button" class="b5-btn b5-btn--danger b5-clear-armed">${UI.icon('status-warning')}Yes, clear devices on ${nodePortLabel(clearArmedScope)}</button>
         <button id="btnClearCancel" type="button" class="b5-btn b5-btn--ghost">${UI.icon('revert')}Cancel</button>
-        <p class="b5-note">This forgets what Benny512 discovered on that one port. It does not change a single fixture — press Discover again to find them all back.</p>`;
+        <p class="b5-note">Benny512 memory only; fixtures are unchanged.</p>`;
     } else if (clearArmed === 'all') {
       group.innerHTML = `
         <span class="b5-pill b5-pill--md b5-pill--warn">${UI.icon('status-warning')}Confirm</span>
         <button id="btnClearConfirm" type="button" class="b5-btn b5-btn--danger b5-clear-armed">${UI.icon('status-warning')}Yes, clear ALL discovered devices (every port)</button>
         <button id="btnClearCancel" type="button" class="b5-btn b5-btn--ghost">${UI.icon('revert')}Cancel</button>
-        <p class="b5-note">This forgets every device on every port. It does not change a single fixture — press Discover again to find them back, one port at a time.</p>`;
+        <p class="b5-note">Benny512 memory only; fixtures are unchanged.</p>`;
     } else {
       group.innerHTML = `
         <button id="btnClearPort" type="button" class="b5-btn b5-btn--danger" ${sel ? '' : 'disabled'}>${UI.icon('revert')}Clear this port</button>
         <button id="btnClearAll" type="button" class="b5-btn b5-btn--danger">${UI.icon('revert')}Clear ALL ports</button>
-        <p class="b5-note">Clears what Benny512 remembers finding, nothing on any fixture. “This port” means the one chosen in step 1: ${sel ? nodePortLabel(sel) : 'no port is selected yet'}. Each button asks you to confirm, and stops asking after 8 seconds.</p>`;
+        <p class="b5-note">Clears Benny512’s discovered-device memory only. Confirmation expires after 8 seconds.</p>`;
     }
     if (statusRow) {
       statusRow.innerHTML = clearMsg
@@ -499,7 +494,6 @@ const DevicesScreen = (() => {
       // "Node / port" row, the Patch table and the Analyzer all format.
       `Universe ${escapeHtml(UI.formatUniverse(f.portAddress))}`,
       `addr ${addressLabel(f)}`,
-      `node ${escapeHtml(f.nodeIp)}`,
     ].join(' · ');
     return `
       <article class="b5-statecard${tone}" data-uid="${escapeHtml(f.uid)}"${current ? ' aria-current="true"' : ''}>
@@ -513,12 +507,12 @@ const DevicesScreen = (() => {
         <div class="b5-statecard__state">
           ${classPill(f.class)}
           ${f.unreachable ? `<span class="b5-pill b5-pill--md b5-pill--danger">${UI.icon('status-error')}Not answering</span>` : ''}
-          ${current ? `<span class="b5-pill b5-pill--md b5-pill--accent">${UI.icon('chevron-expand')}Open below</span>` : ''}
+          ${current ? `<span class="b5-pill b5-pill--md b5-pill--accent">${UI.icon('chevron-expand')}Inspecting</span>` : ''}
         </div>
         ${unreachableNoteHTML(f)}
         <div class="b5-statecard__actions">
-          <button type="button" class="b5-btn${current ? '' : ' b5-btn--primary'} btn-open-device" data-uid="${escapeHtml(f.uid)}"${current ? ' disabled' : ''}>
-            ${UI.icon(current ? 'status-ok' : 'chevron-expand')}${current ? 'Open below' : 'Open this device'}
+          <button type="button" class="b5-btn${current ? '' : ' b5-btn--primary'} btn-open-device" data-uid="${escapeHtml(f.uid)}">
+            ${UI.icon(current ? 'chevron-expand' : 'chevron-expand')}${current ? 'Show inspector' : 'Inspect'}
           </button>
         </div>
       </article>
@@ -545,14 +539,21 @@ const DevicesScreen = (() => {
   }
 
   function selectDevice(uid) {
-    if (selectedUID === uid) return;
+    if (selectedUID === uid && inspectorOpen) return;
     selectedUID = uid;
+    window.dispatchEvent(new CustomEvent('b5-device-selection', {detail:uid}));
+    inspectorOpen = true;
     activeTab = 'info';
     render();
     renderDetail();
     DeviceDetail.select(uid, sectionsForActiveTab());
-    const pane = document.getElementById('fixtureDetail');
-    if (pane && pane.scrollIntoView) pane.scrollIntoView({ block: 'start' });
+  }
+
+  function selectAdjacentDevice(step) {
+    const items = visibleFixtures();
+    const at = items.findIndex(f => f.uid === selectedUID);
+    const next = items[at + step];
+    if (next) selectDevice(next.uid);
   }
 
   // sectionsForActiveTab: desktop mode shows exactly one section at a time
@@ -569,14 +570,19 @@ const DevicesScreen = (() => {
   function renderDetail() {
     const el = document.getElementById('fixtureDetail');
     if (!el) return;
+    const inspector = document.getElementById('fixtureInspector');
     const f = fixtures.find(x => x.uid === selectedUID);
-    const head = document.getElementById('deviceDetailNote');
+    if (inspector) inspector.classList.toggle('is-open', !!(f && inspectorOpen));
     if (!f) {
-      if (head) head.textContent = 'nothing picked yet';
-      el.innerHTML = `<p class="b5-board__empty">No device is open. Press “Open this device” on a card in step 3 to read and edit its RDM parameters, sensors and status.</p>`;
+      el.innerHTML = '';
       return;
     }
-    if (head) head.textContent = `${modelCell(f)} · UID ${f.uid}`;
+    const items = visibleFixtures();
+    const at = items.findIndex(item => item.uid === f.uid);
+    const previous = document.getElementById('btnPreviousDevice');
+    const next = document.getElementById('btnNextDevice');
+    if (previous) previous.disabled = at <= 0;
+    if (next) next.disabled = at < 0 || at >= items.length - 1;
     el.innerHTML = `
       <article class="b5-statecard is-current">
         <div class="b5-statecard__top">
@@ -604,6 +610,10 @@ const DevicesScreen = (() => {
       </div>
       <p class="b5-note" id="fxStatus"></p>
     `;
+    const close = document.getElementById('btnCloseDeviceInspector');
+    if (close) close.addEventListener('click', () => { inspectorOpen = false; render(); renderDetail(); });
+    if (previous) previous.addEventListener('click', () => selectAdjacentDevice(-1));
+    if (next) next.addEventListener('click', () => selectAdjacentDevice(1));
     document.getElementById('btnExportDeviceJson').addEventListener('click', () => {
       window.open(Api.exportUrl('json', { uid: f.uid }), '_blank');
     });
@@ -649,43 +659,27 @@ const DevicesScreen = (() => {
 
   function screenHtml() {
     return `
-      <div class="b5-page-header">
-        <h1 class="b5-page-header__title">Devices</h1>
-        <span class="b5-page-header__meta b5-text-muted b5-text-sm">Every RDM responder on the line — fixtures and infrastructure alike.</span>
-      </div>
+      <div class="b5-page-header"><h1 class="b5-page-header__title">Devices</h1></div>
 
-      <section class="b5-step-section" aria-labelledby="devPickHead">
-        <h2 class="b5-step-section__head" id="devPickHead">
-          <span class="b5-step-num">1</span> Target node and port
-          <span class="b5-step-section__note">what Discover and “Clear this port” act on</span>
-        </h2>
-        <div class="b5-toolbar">
-          <div class="b5-toolbar__row">
+      <div class="b5-toolbar b5-devices-target" aria-label="Discovery target">
+        <div class="b5-toolbar__row">
             <label class="b5-visually-hidden" for="fixtureNodeSelect">Node and port</label>
             <select id="fixtureNodeSelect" class="b5-select" style="flex:1 1 260px;min-width:0"><option value="">No nodes discovered yet</option></select>
-            <button id="btnDiscover" type="button" class="b5-btn b5-btn--primary">${UI.icon('signal')}Discover on this port</button>
+            <button id="btnDiscover" type="button" class="b5-btn b5-btn--primary">${UI.icon('signal')}Discover</button>
             <span class="b5-inline-wait" id="discoverStatus"></span>
-          </div>
-          <p class="b5-caption" id="devicePickerNote"></p>
         </div>
-      </section>
+      </div>
 
-      <section class="b5-step-section" id="clearDevicesSection" aria-labelledby="devClearHead">
-        <h2 class="b5-step-section__head" id="devClearHead">
-          <span class="b5-step-num">2</span> Clear discovered devices
-          <span class="b5-step-section__note">arm, then confirm — nothing is sent to any fixture</span>
-        </h2>
+      <details class="b5-inset b5-devices-clear" id="clearDevicesSection">
+        <summary>Clear discovered-device memory</summary>
         <div class="b5-toolbar">
           <div class="b5-toolbar__row" id="clearDevicesGroup"></div>
         </div>
         <div id="clearDevicesStatusRow"></div>
-      </section>
+      </details>
 
-      <section class="b5-step-section" aria-labelledby="devListHead">
-        <h2 class="b5-step-section__head" id="devListHead">
-          <span class="b5-step-num">3</span> Devices found
-          <span class="b5-step-section__note" id="deviceListCount">none discovered yet</span>
-        </h2>
+      <section aria-labelledby="devListHead">
+        <div class="b5-section-head"><h2 id="devListHead">Devices</h2><span class="b5-text-muted" id="deviceListCount">none discovered yet</span></div>
         <div class="b5-toolbar">
           <div class="b5-toolbar__row">
             <label class="b5-visually-hidden" for="deviceClassFilter">Class</label>
@@ -718,13 +712,10 @@ const DevicesScreen = (() => {
         <div class="b5-board__list" id="deviceList"></div>
       </section>
 
-      <section class="b5-step-section" aria-labelledby="devDetailHead">
-        <h2 class="b5-step-section__head" id="devDetailHead">
-          <span class="b5-step-num">4</span> The device you picked
-          <span class="b5-step-section__note" id="deviceDetailNote">nothing picked yet</span>
-        </h2>
+      <aside class="b5-inspector" id="fixtureInspector" aria-label="Device inspector" aria-live="polite">
+        <div class="b5-inspector__bar"><strong>Device inspector</strong><span class="b5-inspector__actions"><button id="btnPreviousDevice" type="button" class="b5-btn b5-btn--sm b5-btn--ghost">Previous</button><button id="btnNextDevice" type="button" class="b5-btn b5-btn--sm b5-btn--ghost">Next</button><button id="btnCloseDeviceInspector" type="button" class="b5-btn b5-btn--sm b5-btn--ghost">Close</button></span></div>
         <div id="fixtureDetail"></div>
-      </section>
+      </aside>
     `;
   }
 
@@ -828,5 +819,5 @@ const DevicesScreen = (() => {
     }
   }
 
-  return { init, refreshNodes, refreshFixtures };
+  return { init, refreshNodes, refreshFixtures, inspect: selectDevice };
 })();

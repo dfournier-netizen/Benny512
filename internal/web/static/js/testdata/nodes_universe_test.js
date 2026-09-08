@@ -56,6 +56,7 @@ function makeEl(id) {
   const el = {
     id, tagName: 'DIV', _innerHTML: '', className: '', dataset: {}, style: {},
     children: [], handlers: {}, value: '', checked: false, scrollTop: 0,
+    classList: { toggle() {} },
     setAttribute() {}, removeAttribute() {}, getAttribute: () => null,
     appendChild(c) { this.children.push(c); return c; },
     querySelector: () => null,
@@ -241,5 +242,31 @@ check(d.ok === true && d.netSwitch === null && d.subSwitch === null,
   'a node with no addressable port programs no block',
   `ok=${d.ok} net=${d.netSwitch} sub=${d.subSwitch}`);
 
+console.log('7. selected-port saves never include hidden sibling drafts');
+const reported={ip:'10.0.0.1',bindIndex:1,shortName:'Four-port node',ports:[
+  {index:0,output:true,outputAddress:0},{index:1,output:true,outputAddress:1},
+  {index:2,output:true,outputAddress:2},{index:3,output:true,outputAddress:3}]};
+const drafts=stateWith(portState(0,99),portState(1,5),portState(2,7),portState(3,8));
+d=Nodes.__deriveSelectedForTest(reported,drafts,1);
+check(d.ok && JSON.stringify(d.swOut)==='[null,5,null,null]', 'only the selected wire slot is programmed',JSON.stringify(d));
+drafts.ports[1].universeOut=17;
+d=Nodes.__deriveSelectedForTest(reported,drafts,1);
+check(!d.ok,'changing a shared block cannot silently move other ports');
+d=Nodes.__deriveSelectedForTest({ports:[{index:2,output:true,outputAddress:2}]},stateWith(portState(2,17)),2);
+check(d.ok && JSON.stringify(d.swOut)==='[null,null,1,null]', 'a sparse port index keeps its wire slot');
+Nodes.__setNodesForTest([reported]);Nodes.__selectPortForTest('10.0.0.1|1',1,'10.0.0.1');
+check(!store.nodesAccordion.innerHTML.includes('nodePortTarget') && store.nodesAccordion.innerHTML.includes('Four-port node'),'left pane contains parents only');
+check((store.nodeConfigSection.innerHTML.match(/class="b5-input b5-numinput b5-input--mono cfg-universe"/g)||[]).length===1,'editor renders one universe input');
+check(store.nodeConfigSection.innerHTML.includes('id="cfgUni1"')&&!store.nodeConfigSection.innerHTML.includes('id="cfgUni0"'),'editor targets selected port, not whole bind');
+Nodes.__configStateForTest()['10.0.0.1|1'].ports[1].universeOut=6;
+Nodes.__selectPortForTest('10.0.0.1|1',2,'10.0.0.1');Nodes.__selectPortForTest('10.0.0.1|1',1,'10.0.0.1');
+check(Nodes.__configStateForTest()['10.0.0.1|1'].ports[1].universeOut===6,'port switch preserves staged edits');
+check(store.nodeDetail.innerHTML.includes('Node settings')&&store.nodeDetail.innerHTML.includes('Port settings'),'editor exposes both tabs');
+const bindTwo={...reported,bindIndex:2,ports:[{index:0,output:true,outputAddress:32}]};
+Nodes.__networkDraftForTest(reported).ip='10.0.0.9';
+check(Nodes.__networkDraftForTest(bindTwo).ip==='10.0.0.9','IP draft belongs to parent IP, not selected bind');
+check(Nodes.__networkDraftForTest({...reported,ip:'10.0.0.2'}).ip==='','another physical node has separate IP draft');
+Nodes.__setNodesForTest([{...reported,ports:[reported.ports[0]]}]);Nodes.__selectPortForTest('10.0.0.1|1',1,'10.0.0.1');
+check(store.nodeDetail.innerHTML.includes('no longer reported'),'vanished port closes stale editor');
 console.log(failures ? `\n${failures} assertion(s) failed.` : '\nall assertions passed');
 process.exit(failures ? 1 : 0);

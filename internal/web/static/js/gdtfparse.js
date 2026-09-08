@@ -444,7 +444,7 @@ const GdtfParse = (() => {
       let contributedReal = false;
       chs.forEach(ch => {
         ch.offsets.forEach(localOffset => {
-          resolved.push({ offset: localOffset + offsetBase, ch });
+          resolved.push({ offset: localOffset + offsetBase, ch, geometryInstance: name + ':' + offsetBase });
           contributedReal = true;
         });
       });
@@ -785,6 +785,7 @@ const GdtfParse = (() => {
       const resolved = resolveChannelFunction(p.ch.logicalChannels);
       if (!resolved || !resolved.attribute) return;
       channelFunctions[p.offset] = {
+        geometryInstance: p.geometryInstance || '',
         source: 'gdtf',
         attribute: resolved.attribute,
         functionName: resolved.functionName,

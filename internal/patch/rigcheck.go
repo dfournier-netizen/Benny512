@@ -241,6 +241,15 @@ func (r *RigCheck) Stop() {
 	r.stopLocked("manual")
 }
 
+// ResetSelection is distinct from Stop: switching shows or changing patch
+// addressing invalidates resolved fixture copies as well as stopping output.
+func (r *RigCheck) ResetSelection() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.stopLocked("show changed")
+	r.selection = newPatternSelection()
+}
+
 // stopLocked is the one choke point every path out of a running rig
 // check — classic or pattern — goes through, so the blackout discipline
 // (this file's doc comment) and the pattern ticker's cleanup can never be

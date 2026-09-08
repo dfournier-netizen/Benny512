@@ -75,10 +75,15 @@ type Settings struct {
 
 // Server bundles the engines and serves REST + WS + the embedded UI.
 type Server struct {
-	Nodes    *session.ArtNetSession
-	RDM      *session.RDMController
-	DMX      *session.DMXOutputEngine
-	Registry *registry.Registry
+	// Rehearsal servers use fake transport and never install persistence paths.
+	Simulation   bool
+	OnRehearse   func(patch.Patch, string) (int, error)
+	showMu       sync.Mutex // serializes show-bound HTTP operations against a show switch
+	showRevision uint64
+	Nodes        *session.ArtNetSession
+	RDM          *session.RDMController
+	DMX          *session.DMXOutputEngine
+	Registry     *registry.Registry
 	// Capture is the general-purpose ring: every decoded packet, all kinds,
 	// bounded at capture.DefaultCapacity so high-rate ArtDmx traffic doesn't
 	// grow memory without bound — it's what the Analyzer's live/general view
@@ -151,6 +156,14 @@ type Server struct {
 	// the server, same "one active run at a time" model as walkStore.
 	RigCheck *patch.RigCheck
 
+	// patternScope is the semantic expression that resolved the RigCheck
+	// pattern's current entry list. The engine deliberately stores resolved
+	// entries only; this HTTP-layer companion lets a reconnecting client read
+	// the actual all/universe/position/selection expression back rather than
+	// retaining an unverified browser-side guess.
+	patternScopeMu sync.RWMutex
+	patternScope   patternScopeStatus
+
 	// walkStorePath/patchStorePath retain the paths SetWalkStorePath/
 	// SetPatchStorePath were called with (those setters otherwise discard
 	// the path after constructing the store) — the full-reset flow
@@ -197,7 +210,8 @@ func defaultSettings() Settings {
 // size it differently.
 func New(nodes *session.ArtNetSession, rdmc *session.RDMController, dmx *session.DMXOutputEngine, reg *registry.Registry, cap *capture.Ring, rdmCap *capture.Ring) *Server {
 	s := &Server{
-		Nodes: nodes, RDM: rdmc, DMX: dmx, Registry: reg, Capture: cap, RDMCapture: rdmCap,
+		showRevision: uint64(time.Now().UnixNano()),
+		Nodes:        nodes, RDM: rdmc, DMX: dmx, Registry: reg, Capture: cap, RDMCapture: rdmCap,
 		settings:   defaultSettings(),
 		walkStore:  walk.NewStore(""),
 		PatchStore: patch.NewStore(""),
@@ -303,7 +317,7 @@ func (s *Server) applyLogRDMPathLocked(path string) error {
 }
 
 // Handler returns the http.Handler to serve (routes + static UI).
-func (s *Server) Handler() http.Handler { return s.mux }
+func (s *Server) Handler() http.Handler { return s.showGuard(s.mux) }
 
 // Run starts the WS hub's broadcast pumps (capture batches, node/RDM
 // events) and the capture ring's throttle ticker. Call once at startup;
@@ -373,11 +387,14 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/node/{ip}/ipconfig", s.handleNodeIPConfig)
 	s.mux.HandleFunc("POST /api/node/{ip}/input", s.handleNodeInput)
 	s.mux.HandleFunc("GET /api/nics", s.handleGetNICs)
+	s.mux.HandleFunc("GET /api/diagnostics/rdm", s.handleRDMDiagnostics)
 
 	// --- Fixture Library (device-type knowledge, persists across rigs and
 	// is exempt from POST /api/reset — see internal/web/library.go) ---
 	s.mux.HandleFunc("GET /api/library", s.handleGetLibrary)
+	s.mux.HandleFunc("POST /api/library/verify", s.handleVerifyLibraryMode)
 	s.mux.HandleFunc("GET /api/library/export", s.handleLibraryExport)
+	s.mux.HandleFunc("GET /api/library/source", s.handleLibrarySource)
 	s.mux.HandleFunc("POST /api/library/import", s.handleLibraryImport)
 	s.mux.HandleFunc("GET /api/library/record/{key}", s.handleGetLibraryRecord)
 	s.mux.HandleFunc("DELETE /api/library/record/{key}", s.handleDeleteLibraryRecord)
@@ -404,6 +421,16 @@ func (s *Server) routes() {
 
 	// --- Phase 2a: patch model, patch<->RDM reconcile, rig check ---
 	s.mux.HandleFunc("GET /api/patch", s.handleGetPatch)
+	s.mux.HandleFunc("GET /api/patches", s.handleListPatches)
+	s.mux.HandleFunc("POST /api/patches", s.handleCreateSavedPatch)
+	s.mux.HandleFunc("POST /api/patches/{id}/load", s.handleLoadSavedPatch)
+	s.mux.HandleFunc("POST /api/patch/reset-active", s.handleResetActiveShow)
+	s.mux.HandleFunc("POST /api/patch/recover", s.handleRecoverShow)
+	s.mux.HandleFunc("GET /api/workspace", s.handleWorkspace)
+	s.mux.HandleFunc("GET /api/context", s.handleContext)
+	s.mux.HandleFunc("POST /api/output/stop", s.handleStopAllOutput)
+	s.mux.HandleFunc("POST /api/patch/workspace/{action}", s.handleWorkspaceAction)
+	s.mux.HandleFunc("GET /api/patch/workspace/report/{id}", s.handleBaselineReport)
 	s.mux.HandleFunc("POST /api/patch/new", s.handleNewPatch)
 	s.mux.HandleFunc("POST /api/patch/entries", s.handleCreatePatchEntry)
 	s.mux.HandleFunc("PUT /api/patch/entries/{id}", s.handleUpdatePatchEntry)

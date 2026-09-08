@@ -61,7 +61,11 @@ func (s *Server) handlePatchImport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Mode == "fresh" {
-		result := s.PatchStore.Replace(patch.Patch{Name: "Imported", Entries: converted})
+		result, err := s.PatchStore.ReplaceChecked(patch.Patch{Name: "Imported", Entries: converted})
+		if err != nil {
+			writePatchStoreError(w, err)
+			return
+		}
 		writeJSON(w, http.StatusOK, toPatchResponse(result))
 		return
 	}

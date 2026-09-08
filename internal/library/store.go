@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"sync"
@@ -30,18 +31,18 @@ import (
 //     structurally: internal/web/reset.go cannot delete this store's
 //     contents because this package exposes no way to.
 type Store struct {
-	mu   sync.Mutex
-	path string // empty disables persistence (tests, and the default server wiring)
-	lib  *Library
+	mu        sync.Mutex
+	path      string // empty disables persistence (tests, and the default server wiring)
+	lib       *Library
+	deferSave bool
+	saveErr   error
 }
 
 // NewStore builds a Store persisting to path (pass "" for in-memory only).
 // If path holds a valid (or migratable) library file, it is loaded
 // immediately. A malformed or wrong-format file is tolerated by starting
 // empty rather than crashing the server, and is left on disk untouched —
-// never silently overwritten — so it can be recovered by hand. The FIRST
-// write after that will overwrite it, which is the same bargain
-// patch.NewStore makes.
+// never overwritten by subsequent writes — so it can be recovered by hand.
 func NewStore(path string) *Store {
 	st := &Store{path: path, lib: newLibrary()}
 	if path == "" {
@@ -101,6 +102,9 @@ func validate(lib *Library) error {
 	}
 	seen := make(map[string]int, len(lib.Records))
 	for i, r := range lib.Records {
+		if err := validateSourceFiles(r.SourceFiles); err != nil {
+			return fmt.Errorf("record %d: %w", i, err)
+		}
 		if foldKeyPart(r.Manufacturer) == "" && foldKeyPart(r.Model) == "" {
 			return fmt.Errorf("record %d has neither a manufacturer nor a model", i)
 		}
@@ -238,9 +242,25 @@ func (st *Store) matchLocked(manufacturer, model string) int {
 //     knows its footprint but not its channel layout, and must not wipe
 //     the layout a GDTF import already supplied).
 func (st *Store) Upsert(rec Record) (Record, UpsertOutcome) {
+	r, outcome, _ := st.UpsertChecked(rec)
+	return r, outcome
+}
+
+// UpsertChecked rolls back in-memory changes if saving fails.
+func (st *Store) UpsertChecked(rec Record) (Record, UpsertOutcome, error) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	return st.upsertLocked(rec, time.Now())
+	if err := validateSourceFiles(rec.SourceFiles); err != nil {
+		return Record{}, OutcomeUnchanged, err
+	}
+	before := cloneLibrary(*st.lib)
+	st.saveErr = nil
+	r, outcome := st.upsertLocked(rec, time.Now())
+	if st.saveErr != nil {
+		st.lib = &before
+		return Record{}, OutcomeUnchanged, st.saveErr
+	}
+	return r, outcome, nil
 }
 
 // UpsertOutcome says what Upsert did.
@@ -294,6 +314,7 @@ func recordsEquivalent(a, b Record) bool {
 
 func mergeRecord(dst, src Record) Record {
 	out := cloneRecord(dst)
+	out.SourceFiles = mergeSourceFiles(out.SourceFiles, src.SourceFiles)
 	if foldKeyPart(out.Manufacturer) == "" && foldKeyPart(src.Manufacturer) != "" {
 		out.Manufacturer = src.Manufacturer
 	}
@@ -372,6 +393,16 @@ func mergeModes(dst, src []Mode) []Mode {
 		if merged.Name == "" {
 			merged.Name = out[found].Name
 		}
+		if sameModePayload(out[found], merged) && merged.VerifiedHash == "" {
+			merged.VerifiedHash = out[found].VerifiedHash
+			merged.VerifiedAt = out[found].VerifiedAt
+			merged.VerificationNote = out[found].VerificationNote
+		}
+		if merged.VerifiedHash != "" && merged.VerifiedHash != modeHash(merged) {
+			merged.VerifiedHash = ""
+			merged.VerifiedAt = time.Time{}
+			merged.VerificationNote = ""
+		}
 		out[found] = merged
 	}
 	sort.SliceStable(out, func(i, j int) bool { return foldKeyPart(out[i].Name) < foldKeyPart(out[j].Name) })
@@ -383,6 +414,9 @@ func mergeModes(dst, src []Mode) []Mode {
 // ignoring Origin entirely. See its call site in mergeModes.
 func sameModePayload(a, b Mode) bool {
 	a.Origin, b.Origin = Origin{}, Origin{}
+	a.VerifiedAt, b.VerifiedAt = time.Time{}, time.Time{}
+	a.VerifiedHash, b.VerifiedHash = "", ""
+	a.VerificationNote, b.VerificationNote = "", ""
 	return reflect.DeepEqual(a, b)
 }
 
@@ -390,15 +424,25 @@ func sameModePayload(a, b Mode) bool {
 // anything was removed (a delete of a key that is already gone is not an
 // error — it is the state the caller wanted).
 func (st *Store) Delete(key string) bool {
+	deleted, _ := st.DeleteChecked(key)
+	return deleted
+}
+
+func (st *Store) DeleteChecked(key string) (bool, error) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	i := st.indexOfKeyLocked(key)
 	if i < 0 {
-		return false
+		return false, nil
 	}
+	before := cloneLibrary(*st.lib)
 	st.lib.Records = append(st.lib.Records[:i], st.lib.Records[i+1:]...)
 	st.touchLocked(time.Now())
-	return true
+	if st.saveErr != nil {
+		st.lib = &before
+		return false, st.saveErr
+	}
+	return true, nil
 }
 
 func (st *Store) touchLocked(now time.Time) {
@@ -416,18 +460,44 @@ func (st *Store) touchLocked(now time.Time) {
 // half-written, which matters more here than for a patch (the patch is
 // this show; the library is every show).
 func (st *Store) persistLocked() {
-	if st.path == "" || st.lib == nil {
+	if st.deferSave {
 		return
+	}
+	st.saveErr = st.saveLocked()
+}
+func (st *Store) saveLocked() error {
+	if st.path == "" || st.lib == nil {
+		return nil
+	}
+	if old, err := os.ReadFile(st.path); err == nil {
+		var previous Library
+		if json.Unmarshal(old, &previous) != nil || validate(&previous) != nil {
+			return fmt.Errorf("library file is damaged; back it up and restore a valid export before saving")
+		}
+	} else if !os.IsNotExist(err) {
+		return err
 	}
 	data, err := json.MarshalIndent(st.lib, "", "  ")
 	if err != nil {
-		return
+		return err
 	}
-	tmp := st.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
-		return
+	f, err := os.CreateTemp(filepath.Dir(st.path), ".benny-library-*.tmp")
+	if err != nil {
+		return err
 	}
-	_ = os.Rename(tmp, st.path)
+	tmp := f.Name()
+	defer os.Remove(tmp)
+	if _, err = f.Write(data); err == nil {
+		err = f.Sync()
+	}
+	closeErr := f.Close()
+	if err != nil {
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	return os.Rename(tmp, st.path)
 }
 
 func cloneLibrary(lib Library) Library {

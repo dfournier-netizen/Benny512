@@ -142,12 +142,24 @@ const DeviceDetail = (() => {
   // itself — callers do that after awaiting, before touching their own
   // state — because the result is still worth caching even for a selection
   // that moved on meanwhile (the device didn't stop having that personality).
+  const personalityRequests = {}, personalityFailures = {};
   async function fetchPersonalityDescription(uid, index) {
     const cache = personalityDescCache[uid] || (personalityDescCache[uid] = {});
     if (index in cache) return cache[index];
-    const res = await Api.getParam(uid, 'dmx_personality_description', { index });
-    cache[index] = res.value;
-    return res.value;
+    const key=uid+'|'+index;
+    if(personalityRequests[key])return personalityRequests[key];
+    if(Date.now()-(personalityFailures[key]||0)<30000)throw Error('Mode name unavailable');
+    const request=(async()=>{
+      try {
+        const res=await Api.getParam(uid,'dmx_personality_description',{index});
+        if(!res.value || res.value.Index!==index)throw Error('Device returned another mode');
+        cache[index]=res.value;
+        return res.value;
+      }catch(e){personalityFailures[key]=Date.now();throw e;}
+      finally{delete personalityRequests[key];}
+    })();
+    personalityRequests[key]=request;
+    return request;
   }
 
   let selectedUID = null;
@@ -680,41 +692,36 @@ const DeviceDetail = (() => {
       Api.getParam(uid, 'software_version_label'),
     ]);
     const supported = await supportedP;
-    if (!stillCurrent(uid, gen)) return;
+    if (!stillCurrent(uid, gen)) { st.loading=false; return; }
     const prodDetailPromise = pidProbeAllowed(supported, '0070')
       ? Api.getDeviceParam(uid, '0070').then((v) => ({ status: 'fulfilled', value: v }), (e) => ({ status: 'rejected', reason: e }))
       : Promise.resolve({ status: 'rejected', reason: new Error('not advertised') });
     const [deviceInfo, mfrLabel, model, swVersion] = await corePromise;
     const prodDetail = await prodDetailPromise;
-    if (!stillCurrent(uid, gen)) return;
+    if (!stillCurrent(uid, gen)) { st.loading=false; return; }
     st.loading = false;
     st.deviceInfo = deviceInfo.status === 'fulfilled' ? deviceInfo.value.value : null;
+    if(st.currentPersonalityDesc?.Index!==st.deviceInfo?.CurrentPersonality)st.currentPersonalityDesc=null;
+    st.personalityNameLoading=!!st.deviceInfo?.CurrentPersonality;
     st.mfrLabelVal = mfrLabel.status === 'fulfilled' ? mfrLabel.value.value : '';
     st.modelVal = model.status === 'fulfilled' ? model.value.value : '';
     st.swVersion = swVersion.status === 'fulfilled' ? swVersion.value.value : '';
     st.prodDetailHex = prodDetail.status === 'fulfilled' ? prodDetail.value.hex : '';
     notify('info');
 
-    // DMX_PERSONALITY_DESCRIPTION for the CURRENT personality only (task
-    // ask, owner's real-world complaint: a bare "Personality 5 of 9" gave
-    // no way to see which mode that is or reconcile it with the fixture's
-    // own menu). Deliberately one GET, not one per personality — these
-    // devices sit behind a bandwidth-constrained wireless proxy that is
-    // already saturating, so the full 1..Count mode list is fetched only on
-    // explicit request (see loadAllPersonalityLabels / the Parameters
-    // section's "Show all modes" action), never eagerly on every panel
-    // open. Best-effort: a device that NACKs this PID just keeps the bare
-    // "5 of 9" fallback in renderInfoSection.
+    // Info shows the current mode name automatically. Parameters resolves
+    // every dropdown label, current first, through the same single-flight cache.
     const di = st.deviceInfo;
     if (di && di.CurrentPersonality) {
       try {
         const desc = await fetchPersonalityDescription(uid, di.CurrentPersonality);
-        if (!stillCurrent(uid, gen)) return;
+        if (!stillCurrent(uid, gen)) { st.loading=false; return; }
         st.currentPersonalityDesc = desc;
       } catch (e) {
-        if (!stillCurrent(uid, gen)) return;
+        if (!stillCurrent(uid, gen)) { st.loading=false; return; }
         st.currentPersonalityDesc = null;
       }
+      st.personalityNameLoading=false;
       notify('info');
     }
   }
@@ -729,6 +736,7 @@ const DeviceDetail = (() => {
   function noteDeviceInfo(uid, deviceInfo) {
     const st = infoCache[uid] || (infoCache[uid] = {});
     st.deviceInfo = deviceInfo;
+    if(st.currentPersonalityDesc?.Index!==deviceInfo?.CurrentPersonality)st.currentPersonalityDesc=null;
   }
 
   // infoRow: one read-only fact. The value slot never receives a bare '—'
@@ -752,9 +760,9 @@ const DeviceDetail = (() => {
   // DESCRIPTION resolved for the current personality, falling back to the
   // old bare "5 of 9" when it hasn't (still loading, or the device NACKed
   // it — most fixtures do implement it, but it's not universal).
-  function formatPersonalitySummary(di, desc) {
+  function formatPersonalitySummary(di, desc, loading) {
     const base = `${di.CurrentPersonality} of ${di.PersonalityCount}`;
-    if (!desc || !desc.Description) return base;
+    if (!desc || desc.Index!==di.CurrentPersonality || !desc.Description) return base+' — '+(loading?'Loading mode name…':'Mode name unavailable');
     return `Personality ${di.CurrentPersonality}/${di.PersonalityCount} — "${desc.Description}" (${desc.DMXFootprint} slots)`;
   }
 
@@ -831,7 +839,7 @@ const DeviceDetail = (() => {
               : (di.DMXFootprint
                 ? escapeHtml(Api.formatAddressRange(di.DMXStartAddress, di.DMXFootprint, true))
                 : '<span class="b5-text-muted">none — this device occupies no DMX slots</span>'))}
-          ${infoRow('Personality', di ? escapeHtml(formatPersonalitySummary(di, st.currentPersonalityDesc)) : notRead)}
+          ${infoRow('Personality', di ? escapeHtml(formatPersonalitySummary(di, st.currentPersonalityDesc, st.personalityNameLoading)) : notRead)}
         </div>
         <p class="b5-caption">Universe numbers are ${escapeHtml(UI.universeBaseLabel())} — the same numbering as the device list above, Nodes, Patch and the Analyzer.</p>
       </section>
@@ -894,20 +902,24 @@ const DeviceDetail = (() => {
       Api.getParam(uid, 'identify_device'),
     ]);
     const supported = await supportedP;
-    if (!stillCurrent(uid, gen)) return;
+    if (!stillCurrent(uid, gen)) { st.loading=false; return; }
     const specResults = await Promise.allSettled(SPECULATIVE_PARAM_FETCHERS.map((f) =>
       pidProbeAllowed(supported, f.pid) ? Api.getParam(uid, f.name) : Promise.reject(new Error('not advertised'))));
     const [deviceInfo, label, personality, ident] = await corePromise;
-    if (!stillCurrent(uid, gen)) return;
+    if (!stillCurrent(uid, gen)) { st.loading=false; return; }
     st.loading = false;
     st.di = deviceInfo.status === 'fulfilled' ? deviceInfo.value.value : null;
+    if(st.di)noteDeviceInfo(uid,st.di);
     st.lbl = label.status === 'fulfilled' ? label.value.value : '';
-    st.pers = personality.status === 'fulfilled' ? personality.value.value : null;
+    st.pers = personality.status === 'fulfilled' ? personality.value.value : (st.di ? {Current:st.di.CurrentPersonality,Count:st.di.PersonalityCount}:null);
     st.identOn = ident.status === 'fulfilled' ? ident.value.value : false;
     SPECULATIVE_PARAM_FETCHERS.forEach((f, i) => {
       st[f.key] = specResults[i].status === 'fulfilled' ? specResults[i].value.value : null;
     });
     notify('params');
+    // Resolve current mode first, then the remaining dropdown labels in order.
+    // One request at a time; switching fixtures cancels the remaining queue.
+    loadAllPersonalityLabels(uid,gen);
 
     // Phase D task 2/3: service life + destructive-action capability, each
     // its own independently-cached fetch — fired here (not awaited) so a
@@ -927,7 +939,7 @@ const DeviceDetail = (() => {
     // fired automatically for every device during a walk").
     try {
       const descs = await Api.getDeviceParams(uid);
-      if (!stillCurrent(uid, gen)) return;
+      if (!stillCurrent(uid, gen)) { st.loading=false; return; }
       st.descriptors = descs;
       await loadParamValues(uid, descs, gen, supported);
     } catch (e) { /* best-effort */ }
@@ -941,25 +953,6 @@ const DeviceDetail = (() => {
     // the description PID (or doesn't implement it) falls back to a bare
     // numeric dropdown.
     //
-    // DMX_PERSONALITY_DESCRIPTION is deliberately NOT in this eager batch
-    // (task ask: these devices sit behind a bandwidth-constrained wireless
-    // proxy that is already saturating — firing one GET per personality,
-    // up to Count of them, on every panel open is exactly the eager
-    // fan-out that makes that worse). Only the current personality's
-    // description is fetched by default, via ensureInfo's single GET
-    // (shared into this cache below); the full list is loaded only on the
-    // explicit "Show all personality names" action — see
-    // loadAllPersonalityLabels.
-    if (st.pers && st.pers.Current) {
-      st.personality = st.personality || {};
-      if (!(st.pers.Current in st.personality)) {
-        try {
-          const desc = await fetchPersonalityDescription(uid, st.pers.Current);
-          if (!stillCurrent(uid, gen)) return;
-          st.personality[st.pers.Current] = desc.Description;
-        } catch (e) { /* best-effort: NACK/unimplemented falls back to a bare number */ }
-      }
-    }
     await Promise.allSettled([
       loadIndexedLabels(uid, gen, 'curveLabels', st.curve, 'curve_description', d => d.Description),
       loadIndexedLabels(uid, gen, 'ortLabels', st.ort, 'output_response_time_description', d => d.Description),
@@ -968,27 +961,33 @@ const DeviceDetail = (() => {
     if (stillCurrent(uid, gen)) notify('params');
   }
 
-  // loadAllPersonalityLabels is the explicit user action (task ask: "make
-  // the full list an explicit user action") that fetches every remaining
-  // personality's DMX_PERSONALITY_DESCRIPTION, one GET per still-unresolved
-  // index — the eager fan-out ensureParams/ensureInfo deliberately do not do
-  // on their own. Goes through fetchPersonalityDescription's shared cache,
-  // so an index the Info section (or an earlier click) already resolved is
-  // never re-fetched.
-  async function loadAllPersonalityLabels(uid) {
-    const st = paramsCache[uid];
-    if (!st || !st.pers) return;
-    const gen = selectGen;
-    st.personality = st.personality || {};
-    const need = [];
-    for (let i = 1; i <= st.pers.Count; i++) if (!(i in st.personality)) need.push(i);
-    if (!need.length) return;
-    const results = await Promise.allSettled(need.map(i => fetchPersonalityDescription(uid, i)));
-    if (!stillCurrent(uid, gen)) return;
-    results.forEach((r, idx) => {
-      if (r.status === 'fulfilled') st.personality[need[idx]] = r.value.Description;
-    });
-    notify('params');
+  // Automatic mode labels: no extra operator action and no concurrent
+  // fan-out through a wireless proxy. Successful labels are session-cached.
+  async function loadAllPersonalityLabels(uid, gen = selectGen) {
+    const st=paramsCache[uid];
+    if(!st?.pers || st.modeNamesGen===gen)return;
+    st.modeNamesGen=gen;
+    try {
+    const count=Math.min(255,Math.max(0,st.pers.Count));
+    const order=[st.pers.Current,...Array.from({length:count},(_,i)=>i+1)].filter((n,i,a)=>n>0&&n<=count&&a.indexOf(n)===i);
+    st.personality=st.personality||{};st.personalityErrors=st.personalityErrors||{};
+    for(const index of order) {
+      if(!stillCurrent(uid,gen))return;
+      if(st.personality[index])continue;
+      delete st.personalityErrors[index];
+      try {
+        const desc=await fetchPersonalityDescription(uid,index);
+        st.personality[index]=desc.Description;
+        if(!desc.Description)st.personalityErrors[index]=true;
+        const info=infoCache[uid];
+        if(info?.deviceInfo?.CurrentPersonality===index) {
+          info.currentPersonalityDesc=desc;info.personalityNameLoading=false;
+        }
+      }catch(e){st.personalityErrors[index]=true;}
+      if(!stillCurrent(uid,gen))return;
+      notify('params');notify('info');
+    }
+    } finally { if(st.modeNamesGen===gen)st.modeNamesGen=null; }
   }
 
   // loadIndexedLabels fetches `choice.Count` description entries (indices
@@ -1135,41 +1134,13 @@ const DeviceDetail = (() => {
     const persField = UI.buildApplyField({
       label: 'Personality', kind: 'select', enabled: !!pers,
       value: pers ? pers.Current : null,
-      options: pers ? Array.from({ length: pers.Count }, (_, i) => i + 1).map(i => ({ value: i, label: personalityLabels[i] ? `${i} — ${personalityLabels[i]}` : String(i) })) : [],
+      options: pers ? Array.from({ length: pers.Count }, (_, i) => i + 1).map(i => ({ value: i, label: `${i} — ${personalityLabels[i] || (st.personalityErrors?.[i] ? 'Mode name unavailable' : 'Loading mode name…')}` })) : [],
       name: 'dmx_personality',
     });
     standard.appendChild(persField.wrap);
     UI.wireApplyField(persField, pers ? String(pers.Current) : '', async (v) => {
       await saveParam(uid, 'dmx_personality', parseInt(v, 10), statusSetter);
     }, statusSetter);
-
-    // "Show all personality names" is the explicit user action for the full
-    // 1..Count DMX_PERSONALITY_DESCRIPTION list (task ask: fetching every
-    // mode's name is desirable but must not fire on load — these devices sit
-    // behind a bandwidth-constrained wireless proxy that is already
-    // saturating). Only offered once there's more than one personality to
-    // name and at least one is still unresolved; disappears once the
-    // dropdown above is fully labeled.
-    const labeledCount = Object.keys(personalityLabels).length;
-    if (pers && pers.Count > 1 && labeledCount < pers.Count) {
-      const loadAllWrap = document.createElement('div');
-      loadAllWrap.className = 'b5-row';
-      loadAllWrap.style.marginTop = 'calc(var(--b5-space-2) * -1)'; // sits right under the Personality field
-      loadAllWrap.innerHTML = `<button type="button" class="b5-btn b5-btn--sm b5-btn--ghost btn-load-all-personalities">Show all ${pers.Count} personality names</button>`;
-      standard.appendChild(loadAllWrap);
-      const loadAllBtn = loadAllWrap.querySelector('button');
-      loadAllBtn.addEventListener('click', async () => {
-        loadAllBtn.disabled = true;
-        loadAllBtn.innerHTML = UI.spinner() + 'Loading…';
-        await loadAllPersonalityLabels(uid);
-        // Re-render happens via notify() -> caller's subscriber; if this
-        // exact panel is still mounted with nothing changed (e.g. every
-        // fetch failed), leave the button usable again rather than stuck
-        // spinning forever.
-        loadAllBtn.disabled = false;
-        loadAllBtn.textContent = `Show all ${pers.Count} personality names`;
-      });
-    }
 
     // fxIdentify is the one deliberate Apply-to-confirm exception (a
     // momentary physical action, not a persisted parameter) — a plain
@@ -2662,5 +2633,6 @@ const DeviceDetail = (() => {
     renderInfoSection, renderParamsSection, renderSensorsSection, renderStatusSection,
     // exposed for the JS render-proof harness / tests:
     _caches: { infoCache, paramsCache, sensorsCache, statusCache },
+    _modeNames: { fetch:fetchPersonalityDescription, load:loadAllPersonalityLabels, format:formatPersonalitySummary },
   };
 })();

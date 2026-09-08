@@ -10,6 +10,9 @@
 // server.go):
 //
 //	GET    /api/patch                            -> patchResponse ({"active":false} if none created yet)
+//	GET    /api/patches                          -> patchCatalogResponse
+//	POST   /api/patches                          <- newPatchRequest      -> patchResponse (new named show)
+//	POST   /api/patches/{id}/load                -> patchResponse (switch active show)
 //	POST   /api/patch/new                         <- newPatchRequest      -> patchResponse (discards any existing patch)
 //	POST   /api/patch/entries                     <- entryRequest         -> patchResponse (creates one entry, lazy-inits the patch)
 //	PUT    /api/patch/entries/{id}                <- entryRequest         -> patchResponse
@@ -82,8 +85,53 @@ func (s *Server) handleGetPatch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toPatchResponse(p))
 }
 
+// patchCatalogResponse is intentionally only a compact index. The complete
+// entries of a saved show are loaded only when that show becomes active.
+type patchCatalogResponse struct {
+	Patches []patch.PatchRef `json:"patches"`
+}
+
+func (s *Server) handleListPatches(w http.ResponseWriter, r *http.Request) {
+	refs := s.PatchStore.ListPatches()
+	if refs == nil {
+		refs = make([]patch.PatchRef, 0)
+	}
+	writeJSON(w, http.StatusOK, patchCatalogResponse{Patches: refs})
+}
+
 type newPatchRequest struct {
 	Name string `json:"name"`
+}
+
+// handleCreateSavedPatch starts a separate empty rig and makes it active.
+// Stop is mandatory before the switch: neither a classic sequence nor a
+// pattern may keep driving entries that belong to the previous show.
+func (s *Server) handleCreateSavedPatch(w http.ResponseWriter, r *http.Request) {
+	var req newPatchRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	s.RigCheck.Stop()
+	_, p, err := s.PatchStore.CreatePatch(req.Name)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toPatchResponse(p))
+}
+
+// handleLoadSavedPatch switches the active rig without replacing or
+// reconciling either show's entries. A fixture committed in another saved
+// show is therefore available to be committed independently in this one.
+func (s *Server) handleLoadSavedPatch(w http.ResponseWriter, r *http.Request) {
+	s.RigCheck.Stop()
+	p, err := s.PatchStore.LoadPatch(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toPatchResponse(p))
 }
 
 // handleNewPatch discards whatever patch is active and starts a fresh,
@@ -99,7 +147,12 @@ func (s *Server) handleNewPatch(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = "Patch"
 	}
-	p := s.PatchStore.Replace(patch.Patch{Name: name})
+	s.RigCheck.Stop()
+	p, err := s.PatchStore.ReplaceChecked(patch.Patch{Name: name})
+	if err != nil {
+		writePatchStoreError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, toPatchResponse(p))
 }
 
@@ -115,15 +168,16 @@ func (s *Server) handleNewPatch(w http.ResponseWriter, r *http.Request) {
 // resolved state on an unrelated field edit" rule ConfirmedUID/MatchState
 // already follow.
 type entryRequest struct {
-	Name          string `json:"name"`
-	FixtureType   string `json:"fixtureType"`
-	Mode          string `json:"mode"`
-	Footprint     uint16 `json:"footprint"`
-	Universe      uint16 `json:"universe"`
-	StartAddress  uint16 `json:"startAddress"`
-	Position      string `json:"position"`
-	FixtureNumber string `json:"fixtureNumber"`
-	Notes         string `json:"notes"`
+	PhaseCount    *uint16 `json:"phaseCount"`
+	Name          string  `json:"name"`
+	FixtureType   string  `json:"fixtureType"`
+	Mode          string  `json:"mode"`
+	Footprint     uint16  `json:"footprint"`
+	Universe      uint16  `json:"universe"`
+	StartAddress  uint16  `json:"startAddress"`
+	Position      string  `json:"position"`
+	FixtureNumber string  `json:"fixtureNumber"`
+	Notes         string  `json:"notes"`
 
 	ChannelFunctions map[string]channelFunctionRequest `json:"channelFunctions"`
 }
@@ -135,14 +189,15 @@ type entryRequest struct {
 // type). Field-for-field mirrors patch.ChannelFunction; see that struct's
 // doc comment (internal/patch/entry.go) for what each field means.
 type channelFunctionRequest struct {
-	Source       string              `json:"source"`
-	Attribute    string              `json:"attribute"`
-	FunctionName string              `json:"functionName"`
-	DMXFrom      uint32              `json:"dmxFrom"`
-	DMXTo        uint32              `json:"dmxTo"`
-	PhysicalFrom float64             `json:"physicalFrom"`
-	PhysicalTo   float64             `json:"physicalTo"`
-	ChannelSets  []channelSetRequest `json:"channelSets"`
+	GeometryInstance string              `json:"geometryInstance"`
+	Source           string              `json:"source"`
+	Attribute        string              `json:"attribute"`
+	FunctionName     string              `json:"functionName"`
+	DMXFrom          uint32              `json:"dmxFrom"`
+	DMXTo            uint32              `json:"dmxTo"`
+	PhysicalFrom     float64             `json:"physicalFrom"`
+	PhysicalTo       float64             `json:"physicalTo"`
+	ChannelSets      []channelSetRequest `json:"channelSets"`
 
 	// --- GDTF resting values (patch schema v3) ---------------------------
 	//
@@ -215,7 +270,8 @@ func channelFunctionsFromRequest(in map[string]channelFunctionRequest) (map[uint
 			})
 		}
 		out[uint16(offset)] = patch.ChannelFunction{
-			Source: source, Attribute: cfr.Attribute, FunctionName: cfr.FunctionName,
+			GeometryInstance: cfr.GeometryInstance,
+			Source:           source, Attribute: cfr.Attribute, FunctionName: cfr.FunctionName,
 			DMXFrom: cfr.DMXFrom, DMXTo: cfr.DMXTo, PhysicalFrom: cfr.PhysicalFrom, PhysicalTo: cfr.PhysicalTo,
 			ChannelSets: sets,
 			// Copied verbatim, with no "is it non-zero?" filtering: a
@@ -280,6 +336,9 @@ func (s *Server) handleUpdatePatchEntry(w http.ResponseWriter, r *http.Request) 
 		// in here would mean that renaming a fixture silently decommitted
 		// it and threw away every setting read off the real light.
 		intended, asFound := pp.Entries[idx].Intended, pp.Entries[idx].AsFound
+		if req.PhaseCount == nil {
+			entry.PhaseCount = pp.Entries[idx].PhaseCount
+		}
 		// A plain field edit (fixing a typo, adjusting Notes) submits an
 		// entryRequest with no channelFunctions at all — preserve whatever
 		// this entry already had rather than wiping out (possibly
@@ -312,12 +371,20 @@ func (s *Server) handleUpdatePatchEntry(w http.ResponseWriter, r *http.Request) 
 }
 
 func entryFromRequest(id string, req entryRequest) (patch.Entry, error) {
+	var phaseCount uint16
+	if req.PhaseCount != nil {
+		phaseCount = *req.PhaseCount
+	}
+	if phaseCount > 512 {
+		return patch.Entry{}, fmt.Errorf("phase count must be 0 (auto) or 1–512")
+	}
 	cf, err := channelFunctionsFromRequest(req.ChannelFunctions)
 	if err != nil {
 		return patch.Entry{}, err
 	}
 	return patch.Entry{
-		ID: id, Name: req.Name, FixtureType: req.FixtureType, Mode: req.Mode,
+		PhaseCount: phaseCount,
+		ID:         id, Name: req.Name, FixtureType: req.FixtureType, Mode: req.Mode,
 		Footprint: req.Footprint, Universe: req.Universe, StartAddress: req.StartAddress,
 		Position: req.Position, FixtureNumber: req.FixtureNumber, Notes: req.Notes,
 		ChannelFunctions: cf,
@@ -717,7 +784,11 @@ func (s *Server) handlePatchAdopt(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Mode == "fresh" {
-		result := s.PatchStore.Replace(patch.Patch{Name: "Adopted from discovered rig", Entries: adopted})
+		result, err := s.PatchStore.ReplaceChecked(patch.Patch{Name: "Adopted from discovered rig", Entries: adopted})
+		if err != nil {
+			writePatchStoreError(w, err)
+			return
+		}
 		writeJSON(w, http.StatusOK, toPatchResponse(result))
 		return
 	}
@@ -1049,40 +1120,55 @@ type rigCheckStartRequest struct {
 // implementation so the two surfaces' "whole rig / one universe / one
 // position / a selection" options can never quietly diverge in meaning.
 func (s *Server) rigCheckScopeEntries(p patch.Patch, kind string, universe uint16, position string, entryIDs []string) ([]patch.Entry, error) {
+	var out []patch.Entry
 	switch kind {
 	case "", "all":
-		return p.Entries, nil
+		out = append([]patch.Entry(nil), p.Entries...)
 	case "universe":
-		var out []patch.Entry
 		for _, e := range p.Entries {
 			if e.Universe == universe {
 				out = append(out, e)
 			}
 		}
-		return out, nil
 	case "position":
-		var out []patch.Entry
 		for _, e := range p.Entries {
 			if e.Position == position {
 				out = append(out, e)
 			}
 		}
-		return out, nil
 	case "selection":
 		want := make(map[string]bool, len(entryIDs))
 		for _, id := range entryIDs {
 			want[id] = true
 		}
-		var out []patch.Entry
 		for _, e := range p.Entries {
 			if want[e.ID] {
 				out = append(out, e)
 			}
 		}
-		return out, nil
 	default:
 		return nil, fmt.Errorf("scopeKind must be all|universe|position|selection, got %q", kind)
 	}
+	return s.withRDMPhaseWeights(out), nil
+}
+
+// withRDMPhaseWeights adds runtime-only phase weights to entries committed
+// to fixtures whose root DEVICE_INFO reports sub-devices. A 16-cell fixture
+// therefore consumes 16 phase positions, while patch/reconcile counts and
+// DMX channel mappings remain exactly one entry. Unknown/no-sub-device data
+// deliberately stays at the normal single position.
+func (s *Server) withRDMPhaseWeights(entries []patch.Entry) []patch.Entry {
+	fixtures := s.Registry.Devices()
+	byUID := make(map[string]uint16, len(fixtures))
+	for _, f := range fixtures {
+		if f.HasDeviceInfo && f.SubDeviceCount > 0 {
+			byUID[f.UID.String()] = f.SubDeviceCount
+		}
+	}
+	for i := range entries {
+		entries[i].PhaseWeight, _ = patch.PhaseCountFor(entries[i], byUID[entries[i].ConfirmedUID])
+	}
+	return entries
 }
 
 func (s *Server) handleRigCheckStart(w http.ResponseWriter, r *http.Request) {
@@ -1409,6 +1495,7 @@ func (s *Server) handleRigCheckPatternStart(w http.ResponseWriter, r *http.Reque
 		writeRigCheckError(w, err)
 		return
 	}
+	s.setPatternScope(patternScopeFields{ScopeKind: req.ScopeKind, Universe: req.Universe, Position: req.Position, EntryIDs: req.EntryIDs}, entries)
 	if req.OutputEnabled == nil || *req.OutputEnabled {
 		st, err = s.RigCheck.StartPatternOutput()
 		if err != nil {
@@ -1416,7 +1503,7 @@ func (s *Server) handleRigCheckPatternStart(w http.ResponseWriter, r *http.Reque
 			return
 		}
 	}
-	writeJSON(w, http.StatusOK, toPatternStatusJSON(st))
+	writeJSON(w, http.StatusOK, s.patternStatusJSON(st))
 }
 
 // patternAdjustRequest is the incremental mutator — every field is optional
@@ -1499,14 +1586,14 @@ func (s *Server) handleRigCheckPatternAdjust(w http.ResponseWriter, r *http.Requ
 			st = s.RigCheck.StopPatternOutput()
 		}
 	}
-	writeJSON(w, http.StatusOK, toPatternStatusJSON(st))
+	writeJSON(w, http.StatusOK, s.patternStatusJSON(st))
 }
 
 // handleRigCheckPatternStatus is GET .../rigcheck/pattern — see this
 // section's doc comment above for why this read is also the client-liveness
 // watchdog's heartbeat.
 func (s *Server) handleRigCheckPatternStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, toPatternStatusJSON(s.RigCheck.PatternStatus()))
+	writeJSON(w, http.StatusOK, s.patternStatusJSON(s.RigCheck.PatternStatus()))
 }
 
 // --- rig check pattern: one endpoint per engine mutator -------------------
@@ -1593,7 +1680,8 @@ func (s *Server) handleRigCheckPatternTests(w http.ResponseWriter, r *http.Reque
 		writeRigCheckError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toPatternStatusJSON(st))
+	s.setPatternScope(req.patternScopeFields, entries)
+	writeJSON(w, http.StatusOK, s.patternStatusJSON(st))
 }
 
 // patternSelectRequest toggles ONE test on or off — what a single
@@ -1627,7 +1715,7 @@ func (s *Server) handleRigCheckPatternSelect(w http.ResponseWriter, r *http.Requ
 		writeRigCheckError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toPatternStatusJSON(st))
+	writeJSON(w, http.StatusOK, s.patternStatusJSON(st))
 }
 
 // patternScopeRequest replaces the scope alone, keeping every selected test
@@ -1651,7 +1739,8 @@ func (s *Server) handleRigCheckPatternScope(w http.ResponseWriter, r *http.Reque
 		writeRigCheckError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toPatternStatusJSON(st))
+	s.setPatternScope(req.patternScopeFields, entries)
+	writeJSON(w, http.StatusOK, s.patternStatusJSON(st))
 }
 
 // patternIsolateRequest flips the isolate flag alone. Absent means false —
@@ -1666,7 +1755,7 @@ func (s *Server) handleRigCheckPatternIsolate(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toPatternStatusJSON(s.RigCheck.SetPatternIsolate(req.Isolate)))
+	writeJSON(w, http.StatusOK, s.patternStatusJSON(s.RigCheck.SetPatternIsolate(req.Isolate)))
 }
 
 // patternOutputRequest is the start/stop button and NOTHING else:
@@ -1693,7 +1782,7 @@ func (s *Server) handleRigCheckPatternOutput(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if !req.Enabled {
-		writeJSON(w, http.StatusOK, toPatternStatusJSON(s.RigCheck.StopPatternOutput()))
+		writeJSON(w, http.StatusOK, s.patternStatusJSON(s.RigCheck.StopPatternOutput()))
 		return
 	}
 	st, err := s.RigCheck.StartPatternOutput()
@@ -1701,7 +1790,7 @@ func (s *Server) handleRigCheckPatternOutput(w http.ResponseWriter, r *http.Requ
 		writeRigCheckError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toPatternStatusJSON(st))
+	writeJSON(w, http.StatusOK, s.patternStatusJSON(st))
 }
 
 type patternEntryStatusJSON struct {
@@ -1836,6 +1925,16 @@ type patternStatusJSON struct {
 	ElapsedMS  int64 `json:"elapsedMs"`
 	TotalScope int   `json:"totalScope"`
 
+	// Scope is the server-resolved expression that selected the current
+	// entries. Universe is canonical/0-based (as everywhere on the wire);
+	// the browser formats it only at display time. EntryIDs is non-nil even
+	// for every non-selection scope, so a client never has to distinguish an
+	// empty valid selection from an absent field.
+	ScopeKind     string   `json:"scopeKind"`
+	ScopeUniverse uint16   `json:"scopeUniverse"`
+	ScopePosition string   `json:"scopePosition"`
+	ScopeEntryIDs []string `json:"scopeEntryIds"`
+
 	Tests     []patternTestStatusJSON `json:"tests"`
 	Contested []contestedOffsetJSON   `json:"contested"`
 	BaseState patternBaseStateJSON    `json:"baseState"`
@@ -1865,6 +1964,8 @@ func toPatternStatusJSON(st patch.PatternStatus) patternStatusJSON {
 		SelectedCount: len(st.Tests), ElapsedMS: st.ElapsedMS, TotalScope: st.TotalScope,
 		LastEndReason: st.LastEndReason,
 		Entries:       make([]patternEntryStatusJSON, 0),
+		ScopeKind:     "all",
+		ScopeEntryIDs: make([]string, 0),
 		Tests:         make([]patternTestStatusJSON, 0, len(st.Tests)),
 		Contested:     make([]contestedOffsetJSON, 0, len(st.Contested)),
 		Available:     make([]availableTestJSON, 0, len(st.Available)),
@@ -1910,6 +2011,46 @@ func toPatternStatusJSON(st patch.PatternStatus) patternStatusJSON {
 		out.AppliedCount, out.SkippedCount = first.AppliedCount, first.SkippedCount
 		out.InferredCount, out.MissingDetailCount = first.InferredCount, first.MissingDetailCount
 		out.Entries = toPatternEntriesJSON(first.Entries)
+	}
+	return out
+}
+
+// patternScopeStatus is deliberately stored at the HTTP boundary. RigCheck
+// receives already-resolved entries and is rightly independent of patch UI
+// vocabulary; this companion preserves that vocabulary for status readback.
+type patternScopeStatus struct {
+	Kind     string
+	Universe uint16
+	Position string
+	EntryIDs []string
+}
+
+func (s *Server) setPatternScope(f patternScopeFields, entries []patch.Entry) {
+	kind := f.ScopeKind
+	if kind == "" {
+		kind = "all"
+	}
+	state := patternScopeStatus{Kind: kind, Universe: f.Universe, Position: f.Position, EntryIDs: make([]string, 0)}
+	if kind == "selection" {
+		for _, entry := range entries {
+			state.EntryIDs = append(state.EntryIDs, entry.ID)
+		}
+	}
+	s.patternScopeMu.Lock()
+	s.patternScope = state
+	s.patternScopeMu.Unlock()
+}
+
+func (s *Server) patternStatusJSON(st patch.PatternStatus) patternStatusJSON {
+	out := toPatternStatusJSON(st)
+	s.patternScopeMu.RLock()
+	scope := s.patternScope
+	s.patternScopeMu.RUnlock()
+	if scope.Kind != "" {
+		out.ScopeKind = scope.Kind
+		out.ScopeUniverse = scope.Universe
+		out.ScopePosition = scope.Position
+		out.ScopeEntryIDs = append(make([]string, 0, len(scope.EntryIDs)), scope.EntryIDs...)
 	}
 	return out
 }

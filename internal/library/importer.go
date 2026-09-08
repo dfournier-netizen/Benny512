@@ -112,6 +112,8 @@ func (st *Store) Import(doc Library, mode ImportMode) (ImportResult, error) {
 
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	before := cloneLibrary(*st.lib)
+	st.deferSave = true
 
 	if mode == ModeReplace {
 		res.Removed = len(st.lib.Records)
@@ -147,10 +149,13 @@ func (st *Store) Import(doc Library, mode ImportMode) (ImportResult, error) {
 
 	// One persist for the whole import rather than one per record: an
 	// import is a single user action, and writing the file N times would
-	// leave N chances for a crash to catch it mid-import. upsertLocked's
-	// own touchLocked calls have already written intermediate states, so
-	// this final call is what guarantees the on-disk file matches the
-	// finished result even if the last record was a no-op skip.
+	// leave N chances for a crash to catch it mid-import. Intermediate
+	// writes were deferred, so failure leaves the original file and memory intact.
+	st.deferSave = false
 	st.touchLocked(now)
+	if st.saveErr != nil {
+		st.lib = &before
+		return ImportResult{}, st.saveErr
+	}
 	return res, nil
 }

@@ -159,8 +159,21 @@ const MvrParse = (() => {
     return { universe, startAddress };
   }
 
+  // positionNames maps an MVR Scene/Positions UUID to its operator-facing
+  // name. Fixture.Position is a reference UUID, not a useful label; layer
+  // name remains the fallback for exporters that omit the collection.
+  function positionNamesByUUID(doc) {
+    const out = {};
+    Array.from(doc.getElementsByTagName('Position')).forEach(el => {
+      const uuid = fieldValue(el, ['uuid', 'UUID', 'Uuid']).toLowerCase();
+      const name = fieldValue(el, ['name', 'Name']);
+      if (uuid && name) out[uuid] = name;
+    });
+    return out;
+  }
+
   // parseFixture -> { fixture, skipReason } — exactly one of the two is set.
-  function parseFixture(fixtureEl, layerName) {
+  function parseFixture(fixtureEl, layerName, positionNames) {
     const name = fieldValue(fixtureEl, ['name', 'Name']);
     const uuid = fieldValue(fixtureEl, ['uuid', 'UUID', 'Uuid']);
     const label = name || uuid || '(unnamed fixture)';
@@ -177,6 +190,8 @@ const MvrParse = (() => {
 
     const gdtfMode = fieldValue(fixtureEl, ['GDTFMode', 'gdtfMode']);
     const fixtureId = fieldValue(fixtureEl, ['FixtureID', 'ID', 'fixtureId', 'FixtureId']);
+	const positionUUID = firstChildText(fixtureEl, ['Position', 'position']).toLowerCase();
+	const position = positionNames[positionUUID] || layerName || '';
     const { universe, startAddress } = absoluteToUniverseAddress(chosen.value);
 
     const warnings = [];
@@ -200,32 +215,30 @@ const MvrParse = (() => {
         fixtureId,
         universe,
         startAddress,
-        position: layerName || '',
+        position,
         warnings,
       },
     };
   }
 
   // walk: recursively descends Layer/Group containers collecting Fixture
-  // elements. layerName tracks the nearest enclosing NAMED <Layer> (best-
-  // effort Position label, task explicit design choice) — a Layer without
-  // its own name leaves the previously-tracked name in effect; unnamed
-  // container kinds (Group, etc.) never change it.
-  function walk(el, layerName, fixtures, warnings) {
+  // elements. A named Scene/Positions UUID wins; layerName is a compatible
+  // fallback for MVR exporters that provide only layer organization.
+  function walk(el, layerName, positionNames, fixtures, warnings) {
     directContent(el).forEach(child => {
       const tag = child.tagName || child.localName;
       if (tag === 'Fixture') {
-        const result = parseFixture(child, layerName);
+        const result = parseFixture(child, layerName, positionNames);
         if (result.fixture) fixtures.push(result.fixture);
         else warnings.push(result.skipReason);
       } else if (tag === 'Layer') {
         const name = fieldValue(child, ['name', 'Name']);
-        walk(child, name || layerName, fixtures, warnings);
+        walk(child, name || layerName, positionNames, fixtures, warnings);
       } else {
         // Group or any other container kind (Truss, Support, ...): recurse
         // transparently in case fixtures are nested inside, without
         // changing the tracked Layer-name label.
-        walk(child, layerName, fixtures, warnings);
+        walk(child, layerName, positionNames, fixtures, warnings);
       }
     });
   }
@@ -245,7 +258,7 @@ const MvrParse = (() => {
 
     const fixtures = [];
     const warnings = [];
-    if (layersEl) walk(layersEl, null, fixtures, warnings);
+    if (layersEl) walk(layersEl, null, positionNamesByUUID(doc), fixtures, warnings);
 
     return { fixtures, warnings };
   }

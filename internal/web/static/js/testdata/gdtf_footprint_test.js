@@ -660,6 +660,15 @@ function main() {
     modeByName(PALADIN_XML, 'DMX Mode').footprint, 23);
   const rayzorExtended = modeByName(RAYZOR_EXTENDED_XML, 'Extended Pan540/Tilt270');
   check('Proteus Rayzor 1960 "Extended Pan540/Tilt270" footprint', rayzorExtended.footprint, 100);
+  const rayzorRedInstances = new Set(Object.values(rayzorExtended.channelFunctions)
+    .filter(cf => cf.attribute === 'ColorAdd_R').map(cf => cf.geometryInstance).filter(Boolean));
+  check('Reduced Rayzor sample preserves its two RGBW geometry instances for phase spacing', rayzorRedInstances.size, 2);
+  const fullArrayXML = RAYZOR_EXTENDED_XML.replace(
+    geometryReference('RGBW Pixel 1', 'RGBW Pixel', 22) + geometryReference('RGBW Pixel 2', 'RGBW Pixel', 26),
+    Array.from({length:16}, (_,i)=>geometryReference('RGBW Pixel '+(i+1), 'RGBW Pixel', 22+i*4)).join(''));
+  const fullArray = modeByName(fullArrayXML, 'Extended Pan540/Tilt270');
+  check('Sixteen-instance RGBW array retains 16 phase identities, not 64 colour channels',
+    new Set(Object.values(fullArray.channelFunctions).filter(cf=>cf.attribute==='ColorAdd_R').map(cf=>cf.geometryInstance)).size,16);
 
   // The RGBW pixel array must still expand (this is the legitimate
   // under-counting fix the geometry-reference walk exists for) — offset 26
