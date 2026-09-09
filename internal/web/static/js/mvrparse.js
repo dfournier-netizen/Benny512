@@ -60,8 +60,8 @@
 // this module returns universe=1, startAddress=1 — the 0-based canonical
 // pair that, once patched, actually drives Art-Net universe 1 (raw
 // Port-Address 1), matching what Vectorworks/MVR shows as "universe 2" in
-// its 1-based UI. The display-notation layer (UI.formatUniverse/
-// parseUniverse in ui.js, driven by the Settings "universe numbering base"
+// its 1-based UI. The display layer (UI.formatUser/parseUser in ui.js,
+// driven by the Settings "Art-Net starting universe"
 // which defaults to 1) re-adds that +1 ONLY at the presentation boundary —
 // callers of this module must never re-apply a +1/-1 themselves, or the
 // conversion silently doubles up again.

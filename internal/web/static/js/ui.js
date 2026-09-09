@@ -29,51 +29,121 @@ const UI = (() => {
 
   function spinner() { return '<span class="b5-spinner"></span>'; }
 
-  // --- universe display base (notation-only; never touches wire/stored
-  // values) ----------------------------------------------------------------
-  // Every universe number this app stores or transmits is the 0-based
-  // Art-Net Port-Address (Entry.Universe, artnet.PortAddress, walk's
-  // PortAddress — see internal/patch/entry.go and internal/walk/walk.go).
-  // Some techs think in that same 0-based "Art-Net native" numbering;
-  // others (Obsidian EN4 gateways, Vectorworks) number universes starting
-  // at 1. universeBase is Settings.universeBase (0 or 1, default 1) — a
-  // pure display/notation choice. formatUniverse/parseUniverse are the ONE
-  // place that +/- happens; every screen that shows or accepts a universe
-  // number goes through these two functions instead of scattering its own
-  // +1/-1. app.js sets this once at startup (after GET /api/settings
-  // resolves, before the first screen renders) and again whenever Settings
-  // saves a new value (dispatching 'b5-universe-base-changed' so every
-  // open screen can re-render its universe displays in place).
-  let universeBase = 1;
-  function getUniverseBase() { return universeBase; }
-  function setUniverseBase(v) {
-    v = (v === 0 || v === 1) ? v : 1;
-    if (v === universeBase) return;
-    universeBase = v;
-    window.dispatchEvent(new CustomEvent('b5-universe-base-changed', { detail: { base: v } }));
+  // --- universe numbering ---------------------------------------------------
+  // Every universe this app stores or transmits is the RAW Art-Net
+  // Port-Address: the flat 15-bit Net:Sub-Net:Universe value, 0-32767
+  // (Entry.Universe, artnet.PortAddress, walk's PortAddress). That never
+  // changes, and nothing here writes to it.
+  //
+  // What changes is how a screen NAMES a universe, and there are exactly two
+  // legitimate answers:
+  //
+  //   Art-Net universe — the flat Port-Address, what is actually on the
+  //     wire and what a gateway's own faceplate shows. Protocol-facing
+  //     screens (Nodes, Analyzer) use this, and show it as ONE number:
+  //     universe 17 is typed and read as 17, never decomposed into
+  //     "Net 0, Sub-Net 1, Universe 1" on screen.
+  //
+  //   User universe — what the show calls it, starting at 1. Operator-facing
+  //     screens (Patch, Rig Check / Function check, Rig Walk, Send) use
+  //     this, because a patch sheet says "universe 1" and the operator
+  //     should not have to translate.
+  //
+  //   Devices shows BOTH, because it is the screen where a physical port
+  //     and a patched fixture meet and the two numberings have to be
+  //     reconciled by eye.
+  //
+  // artnetStart is Settings.artnetStartUniverse: the Art-Net universe that
+  // USER UNIVERSE 1 lives on. Default 0, so user 1 = Art-Net 0. Set it to 1
+  // and user 1 = Art-Net 1. Set it to 100 and a show handed the block
+  // 100-139 numbers its own universes 1-40, which is the case a plain
+  // 0-or-1 toggle could never express.
+  //
+  // This replaces the old `universeBase` (0|1) notation switch. That was one
+  // function, formatUniverse, whose name did not say WHICH numbering it
+  // produced, applied globally to every screen at once -- so the Nodes tab
+  // disagreed with the gateway faceplate and no call site was obviously
+  // wrong. The two conversions below are deliberately named for what they
+  // return, so a screen cannot use one while meaning the other.
+  let artnetStart = 0;
+  function getArtnetStart() { return artnetStart; }
+  function setArtnetStart(v) {
+    v = Number(v);
+    if (!Number.isFinite(v) || v < 0 || v > 32767) v = 0;
+    v = Math.floor(v);
+    if (v === artnetStart) return;
+    artnetStart = v;
+    window.dispatchEvent(new CustomEvent('b5-universe-base-changed', { detail: { artnetStart: v } }));
   }
-  // formatUniverse: wire/stored 0-based value -> what to display.
-  function formatUniverse(raw) {
-    const n = Number(raw) || 0;
-    return String(n + universeBase);
+
+  // artnetToUser: raw Port-Address -> user universe, or NULL when the raw
+  // universe sits BELOW the show's starting universe and therefore has no
+  // user number at all.
+  //
+  // Null rather than a negative: with a start of 100, a node port on Art-Net
+  // 5 is genuinely outside this show's block. "Universe -94" reads as an
+  // arithmetic bug and invites someone to "fix" it; the honest answer is
+  // that the port is real and outside the range, which formatUser says in
+  // words.
+  function artnetToUser(raw) {
+    const n = Math.floor(Number(raw) || 0);
+    const u = n - artnetStart + 1;
+    return u >= 1 ? u : null;
   }
-  // parseUniverse: a displayed/typed value -> the 0-based value to store.
-  // Never returns negative (a displayed 0 under base 1 has no valid
-  // wire equivalent — clamp to 0 rather than send -1).
-  function parseUniverse(displayed) {
-    const n = Number(displayed) || 0;
-    return Math.max(0, n - universeBase);
+  // userToArtnet: user universe -> raw Port-Address. Clamped to the wire
+  // range; never returns a negative Port-Address.
+  function userToArtnet(user) {
+    const n = Math.floor(Number(user) || 0);
+    return Math.min(32767, Math.max(0, n + artnetStart - 1));
   }
-  // universeInputAttrs: {min,max} for a raw <input type=number> that edits
-  // a universe number in DISPLAYED terms (wire range is 0-32767).
-  function universeInputAttrs() {
-    return { min: universeBase, max: 32767 + universeBase };
+
+  // formatUser / parseUser: the operator-facing pair.
+  function formatUser(raw) {
+    const u = artnetToUser(raw);
+    return u === null ? OUTSIDE_SHOW : String(u);
   }
-  // universeBaseLabel: short trailing note ("(0-based)"/"(1-based)") a
-  // caller can append next to a "Universe" field label so the active
-  // notation is never ambiguous at the point of entry.
-  function universeBaseLabel() {
-    return universeBase === 0 ? 'Art-Net native, 0-based' : 'industry standard, 1-based';
+  function parseUser(displayed) { return userToArtnet(displayed); }
+
+  // formatArtnet / parseArtnet: the protocol-facing pair. Identity in both
+  // directions -- the flat Port-Address, shown and typed as itself.
+  function formatArtnet(raw) { return String(Math.floor(Number(raw) || 0)); }
+  function parseArtnet(displayed) {
+    const n = Math.floor(Number(displayed) || 0);
+    return Math.min(32767, Math.max(0, n));
+  }
+
+  // OUTSIDE_SHOW is what a user-universe field shows for a raw universe
+  // below the starting universe. An em dash, not a number and not an empty
+  // cell: empty reads as "not loaded yet".
+  const OUTSIDE_SHOW = '\u2014';
+
+  // formatBoth: Devices' rendering, where a physical port's Art-Net universe
+  // and the show's own numbering both matter and must be reconcilable at a
+  // glance. Art-Net is named explicitly because it is the one an operator
+  // will compare against a gateway faceplate.
+  function formatBoth(raw) {
+    const n = Math.floor(Number(raw) || 0);
+    const u = artnetToUser(n);
+    return u === null
+      ? `Art-Net ${n} (outside show range)`
+      : `${u} (Art-Net ${n})`;
+  }
+
+  // Input bounds. userInputAttrs starts at 1 because there is no user
+  // universe 0; artnetInputAttrs spans the whole wire range.
+  function userInputAttrs() {
+    return { min: 1, max: 32767 - artnetStart + 1 };
+  }
+  function artnetInputAttrs() { return { min: 0, max: 32767 }; }
+
+  // universeScheme: the short note a screen appends to a "Universe" field
+  // label so which numbering is in play is never left to inference. This is
+  // the ambiguity the old single formatUniverse created.
+  function universeScheme(kind) {
+    if (kind === 'artnet') return 'Art-Net universe';
+    return artnetStart === 0
+      ? 'show universe (user 1 = Art-Net 0)'
+      : `show universe (user 1 = Art-Net ${artnetStart})`;
   }
 
   // --- generic Apply-to-confirm field (DOM builder) --------------------------
@@ -211,6 +281,10 @@ const UI = (() => {
 
   return {
     icon, badge, tag, spinner, buildApplyField, wireApplyField,
-    getUniverseBase, setUniverseBase, formatUniverse, parseUniverse, universeInputAttrs, universeBaseLabel,
+    getArtnetStart, setArtnetStart,
+    artnetToUser, userToArtnet,
+    formatUser, parseUser, userInputAttrs,
+    formatArtnet, parseArtnet, artnetInputAttrs,
+    formatBoth, universeScheme, OUTSIDE_SHOW,
   };
 })();

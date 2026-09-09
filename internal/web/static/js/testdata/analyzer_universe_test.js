@@ -8,7 +8,7 @@
 // VALUE SPELLED TWO WAYS IN TWO FILES. The owner reported it from a bench
 // once already, against the Nodes screen — every universe read one lower
 // than his Elation EN4 faceplate — and the cause was that nodes.js had 25
-// universe references and zero UI.formatUniverse calls. analyzer.js was in
+// universe references and zero universe-format calls. analyzer.js was in
 // exactly that state: SIX universe references, ZERO conversions.
 //
 // Two of the six were live, user-facing defects:
@@ -34,7 +34,7 @@
 // artnet.KindDmx. So `e.Universe === undefined` can NEVER be true for data
 // that came from this server, and a first cut that used that check to mean
 // "this packet has no universe" instead ran every ArtPoll, ArtPollReply and
-// ArtRdm row through formatUniverse(0) — printing "Universe 1" under the
+// ArtRdm row through the universe formatter — printing "Universe 1" under the
 // default 1-based notation. That is rule 3's "plausible 0" failure with the
 // base offset stacked on top: a feed full of rows claiming to be traffic on
 // universe 1, when in fact none of them carries a universe at all.
@@ -150,50 +150,65 @@ const cellText = (e) => String(An.universeCell(e)).replace(/<[^>]*>/g, '').trim(
 
 // ---- the tests ----------------------------------------------------------
 
-console.log('1. DEFECT (a): the Universe column is the display base, not the wire value');
-UI.setUniverseBase(1);
-check(cellText(entry('ArtDmx', 0)) === '1',
-  'an ArtDmx on canonical Port-Address 0 reads "1" — what the EN4 faceplate reads',
-  'got ' + JSON.stringify(cellText(entry('ArtDmx', 0))));
-check(cellText(entry('ArtDmx', 3)) === '4',
-  'canonical 3 reads 4 at base 1',
-  'got ' + JSON.stringify(cellText(entry('ArtDmx', 3))));
-UI.setUniverseBase(0);
+console.log('1. the Universe column is the RAW Art-Net Port-Address');
+// The Analyzer reports what is ON THE WIRE. It used to apply the global
+// display base, which meant a packet capture disagreed with the packet: at
+// base 1 an ArtDmx addressed to Port-Address 0 was labelled "universe 1".
+// For a screen whose entire job is showing what was transmitted, that is the
+// one thing it must not do.
+//
+// The show's own numbering lives on Patch, Rig Check and Rig Walk. The
+// starting universe must not reach this screen at all, which is what the
+// second half of each pair checks.
+UI.setArtnetStart(0);
 check(cellText(entry('ArtDmx', 0)) === '0',
-  'the same packet reads "0" at base 0 (Art-Net native) — the base is the ONLY thing that moved',
+  'an ArtDmx on canonical Port-Address 0 reads "0" — the wire value',
   'got ' + JSON.stringify(cellText(entry('ArtDmx', 0))));
-check(cellText(entry('ArtDmx', 3)) === '3', 'canonical 3 reads 3 at base 0');
+check(cellText(entry('ArtDmx', 3)) === '3',
+  'canonical 3 reads 3',
+  'got ' + JSON.stringify(cellText(entry('ArtDmx', 3))));
+UI.setArtnetStart(100);
+check(cellText(entry('ArtDmx', 0)) === '0',
+  'the same packet still reads "0" with a show start of 100 — a capture must never ' +
+  'be renumbered by a display setting, or it stops being evidence',
+  'got ' + JSON.stringify(cellText(entry('ArtDmx', 0))));
+check(cellText(entry('ArtDmx', 3)) === '3', 'canonical 3 still reads 3 at start 100');
 
 console.log('2. the FULL 15-bit Port-Address, never the 4-bit Universe nibble');
 // Canonical 17 = Net 0, Sub-Net 1, Universe 1. The nibble is 1; the
-// Port-Address is 17; at base 1 the cell must read 18. A screen printing
-// `addr & 0x0F` reads 2 here while Patch reads 18 for the same universe —
-// defect (b) of the Nodes bench report, which never showed on the owner's
-// own rig because his Net and Sub-Net are both 0.
-UI.setUniverseBase(1);
-check(cellText(entry('ArtDmx', 17)) === '18',
-  'Sub-Net 1 / Universe 1 reads 18, not 2 — the nibble is not the universe',
+// Port-Address is 17, and 17 is what the cell must read. A screen printing
+// `addr & 0x0F` reads 1 here — defect (b) of the Nodes bench report, which
+// never showed on the owner's own rig because his Net and Sub-Net are both 0.
+UI.setArtnetStart(0);
+check(cellText(entry('ArtDmx', 17)) === '17',
+  'Sub-Net 1 / Universe 1 reads 17, not 1 — the nibble is not the universe',
   'got ' + JSON.stringify(cellText(entry('ArtDmx', 17))));
-check(cellText(entry('ArtDmx', 4096)) === '4097',
+check(cellText(entry('ArtDmx', 4096)) === '4096',
   'a Net-1 Port-Address survives the whole 15-bit range',
   'got ' + JSON.stringify(cellText(entry('ArtDmx', 4096))));
-check(cellText(entry('ArtDmx', 32767)) === '32768',
+check(cellText(entry('ArtDmx', 32767)) === '32767',
   'the top of the Art-Net Port-Address range formats without wrapping',
   'got ' + JSON.stringify(cellText(entry('ArtDmx', 32767))));
 
-console.log('3. DEFECT (b): the filter box reads the number the tech TYPED');
-UI.setUniverseBase(1);
-check(An.setFilterUniverseFromInput('1') === 0,
-  'typing the faceplate\'s "1" at base 1 filters wire universe 0',
-  'got ' + An.setFilterUniverseFromInput('1'));
-check(An.matches(entry('ArtDmx', 0)) === true,
-  'and a packet on wire universe 0 is KEPT by that filter',
-  'the tech would have seen an empty table and concluded "no traffic"');
-check(An.matches(entry('ArtDmx', 1)) === false,
-  'while a packet on wire universe 1 (his "2") is excluded');
-UI.setUniverseBase(0);
+console.log('3. the filter box takes the same raw Art-Net number the column shows');
+// Typing and reading must agree on one screen. Because this screen is raw
+// both ways, a tech can copy a number out of the Universe column straight
+// into the filter box — which is the whole reason the Analyzer does not
+// carry the show offset.
+UI.setArtnetStart(0);
 check(An.setFilterUniverseFromInput('1') === 1,
-  'the same keystroke at base 0 filters wire universe 1 — the base is honoured on input too',
+  'typing 1 filters wire universe 1 — what the column labels 1',
+  'got ' + An.setFilterUniverseFromInput('1'));
+check(An.matches(entry('ArtDmx', 1)) === true,
+  'and a packet on wire universe 1 is KEPT by that filter',
+  'the tech would have seen an empty table and concluded "no traffic"');
+check(An.matches(entry('ArtDmx', 0)) === false,
+  'while a packet on wire universe 0 is excluded');
+UI.setArtnetStart(100);
+check(An.setFilterUniverseFromInput('1') === 1,
+  'the same keystroke still filters wire universe 1 with a show start of 100 — ' +
+  'the show offset must not reach the filter either, or typing what the column ' +
+  'shows returns nothing',
   'got ' + An.setFilterUniverseFromInput('1'));
 check(An.setFilterUniverseFromInput('') === null,
   'an empty box is "no universe filter", not universe 0');
@@ -202,7 +217,7 @@ console.log('4. a packet with no universe SAYS SO — it never borrows universe 
 // capture.Entry.Universe has no omitempty and is not a pointer, so every one
 // of these arrives as a literal 0. A null check cannot distinguish them; the
 // packet KIND is the only honest discriminator.
-UI.setUniverseBase(1);
+UI.setArtnetStart(1);
 for (const k of ['ArtPoll', 'ArtPollReply', 'ArtIpProg', 'ArtIpProgReply', 'ArtTimeCode', 'Note']) {
   const txt = cellText(entry(k, 0));
   check(txt === 'no universe',

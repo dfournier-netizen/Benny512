@@ -39,8 +39,8 @@ const WalkScreen = (() => {
   // --- universe notation ----------------------------------------------------
   //
   // DESIGN.md rule 5: every universe on this screen goes through
-  // UI.formatUniverse, from the raw 0-based Art-Net Port-Address the server
-  // sent, and every typed one comes back through UI.parseUniverse. Never a
+  // UI.formatUser, from the raw Art-Net Port-Address the server sent, and
+  // every typed one comes back through UI.parseUser. Never a
   // raw canonical number on screen, never a re-parse of a string already
   // displayed.
   //
@@ -68,7 +68,7 @@ const WalkScreen = (() => {
   // now go through uni() below, and scopeUniverseCanonical holds the true
   // 0-based value so a display-base change re-labels it without ever
   // re-reading the box.
-  const uni = (raw) => UI.formatUniverse(raw);
+  const uni = (raw) => UI.formatUser(raw);
 
   // Setup-screen (pre-walk) state.
   let nodesCache = [];
@@ -109,7 +109,7 @@ const WalkScreen = (() => {
     });
     // Universe base changed on Settings — re-render so an open device
     // card's "Node / port" line (devicedetail.js's shared Info section,
-    // now routed through UI.formatUniverse) reflects the new base
+    // now routed through UI.formatUser) reflects the new starting universe
     // immediately instead of showing a stale number until the next section
     // update happens to redraw it.
     window.addEventListener('b5-universe-base-changed', () => render());
@@ -334,7 +334,7 @@ const WalkScreen = (() => {
           opts.push(`<option value='${JSON.stringify({ ip: n.ip, bindIndex: n.bindIndex, portAddress: p.outputAddress })}'>${escapeHtml(n.shortName || n.ip)} — port ${p.index} (universe ${escapeHtml(uni(p.outputAddress))})</option>`);
         }));
         wrap.innerHTML = opts.length
-          ? `<div class="b5-field"><label class="b5-field__label" for="walkScopePort">Port (universes ${escapeHtml(UI.universeBaseLabel())})</label><select id="walkScopePort" class="b5-select">${opts.join('')}</select></div>`
+          ? `<div class="b5-field"><label class="b5-field__label" for="walkScopePort">Port (universes ${escapeHtml(UI.universeScheme('user'))})</label><select id="walkScopePort" class="b5-select">${opts.join('')}</select></div>`
           : `<p class="b5-board__empty">No node has reported a port yet, so there is no port to scope to. Refresh the Nodes screen, or walk "All devices" instead.</p>`;
         break;
       }
@@ -342,15 +342,15 @@ const WalkScreen = (() => {
         // The ONE place a universe is typed on this screen. The box shows
         // the DISPLAY number and the canonical wire value is kept beside
         // it — never re-derived from the box under a new base.
-        const ua = UI.universeInputAttrs();
+        const ua = UI.userInputAttrs();
         wrap.innerHTML = `<div class="b5-field">
-          <label class="b5-field__label" for="walkScopeUniverse">Universe (${escapeHtml(UI.universeBaseLabel())})</label>
+          <label class="b5-field__label" for="walkScopeUniverse">Universe (${escapeHtml(UI.universeScheme('user'))})</label>
           <input type="number" id="walkScopeUniverse" class="b5-input b5-input--mono" min="${ua.min}" max="${ua.max}" value="${escapeHtml(uni(scopeUniverseCanonical))}">
           <span class="b5-field__hint" id="walkScopeUniverseHint"></span>
         </div>`;
         const inp = document.getElementById('walkScopeUniverse');
         inp.addEventListener('input', () => {
-          scopeUniverseCanonical = UI.parseUniverse(inp.value);
+          scopeUniverseCanonical = UI.parseUser(inp.value);
           syncScopeUniverseHint();
         });
         syncScopeUniverseHint();
@@ -536,7 +536,7 @@ const WalkScreen = (() => {
         // reads as "it must be on".
         : `<span class="b5-pill b5-pill--md b5-pill--unread">${UI.icon('status-pending')}Not reported as flashing</span>`);
 
-    // Universe: the raw wire Port-Address, through UI.formatUniverse, once,
+    // Universe: the raw wire Port-Address, through UI.formatUser, once,
     // here. Address: through Api.formatAddressRange, which prints "—" when
     // addressKnown is false rather than a plausible 0 — so the meta line
     // says so in words instead.

@@ -51,10 +51,12 @@ const LibraryPanel=(()=>{
       const isGdtf=f.name.toLowerCase().endsWith('.gdtf');
       if(f.size>(isGdtf?8:120)*1024*1024)throw Error(isGdtf?'GDTF files up to 8 MB.':'Library exports up to 120 MB.');
       if(f.name.toLowerCase().endsWith('.gdtf')){
-        const buf=await f.arrayBuffer(),p=await MvrImport.parseGdtfFile(buf);const at=new Date().toISOString();
-        let binary='';const bytes=new Uint8Array(buf);for(let i=0;i<bytes.length;i+=32768)binary+=String.fromCharCode(...bytes.subarray(i,i+32768));
-        const origin={source:'gdtf',detail:f.name,at};
-        pending={doc:{format:'benny512-fixture-library',schemaVersion:1,records:[{manufacturer:p.manufacturer,model:p.model,identityOrigin:origin,sourceFiles:[{name:f.name,data:btoa(binary)}],modes:p.modes.map(m=>({name:m.name,footprint:m.footprint,channelFunctions:m.channelFunctions,origin}))}]},name:f.name,warnings:p.warnings||[]};
+        // MvrImport.libraryDocFromGdtf is the shared builder every GDTF
+        // entry point uses (see its doc comment). This dialog used to build
+        // the record inline; patch.js now imports GDTFs into the library
+        // too, and two hand-rolled copies of one shape is how they drift.
+        const buf=await f.arrayBuffer(),p=await MvrImport.parseGdtfFile(buf);
+        pending={doc:MvrImport.libraryDocFromGdtf(p,f.name,buf),name:f.name,warnings:p.warnings||[]};
       }else{pending={doc:JSON.parse(await f.text()),name:f.name,warnings:[]};if(pending.doc.format!=='benny512-fixture-library')throw Error('Choose a Benny512 library export, not a patch JSON.');}
       paintImport();status('Review the import, then apply. Existing types are merged.');
     }catch(e){pending=null;paintImport();status(e.message);}
@@ -70,12 +72,12 @@ const LibraryPanel=(()=>{
     const area=dialog.querySelector('[data-library-use]');if(!chosen){area.innerHTML='';return;}
     const {r,m}=chosen;
     area.innerHTML=`<h3>${esc(r.model)} · ${esc(m.name)}</h3><p>${m.footprint} channels · ${verified(m)?'Operator verified':'Not verified'}</p>
-      <form data-library-add class="b5-stack"><div class="b5-row"><label>Name <input class="b5-input" name="fixtureName" value="${esc(r.model)}" required></label><label>Universe <input class="b5-input" name="universe" type="number" min="${UI.universeInputAttrs().min}" max="${UI.universeInputAttrs().max}" value="${UI.formatUniverse(0)}" required></label><label>Address <input class="b5-input" name="address" type="number" min="1" max="512" value="1" required></label></div><button class="b5-btn b5-btn--primary" type="submit">Add new patch entry</button></form>
-      <details><summary>Apply profile to existing entries</summary><div class="b5-workspace-list">${entries.map(e=>`<label class="b5-workspace-item"><input type="checkbox" data-profile-entry="${esc(e.id)}">${esc(e.name||e.id)} · ${UI.formatUniverse(e.universe)} / ${e.startAddress}</label>`).join('')}</div><button class="b5-btn" data-apply-profile>Apply to selected entries…</button></details>`;
+      <form data-library-add class="b5-stack"><div class="b5-row"><label>Name <input class="b5-input" name="fixtureName" value="${esc(r.model)}" required></label><label>Universe <input class="b5-input" name="universe" type="number" min="${UI.userInputAttrs().min}" max="${UI.userInputAttrs().max}" value="${UI.formatUser(0)}" required></label><label>Address <input class="b5-input" name="address" type="number" min="1" max="512" value="1" required></label></div><button class="b5-btn b5-btn--primary" type="submit">Add new patch entry</button></form>
+      <details><summary>Apply profile to existing entries</summary><div class="b5-workspace-list">${entries.map(e=>`<label class="b5-workspace-item"><input type="checkbox" data-profile-entry="${esc(e.id)}">${esc(e.name||e.id)} · ${UI.formatUser(e.universe)} / ${e.startAddress}</label>`).join('')}</div><button class="b5-btn" data-apply-profile>Apply to selected entries…</button></details>`;
     area.querySelector('[data-library-add]').onsubmit=async e=>{
       e.preventDefault();const form=e.target,values=new FormData(form),address=Number(values.get('address'));
       if(address+m.footprint-1>512){status('This profile extends past channel 512. Choose another address.');return;}
-      await action(()=>Api.createPatchEntry({name:values.get('fixtureName'),fixtureType:(r.manufacturer+' '+r.model).trim(),mode:m.name,footprint:m.footprint,universe:UI.parseUniverse(values.get('universe')),startAddress:address,channelFunctions:m.channelFunctions}),'Added to the active patch; commit it to a physical fixture in Reconcile. Check for address overlaps.');
+      await action(()=>Api.createPatchEntry({name:values.get('fixtureName'),fixtureType:(r.manufacturer+' '+r.model).trim(),mode:m.name,footprint:m.footprint,universe:UI.parseUser(values.get('universe')),startAddress:address,channelFunctions:m.channelFunctions}),'Added to the active patch; commit it to a physical fixture in Reconcile. Check for address overlaps.');
     };
     area.querySelector('[data-apply-profile]').onclick=async()=>{
       const ids=[...area.querySelectorAll('[data-profile-entry]:checked')].map(e=>e.dataset.profileEntry);

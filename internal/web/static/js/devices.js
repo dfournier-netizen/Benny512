@@ -43,7 +43,9 @@
 //    device whose DEVICE_INFO has not come back yet says "address not read
 //    yet" or "reading…", not "—" and certainly not "addr 0".
 //
-//  * Universes go through UI.formatUniverse (rule 5) everywhere they reach
+//  * Universes go through UI.formatBoth (rule 5) everywhere they reach —
+//    Devices is where a physical port and a patched fixture meet, so it is
+//    the one screen that shows the show number AND the Art-Net number
 //    the screen: the port picker's labels, the universe filter's option
 //    labels, the arm/confirm sentence naming the exact port to be cleared,
 //    and every card's meta line. They already did before this change; the
@@ -168,7 +170,7 @@ const DevicesScreen = (() => {
         list.push({
           ip: n.ip, bindIndex: n.bindIndex, portAddress: p.outputAddress, index: p.index,
           group: `${g.name} (${n.ip})`,
-          label: `${portName} — universe ${UI.formatUniverse(p.outputAddress)}`,
+          label: `${portName} — universe ${UI.formatBoth(p.outputAddress)}`,
         });
       });
     }));
@@ -203,7 +205,7 @@ const DevicesScreen = (() => {
     if (!scope) return '(no port selected)';
     const n = nodes.find(x => x.ip === scope.ip && x.bindIndex === scope.bindIndex);
     const name = n ? (n.shortName || n.longName || n.ip) : scope.ip;
-    return `${escapeHtml(name)} (${escapeHtml(scope.ip)}) universe ${UI.formatUniverse(scope.portAddress)}`;
+    return `${escapeHtml(name)} (${escapeHtml(scope.ip)}) universe ${UI.formatBoth(scope.portAddress)}`;
   }
 
   function armClear(kind) {
@@ -366,7 +368,7 @@ const DevicesScreen = (() => {
       universes.forEach(u => {
         const opt = document.createElement('option');
         opt.value = String(u);
-        opt.textContent = `Universe ${UI.formatUniverse(u)}`;
+        opt.textContent = `Universe ${UI.formatBoth(u)}`;
         uniSel.appendChild(opt);
       });
       uniSel.value = universeFilter;
@@ -438,7 +440,7 @@ const DevicesScreen = (() => {
     }
     // Rule 5: the summary names the universe the tech reads on his gateway,
     // not the raw wire value the filter is keyed on.
-    if (universeFilter !== '') parts.push(`universe=${UI.formatUniverse(universeFilter)}`);
+    if (universeFilter !== '') parts.push(`universe=${UI.formatBoth(universeFilter)}`);
     const summaryEl = document.getElementById('deviceFilterSummary');
     const clearBtn = document.getElementById('btnClearDeviceFilters');
     const shown = filteredFixtures().length;
@@ -546,7 +548,7 @@ const DevicesScreen = (() => {
       // Rule 5: formatted here, at the presentation boundary, from the raw
       // 0-based Art-Net Port-Address — the same number the detail pane's
       // "Node / port" row, the Patch table and the Analyzer all format.
-      `Universe ${escapeHtml(UI.formatUniverse(f.portAddress))}`,
+      `Universe ${escapeHtml(UI.formatBoth(f.portAddress))}`,
       `addr ${addressLabel(f)}`,
     ].join(' · ');
     return `
@@ -643,7 +645,7 @@ const DevicesScreen = (() => {
           <span class="b5-linkbadge" aria-hidden="true">${UI.icon('nav-devices')}</span>
           <div class="b5-statecard__id">
             <strong class="b5-statecard__name">${escapeHtml(modelCell(f))}</strong>
-            <span class="b5-statecard__meta">${manufacturerLabel(f)} · UID <span class="b5-text-mono">${escapeHtml(f.uid)}</span> · Universe ${escapeHtml(UI.formatUniverse(f.portAddress))} · node ${escapeHtml(f.nodeIp)}</span>
+            <span class="b5-statecard__meta">${manufacturerLabel(f)} · UID <span class="b5-text-mono">${escapeHtml(f.uid)}</span> · Universe ${escapeHtml(UI.formatBoth(f.portAddress))} · node ${escapeHtml(f.nodeIp)}</span>
           </div>
         </div>
         <div class="b5-statecard__state">${classPill(f.class)}</div>

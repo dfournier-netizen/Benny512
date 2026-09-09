@@ -92,6 +92,11 @@ type paramDescriptorJSON struct {
 	Max            int64  `json:"max"`
 	Default        int64  `json:"default"`
 	SelfDescribing bool   `json:"selfDescribing"`
+	// SpecDefined: this app filled the layout in from a published standard
+	// because the device cannot be asked (E1.20 §10.4.2). The editor uses it
+	// to render a real control instead of a raw-hex box, and to NOT show the
+	// "raw / unverified" tag — the layout is neither raw nor unverified.
+	SpecDefined bool `json:"specDefined"`
 	// Tier is params.Tier(d.PID)'s string form — "promoted" | "standard" |
 	// "hidden" (Phase D task 1). In practice a "hidden" row should never
 	// actually appear here: isEditorTarget already excludes TierHidden PIDs
@@ -122,7 +127,8 @@ func toParamDescriptorJSON(d params.ParamDescriptor) paramDescriptorJSON {
 		CommandClass: byte(d.CommandClass), SupportsGet: d.CommandClass.SupportsGet(), SupportsSet: d.CommandClass.SupportsSet(),
 		PDLSize: d.PDLSize, Unit: byte(d.Unit), UnitSuffix: d.Unit.Suffix(), Prefix: byte(d.Prefix),
 		Min: d.Min, Max: d.Max, Default: d.Default, SelfDescribing: d.SelfDescribing,
-		Tier: params.Tier(d.PID).String(),
+		SpecDefined: d.SpecDefined,
+		Tier:        params.Tier(d.PID).String(),
 	}
 }
 
@@ -234,7 +240,7 @@ func (s *Server) handleSetDeviceParam(w http.ResponseWriter, r *http.Request) {
 // for numeric types, a JSON string for DS_ASCII, and either a JSON string
 // (hex-encoded) or a JSON array of numbers for the raw-fallback case.
 func decodeSetValue(raw json.RawMessage, desc params.ParamDescriptor) (any, error) {
-	if !desc.SelfDescribing {
+	if !desc.Typed() {
 		return decodeHexOrByteArray(raw)
 	}
 	switch desc.DataType {

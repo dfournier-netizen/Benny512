@@ -584,7 +584,7 @@ const RigCheckPanel = (() => {
     const e = (host.getEntries() || []).find(x => x.id === entryId);
     if (!e) return entryId;
     const name = e.name || e.fixtureType || e.id;
-    return `${name} (U${UI.formatUniverse(e.universe)}/${e.startAddress})`;
+    return `${name} (U${UI.formatUser(e.universe)}/${e.startAddress})`;
   }
 
   // ---- scope --------------------------------------------------------------
@@ -598,13 +598,13 @@ const RigCheckPanel = (() => {
       { id: 'position', label: 'One position' },
       { id: 'selection', label: 'Pick fixtures' },
     ];
-    const ua = UI.universeInputAttrs();
+    const ua = UI.userInputAttrs();
     let value = '';
     if (scopeKind === 'universe') {
       value = `
         <div class="b5-rcp-scope__value">
-          <label class="b5-field__label" for="rcpScopeUniverse">Universe <span class="b5-text-muted b5-text-xs">(${escapeHtml(UI.universeBaseLabel())})</span></label>
-          <input type="number" id="rcpScopeUniverse" class="b5-input b5-numinput" min="${ua.min}" max="${ua.max}" value="${UI.formatUniverse(scopeUniverse)}">
+          <label class="b5-field__label" for="rcpScopeUniverse">Universe <span class="b5-text-muted b5-text-xs">(${escapeHtml(UI.universeScheme('user'))})</span></label>
+          <input type="number" id="rcpScopeUniverse" class="b5-input b5-numinput" min="${ua.min}" max="${ua.max}" value="${UI.formatUser(scopeUniverse)}">
         </div>`;
     } else if (scopeKind === 'position') {
       if (!scopePosition && positions.length) scopePosition = positions[0];
@@ -621,7 +621,7 @@ const RigCheckPanel = (() => {
           ${entries.length ? entries.map(e => `
             <label class="b5-pickrow">
               <input type="checkbox" data-rcp-pick="${escapeHtml(e.id)}" ${scopeSelection[e.id] ? 'checked' : ''}>
-              <span>${escapeHtml(e.name || e.fixtureType || e.id)} <span class="b5-text-muted b5-text-xs">U${UI.formatUniverse(e.universe)}/${e.startAddress}</span></span>
+              <span>${escapeHtml(e.name || e.fixtureType || e.id)} <span class="b5-text-muted b5-text-xs">U${UI.formatUser(e.universe)}/${e.startAddress}</span></span>
             </label>`).join('') : '<span class="b5-text-muted b5-text-sm">no entries in this patch</span>'}
         </div>`;
     }
@@ -860,7 +860,7 @@ const RigCheckPanel = (() => {
       // the old focused input's queued change afterward; it must never write
       // a stale display-base value into the newly-rendered scope.
       if (!e.target.isConnected) return;
-      scopeUniverse = UI.parseUniverse(e.target.value);
+      scopeUniverse = UI.parseUser(e.target.value);
       await setScope();
     });
 
@@ -964,7 +964,7 @@ const RigCheckPanel = (() => {
     const total = snap.totalScope || 0;
     if (!n) { errMsg = 'no tests selected — turn at least one test on first'; render(); return; }
     const scopeWord = scopeKind === 'all' ? 'the whole rig'
-      : scopeKind === 'universe' ? `universe ${UI.formatUniverse(scopeUniverse)}`
+      : scopeKind === 'universe' ? `universe ${UI.formatUser(scopeUniverse)}`
         : scopeKind === 'position' ? `position "${scopePosition}"`
           : `${total} picked fixture${total === 1 ? '' : 's'}`;
     if (!confirm(`Let output flow: ${n} test${n === 1 ? '' : 's'} on ${scopeWord} (${total} fixture${total === 1 ? '' : 's'}). This moves real fixtures now.`)) return;

@@ -154,7 +154,7 @@ async function wire() { panel.render(); await settle(); }
 // ---- the board ---------------------------------------------------------
 //
 // Universes are RAW 0-based Art-Net Port-Addresses on the wire, exactly as
-// the server sends them; UI.formatUniverse turns them into the displayed
+// the server sends them; UI.formatUser turns them into the displayed
 // 1-based numbers. Raw 0, 1, 2, 10, 20 display as 1, 2, 3, 11, 21 — the set
 // that separates a numeric sort from a lexicographic one.
 const state = {

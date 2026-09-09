@@ -35,13 +35,82 @@ type ParamDescriptor struct {
 	Max            int64
 	Default        int64
 	SelfDescribing bool
+	// SpecDefined marks a descriptor this app filled in from a PUBLISHED
+	// STANDARD rather than from the device. It is a third state, distinct
+	// from both of the others, and the distinction is the point:
+	//
+	//	SelfDescribing  the DEVICE described this PID (PARAMETER_DESCRIPTION)
+	//	SpecDefined     the STANDARD describes it; the device cannot be asked
+	//	neither        	nobody knows the layout -- raw hex, marked unverified
+	//
+	// E1.20 §10.4.2 defines PARAMETER_DESCRIPTION only for manufacturer-
+	// specific PIDs, so a standard PID can never be self-describing no
+	// matter how well specified it is. Collapsing "the standard says PDL 1,
+	// 0/1" into the same bucket as "unknown bytes" is what put a hex field
+	// in front of an operator for a plain on/off setting.
+	SpecDefined bool
 }
+
+// Typed reports whether this descriptor carries a usable layout — from the
+// device (SelfDescribing) or from a published standard (SpecDefined).
+//
+// It exists so the question "can we encode/decode this PID properly?" has
+// ONE spelling. Before SpecDefined there were three separate
+// `!desc.SelfDescribing` tests standing in for it — GetParam, SetParam and
+// the web layer's decodeSetValue — and adding a second source of layout
+// knowledge to each of them independently is precisely how this project has
+// repeatedly ended up with one concept spelled two ways in two files.
+func (d ParamDescriptor) Typed() bool { return d.SelfDescribing || d.SpecDefined }
 
 func paramDescriptorFromPD(pd rdm.ParameterDescription) ParamDescriptor {
 	return ParamDescriptor{
 		PID: pd.PID, Label: pd.Description, DataType: pd.DataType, CommandClass: pd.CommandClass,
 		PDLSize: pd.PDLSize, Unit: pd.Unit, Prefix: pd.Prefix,
 		Min: pd.MinValue, Max: pd.MaxValue, Default: pd.DefaultValue, SelfDescribing: true,
+	}
+}
+
+// specKnownPIDs are standard PIDs whose parameter data this app knows from
+// PRIMARY TEXT, for which the device itself can never supply a
+// PARAMETER_DESCRIPTION (E1.20 §10.4.2 restricts that message to
+// manufacturer-specific PIDs).
+//
+// Without this table these PIDs reached the generic editor as bare
+// SelfDescribing:false descriptors and rendered as a RAW HEX FIELD -- so
+// inverting a fixture's tilt meant typing "01" into a text box, on a screen
+// whose whole job is to spare an operator that.
+//
+// Every entry must cite the clause it came from, and must be a layout the
+// standard fixes rather than one a device is free to vary. Verified against
+// ANSI E1.20-2025 on 2026-09-09:
+//
+//	§10.10.1 PAN_INVERT      GET response PDL 0x01, PD "Off/On (0/1)";
+//	§10.10.2 TILT_INVERT     SET request  PDL 0x01, same field; SET
+//	§10.10.3 PAN_TILT_SWAP   response PDL 0x00. GET and SET both allowed.
+//
+// NOTE for anyone extending this: these three are E1.20 PIDs, NOT E1.37-1.
+// Several comments in this repository used to cite E1.37-1 for them; that
+// standard's Table A-1 contains no 0x0600-0x0602 at all. The mistake was
+// harmless only because nothing depended on it.
+var specKnownPIDs = map[rdm.ParameterID]ParamDescriptor{
+	rdm.PIDPanInvert:   boolPIDDescriptor(rdm.PIDPanInvert, "PAN INVERT"),
+	rdm.PIDTiltInvert:  boolPIDDescriptor(rdm.PIDTiltInvert, "TILT INVERT"),
+	rdm.PIDPanTiltSwap: boolPIDDescriptor(rdm.PIDPanTiltSwap, "PAN/TILT SWAP"),
+}
+
+// boolPIDDescriptor builds the descriptor for a one-byte Off/On (0/1)
+// standard PID -- the shape E1.20 §10.10.1-3 fixes for the pan/tilt
+// orientation trio.
+func boolPIDDescriptor(pid rdm.ParameterID, label string) ParamDescriptor {
+	return ParamDescriptor{
+		PID:          pid,
+		Label:        label,
+		DataType:     rdm.DSBoolean,
+		CommandClass: rdm.PDCommandClassGetSet,
+		PDLSize:      1,
+		Min:          0,
+		Max:          1,
+		SpecDefined:  true,
 	}
 }
 
@@ -414,6 +483,16 @@ func (c *Client) resolveDescriptor(ctx context.Context, pid rdm.ParameterID) Par
 	if d, ok := descCacheGet(c.uid.ManufacturerID, pid); ok {
 		return d
 	}
+	// A PID whose layout the STANDARD fixes is answered from the standard,
+	// before the not-describable branch below turns it into an opaque
+	// raw-hex row. This is checked first because it is strictly better
+	// information than that branch's "we know nothing": both avoid the wire,
+	// but only this one lets the editor render the real control. See
+	// specKnownPIDs for the clauses each entry cites.
+	if d, ok := specKnownPIDs[pid]; ok {
+		descCacheSet(c.uid.ManufacturerID, pid, d)
+		return d
+	}
 	if !isDescribable(pid) {
 		// We already know the answer, so don't spend a transaction asking.
 		//
@@ -565,15 +644,15 @@ var (
 )
 
 // GetParam issues a GET for pid and decodes it per DescribeParam's
-// descriptor. Devices/PIDs with SelfDescribing==false decode as
-// ParamValueRaw — the UI's hex-editor fallback path.
+// descriptor. A PID with no typed layout (see ParamDescriptor.Typed) decodes
+// as ParamValueRaw — the UI's hex-editor fallback path.
 func (c *Client) GetParam(ctx context.Context, pid rdm.ParameterID) (ParamValue, ParamDescriptor, error) {
 	desc := c.DescribeParam(ctx, pid)
 	data, err := c.getRaw(ctx, pid, nil)
 	if err != nil {
 		return ParamValue{}, desc, err
 	}
-	if !desc.SelfDescribing {
+	if !desc.Typed() {
 		return ParamValue{Kind: ParamValueRaw, Raw: data}, desc, nil
 	}
 	v, err := decodeByDataType(data, desc.DataType)
@@ -582,11 +661,11 @@ func (c *Client) GetParam(ctx context.Context, pid rdm.ParameterID) (ParamValue,
 
 // SetParam issues a SET for pid, encoding value per DescribeParam's
 // descriptor and validating it against the descriptor's declared range
-// first. When the PID isn't self-describing, value must be a []byte (raw
-// fallback SET, sent blind — report §1.1 item 4).
+// first. When the PID has no typed layout (ParamDescriptor.Typed), value
+// must be a []byte (raw fallback SET, sent blind — report §1.1 item 4).
 func (c *Client) SetParam(ctx context.Context, pid rdm.ParameterID, value any) error {
 	desc := c.DescribeParam(ctx, pid)
-	if !desc.SelfDescribing {
+	if !desc.Typed() {
 		raw, ok := value.([]byte)
 		if !ok {
 			return fmt.Errorf("%w: pid 0x%04X has no PARAMETER_DESCRIPTION; pass raw []byte", ErrParamTypeMismatch, uint16(pid))
@@ -811,7 +890,8 @@ func isSpeculativePID(pid rdm.ParameterID) bool {
 		// JDC-1 tilts but does not pan. It was telling us exactly what it has
 		// and we asked anyway.
 		//
-		// All three are optional per E1.37-1 (never in E1.20's minimum-support
+		// All three are optional per E1.20 §10.10.1-3 (never in E1.20's
+		// minimum-support
 		// list), so absence from SUPPORTED_PARAMETERS genuinely means "this
 		// device does not have it" rather than the spec-mandated silence that
 		// makes gating a REQUIRED PID wrong — see TestAsFound_CorePIDsAreNeverGated

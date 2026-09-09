@@ -109,7 +109,7 @@ const SendScreen = (() => {
   // stay .b5-dmx-cell and only their state markers are brought up to the
   // kit's standard.
   function screenHtml() {
-    const ua = UI.universeInputAttrs();
+    const ua = UI.userInputAttrs();
     return `
       <div class="b5-page-header">
         <h1 class="b5-page-header__title">Send</h1>
@@ -125,7 +125,7 @@ const SendScreen = (() => {
           <div class="b5-toolbar__row">
             <label class="b5-field__label" for="sendUniverse">Universe</label>
             <input type="number" id="sendUniverse" class="b5-input b5-input--mono"
-                   min="${ua.min}" max="${ua.max}" value="${escapeHtml(UI.formatUniverse(0))}">
+                   min="${ua.min}" max="${ua.max}" value="${escapeHtml(UI.formatUser(0))}">
           </div>
           <p class="b5-caption" id="sendUniverseHint"></p>
         </div>
@@ -297,7 +297,7 @@ const SendScreen = (() => {
   // server.go's dmxRequest doc comment for the wire-format rationale.
   // sendUniverseCanonical is the true 0-based wire universe — the single
   // source of truth. The #sendUniverse input only ever shows/accepts the
-  // display-base-converted number (UI.formatUniverse/parseUniverse); an
+  // user-universe number (UI.formatUser / UI.parseUser); an
   // oninput on that field updates THIS from the CURRENT base (correct at
   // the moment of typing), so a later base change can just reformat this
   // already-canonical number instead of misreading the old display text
@@ -307,20 +307,20 @@ const SendScreen = (() => {
   function syncUniverseFieldDisplay() {
     const el = document.getElementById('sendUniverse');
     if (!el) return;
-    const ua = UI.universeInputAttrs();
+    const ua = UI.userInputAttrs();
     el.min = ua.min; el.max = ua.max;
-    el.value = UI.formatUniverse(sendUniverseCanonical);
+    el.value = UI.formatUser(sendUniverseCanonical);
     // The section head and the caption both restate the ACTIVE notation, so
     // a number on this screen can never be read against the wrong base —
     // and both are rewritten from the canonical value on every base change,
     // never re-parsed from what is already in the box.
     const note = document.getElementById('sendUniverseNote');
-    if (note) note.textContent = 'universe ' + UI.formatUniverse(sendUniverseCanonical) + ' · ' + UI.universeBaseLabel();
+    if (note) note.textContent = 'universe ' + UI.formatUser(sendUniverseCanonical) + ' · ' + UI.universeScheme('user');
     const hint = document.getElementById('sendUniverseHint');
     if (hint) {
       hint.textContent =
-        `Numbering is ${UI.universeBaseLabel()} — the same numbering as Patch, Devices and Nodes. ` +
-        `Universe ${UI.formatUniverse(sendUniverseCanonical)} here is Art-Net Port-Address ${sendUniverseCanonical} on the wire. ` +
+        `Numbering is the ${UI.universeScheme('user')} — the same numbering as Patch, Rig Check and Rig Walk. Nodes and the Analyzer show the raw Art-Net universe. ` +
+        `Universe ${UI.formatUser(sendUniverseCanonical)} here is Art-Net Port-Address ${sendUniverseCanonical} on the wire. ` +
         'Change the numbering on the Settings screen.';
     }
   }
@@ -363,11 +363,11 @@ const SendScreen = (() => {
     const uniEl = document.getElementById('sendUniverse');
     syncUniverseFieldDisplay();
     uniEl.addEventListener('input', () => {
-      sendUniverseCanonical = UI.parseUniverse(uniEl.value);
+      sendUniverseCanonical = UI.parseUser(uniEl.value);
       // Head/caption only — never the input's own value, which the tech is
       // still typing into.
       const note = document.getElementById('sendUniverseNote');
-      if (note) note.textContent = 'universe ' + UI.formatUniverse(sendUniverseCanonical) + ' · ' + UI.universeBaseLabel();
+      if (note) note.textContent = 'universe ' + UI.formatUser(sendUniverseCanonical) + ' · ' + UI.universeScheme('user');
     });
     window.addEventListener('b5-universe-base-changed', syncUniverseFieldDisplay);
     renderOutputPill();

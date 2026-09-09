@@ -59,18 +59,34 @@ type Settings struct {
 	// Changing it via POST /api/settings opens/closes the on-disk logger
 	// immediately (see Server.applyLogRDMPathLocked).
 	LogRDMPath string `json:"logRdmPath,omitempty"`
-	// UniverseBase is a pure DISPLAY/NOTATION setting (0 or 1): what number
-	// the UI shows for the wire's universe 0. It never changes any stored
-	// or transmitted value — Entry.Universe, artnet.PortAddress and every
-	// other internal/wire representation stay 0-based always. The
-	// conversion happens only at the presentation boundary in the browser
-	// (ui.js's UI.formatUniverse/UI.parseUniverse) so that, per the task
-	// ask, "if our base is starting at 1 and I set a port to universe 1,
-	// [we] actually send a 0." Defaults to 1 (defaultSettings below) since
-	// Obsidian EN4/Vectorworks 1-based numbering is what most working techs
-	// expect; 0 is offered for Art-Net-native users who think in wire
-	// values directly.
-	UniverseBase int `json:"universeBase"`
+	// ArtnetStartUniverse is the Art-Net universe that USER UNIVERSE 1 lives
+	// on. It is a pure DISPLAY/CORRELATION setting: it never changes any
+	// stored or transmitted value. Entry.Universe, artnet.PortAddress and
+	// every other internal representation stay the raw 15-bit Art-Net
+	// Port-Address (0-32767) always, and the conversion happens only at the
+	// presentation boundary in the browser (ui.js's artnetToUser /
+	// userToArtnet).
+	//
+	// Default 0: user universe 1 = Art-Net universe 0. Set it to 1 and user
+	// 1 = Art-Net 1. Set it to 100 and a show handed the block 100-139
+	// numbers its own universes 1-40.
+	//
+	// This REPLACES the old UniverseBase (0|1) notation switch, which could
+	// only ever express those first two cases and applied one global
+	// +1/-1 to every screen at once — including the Nodes tab, whose job is
+	// to agree with a gateway's own faceplate. Screens now choose their
+	// numbering by what they are FOR: protocol-facing (Nodes, Analyzer) show
+	// the raw Art-Net universe, operator-facing (Patch, Rig Check, Rig Walk,
+	// Send) show the user universe, and Devices shows both.
+	//
+	// A settings file written by an older build carries universeBase instead;
+	// see migrateUniverseSetting for how that is read.
+	ArtnetStartUniverse int `json:"artnetStartUniverse"`
+	// LegacyUniverseBase carries a pre-existing settings file's universeBase
+	// so it can be migrated exactly once, then ignored. It is accepted on
+	// input and never written back: the field is gone from the UI, and
+	// keeping it live would leave two settings meaning overlapping things.
+	LegacyUniverseBase *int `json:"universeBase,omitempty"`
 }
 
 // Server bundles the engines and serves REST + WS + the embedded UI.
@@ -200,7 +216,10 @@ func defaultSettings() Settings {
 		PollIntervalMS:  int(session.DefaultPollInterval / time.Millisecond),
 		CaptureLimit:    capture.DefaultCapacity,
 		TimeoutProfiles: map[string]string{},
-		UniverseBase:    1,
+		// user universe 1 = Art-Net universe 0 — the same correlation the
+		// previous default (universeBase 1) produced, so an existing rig
+		// reads identically after the upgrade.
+		ArtnetStartUniverse: 0,
 	}
 }
 
@@ -1140,8 +1159,10 @@ func (s *Server) handlePostSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if req.UniverseBase != 0 && req.UniverseBase != 1 {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("universeBase must be 0 or 1, got %d", req.UniverseBase))
+	migrateUniverseSetting(&req)
+	if req.ArtnetStartUniverse < 0 || req.ArtnetStartUniverse > 32767 {
+		writeError(w, http.StatusBadRequest, fmt.Errorf(
+			"artnetStartUniverse must be an Art-Net Port-Address in 0-32767, got %d", req.ArtnetStartUniverse))
 		return
 	}
 	s.settingsMu.Lock()
@@ -1631,4 +1652,24 @@ func (s *Server) publishSensorValues(conn *ws.Conn, uidStr string) {
 		out = append(out, toSensorReadingJSON(r))
 	}
 	s.hub.sendTo(conn, wsMessage{Type: "sensor_values", Kind: uidStr, At: time.Now(), Sensors: out})
+}
+
+// migrateUniverseSetting reads a settings payload written by a build that
+// still had the universeBase (0|1) notation switch, and expresses the same
+// intent as an Art-Net starting universe.
+//
+//	universeBase 1 meant "show wire universe 0 as 1", i.e. user 1 = Art-Net 0
+//	universeBase 0 meant "show wire universe 0 as 0", i.e. user 1 = Art-Net 1
+//
+// so the start is 1 - universeBase. It runs only when the caller sent no
+// artnetStartUniverse of its own: an explicit new value always wins, and the
+// legacy field is dropped afterwards so it cannot be re-applied on a later
+// save and silently renumber a rig.
+func migrateUniverseSetting(req *Settings) {
+	if req.LegacyUniverseBase != nil && req.ArtnetStartUniverse == 0 {
+		if b := *req.LegacyUniverseBase; b == 0 || b == 1 {
+			req.ArtnetStartUniverse = 1 - b
+		}
+	}
+	req.LegacyUniverseBase = nil
 }

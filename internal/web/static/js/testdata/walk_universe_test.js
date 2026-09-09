@@ -30,7 +30,7 @@
 //      reads standing under the fixture.
 //
 // A test that only checked "canonical 0 shows as 1" would not have caught any
-// of these, because none of them called UI.formatUniverse at all. So every
+// of these, because none of them called a universe formatter at all. So every
 // assertion below reads the MARKUP the screen actually produced, or the
 // ARGUMENTS it actually put on the wire — never a helper in isolation.
 //
@@ -206,8 +206,8 @@ async function main() {
   Walk.init();
 
   // ------------------------------------------------------------------
-  console.log('1. DEFECT (a): the scope picker labels the DISPLAY base, not the raw Port-Address');
-  UI.setUniverseBase(1);
+  console.log('1. the scope picker labels the SHOW universe, not the raw Port-Address');
+  UI.setArtnetStart(0);
   walkActive = false;
   Walk.onEnterScreen();
   await settle();
@@ -223,12 +223,14 @@ async function main() {
   let uniInput = el('walkScopeUniverse');
   const scopeMarkup = doc.getElementById('walkScopeValueWrap').innerHTML;
   check(/id="walkScopeUniverse"[^>]*value="1"/.test(scopeMarkup),
-    'the universe box opens on 1 at base 1 — the number Patch shows for the first universe',
+    'the universe box opens on 1 at start 0 — the number Patch shows for the first universe',
     'markup was: ' + scopeMarkup.replace(/\s+/g, ' ').slice(0, 300) +
     ' — value="0" means the raw Port-Address is still being labelled');
 
-  check(!/Port-Address\)?\s*<\/label>/.test(scopeMarkup) && /industry standard, 1-based|Art-Net native, 0-based/.test(scopeMarkup),
-    'the field label names the active notation instead of saying "(Port-Address)"',
+  check(!/Port-Address\)?\s*<\/label>/.test(scopeMarkup) && /show universe/.test(scopeMarkup),
+    'the field label names the numbering in play ("show universe") instead of saying ' +
+    '"(Port-Address)" — Rig Walk is operator-facing, and which numbering a box wants ' +
+    'is exactly what used to be left to inference',
     'label markup: ' + scopeMarkup.slice(0, 240));
 
   // ------------------------------------------------------------------
@@ -241,7 +243,7 @@ async function main() {
   await settle();
   const start = calls.filter(c => c.name === 'startWalk').pop();
   check(!!start && start.args.scopeValue === '3',
-    'typing universe 4 at base 1 starts a walk on wire Port-Address 3',
+    'typing show universe 4 at start 0 starts a walk on wire Port-Address 3',
     'scopeValue was ' + JSON.stringify(start && start.args.scopeValue) +
     ' — "4" means the displayed number was sent raw and the walk is one universe off');
   check(start.args.scopeKind === 'universe', 'the scope kind is still sent unchanged');
@@ -250,28 +252,28 @@ async function main() {
   console.log('3. DEFECT (c): the active walk card shows the display universe, not the raw one');
   await settle();
   let card = root();
-  // portAddress 17, base 1 -> "Universe 18". The three wrong answers are 17
+  // portAddress 17, start 0 -> "Universe 18". The three wrong answers are 17
   // (raw), 1 (nibble) and 2 (formatted nibble), and none of them can produce
   // this string.
   check(/Universe 18/.test(card),
-    'the card reads "Universe 18" for Port-Address 17 at base 1',
+    'the card reads "Universe 18" for Port-Address 17 at start 0',
     'card markup did not contain it: ' + card.replace(/\s+/g, ' ').slice(0, 400));
   check(!/U17\b/.test(card) && !/port-addr 17\b/.test(card),
     'the raw Port-Address is never printed as though it were the universe',
     'found a bare raw 17 in: ' + card.replace(/\s+/g, ' ').slice(0, 400));
 
   // ------------------------------------------------------------------
-  console.log('4. a display-base change re-renders the open card AND the staged scope box');
-  UI.setUniverseBase(0);
+  console.log('4. a starting-universe change re-renders the open card AND the staged scope box');
+  UI.setArtnetStart(1);
   await settle();
   card = root();
   check(/Universe 17/.test(card),
-    'the same card re-reads "Universe 17" at base 0 without a refetch',
+    'the same card re-reads "Universe 17" at start 1 without a refetch',
     'card markup: ' + card.replace(/\s+/g, ' ').slice(0, 400));
 
   // ------------------------------------------------------------------
   console.log('5. DEFECT (b): the port picker names universes, not raw addresses');
-  UI.setUniverseBase(1);
+  UI.setArtnetStart(0);
   walkActive = false;
   Walk.onEnterScreen();
   await settle();
@@ -280,31 +282,31 @@ async function main() {
   await settle();
   const portMarkup = doc.getElementById('walkScopeValueWrap').innerHTML;
   check(/universe 18/i.test(portMarkup),
-    'the port option reads "universe 18" for outputAddress 17 at base 1',
+    'the port option reads "universe 18" for outputAddress 17 at start 0',
     'port markup: ' + portMarkup.replace(/\s+/g, ' ').slice(0, 300));
   check(!/addr 17\b/.test(portMarkup),
     'the raw output Port-Address is not printed as "addr 17"',
     'port markup: ' + portMarkup.replace(/\s+/g, ' ').slice(0, 300));
 
   // ------------------------------------------------------------------
-  console.log('6. the staged scope box survives a base change without being re-parsed');
+  console.log('6. the staged scope box survives a starting-universe change without being re-parsed');
   el('walkScopeKind').value = 'universe';
   el('walkScopeKind').fire('change');
   await settle();
   uniInput = el('walkScopeUniverse');
-  uniInput.value = '9';           // base 1 -> canonical 8
+  uniInput.value = '9';           // start 0 -> canonical 8
   uniInput.fire('input');
-  UI.setUniverseBase(0);
+  UI.setArtnetStart(1);
   await settle();
   const reMarkup = doc.getElementById('walkScopeValueWrap').innerHTML;
   check(/id="walkScopeUniverse"[^>]*value="8"/.test(reMarkup),
-    'a box holding display 9 at base 1 is rewritten to 8 at base 0 — the same wire universe',
+    'a box holding show universe 9 at start 0 is rewritten to 8 at start 1 — the same wire universe',
     'markup was: ' + reMarkup.replace(/\s+/g, ' ').slice(0, 300) +
-    ' — value="9" means the base change silently moved the wire value');
+    ' — value="9" means the starting-universe change silently moved the wire value');
 
   // ------------------------------------------------------------------
   console.log('7. the identify-off safety beacon still fires when the screen is left');
-  UI.setUniverseBase(1);
+  UI.setArtnetStart(0);
   walkActive = true;
   Walk.onEnterScreen();
   await settle();

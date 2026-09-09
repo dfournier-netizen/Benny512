@@ -188,10 +188,22 @@
 }
 #screen-devices .b5-section-head h2 { margin: 0; font-size: var(--b5-font-size-lg); }
 
+/* The inspector is a fixed drawer, so it must clear the sticky app chrome
+   (.b5-header + .b5-show-context) in BOTH senses or its bar is unreachable:
+
+   z-index -- on the shared scale's dropdown layer, above chrome (sticky) and
+   below modals/toasts. It was a hand-picked 20 against the strip's
+   hand-picked 40, which is what put the close button under the strip.
+
+   top -- offset by the chrome's MEASURED height (--b5-chrome-height,
+   published by app.js; see publishChromeHeight there). A fixed guess would
+   be wrong exactly when it matters: .b5-show-context wraps, so on a tablet
+   in portrait the chrome is two rows tall, and that is the venue case. The
+   fallback covers the moment before the first measurement lands. */
 .b5-inspector {
   position: fixed;
-  z-index: 20;
-  top: var(--b5-space-4);
+  z-index: var(--b5-z-dropdown);
+  top: calc(var(--b5-chrome-height, 3.5rem) + var(--b5-space-4));
   right: var(--b5-space-4);
   bottom: var(--b5-space-4);
   width: min(34rem, calc(100vw - (var(--b5-space-4) * 2)));

@@ -118,6 +118,13 @@ const MvrImport = (() => {
     // MVR fixture instances reference the same .gdtf file; parse it once.
     const gdtfCache = new Map();
 
+    // gdtfArchives: resolved GDTF file name -> original bytes, populated
+    // beside gdtfCache. Surfaced on the result (see `gdtfs` below) so the
+    // caller can put every GDTF an MVR carried into the Fixture Library
+    // with its FULL mode list -- the MVR patches one mode per fixture, and
+    // the others exist only at import time.
+    const gdtfArchives = new Map();
+
     async function getParsedGdtf(resolvedName) {
       if (gdtfCache.has(resolvedName)) return gdtfCache.get(resolvedName);
       const gdtfBytes = await outerZip.read(resolvedName);
@@ -129,6 +136,11 @@ const MvrImport = (() => {
       const descBytes = await innerZip.read(descName);
       const descXml = new TextDecoder('utf-8').decode(descBytes);
       const result = GdtfParse.parseDescriptionXml(descXml);
+      // Keep the file's own bytes alongside the parse so the Fixture
+      // Library can retain the original archive, exactly as a direct
+      // "Import GDTF" does. They are already in memory here; the library
+      // deduplicates by checksum, so repeated fixture types cost nothing.
+      gdtfArchives.set(resolvedName, gdtfBytes);
       // Geometry-resolution warnings (a reference cycle, a multi-break
       // reference, an unresolvable geometry name) are a property of the
       // GDTF FILE, not of any one fixture instance — surfaced once here,
@@ -197,7 +209,15 @@ const MvrImport = (() => {
       });
     }
 
-    return { entries, warnings };
+    // gdtfs: every distinct GDTF this MVR actually resolved, parsed once
+    // (gdtfCache) and paired with its original bytes. The caller merges
+    // these into the Fixture Library; see rememberGdtfInLibrary.
+    const gdtfs = [];
+    gdtfCache.forEach((parsed, name) => {
+      gdtfs.push({ name, parsed, sourceBuffer: gdtfArchives.get(name) || null });
+    });
+
+    return { entries, warnings, gdtfs };
   }
 
   // parseGdtfFile: single-.gdtf-file import (task ask: "import a single
@@ -240,5 +260,72 @@ const MvrImport = (() => {
     return GdtfParse.parseDescriptionXml(descXml);
   }
 
-  return { parseMvrFile, parseGdtfFile };
+  // libraryDocFromGdtf: the ONE builder for the library document a parsed
+  // GDTF implies. Every GDTF that enters Benny512 -- through the Fixture
+  // Library dialog, through Patch's "Import GDTF...", or resolved from
+  // inside an MVR -- becomes a library record through this function.
+  //
+  // Two reasons it is shared rather than written per caller:
+  //
+  //  1. ALL MODES, every time. Patch's importer applies ONE mode to the
+  //     matching entries, because that is what patching means; the library
+  //     is device-TYPE knowledge and wants the whole personality list. A
+  //     patch entry stores a single mode (patch.Entry: Mode, Footprint,
+  //     ChannelFunctions), so a mode not captured at import time is not
+  //     recoverable from the patch later -- harvesting the show afterwards
+  //     can only ever return the one mode each entry actually uses. Import
+  //     is the only moment the other modes exist.
+  //
+  //  2. The library dialog already built this shape inline. A second
+  //     hand-rolled copy in patch.js is how the two drift -- one gains a
+  //     field, the other does not, and the records merge badly. That defect
+  //     class has cost this project repeatedly; one builder, one shape.
+  //
+  // sourceBuffer is optional: pass the original .gdtf ArrayBuffer to retain
+  // the archive (deduplicated by checksum server-side), omit it when the
+  // bytes are not at hand.
+  function libraryDocFromGdtf(parsed, fileName, sourceBuffer) {
+    const at = new Date().toISOString();
+    const origin = { source: 'gdtf', detail: fileName, at };
+    const record = {
+      manufacturer: parsed.manufacturer,
+      model: parsed.model,
+      identityOrigin: origin,
+      modes: (parsed.modes || []).map(m => ({
+        name: m.name,
+        footprint: m.footprint,
+        channelFunctions: m.channelFunctions,
+        origin,
+      })),
+    };
+    if (sourceBuffer) {
+      let binary = '';
+      const bytes = new Uint8Array(sourceBuffer);
+      for (let i = 0; i < bytes.length; i += 32768) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + 32768));
+      }
+      record.sourceFiles = [{ name: fileName, data: btoa(binary) }];
+    }
+    return { format: 'benny512-fixture-library', schemaVersion: 1, records: [record] };
+  }
+
+  // rememberGdtfInLibrary: merge a parsed GDTF's full mode list into the
+  // Fixture Library, best-effort.
+  //
+  // Best-effort is deliberate. This runs alongside an import the operator
+  // actually asked for (patching entries, importing an MVR); the library
+  // write is a bonus, and failing it must not fail the thing they asked
+  // for. The caller gets the error back to mention in its status line
+  // rather than to abort on.
+  async function rememberGdtfInLibrary(parsed, fileName, sourceBuffer) {
+    if (!parsed || !(parsed.modes || []).length) return null;
+    try {
+      await Api.importLibrary(libraryDocFromGdtf(parsed, fileName, sourceBuffer), 'merge');
+      return null;
+    } catch (e) {
+      return e.message || String(e);
+    }
+  }
+
+  return { parseMvrFile, parseGdtfFile, libraryDocFromGdtf, rememberGdtfInLibrary };
 })();

@@ -1,5 +1,11 @@
+/* z-index is the SHARED SCALE's sticky layer, not a hand-picked 40. It was
+   40 -- numerically equal to --b5-z-modal -- which put a page-chrome strip on
+   the same layer as dialogs and above the Devices inspector (a hand-picked
+   20), so the inspector's own bar, and therefore its close button, rendered
+   UNDERNEATH this strip. Two components opting out of the token scale is
+   exactly how that collision happens; both now use the tokens. */
 .b5-show-context {
-  position: sticky; top: 0; z-index: 40;
+  position: sticky; top: 0; z-index: var(--b5-z-sticky);
   display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2);
   padding: var(--b5-space-2) var(--b5-space-4);
   background: var(--b5-color-bg-surface); border-bottom: 1px solid var(--b5-color-border-strong);

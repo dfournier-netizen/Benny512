@@ -862,7 +862,7 @@ func (s *Server) handlePatchExport(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 
 	findings := patch.DetectCollisions(p)
-	universeBase := s.SettingsSnapshot().UniverseBase
+	artnetStart := s.SettingsSnapshot().ArtnetStartUniverse
 	switch format {
 	case "json":
 		w.Header().Set("Content-Type", "application/json")
@@ -879,32 +879,46 @@ func (s *Server) handlePatchExport(w http.ResponseWriter, r *http.Request) {
 	case "txt":
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		writePatchExportText(w, now, p, findings, universeBase)
+		writePatchExportText(w, now, p, findings, artnetStart)
 	}
 }
 
-// displayUniverse converts a canonical, 0-based Art-Net Port-Address into
-// what a tech would see on screen at the given Settings.UniverseBase — the
-// exact formula ui.js's UI.formatUniverse uses client-side. This file's TXT
-// export has no browser to apply that conversion in, so it's the one place
-// in internal/web that legitimately reimplements it: the export IS the
-// presentation boundary for a downloaded file, same as ui.js is for the
-// live DOM. Every other Go-side use of Entry.Universe / Finding.Universe
-// must stay canonical (see collision.go's Finding.Message doc comment).
-func displayUniverse(raw uint16, base int) int {
-	return int(raw) + base
+// displayUniverse converts a canonical Art-Net Port-Address into the USER
+// UNIVERSE a tech reads on the Patch screen, given
+// Settings.ArtnetStartUniverse — the same formula as ui.js's artnetToUser.
+//
+// The patch TXT export is an operator-facing document (it is the printed
+// patch sheet), so it uses the operator's numbering, exactly as the Patch
+// screen does. It has no browser to convert in, which makes this the one
+// place in internal/web that legitimately reimplements the conversion: the
+// export IS the presentation boundary for a downloaded file, the same way
+// ui.js is for the live DOM. Every other Go-side use of Entry.Universe /
+// Finding.Universe must stay canonical (see collision.go's Finding.Message
+// doc comment).
+//
+// A universe below the starting universe has no user number. It returns
+// ok=false rather than a negative, and callers print the raw Art-Net value
+// marked as outside the show's range — the same honesty rule as the UI's
+// OUTSIDE_SHOW: an operator seeing "universe -94" would read a bug, not a
+// fixture patched outside the block they were given.
+func displayUniverse(raw uint16, artnetStart int) (int, bool) {
+	u := int(raw) - artnetStart + 1
+	if u < 1 {
+		return 0, false
+	}
+	return u, true
 }
 
 // composeFindingText renders f as the one-line sentence a human reads,
 // using patch.Patch p to resolve entry names and converting any universe
-// number to base via displayUniverse — the TXT-export mirror of patch.js's
+// number via displayUniverse — the TXT-export mirror of patch.js's
 // renderCollisionBanner composer, so the collision banner on screen and
 // this export always state the same universe number for the same finding.
 // Every FindingKind DetectCollisions can produce today is handled
 // explicitly; an unrecognized future Kind falls back to f.Message, which by
 // contract (see Finding.Message's doc comment) never states a bare universe
 // number, so that fallback can never be wrong here either.
-func composeFindingText(p patch.Patch, f patch.Finding, base int) string {
+func composeFindingText(p patch.Patch, f patch.Finding, artnetStart int) string {
 	switch f.Kind {
 	case patch.KindOverlap:
 		labels := make([]string, 0, len(f.EntryIDs))
@@ -922,14 +936,18 @@ func composeFindingText(p patch.Patch, f patch.Finding, base int) string {
 			}
 			who += fmt.Sprintf("%q", l)
 		}
-		return fmt.Sprintf("channels %d-%d overlap between %s in universe %d",
-			f.ChannelStart, f.ChannelEnd, who, displayUniverse(f.Universe, base))
+		if u, ok := displayUniverse(f.Universe, artnetStart); ok {
+			return fmt.Sprintf("channels %d-%d overlap between %s in universe %d",
+				f.ChannelStart, f.ChannelEnd, who, u)
+		}
+		return fmt.Sprintf("channels %d-%d overlap between %s in Art-Net universe %d (outside show range)",
+			f.ChannelStart, f.ChannelEnd, who, f.Universe)
 	default:
 		return f.Message
 	}
 }
 
-func writePatchExportText(w io.Writer, at time.Time, p patch.Patch, findings []patch.Finding, universeBase int) {
+func writePatchExportText(w io.Writer, at time.Time, p patch.Patch, findings []patch.Finding, artnetStart int) {
 	fmt.Fprintln(w, "Benny512 Patch Export")
 	fmt.Fprintf(w, "App version: %s\n", AppVersion)
 	fmt.Fprintf(w, "Generated:   %s\n", at.Format("2006-01-02 15:04:05 MST"))
@@ -940,7 +958,7 @@ func writePatchExportText(w io.Writer, at time.Time, p patch.Patch, findings []p
 	if len(findings) > 0 {
 		fmt.Fprintf(w, "%d collision finding(s):\n", len(findings))
 		for _, f := range findings {
-			fmt.Fprintf(w, "  [%s] %s: %s\n", strings.ToUpper(string(f.Severity)), f.Kind, composeFindingText(p, f, universeBase))
+			fmt.Fprintf(w, "  [%s] %s: %s\n", strings.ToUpper(string(f.Severity)), f.Kind, composeFindingText(p, f, artnetStart))
 		}
 		fmt.Fprintln(w)
 	}
@@ -948,7 +966,11 @@ func writePatchExportText(w io.Writer, at time.Time, p patch.Patch, findings []p
 	for i, e := range p.Entries {
 		fmt.Fprintf(w, "%3d. %s\n", i+1, patch.EntryLabel(e))
 		fmt.Fprintf(w, "     type: %s | mode: %s\n", nonEmptyStr(e.FixtureType, "—"), nonEmptyStr(e.Mode, "—"))
-		fmt.Fprintf(w, "     universe %d, %s\n", displayUniverse(e.Universe, universeBase), formatEntryAddressRange(e))
+		if u, ok := displayUniverse(e.Universe, artnetStart); ok {
+			fmt.Fprintf(w, "     universe %d, %s\n", u, formatEntryAddressRange(e))
+		} else {
+			fmt.Fprintf(w, "     Art-Net universe %d (outside show range), %s\n", e.Universe, formatEntryAddressRange(e))
+		}
 		if e.Position != "" {
 			fmt.Fprintf(w, "     position: %s\n", e.Position)
 		}

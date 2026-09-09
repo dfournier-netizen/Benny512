@@ -34,9 +34,9 @@ func TestIsSpeculativePID_PanTiltOrientationIsGated(t *testing.T) {
 		name string
 		why  string
 	}{
-		{rdm.PIDPanInvert, "PAN_INVERT", "optional per E1.37-1; NACKed 9x by a JDC-1 in RDM-LOG24"},
-		{rdm.PIDTiltInvert, "TILT_INVERT", "optional per E1.37-1; gated per-PID, so a fixture that advertises it is still asked"},
-		{rdm.PIDPanTiltSwap, "PAN_TILT_SWAP", "optional per E1.37-1; NACKed 9x by a JDC-1 in RDM-LOG24"},
+		{rdm.PIDPanInvert, "PAN_INVERT", "optional per E1.20 §10.10; NACKed 9x by a JDC-1 in RDM-LOG24"},
+		{rdm.PIDTiltInvert, "TILT_INVERT", "optional per E1.20 §10.10; gated per-PID, so a fixture that advertises it is still asked"},
+		{rdm.PIDPanTiltSwap, "PAN_TILT_SWAP", "optional per E1.20 §10.10; NACKed 9x by a JDC-1 in RDM-LOG24"},
 	}
 	for _, c := range gated {
 		if !isSpeculativePID(c.pid) {

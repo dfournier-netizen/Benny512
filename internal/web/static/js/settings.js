@@ -13,7 +13,7 @@
 //
 // Two things about this screen make it different from the others:
 //
-//  1. IT IS THE SOURCE OF THE UNIVERSE DISPLAY BASE. UI.setUniverseBase is
+//  1. IT IS THE SOURCE OF THE ART-NET STARTING UNIVERSE. UI.setArtnetStart is
 //     what fires 'b5-universe-base-changed', and every other screen listens
 //     for it to re-render its universe numbers (and, on Nodes and Send, to
 //     rewrite a staged editor field from its canonical value). So this
@@ -47,7 +47,7 @@ const SettingsScreen = (() => {
   // previous keystroke, so reverting a field by hand clears the marker.
   let baseline = {};
 
-  const FIELD_IDS = ['nicSelect', 'pollInterval', 'captureLimit', 'logRdmPath', 'universeBase'];
+  const FIELD_IDS = ['nicSelect', 'pollInterval', 'captureLimit', 'logRdmPath', 'artnetStartUniverse'];
 
   async function refresh() {
     [current, nics] = await Promise.all([Api.getSettings(), Api.getNICs().catch(() => [])]);
@@ -93,17 +93,16 @@ const SettingsScreen = (() => {
           <span class="b5-step-section__note" id="setUniNote"></span>
         </h2>
         <div class="b5-field">
-          <label class="b5-field__label" for="universeBase">Universe numbering starts at</label>
-          <select id="universeBase" class="b5-select">
-            <option value="0">Art-Net native &mdash; first universe is 0</option>
-            <option value="1">Industry standard &mdash; first universe is 1</option>
-          </select>
+          <label class="b5-field__label" for="artnetStartUniverse">Art-Net starting universe</label>
+          <input id="artnetStartUniverse" class="b5-input" type="number" min="0" max="32767" step="1">
+          <p class="b5-caption">The Art-Net universe that this show&rsquo;s <strong>universe 1</strong> lives on.</p>
         </div>
         <div class="b5-inset">
           <p class="b5-inset__head">${UI.icon('apply')}What this changes, and what it never changes</p>
-          <p class="b5-note" id="universeBaseExample"></p>
-          <p class="b5-note">Display only. Every universe number shown or typed anywhere in Benny512 &mdash; Patch, Send, Devices, Rig Walk, Rig Check, the Analyzer and every import preview &mdash; is renumbered from this base the moment you apply it. Nothing sent on the wire or stored in the patch changes. Obsidian EN4 and Vectorworks number from 1; Art-Net itself numbers from 0, hence the choice.</p>
-          <p class="b5-note">One exception, deliberately: the Nodes screen&rsquo;s port <em>configuration</em> block still shows Art-Net&rsquo;s own raw Net / Sub-Net / Universe fields, because those are the three numbers printed on the gateway&rsquo;s own faceplate. The universes it reports and programs are renumbered like everything else.</p>
+          <p class="b5-note" id="universeExample"></p>
+          <p class="b5-note">Correlation only. Nothing sent on the wire changes, and nothing stored in the patch changes &mdash; every universe Benny512 saves or transmits stays the raw Art-Net Port-Address. This setting only decides what the show&rsquo;s own universes are <em>called</em>.</p>
+          <p class="b5-note"><strong>Which screens show which number.</strong> <em>Nodes</em> and the <em>Analyzer</em> show the raw Art-Net universe &mdash; one flat number, 0&ndash;32767, matching what a gateway&rsquo;s faceplate shows; universe 17 is typed and read as 17, never split into Net / Sub-Net / Universe. <em>Patch</em>, <em>Rig Check</em>, <em>Function check</em>, <em>Rig Walk</em> and <em>Send</em> show the show&rsquo;s own numbering. <em>Devices</em> shows both, because that is where a physical port and a patched fixture meet.</p>
+          <p class="b5-note">A node port on an Art-Net universe <em>below</em> the starting universe has no show number and is shown as its Art-Net universe, marked outside the show&rsquo;s range &mdash; never as a negative.</p>
         </div>
       </section>
 
@@ -179,46 +178,55 @@ const SettingsScreen = (() => {
     document.getElementById('pollInterval').value = current.pollIntervalMs || 3000;
     document.getElementById('captureLimit').value = current.captureLimit || 10000;
     document.getElementById('logRdmPath').value = current.logRdmPath || '';
-    const base = (current.universeBase === 0) ? 0 : 1;
-    const universeSel = document.getElementById('universeBase');
-    if (universeSel) universeSel.value = String(base);
-    UI.setUniverseBase(base);
+    const start = Number.isFinite(current.artnetStartUniverse) ? current.artnetStartUniverse : 0;
+    const startInput = document.getElementById('artnetStartUniverse');
+    if (startInput) startInput.value = String(start);
+    UI.setArtnetStart(start);
     captureBaseline();
     renderDirty();
     renderUniverseNotes();
   }
 
-  // renderUniverseNotes: the active notation stated as a WORKED EXAMPLE
-  // rather than a base number, because "0-based" and "1-based" are the two
-  // things that look identical at arm's length. Every number in it is
-  // produced by UI.formatUniverse from a canonical wire value — this screen
-  // never does its own +1/-1 (DESIGN.md rule 5). Called from render() and
-  // again live whenever the picker moves, so the sentence describes the
-  // choice currently in the box, not the one last saved.
-  function renderUniverseNotes(pendingBase) {
-    const sel = document.getElementById('universeBase');
-    const base = pendingBase !== undefined
-      ? pendingBase
-      : (sel ? (parseInt(sel.value, 10) === 0 ? 0 : 1) : UI.getUniverseBase());
-    // The examples describe the PENDING choice, which may not be the base
-    // UI is running on yet, so they are composed from the base explicitly
-    // rather than through UI.formatUniverse's ambient one.
-    const shown = (raw) => String(raw + base);
+  // renderUniverseNotes: the active correlation stated as a WORKED EXAMPLE
+  // rather than as a number, because a starting universe is exactly the kind
+  // of off-by-one that looks right at arm's length and is wrong on the
+  // truss. It names a real pair in both directions.
+  //
+  // Composed from the PENDING value explicitly, not through UI.formatUser's
+  // ambient one — the sentence has to describe the choice currently in the
+  // box, including before it is applied.
+  function renderUniverseNotes(pendingStart) {
+    const input = document.getElementById('artnetStartUniverse');
+    let start = pendingStart;
+    if (start === undefined) {
+      const typed = input ? parseInt(input.value, 10) : NaN;
+      start = Number.isFinite(typed) ? typed : UI.getArtnetStart();
+    }
+    const valid = Number.isFinite(start) && start >= 0 && start <= 32767;
+    const applied = valid && start === UI.getArtnetStart();
+
     const note = document.getElementById('setUniNote');
     if (note) {
-      note.textContent = base === 0
-        ? 'Art-Net native, 0-based' + (base === UI.getUniverseBase() ? '' : ' — not applied yet')
-        : 'industry standard, 1-based' + (base === UI.getUniverseBase() ? '' : ' — not applied yet');
+      note.textContent = !valid
+        ? 'enter an Art-Net universe between 0 and 32767'
+        : `show universe 1 = Art-Net ${start}` + (applied ? '' : ' — not applied yet');
     }
-    const ex = document.getElementById('universeBaseExample');
-    if (ex) {
-      ex.textContent =
-        `With this setting, the first Art-Net universe on the wire (Port-Address 0) is shown and typed as ` +
-        `${shown(0)}, and Port-Address 12 is shown as ${shown(12)}. ` +
-        (base === UI.getUniverseBase()
-          ? 'This is the numbering in use right now.'
-          : 'This is not in use yet — press Apply settings below to switch every screen over.');
+
+    const ex = document.getElementById('universeExample');
+    if (!ex) return;
+    if (!valid) {
+      ex.textContent = 'An Art-Net starting universe must be a Port-Address between 0 and 32767.';
+      return;
     }
+    // Two concrete rows, one in each direction, because the mistake this
+    // setting invites is reading the correlation backwards.
+    ex.textContent =
+      `With this setting: Patch universe 1 goes out on Art-Net universe ${start}, ` +
+      `and Patch universe 5 goes out on Art-Net universe ${start + 4}. ` +
+      `A node port reported on Art-Net universe ${start + 16} is Patch universe 17. ` +
+      (applied
+        ? 'This is the numbering in use right now.'
+        : 'This is not in use yet — press Apply settings below to switch every screen over.');
   }
 
   // --- dirty tracking (staged, never sent) ---------------------------------
@@ -262,14 +270,17 @@ const SettingsScreen = (() => {
       captureLimit: parseInt(document.getElementById('captureLimit').value, 10) || 10000,
       timeoutProfiles: (current && current.timeoutProfiles) || {},
       logRdmPath: document.getElementById('logRdmPath').value.trim(),
-      universeBase: parseInt(document.getElementById('universeBase').value, 10) === 0 ? 0 : 1,
+      artnetStartUniverse: (() => {
+        const n = parseInt(document.getElementById('artnetStartUniverse').value, 10);
+        return Number.isFinite(n) && n >= 0 && n <= 32767 ? n : 0;
+      })(),
     };
     try {
       await Api.postSettings(payload);
       current = payload;
       // The one line the whole app hangs off: this fires
       // 'b5-universe-base-changed', which every other screen listens for.
-      UI.setUniverseBase(payload.universeBase);
+      UI.setArtnetStart(payload.artnetStartUniverse);
       status.innerHTML = UI.icon('status-ok') + 'applied';
       captureBaseline();
       renderDirty();
@@ -394,8 +405,8 @@ const SettingsScreen = (() => {
     FIELD_IDS.forEach(id => {
       const el = document.getElementById(id);
       if (!el) return;
-      el.addEventListener('input', () => { renderDirty(); if (id === 'universeBase') renderUniverseNotes(); });
-      el.addEventListener('change', () => { renderDirty(); if (id === 'universeBase') renderUniverseNotes(); });
+      el.addEventListener('input', () => { renderDirty(); if (id === 'artnetStartUniverse') renderUniverseNotes(); });
+      el.addEventListener('change', () => { renderDirty(); if (id === 'artnetStartUniverse') renderUniverseNotes(); });
     });
     buildResetPanel();
     // Baseline the empty form before the first paint, so the dirty marker

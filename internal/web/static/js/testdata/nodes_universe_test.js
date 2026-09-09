@@ -12,7 +12,7 @@
 // Two separate defects sat behind that one sentence, and only the first is
 // the one he could see:
 //
-//  (a) nodes.js had 25 universe references and ZERO UI.formatUniverse calls
+//  (a) nodes.js had 25 universe references and ZERO universe-format calls
 //      — the only screen in the app that never converted. So it printed the
 //      canonical 0-based Art-Net Port-Address raw, one less than his EN4.
 //
@@ -147,41 +147,45 @@ const stateWith = (...ports) => ({ ports });
 
 // ---- the tests ----------------------------------------------------------
 
-// HONESTY NOTE on sections 1 and 2: these assert UI.formatUniverse's own
-// contract, which nodes.js now depends on but never broke — they pass against
+// HONESTY NOTE on sections 1 and 2: these assert UI.formatArtnet's own
+// contract, which nodes.js depends on but never broke — they pass against
 // the unfixed nodes.js too, and are here to pin the contract rather than to
-// guard the fix. The display half of the fix (nodes.js actually CALLING
-// formatUniverse on the full Port-Address instead of printing `addr & 0x0F`)
-// is proven in a real browser, where the ports table reads universes 1,2,3,4
-// at base 1 and 0,1,2,3 at base 0 for canonical 0-3. Sections 3-6 below are
-// the ones that fail against unfixed code — verified by mutating
-// deriveAddressing to clamp instead of refuse, which produced
-// swOut=[0,1,null,null]: port 1 silently programmed to universe 1 when the
-// user asked for 17.
-console.log('1. the display converts a full Port-Address, at whichever base is set');
-UI.setUniverseBase(1);
-check(UI.formatUniverse(0) === '1',
-  'canonical 0 displays as 1 at base 1 — what the EN4 faceplate reads',
-  'got ' + JSON.stringify(UI.formatUniverse(0)));
-UI.setUniverseBase(0);
-check(UI.formatUniverse(0) === '0',
-  'canonical 0 displays as 0 at base 0 (Art-Net native)',
-  'got ' + JSON.stringify(UI.formatUniverse(0)));
+// guard a fix. The display half (nodes.js actually formatting the full
+// Port-Address instead of printing `addr & 0x0F`) is proven in a real
+// browser. Sections 3-6 below are the ones that fail against unfixed code —
+// verified by mutating deriveAddressing to clamp instead of refuse, which
+// produced swOut=[0,1,null,null]: port 1 silently programmed to universe 1
+// when the user asked for 17.
+//
+// UPDATED for the Art-Net-starting-universe change: Nodes is a PROTOCOL
+// screen and now shows the RAW Art-Net Port-Address, with no offset at all.
+// It previously applied the global universeBase, which is precisely why the
+// Nodes tab disagreed with the EN4's own faceplate by one. The show's own
+// numbering lives on Patch, Rig Check and Rig Walk; Devices shows both.
+console.log('1. Nodes displays the raw Art-Net Port-Address, whatever the show start is');
+UI.setArtnetStart(0);
+check(UI.formatArtnet(0) === '0',
+  'canonical 0 displays as 0 — the wire value, matching the gateway faceplate',
+  'got ' + JSON.stringify(UI.formatArtnet(0)));
+UI.setArtnetStart(100);
+check(UI.formatArtnet(0) === '0',
+  'canonical 0 still displays as 0 with a start of 100 — the show offset must NOT ' +
+  'reach this screen, or Nodes disagrees with the gateway again',
+  'got ' + JSON.stringify(UI.formatArtnet(0)));
 
 console.log('2. DEFECT (b): a Sub-Net port is the FULL Port-Address, not the nibble');
-UI.setUniverseBase(1);
+UI.setArtnetStart(0);
 // Canonical 17 = Net 0, Sub-Net 1, Universe 1. The nibble is 1; the
-// Port-Address is 17. At base 1 the screen must read 18. A screen still
-// printing `addr & 0x0F` reads 2 here, and Patch reads 18 for the same port.
-check(UI.formatUniverse(17) === '18',
-  'canonical 17 (Sub-Net 1) displays as 18 — not the nibble',
-  'got ' + JSON.stringify(UI.formatUniverse(17)) + ' — 2 means the nibble is still being printed');
-check(UI.formatUniverse(16) === '17',
-  'canonical 16 (first address of Sub-Net 1) displays as 17',
-  'got ' + JSON.stringify(UI.formatUniverse(16)));
+// Port-Address is 17, and 17 is what an operator types and reads.
+check(UI.formatArtnet(17) === '17',
+  'canonical 17 (Sub-Net 1) displays as 17 — not the nibble, and not decomposed',
+  'got ' + JSON.stringify(UI.formatArtnet(17)) + ' — 1 means the nibble is still being printed');
+check(UI.parseArtnet('17') === 17,
+  'typing 17 means Port-Address 17 — one flat number in, one flat number out',
+  'got ' + JSON.stringify(UI.parseArtnet('17')));
 
 console.log('3. the write path derives Net/Sub-Net/SwOut from canonical');
-UI.setUniverseBase(1);
+UI.setArtnetStart(0);
 // Four ports in one block: canonical 0..3 (Net 0, Sub-Net 0).
 let d = Nodes.__deriveForTest(stateWith(
   portState(0, 0), portState(1, 1), portState(2, 2), portState(3, 3)));

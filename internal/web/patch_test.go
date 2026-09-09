@@ -593,15 +593,23 @@ func TestPatchExport(t *testing.T) {
 // canonical value. GET /api/patch/export?format=json, by contrast, is wire
 // data (round-trips back into the app) and must stay canonical regardless
 // of the display setting.
-func TestPatchExport_UniverseDisplayBase(t *testing.T) {
+func TestPatchExport_UserUniverseNumbering(t *testing.T) {
 	h := newHarness(t)
 	doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", entryRequest{Name: "Practical 1", Universe: 5, StartAddress: 100, Footprint: 10})
 	doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", entryRequest{Name: "Practical 2", Universe: 5, StartAddress: 105, Footprint: 10})
 
-	for _, base := range []int{0, 1} {
-		rr := doJSON(t, h.srv.Handler(), "POST", "/api/settings", Settings{PollIntervalMS: 3000, CaptureLimit: 1000, TimeoutProfiles: map[string]string{}, UniverseBase: base})
+	// start -> the user universe canonical Art-Net universe 5 should print
+	// as. start 0: user 1 = Art-Net 0, so Art-Net 5 is user 6. start 1: user
+	// 1 = Art-Net 1, so Art-Net 5 is user 5. start 4: user 1 = Art-Net 4, so
+	// Art-Net 5 is user 2.
+	for _, c := range []struct{ start, wantDisplayed int }{
+		{0, 6},
+		{1, 5},
+		{4, 2},
+	} {
+		rr := doJSON(t, h.srv.Handler(), "POST", "/api/settings", Settings{PollIntervalMS: 3000, CaptureLimit: 1000, TimeoutProfiles: map[string]string{}, ArtnetStartUniverse: c.start})
 		if rr.Code != http.StatusOK {
-			t.Fatalf("POST settings base=%d: status=%d body=%s", base, rr.Code, rr.Body.String())
+			t.Fatalf("POST settings start=%d: status=%d body=%s", c.start, rr.Code, rr.Body.String())
 		}
 
 		rr = doJSON(t, h.srv.Handler(), "GET", "/api/patch/export?format=txt", nil)
@@ -609,22 +617,26 @@ func TestPatchExport_UniverseDisplayBase(t *testing.T) {
 			t.Fatalf("export txt: status=%d", rr.Code)
 		}
 		body := rr.Body.String()
-		wantDisplayed := 5 + base
+		wantDisplayed := c.wantDisplayed
 		wantEntryLine := "universe " + itoa(wantDisplayed) + ","
 		if !bytes.Contains(rr.Body.Bytes(), []byte(wantEntryLine)) {
-			t.Errorf("base=%d: entry listing missing %q, got:\n%s", base, wantEntryLine, body)
+			t.Errorf("start=%d: entry listing missing %q, got:\n%s", c.start, wantEntryLine, body)
 		}
 		wantFindingSuffix := "in universe " + itoa(wantDisplayed)
 		if !bytes.Contains(rr.Body.Bytes(), []byte(wantFindingSuffix)) {
-			t.Errorf("base=%d: collision finding line missing %q, got:\n%s", base, wantFindingSuffix, body)
+			t.Errorf("start=%d: collision finding line missing %q, got:\n%s", c.start, wantFindingSuffix, body)
 		}
-		// The other base's number must never appear as a universe number —
-		// the exact confusion this whole class of bug produces (banner and
-		// table disagreeing about which universe a fixture is in).
-		wrongDisplayed := 5 + (1 - base)
-		wrongEntryLine := "universe " + itoa(wrongDisplayed) + ","
-		if bytes.Contains(rr.Body.Bytes(), []byte(wrongEntryLine)) {
-			t.Errorf("base=%d: entry listing states the wrong-base universe number %q, got:\n%s", base, wrongEntryLine, body)
+		// The RAW Art-Net universe must never appear as a bare universe
+		// number in an operator-facing export — that is the exact confusion
+		// this class of bug produces (the banner and the table disagreeing
+		// about which universe a fixture is in). Skipped where the two
+		// genuinely coincide.
+		if wantDisplayed != 5 {
+			wrongEntryLine := "universe 5,"
+			if bytes.Contains(rr.Body.Bytes(), []byte(wrongEntryLine)) {
+				t.Errorf("start=%d: entry listing states the raw Art-Net number %q instead of "+
+					"the show's universe %d, got:\n%s", c.start, wrongEntryLine, wantDisplayed, body)
+			}
 		}
 
 		// JSON export is canonical wire data — always universe 5, never
@@ -637,12 +649,12 @@ func TestPatchExport_UniverseDisplayBase(t *testing.T) {
 		mustUnmarshal(t, rr, &doc)
 		for _, e := range doc.Patch.Entries {
 			if e.Universe != 5 {
-				t.Errorf("base=%d: JSON export entry universe = %d, want canonical 5", base, e.Universe)
+				t.Errorf("start=%d: JSON export entry universe = %d, want canonical 5", c.start, e.Universe)
 			}
 		}
 		for _, f := range doc.Findings {
 			if f.Kind == patch.KindOverlap && f.Universe != 5 {
-				t.Errorf("base=%d: JSON export finding universe = %d, want canonical 5", base, f.Universe)
+				t.Errorf("start=%d: JSON export finding universe = %d, want canonical 5", c.start, f.Universe)
 			}
 		}
 	}

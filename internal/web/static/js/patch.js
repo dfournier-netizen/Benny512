@@ -142,7 +142,7 @@ const PatchScreen = (() => {
     // The Reconcile screen (reconcile.js) owns its own server snapshot the
     // same way RigCheckPanel does, so it needs only the shared status line
     // and the word this install uses for a universe — it never formats a
-    // universe number itself without going through UI.formatUniverse.
+    // universe number itself without going through UI.formatUser.
     ReconcilePanel.init({
       setStatus: (m) => setStatus(m),
       getUniverseLabel: () => 'Universe',
@@ -182,7 +182,7 @@ const PatchScreen = (() => {
     try {
       const buf = await file.arrayBuffer();
       const result = await MvrImport.parseMvrFile(buf);
-      mvrPreview = { fileName: file.name, entries: result.entries, warnings: result.warnings };
+      mvrPreview = { fileName: file.name, entries: result.entries, warnings: result.warnings, gdtfs: result.gdtfs || [] };
       setStatus(`parsed ${result.entries.length} fixture(s) from ${file.name}`);
       render();
     } catch (err) {
@@ -218,6 +218,9 @@ const PatchScreen = (() => {
       const candidateGroups = computeGdtfMatchGroups(parsed);
       gdtfPreview = {
         fileName: file.name, parsed, selectedModeIndex: 0,
+        // The original archive, kept so the Fixture Library can retain it
+        // (deduplicated by checksum) when this import is applied.
+        sourceBuffer: buf,
         candidateGroups,
         // Auto-selected only when there's exactly one distinct matching
         // fixture-type group — 0 or 2+ always require an explicit choice
@@ -574,7 +577,7 @@ const PatchScreen = (() => {
             <button id="btnExportPatchJson" class="b5-btn">${UI.icon('export')}Export JSON</button>
             <button id="btnExportPatchTxt" class="b5-btn">${UI.icon('export')}Export TXT</button>
           </div>
-          <p class="b5-caption">Universe numbers on this screen are ${escapeHtml(UI.universeBaseLabel())} &mdash; the same numbering as Send, Nodes, Devices and Rig Walk. Change it on Settings.</p>
+          <p class="b5-caption">Universe numbers on this screen are the ${escapeHtml(UI.universeScheme('user'))} &mdash; the same numbering as Rig Check, Rig Walk and Send. Nodes and the Analyzer show the raw Art-Net universe instead, and Devices shows both. Set the starting universe on Settings.</p>
         </div>
       </section>
 
@@ -697,7 +700,7 @@ const PatchScreen = (() => {
               <tbody>
                 ${entries.map(e => `
                   <tr>
-                    <td data-label="Universe">${UI.formatUniverse(e.universe)}</td>
+                    <td data-label="Universe">${UI.formatUser(e.universe)}</td>
                     <td data-label="Address">${e.startAddress || '—'}</td>
                     <td data-label="Name">${escapeHtml(e.name || '—')}</td>
                     <td data-label="Fixture type">${escapeHtml(e.fixtureType || '—')}</td>
@@ -732,7 +735,29 @@ const PatchScreen = (() => {
     renderMvrImportPreview();
     try {
       patchData = await Api.patchImport(mode, mvrPreview.entries);
-      setStatus(`imported ${mvrPreview.entries.length} entr${mvrPreview.entries.length === 1 ? 'y' : 'ies'} from ${mvrPreview.fileName}`);
+
+      // An MVR patches ONE mode per fixture, but it carried whole GDTF
+      // files. Those files' other modes exist only right now: a patch entry
+      // stores a single mode, so nothing downstream can recover them. Each
+      // resolved GDTF goes into the Fixture Library with its full mode list
+      // and its original archive.
+      //
+      // Best-effort and after the import, for the same reason as the
+      // single-GDTF path: the operator asked for a patch, and a library
+      // failure must not cost them one. Reported, not thrown.
+      const libraryErrs = [];
+      let libraryModes = 0;
+      for (const g of (mvrPreview.gdtfs || [])) {
+        libraryModes += (g.parsed.modes || []).length;
+        const err = await MvrImport.rememberGdtfInLibrary(g.parsed, g.name, g.sourceBuffer);
+        if (err) libraryErrs.push(`${g.name}: ${err}`);
+      }
+      const gdtfCount = (mvrPreview.gdtfs || []).length;
+      const librarySuffix = !gdtfCount ? ''
+        : libraryErrs.length ? ` — Fixture Library errors: ${libraryErrs.join('; ')}`
+        : ` — ${gdtfCount} fixture type${gdtfCount === 1 ? '' : 's'} (${libraryModes} mode${libraryModes === 1 ? '' : 's'}) saved to the Fixture Library`;
+
+      setStatus(`imported ${mvrPreview.entries.length} entr${mvrPreview.entries.length === 1 ? 'y' : 'ies'} from ${mvrPreview.fileName}` + librarySuffix);
       mvrPreview = null;
       mvrImporting = false;
       await refresh();
@@ -822,7 +847,7 @@ const PatchScreen = (() => {
               ${matches.map(e => `
                 <tr>
                   <td data-label="Name">${escapeHtml(e.name || e.fixtureType || e.id)}</td>
-                  <td data-label="Universe">${UI.formatUniverse(e.universe)}</td>
+                  <td data-label="Universe">${UI.formatUser(e.universe)}</td>
                   <td data-label="Address">${e.startAddress || '—'}</td>
                   <td data-label="Footprint">${e.footprint || 0} &rarr; <strong>${mode.footprint}</strong></td>
                 </tr>
@@ -915,8 +940,24 @@ const PatchScreen = (() => {
         errors.push((e.name || e.fixtureType || e.id) + ': ' + err.message);
       }
     }
+    // Applying a GDTF patches ONE mode onto the matching entries, but the
+    // file described the fixture's whole personality list — so the library
+    // takes all of them. This is the only moment those other modes exist:
+    // a patch entry stores a single mode, so harvesting the show later can
+    // never recover the ones not patched.
+    //
+    // Best-effort, and deliberately after the entries are written: the
+    // operator asked to patch fixtures, not to populate the library, and a
+    // library failure must not cost them the patch. It is reported, not
+    // thrown.
+    const libraryErr = await MvrImport.rememberGdtfInLibrary(parsed, gdtfPreview.fileName, gdtfPreview.sourceBuffer);
+
     gdtfApplying = false;
-    setStatus(errors.length ? `applied GDTF mode to ${n - errors.length} of ${n}, ${errors.length} error(s)` : `applied GDTF mode to ${n} entries`);
+    const modeCount = (parsed.modes || []).length;
+    const librarySuffix = libraryErr
+      ? ` — but the Fixture Library did not record it: ${libraryErr}`
+      : ` — all ${modeCount} mode${modeCount === 1 ? '' : 's'} saved to the Fixture Library`;
+    setStatus((errors.length ? `applied GDTF mode to ${n - errors.length} of ${n}, ${errors.length} error(s)` : `applied GDTF mode to ${n} entries`) + librarySuffix);
     try { collisions = patchData.active ? (await Api.getPatchCollisions() || []) : []; } catch (e) { /* best-effort */ }
     if (!errors.length) gdtfPreview = null;
     render();
@@ -939,14 +980,14 @@ const PatchScreen = (() => {
   // /api/patch/collisions) is server-authored English but, by contract (see
   // internal/patch/collision.go's Finding.Message doc comment), never states
   // a bare universe number — the number is always display-base-shifted here
-  // via UI.formatUniverse, from the canonical f.universe field, so the
+  // via UI.formatUser, from the canonical f.universe field, so the
   // banner and the Universe column always agree by construction. Every Kind
   // that needs to state a universe (today, just "overlap") gets a case
   // below; any other Kind's f.message is already safe to show verbatim and
   // needs no composing.
   function composeFindingMessage(f) {
     if (f.kind === 'overlap') {
-      return `${f.message} in universe ${UI.formatUniverse(f.universe)}`;
+      return `${f.message} in universe ${UI.formatUser(f.universe)}`;
     }
     return f.message;
   }
@@ -1140,7 +1181,7 @@ const PatchScreen = (() => {
     return `
       <tr data-entry-id="${escapeHtml(e.id)}" class="${selected ? 'b5-patch-row--selected' : ''}">
         <td data-label="Select"><label class="b5-checkbox"><input type="checkbox" id="sel-${escapeHtml(e.id)}" data-row-select="${escapeHtml(e.id)}" ${selected ? 'checked' : ''} aria-label="Select ${escapeHtml(label)}"><span class="b5-visually-hidden">Select ${escapeHtml(label)}</span></label></td>
-        <td data-label="Universe" class="b5-table__mono">${escapeHtml(UI.formatUniverse(e.universe))}</td>
+        <td data-label="Universe" class="b5-table__mono">${escapeHtml(UI.formatUser(e.universe))}</td>
         <td data-label="Address" class="b5-table__mono">${addr}${issue}</td>
         <td data-label="Name">${escapeHtml(e.name || '')}${e.name ? '' : `<span class="b5-text-muted">${escapeHtml(e.fixtureType ? e.fixtureType + ' (no name)' : 'unnamed entry')}</span>`}</td>
         <td data-label="Fixture type">${escapeHtml(e.fixtureType || '—')}</td>
@@ -1240,7 +1281,7 @@ const PatchScreen = (() => {
     }
     setPatchEditorOpen(true);
     const d = entryDraft;
-    const ua = UI.universeInputAttrs();
+    const ua = UI.userInputAttrs();
     container.innerHTML = `
       <div class="b5-panel b5-patch-editor__panel">
         <div class="b5-panel__header">
@@ -1254,7 +1295,7 @@ const PatchScreen = (() => {
           <div class="b5-field"><label class="b5-field__label" for="peMode">Mode / personality</label><input id="peMode" class="b5-input" type="text" maxlength="40"></div>
           <div class="b5-field"><label class="b5-field__label" for="peFootprint">Footprint (DMX channels)</label><input id="peFootprint" class="b5-input" type="number" min="0" max="512"></div>
           <div class="b5-field"><label class="b5-field__label" for="pePhaseCount">Phase slots (0 = auto)</label><input id="pePhaseCount" class="b5-input" type="number" min="0" max="512"><span class="b5-caption">Function-test spacing only</span></div>
-          <div class="b5-field"><label class="b5-field__label" for="peUniverse">Universe (${UI.universeBaseLabel()})</label><input id="peUniverse" class="b5-input" type="number" min="${ua.min}" max="${ua.max}"></div>
+          <div class="b5-field"><label class="b5-field__label" for="peUniverse">Universe (${UI.universeScheme('user')})</label><input id="peUniverse" class="b5-input" type="number" min="${ua.min}" max="${ua.max}"></div>
           <div class="b5-field"><label class="b5-field__label" for="peAddress">Start address</label><input id="peAddress" class="b5-input" type="number" min="1" max="512"></div>
           <div class="b5-field"><label class="b5-field__label" for="pePosition">Position</label><input id="pePosition" class="b5-input" type="text" maxlength="60" placeholder="e.g. US Truss 3"></div>
           <div class="b5-field"><label class="b5-field__label" for="peFixtureNumber">Fixture number</label><input id="peFixtureNumber" class="b5-input" type="text" maxlength="20" placeholder="console channel/FixtureID"></div>
@@ -1284,12 +1325,12 @@ const PatchScreen = (() => {
     bind('peFixtureNumber', 'fixtureNumber', false);
     bind('peNotes', 'notes', false);
     // Universe is the one field whose ON-SCREEN value is display-base
-    // converted (UI.formatUniverse) while entryDraft.universe stays the
+    // converted (UI.formatUser) while entryDraft.universe stays the
     // true 0-based wire value at all times — every other reader of
     // entryDraft (peSave below, bulk editor) sees the canonical number.
     const uniEl = document.getElementById('peUniverse');
-    uniEl.value = UI.formatUniverse(d.universe);
-    uniEl.addEventListener('input', () => { d.universe = UI.parseUniverse(uniEl.value); });
+    uniEl.value = UI.formatUser(d.universe);
+    uniEl.addEventListener('input', () => { d.universe = UI.parseUser(uniEl.value); });
 
     document.getElementById('peCancel').addEventListener('click', closeEntryEditor);
     document.getElementById('peClose').addEventListener('click', closeEntryEditor);
@@ -1330,7 +1371,7 @@ const PatchScreen = (() => {
     const ids = Object.keys(selectedIds).filter(id => selectedIds[id]);
     const selected = ids.map(id => entries.find(e => e.id === id)).filter(Boolean);
     const n = selected.length;
-    const ua = UI.universeInputAttrs();
+    const ua = UI.userInputAttrs();
     container.innerHTML = `
       <div class="b5-panel b5-patch-editor__panel">
         <div class="b5-panel__header">
@@ -1341,7 +1382,7 @@ const PatchScreen = (() => {
         <div class="b5-panel__body b5-stack">
           <p class="b5-note">These ${n} entries will change: ${selected.map(e => escapeHtml(e.name || e.fixtureType || e.id)).join(', ')}. Typing changes nothing &mdash; each Apply below asks you to confirm exactly what it will do before it writes anything.</p>
           <div class="b5-field">
-            <label class="b5-field__label" for="bulkUniverse">Move to universe (${UI.universeBaseLabel()})</label>
+            <label class="b5-field__label" for="bulkUniverse">Move to universe (${UI.universeScheme('user')})</label>
             <div class="b5-field__row">
               <input id="bulkUniverse" class="b5-input" type="number" min="${ua.min}" max="${ua.max}" placeholder="unchanged" value="${escapeHtml(bulkDraft.universe)}">
               <span class="b5-field__actions"><button id="bulkApplyUniverse" class="b5-btn b5-btn--sm b5-btn--primary" ${bulkApplying ? 'disabled' : ''}>${UI.icon('apply')}Apply</button></span>
@@ -1379,8 +1420,8 @@ const PatchScreen = (() => {
     if (field === 'universe') {
       const raw = bulkDraft.universe;
       if (raw === '' || raw === null || raw === undefined) { errEl.innerHTML = UI.icon('status-error') + 'enter a universe'; return; }
-      const canonical = UI.parseUniverse(raw);
-      confirmMsg = `Move ${n} entries to universe ${UI.formatUniverse(canonical)}? Start addresses stay unchanged.`;
+      const canonical = UI.parseUser(raw);
+      confirmMsg = `Move ${n} entries to universe ${UI.formatUser(canonical)}? Start addresses stay unchanged.`;
       mutate = (draft) => { draft.universe = canonical; };
     } else {
       const pos = bulkDraft.position;
@@ -1588,12 +1629,12 @@ const PatchScreen = (() => {
     const wrap = document.getElementById('rcScopeValueWrap');
     if (!wrap) return;
     if (rcScopeKind === 'universe') {
-      const ua = UI.universeInputAttrs();
-      wrap.innerHTML = `<label class="b5-visually-hidden" for="rcScopeUniverse">Universe</label><input type="number" id="rcScopeUniverse" class="b5-input" style="width:10em" min="${ua.min}" max="${ua.max}" value="${UI.formatUniverse(rcScopeUniverse)}" placeholder="Universe">`;
-      document.getElementById('rcScopeUniverse').addEventListener('input', (e) => { rcScopeUniverse = UI.parseUniverse(e.target.value); });
+      const ua = UI.userInputAttrs();
+      wrap.innerHTML = `<label class="b5-visually-hidden" for="rcScopeUniverse">Universe</label><input type="number" id="rcScopeUniverse" class="b5-input" style="width:10em" min="${ua.min}" max="${ua.max}" value="${UI.formatUser(rcScopeUniverse)}" placeholder="Universe">`;
+      document.getElementById('rcScopeUniverse').addEventListener('input', (e) => { rcScopeUniverse = UI.parseUser(e.target.value); });
     } else if (rcScopeKind === 'selection') {
       wrap.innerHTML = `<div class="b5-stack" style="margin-top:var(--b5-space-2)">${entries.map(e => `
-        <label class="b5-checkbox"><input type="checkbox" data-rc-select="${escapeHtml(e.id)}" ${rcSelection[e.id] ? 'checked' : ''}>${escapeHtml(e.name || e.fixtureType || e.id)} (U${UI.formatUniverse(e.universe)}/${e.startAddress})</label>
+        <label class="b5-checkbox"><input type="checkbox" data-rc-select="${escapeHtml(e.id)}" ${rcSelection[e.id] ? 'checked' : ''}>${escapeHtml(e.name || e.fixtureType || e.id)} (U${UI.formatUser(e.universe)}/${e.startAddress})</label>
       `).join('') || '<span class="b5-text-muted b5-text-sm">no entries</span>'}</div>`;
       wrap.querySelectorAll('[data-rc-select]').forEach(cb => cb.addEventListener('change', (e) => {
         rcSelection[cb.dataset.rcSelect] = e.target.checked;

@@ -33,7 +33,15 @@ function setup() {
     sessionStorage: {getItem: k => memory.get(k), setItem: (k,v) => memory.set(k,v)},
     setTimeout: fn => { timers.set(++timerID, fn); return timerID; }, clearTimeout: id => timers.delete(id),
     Live: {on: (type, fn) => { (listeners[type] ||= []).push(fn); }},
-    UI: {formatUniverse: n => String(n + 1), icon: () => '', spinner: () => ''},
+    // Devices shows BOTH numberings (UI.formatBoth); the stub mirrors the
+    // real one at the default start of 0, i.e. user 1 = Art-Net 0.
+    UI: {
+      formatBoth: n => `${Number(n) + 1} (Art-Net ${Number(n)})`,
+      formatArtnet: n => String(Number(n)),
+      parseArtnet: v => Math.max(0, Math.floor(Number(v) || 0)),
+      artnetInputAttrs: () => ({ min: 0, max: 32767 }),
+      icon: () => '', spinner: () => '',
+    },
     escapeHtml: s => String(s),
     DeviceDetail: {init() {}, noteDeviceInfo() {}, _caches: {infoCache: {}}}});
   vm.runInContext(source('devices.js'), ctx);

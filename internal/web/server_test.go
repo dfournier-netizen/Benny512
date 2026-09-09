@@ -270,35 +270,102 @@ func TestDefaultSettings_UniverseBase(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if got.UniverseBase != 1 {
-		t.Errorf("default UniverseBase = %d, want 1", got.UniverseBase)
+	// Default 0: show universe 1 = Art-Net universe 0. This reproduces the
+	// correlation the previous default (universeBase 1) produced, so an
+	// existing rig reads identically after the upgrade.
+	if got.ArtnetStartUniverse != 0 {
+		t.Errorf("default ArtnetStartUniverse = %d, want 0", got.ArtnetStartUniverse)
 	}
 }
 
-// TestPostSettings_UniverseBase covers both valid values round-tripping and
-// an out-of-range value being rejected outright — UniverseBase is a
-// closed 0/1 choice (task ask: "0 / 1"), never an arbitrary offset.
-func TestPostSettings_UniverseBase(t *testing.T) {
+// TestPostSettings_ArtnetStartUniverse covers the setting that replaced the
+// old universeBase (0|1) notation switch.
+//
+// It is an Art-Net Port-Address, not a base: the value is the Art-Net
+// universe that the show's OWN universe 1 lives on. 0 and 1 are the two
+// common answers, and the reason it is a free number rather than a toggle is
+// the third case — a show handed the block 100-139 numbers its universes
+// 1-40, which no 0/1 choice can express.
+func TestPostSettings_ArtnetStartUniverse(t *testing.T) {
 	h := newHarness(t)
 
-	for _, base := range []int{0, 1} {
-		newSettings := Settings{PollIntervalMS: 3000, CaptureLimit: 1000, TimeoutProfiles: map[string]string{}, UniverseBase: base}
+	for _, start := range []int{0, 1, 100, 32767} {
+		newSettings := Settings{PollIntervalMS: 3000, CaptureLimit: 1000, TimeoutProfiles: map[string]string{}, ArtnetStartUniverse: start}
 		rr := doJSON(t, h.srv.Handler(), "POST", "/api/settings", newSettings)
 		if rr.Code != http.StatusOK {
-			t.Fatalf("POST base=%d status = %d body=%s", base, rr.Code, rr.Body.String())
+			t.Fatalf("POST start=%d status = %d body=%s", start, rr.Code, rr.Body.String())
 		}
 		rr = doJSON(t, h.srv.Handler(), "GET", "/api/settings", nil)
 		var got Settings
 		json.Unmarshal(rr.Body.Bytes(), &got)
-		if got.UniverseBase != base {
-			t.Errorf("round-tripped UniverseBase = %d, want %d", got.UniverseBase, base)
+		if got.ArtnetStartUniverse != start {
+			t.Errorf("round-tripped ArtnetStartUniverse = %d, want %d", got.ArtnetStartUniverse, start)
 		}
 	}
 
-	bad := Settings{PollIntervalMS: 3000, CaptureLimit: 1000, TimeoutProfiles: map[string]string{}, UniverseBase: 2}
-	rr := doJSON(t, h.srv.Handler(), "POST", "/api/settings", bad)
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("POST invalid UniverseBase=2 status = %d, want 400", rr.Code)
+	// Outside the Art-Net Port-Address range is refused rather than clamped:
+	// silently accepting 32768 and storing something else would renumber a
+	// rig without saying so.
+	for _, bad := range []int{-1, 32768} {
+		rr := doJSON(t, h.srv.Handler(), "POST", "/api/settings",
+			Settings{PollIntervalMS: 3000, CaptureLimit: 1000, TimeoutProfiles: map[string]string{}, ArtnetStartUniverse: bad})
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf("POST artnetStartUniverse=%d status = %d, want 400", bad, rr.Code)
+		}
+	}
+}
+
+// TestPostSettings_MigratesLegacyUniverseBase covers a settings payload
+// written by a build that still had the universeBase switch.
+//
+//	universeBase 1 meant "wire universe 0 displays as 1" -> user 1 = Art-Net 0
+//	universeBase 0 meant "wire universe 0 displays as 0" -> user 1 = Art-Net 1
+//
+// so start = 1 - universeBase. Getting this backwards would renumber every
+// universe in an existing show by one on first launch, silently, which is
+// the single worst outcome this change could have.
+func TestPostSettings_MigratesLegacyUniverseBase(t *testing.T) {
+	for _, c := range []struct {
+		legacy    int
+		wantStart int
+	}{
+		{1, 0},
+		{0, 1},
+	} {
+		h := newHarness(t)
+		body := fmt.Sprintf(`{"pollIntervalMs":3000,"captureLimit":1000,"timeoutProfiles":{},"universeBase":%d}`, c.legacy)
+		rr := doRaw(t, h.srv.Handler(), "POST", "/api/settings", body)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("POST legacy universeBase=%d status = %d body=%s", c.legacy, rr.Code, rr.Body.String())
+		}
+		rr = doJSON(t, h.srv.Handler(), "GET", "/api/settings", nil)
+		var got Settings
+		json.Unmarshal(rr.Body.Bytes(), &got)
+		if got.ArtnetStartUniverse != c.wantStart {
+			t.Errorf("legacy universeBase=%d migrated to start %d, want %d — an off-by-one here "+
+				"renumbers every universe in an existing show on first launch",
+				c.legacy, got.ArtnetStartUniverse, c.wantStart)
+		}
+		// The legacy field must not be echoed back, or a later save would
+		// re-apply it and shift the rig a second time.
+		if bytes.Contains(rr.Body.Bytes(), []byte(`"universeBase"`)) {
+			t.Errorf("GET /api/settings still returns universeBase; it must be consumed once "+
+				"and dropped, or a later save re-applies it. body=%s", rr.Body.String())
+		}
+	}
+
+	// An explicit new value always wins over a legacy one sent alongside it.
+	h := newHarness(t)
+	rr := doRaw(t, h.srv.Handler(), "POST", "/api/settings",
+		`{"pollIntervalMs":3000,"captureLimit":1000,"timeoutProfiles":{},"universeBase":0,"artnetStartUniverse":100}`)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("POST both status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	rr = doJSON(t, h.srv.Handler(), "GET", "/api/settings", nil)
+	var got Settings
+	json.Unmarshal(rr.Body.Bytes(), &got)
+	if got.ArtnetStartUniverse != 100 {
+		t.Errorf("explicit artnetStartUniverse=100 was overridden by a legacy universeBase; got %d", got.ArtnetStartUniverse)
 	}
 }
 

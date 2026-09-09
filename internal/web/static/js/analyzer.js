@@ -24,7 +24,8 @@
 //     tech scans down") — they keep .b5-table--responsive + data-label on
 //     every cell so they stack on a narrow pane.
 //
-//  2. UNIVERSE NUMBERS GO THROUGH UI.formatUniverse / UI.parseUniverse
+//  2. UNIVERSE NUMBERS GO THROUGH UI.formatArtnet / UI.parseArtnet — the
+//     Analyzer reports the wire, so it shows the raw Art-Net Port-Address
 //     (rule 5). This file had SIX universe references and ZERO conversions —
 //     the same defect class the owner reported off a live bench on the Nodes
 //     screen, where every universe read one lower than his gateway
@@ -59,7 +60,7 @@ const AnalyzerScreen = (() => {
   let paused = false;
   let filterKind = '';
   // filterUniverse: the 0-BASED WIRE universe to match against e.Universe.
-  // Never what the tech typed — UI.parseUniverse converts at the input
+  // Never what the tech typed — UI.parseArtnet normalises at the input
   // boundary, exactly once, in wireUniverseFilter below.
   let filterUniverse = null;
 
@@ -115,7 +116,7 @@ const AnalyzerScreen = (() => {
   // check can never fire.
   //
   // That matters because of the display base: under the default 1-based
-  // notation UI.formatUniverse(0) is the string "1", so testing for absence
+  // notation UI.formatArtnet(0) is the string "1", so testing for absence
   // the impossible way makes every ArtPoll, ArtPollReply and ArtRdm row in
   // the feed claim to be traffic on the tech's Universe 1. That is rule 3's
   // "plausible 0" failure with a base offset stacked on top of it: at a
@@ -144,7 +145,7 @@ const AnalyzerScreen = (() => {
       if (e.Universe === undefined || e.Universe === null) {
         return '<span class="b5-text-muted">universe not recorded</span>';
       }
-      return escapeHtml(UI.formatUniverse(e.Universe));
+      return escapeHtml(UI.formatArtnet(e.Universe));
     }
     if (KINDS_WITH_UNRECORDED_UNIVERSE[e.Kind]) {
       return '<span class="b5-text-muted">universe not recorded</span>';
@@ -367,7 +368,7 @@ const AnalyzerScreen = (() => {
   // id below existed in the old markup and is unchanged.
 
   function screenHtml() {
-    const uni = UI.universeInputAttrs();
+    const uni = UI.artnetInputAttrs();
     return `
       <div class="b5-page-header">
         <h1 class="b5-page-header__title">Analyzer</h1>
@@ -405,7 +406,7 @@ const AnalyzerScreen = (() => {
                      min="${uni.min}" max="${uni.max}" placeholder="Universe: any">
               <button id="btnClearAnalyzer" class="b5-btn b5-btn--ghost">${UI.icon('revert')}Clear the list</button>
             </div>
-            <p class="b5-caption" id="analyzerUniverseHint">Universe numbers here are ${escapeHtml(UI.universeBaseLabel())} — the same numbering as Devices, Nodes and Patch.</p>
+            <p class="b5-caption" id="analyzerUniverseHint">Universe numbers here are the raw ${escapeHtml(UI.universeScheme('artnet'))} — what is on the wire, matching Nodes and a gateway&rsquo;s own faceplate. Patch and Rig Check show the show&rsquo;s own numbering.</p>
           </div>
         </section>
 
@@ -524,7 +525,7 @@ const AnalyzerScreen = (() => {
   function wireUniverseFilter() {
     const inp = document.getElementById('filterUniverse');
     inp.addEventListener('change', () => {
-      filterUniverse = inp.value === '' ? null : UI.parseUniverse(inp.value);
+      filterUniverse = inp.value === '' ? null : UI.parseArtnet(inp.value);
     });
   }
 
@@ -535,13 +536,13 @@ const AnalyzerScreen = (() => {
   function syncUniverseBase() {
     const inp = document.getElementById('filterUniverse');
     if (inp) {
-      const uni = UI.universeInputAttrs();
+      const uni = UI.artnetInputAttrs();
       inp.min = uni.min;
       inp.max = uni.max;
-      inp.value = filterUniverse === null ? '' : UI.formatUniverse(filterUniverse);
+      inp.value = filterUniverse === null ? '' : UI.formatArtnet(filterUniverse);
     }
     const hint = document.getElementById('analyzerUniverseHint');
-    if (hint) hint.textContent = `Universe numbers here are ${UI.universeBaseLabel()} — the same numbering as Devices, Nodes and Patch.`;
+    if (hint) hint.textContent = `Universe numbers here are the raw ${UI.universeScheme('artnet')} — what is on the wire, matching Nodes and a gateway's own faceplate. Patch and Rig Check show the show's own numbering.`;
     renderAll();
     renderRDM();
   }
@@ -599,5 +600,5 @@ const AnalyzerScreen = (() => {
 
   // _test exposes the pure display helpers to the Node test harness. No
   // behavior of the screen depends on this object existing.
-  return { init, _test: { universeCell, dirPill, pairEntries, setFilterUniverseFromInput: (v) => { filterUniverse = v === '' ? null : UI.parseUniverse(v); return filterUniverse; }, matches } };
+  return { init, _test: { universeCell, dirPill, pairEntries, setFilterUniverseFromInput: (v) => { filterUniverse = v === '' ? null : UI.parseArtnet(v); return filterUniverse; }, matches } };
 })();

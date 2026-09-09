@@ -48,7 +48,7 @@
 //     between a tired tech and committing the wrong one of two identical
 //     lights.
 //
-//  4. UNIVERSE NUMBERS GO THROUGH UI.formatUniverse, ALWAYS. The server
+//  4. UNIVERSE NUMBERS GO THROUGH UI.formatUser, ALWAYS. The server
 //     sends raw 0-based Art-Net Port-Addresses as NUMBERS and never composes
 //     a sentence containing one. Every universe on this screen is formatted
 //     here, at the presentation boundary, from a number — never re-derived
@@ -158,7 +158,7 @@ const ReconcilePanel = (() => {
   // uni: the ONE place a universe number becomes text on this screen (rule 4
   // above). Takes the raw 0-based wire value the server sent and nothing
   // else — never a string that was already displayed.
-  const uni = (raw) => UI.formatUniverse(raw);
+  const uni = (raw) => UI.formatUser(raw);
 
   // when: a read timestamp rendered as something a tech can act on. "3 weeks
   // ago" versus "2 min ago" is the difference between a shop reading he
@@ -216,7 +216,7 @@ const ReconcilePanel = (() => {
   // patch list in an order that exists nowhere in the physical world, on the
   // one screen whose whole job is lining a patch up against a truss. The
   // universe comparators below take row.universe (the number) and subtract;
-  // UI.formatUniverse is never involved, because formatting is a presentation
+  // UI.formatUser is never involved, because formatting is a presentation
   // step that happens AFTER the order is decided, and because a change to the
   // universe base must not be able to reorder anything.
 

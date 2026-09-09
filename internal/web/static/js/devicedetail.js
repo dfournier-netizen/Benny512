@@ -799,7 +799,7 @@ const DeviceDetail = (() => {
       proxyBadgeHtml = `<div style="margin-bottom:var(--b5-space-3)">${UI.tag(`Proxy — ${n} device${n === 1 ? '' : 's'}`, 'info')}${f.proxiedListChanged ? ' ' + UI.badge('warning', 'Proxied device list changed — re-discover to refresh it') : ''}</div>`;
     }
     // f.portAddress is the canonical, 0-based Art-Net Port-Address — routed
-    // through UI.formatUniverse so this line matches the same fixture's
+    // through UI.formatBoth so this line matches the same fixture's
     // "U<n>" cell on the Devices table (devices.js) and the node/port
     // picker's label at whatever display base Settings has active. A raw,
     // unshifted number here was the exact bug class the owner has already
@@ -824,7 +824,7 @@ const DeviceDetail = (() => {
       <section class="b5-group" aria-labelledby="ddPatchHead">
         <h4 class="b5-group__head" id="ddPatchHead">Where it sits on the line</h4>
         <div class="b5-grid-2">
-          ${infoRow('Node / port', `${escapeHtml(f.nodeIp)} (bind ${escapeHtml(String(f.bindIndex))}) / universe ${escapeHtml(UI.formatUniverse(f.portAddress))}`)}
+          ${infoRow('Node / port', `${escapeHtml(f.nodeIp)} (bind ${escapeHtml(String(f.bindIndex))}) / universe ${escapeHtml(UI.formatBoth(f.portAddress))}`)}
           ${infoRow('DMX footprint', di ? `${escapeHtml(String(di.DMXFootprint))} slot${di.DMXFootprint === 1 ? '' : 's'}` : notRead)}
           ${/* Rule 3, third and last site of the same "addr 0" defect. The
                 Devices card, the Parameters tab's Start address hint and THIS
@@ -841,7 +841,7 @@ const DeviceDetail = (() => {
                 : '<span class="b5-text-muted">none — this device occupies no DMX slots</span>'))}
           ${infoRow('Personality', di ? escapeHtml(formatPersonalitySummary(di, st.currentPersonalityDesc, st.personalityNameLoading)) : notRead)}
         </div>
-        <p class="b5-caption">Universe numbers are ${escapeHtml(UI.universeBaseLabel())} — the same numbering as the device list above, Nodes, Patch and the Analyzer.</p>
+        <p class="b5-caption">Universes are shown as ${escapeHtml(UI.universeScheme('user'))}, with the port&rsquo;s raw Art-Net universe in brackets — Nodes and the Analyzer show the Art-Net number alone, Patch and Rig Check the show number alone.</p>
       </section>
       <section class="b5-group" aria-labelledby="ddExtrasHead">
         <h4 class="b5-group__head" id="ddExtrasHead">What else it carries</h4>
@@ -2138,7 +2138,12 @@ const DeviceDetail = (() => {
     // non-self-describing PIDs (blind SET, exactly as the research report
     // recommends — "let the user type new bytes, SET blind"), so the UI
     // must offer that control rather than silently rendering read-only.
-    const editable = desc.selfDescribing ? desc.supportsSet : true;
+    // A descriptor with a KNOWN layout -- described by the device, or filled
+    // in from a published standard (specDefined; see specKnownPIDs in
+    // internal/params/introspect.go) -- honours its declared command class.
+    // Only a PID nobody can describe gets the blind-SET raw-hex field.
+    const typed = desc.selfDescribing || desc.specDefined;
+    const editable = typed ? desc.supportsSet : true;
     const unitHint = desc.unitSuffix ? ` ${desc.unitSuffix}` : '';
     const rangeHint = (desc.min !== 0 || desc.max !== 0) ? `[${desc.min}, ${desc.max}]${unitHint}` : '';
 
@@ -2150,7 +2155,8 @@ const DeviceDetail = (() => {
       <strong class="b5-text-sm">${escapeHtml(label)}</strong>
       <span class="b5-text-muted b5-text-xs">${escapeHtml(desc.dataTypeName)}${rangeHint ? ' · ' + escapeHtml(rangeHint) : ''}</span>
       ${!editable ? UI.tag('read-only') : ''}
-      ${!desc.selfDescribing ? UI.tag('raw / unverified', 'warn') : ''}
+      ${desc.specDefined ? UI.tag('per ANSI E1.20') : ''}
+      ${!typed ? UI.tag('raw / unverified', 'warn') : ''}
     `;
     row.appendChild(meta);
 

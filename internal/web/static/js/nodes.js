@@ -19,7 +19,7 @@
 // Reported: "In the Nodes tab, the universe values in Benny512 are
 // displaying as 1 less than what the faceplate says." Two separate defects
 // were behind that one symptom, and this file was the ONLY screen in the app
-// that called neither UI.formatUniverse nor UI.parseUniverse (25 universe
+// that called neither universe formatter nor parser (25 universe
 // references, zero conversions):
 //
 //  (a) DISPLAY SHOWED A NIBBLE, NOT A PORT-ADDRESS. Both the accordion's
@@ -32,7 +32,7 @@
 //      so the only symptom visible on the bench was the missing 1-based
 //      offset — but a port at Sub-Net 1 read `0` here and `17` on Patch: the
 //      same port, two numbers. Fixed by formatting the raw Port-Address the
-//      server sent, through UI.formatUniverse, exactly once (DESIGN.md
+//      server sent, through UI.formatArtnet, exactly once (DESIGN.md
 //      rule 5).
 //
 //  (b) THE EDITOR EDITED RAW ART-NET FIELDS. The config section exposed
@@ -43,8 +43,15 @@
 //      send time (deriveAddressing below).
 //
 // CANONICAL-VALUE RULE. configState holds the canonical 0-based
-// Port-Address, never a displayed string. UI.parseUniverse converts on the
-// way in, UI.formatUniverse on the way out, and a display-base change
+// Port-Address, never a displayed string.
+//
+// NODES IS A PROTOCOL SCREEN: it shows the RAW Art-Net universe, as one
+// flat 15-bit Port-Address (0-32767), never decomposed into Net/Sub-Net/
+// Universe on screen. Universe 17 is typed and read as 17. That is what a
+// gateway's faceplate shows, and agreeing with the faceplate is this
+// screen's entire job. The show's own numbering lives on Patch, Rig Check
+// and Rig Walk; Devices shows both. UI.parseArtnet normalises on the
+// way in, UI.formatArtnet on the way out, and a starting-universe change
 // rewrites only the DOM's text (syncUniverseFieldsToBase) — it never
 // re-parses what is already on screen. Reformatting a stale displayed string
 // under a new base is a silent wire-value shift, and here that writes a
@@ -119,7 +126,7 @@ const NodesScreen = (() => {
   const PORT_ADDRESS_MAX = 0x7FFF;
   const UNIVERSES_PER_BLOCK = 16;
 
-  const uni = (raw) => UI.formatUniverse(raw);
+  const uni = (raw) => UI.formatArtnet(raw);
 
   // portCanonical: the port's full Port-Address for one direction, exactly as
   // the server sent it (server.go serialises artnet.PortAddress.RawValue()).
@@ -412,7 +419,7 @@ const NodesScreen = (() => {
   }
 
   // portUniverseLabel — DEFECT (a), fixed. Formats the FULL Port-Address the
-  // server sent, through UI.formatUniverse, so this reads the same number
+  // server sent, through UI.formatArtnet, so this reads the same number
   // Patch, Send, Devices and Rig Check read for the same port. It used to
   // print `outputAddress & 0x0F`, the Universe nibble alone, which silently
   // dropped Net and Sub-Net.
@@ -545,8 +552,8 @@ const NodesScreen = (() => {
       return {
         ok: false,
         message: 'Nothing was sent. ' + bad.map(u => `Port ${u.index}: ${u.error}`).join(' ')
-          + ` Universes are entered ${UI.universeBaseLabel()}; the valid range is `
-          + `${UI.universeInputAttrs().min}–${UI.universeInputAttrs().max}.`,
+          + ` Universes are entered as the raw ${UI.universeScheme('artnet')} — the same number the gateway's own faceplate shows; the valid range is `
+          + `${UI.artnetInputAttrs().min}–${UI.artnetInputAttrs().max}.`,
       };
     }
     if (!used.length) {
@@ -654,7 +661,7 @@ const NodesScreen = (() => {
     const st = configState[key];
     const target = document.getElementById('nodeConfigSection');
     if (!target) return;
-    const ua = UI.universeInputAttrs();
+    const ua = UI.artnetInputAttrs();
     const nameFields=`<div class="b5-field">
           <label class="b5-field__label" for="cfgShortName">Short name</label>
           <input id="cfgShortName" class="b5-input" type="text" maxlength="18" value="${escapeHtml(st.shortName)}">
@@ -739,7 +746,7 @@ const NodesScreen = (() => {
         renderConfigSection(n);
       });
     });
-    // THE conversion point for a typed universe. UI.parseUniverse turns the
+    // THE normalisation point for a typed universe. UI.parseArtnet turns the
     // display-base number into the canonical 0-based Port-Address that gets
     // stored; nothing else on this screen does arithmetic on a universe.
     // A value outside the real Port-Address range (or not a whole number) is
@@ -752,14 +759,14 @@ const NodesScreen = (() => {
         const p = st.ports[i];
         const raw = String(e.target.value).trim();
         const num = Number(raw);
-        const attrs = UI.universeInputAttrs();
+        const attrs = UI.artnetInputAttrs();
         if (raw === '' || !Number.isFinite(num) || !Number.isInteger(num)) {
           p.uniError = `“${raw}” is not a whole universe number.`;
         } else if (num < attrs.min || num > attrs.max) {
           p.uniError = `${num} is outside the Art-Net universe range (${attrs.min}–${attrs.max}).`;
         } else {
           p.uniError = '';
-          const canonical = UI.parseUniverse(raw);
+          const canonical = UI.parseArtnet(raw);
           if (p.direction === 'input' && p.input) p.universeIn = canonical;
           else p.universeOut = canonical;
         }
@@ -869,7 +876,7 @@ const NodesScreen = (() => {
     const uniDirty = !p.uniError && canonical !== applied;
     const uniCell = known
       ? `<div class="b5-field ${p.uniError ? 'b5-field--error' : (uniDirty ? 'b5-field--dirty' : '')}">
-           <label class="b5-field__label" for="cfgUni${i}">Universe <span class="b5-caption">(${escapeHtml(UI.universeBaseLabel())})</span></label>
+           <label class="b5-field__label" for="cfgUni${i}">Universe <span class="b5-caption">(${escapeHtml(UI.universeScheme('artnet'))})</span></label>
            <input id="cfgUni${i}" class="b5-input b5-numinput b5-input--mono cfg-universe" data-i="${i}" type="number" min="${ua.min}" max="${ua.max}" value="${escapeHtml(uni(canonical))}" inputmode="numeric">
            <span class="b5-field__status" id="cfgUniStatus${i}">${p.uniError ? escapeHtml(p.uniError) : (uniDirty ? 'Staged — not sent yet' : '')}</span>
            <span class="b5-field__hint">Uses your selected universe display base.</span>
@@ -973,7 +980,7 @@ const NodesScreen = (() => {
   // syncUniverseFieldsToBase — DESIGN.md rule 5, the part that is easy to get
   // wrong. When the display base changes under a STAGED edit, the canonical
   // value in configState must not move: only the text in the box is
-  // rewritten, from that canonical value, through UI.formatUniverse. Reading
+  // rewritten, from that canonical value, through UI.formatArtnet. Reading
   // the box back and re-parsing it under the new base would shift the staged
   // wire value by one — and this screen writes universes to a real gateway.
   function syncUniverseFieldsToBase() {
@@ -981,7 +988,7 @@ const NodesScreen = (() => {
     if (!n) return;
     const st = configState[keyOf(n)];
     if (!st) return;
-    const ua = UI.universeInputAttrs();
+    const ua = UI.artnetInputAttrs();
     st.ports.forEach((p, i) => {
       const inp = document.getElementById('cfgUni' + i);
       if (!inp) return;
@@ -989,7 +996,7 @@ const NodesScreen = (() => {
       inp.max = ua.max;
       if (p.uniError) return; // an invalid draft is left exactly as typed
       const canonical = p.direction === 'input' && p.input ? p.universeIn : p.universeOut;
-      inp.value = UI.formatUniverse(canonical);
+      inp.value = UI.formatArtnet(canonical);
     });
     renderAddressingPreview(n);
   }

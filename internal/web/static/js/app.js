@@ -63,17 +63,51 @@
   tabs.forEach(t => t.addEventListener('click', () => activate(t.dataset.tab)));
   window.addEventListener('b5-navigate', e => activate(e.detail));
 
+  // publishChromeHeight: keep --b5-chrome-height equal to the real height of
+  // the sticky app chrome (.b5-header + .b5-show-context), so a fixed
+  // overlay can start BELOW it instead of underneath it.
+  //
+  // This exists because the Devices inspector is position:fixed and was
+  // anchored to the viewport top, which put its own bar -- and its close
+  // button -- behind the show-context strip. A constant would be wrong
+  // exactly where it hurts: .b5-show-context sets flex-wrap:wrap and caps
+  // the show name at 35vw, so on a tablet in portrait the chrome is two rows
+  // tall, and a tablet in a dark venue is the job this app is for.
+  //
+  // ResizeObserver where available, a resize listener otherwise; both are
+  // built-ins, so this keeps the project's zero-dependency rule.
+  function publishChromeHeight() {
+    const header = document.querySelector('.b5-header');
+    const context = document.querySelector('.b5-show-context');
+    const measure = () => {
+      let h = 0;
+      if (header) h += header.getBoundingClientRect().height;
+      // The strip is emptied (not removed) when there is no show context, so
+      // measure it rather than assuming it is always a row tall.
+      if (context) h += context.getBoundingClientRect().height;
+      document.documentElement.style.setProperty('--b5-chrome-height', h + 'px');
+    };
+    measure();
+    if (typeof ResizeObserver === 'function') {
+      const ro = new ResizeObserver(measure);
+      if (header) ro.observe(header);
+      if (context) ro.observe(context);
+    }
+    window.addEventListener('resize', measure);
+  }
+  publishChromeHeight();
+
   // 'fixtures' migrates to 'devices' (Phase 1c+ screen rename) for anyone
   // with a stale localStorage value from before this change.
   let initial = localStorage.getItem('benny512.tab') || 'nodes';
   if (initial === 'fixtures') initial = 'devices';
 
-  // UI.universeBase must be settled BEFORE any screen's first render — a
-  // stale default-1 paint that flips to the real value a moment later
-  // would read as the numbers "jumping" on load. GET /api/settings is
-  // fast (in-memory on the server) and best-effort: any failure just keeps
-  // the built-in default of 1 rather than blocking the whole app on it.
-  Api.getSettings().then(s => UI.setUniverseBase(s.universeBase)).catch(() => {}).then(() => {
+  // The Art-Net starting universe must be settled BEFORE any screen's first
+  // render — a stale paint that flips a moment later reads as the numbers
+  // "jumping" on load. GET /api/settings is fast (in-memory on the server)
+  // and best-effort: any failure keeps the built-in default of 0 (user
+  // universe 1 = Art-Net universe 0) rather than blocking the whole app.
+  Api.getSettings().then(s => UI.setArtnetStart(s.artnetStartUniverse)).catch(() => {}).then(() => {
     activate(initial);
 
     NodesScreen.init();
