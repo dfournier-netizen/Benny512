@@ -192,7 +192,7 @@ const DevicesScreen = (() => {
     sel.innerHTML = opts.length
       ? nodeGroups().map(g => {
           const own = opts.filter(o => o.ip === g.ip);
-          return own.length ? `<optgroup label="${escapeHtml(own[0].group)}">${own.map(o => `<option value="${escapeHtml(portKey(o))}" ${selectedPort && portKey(selectedPort) === portKey(o) ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('')}</optgroup>` : '';
+          return own.length ? `<optgroup label="${escapeHtml(own[0].group)}">${own.map(o => `<option value="${escapeHtml(portKey(o))}" ${selectedPort && portKey(selectedPort) === portKey(o) ? 'selected' : ''}>${escapeHtml(o.label)} · ${escapeHtml(o.ip)}</option>`).join('')}</optgroup>` : '';
         }).join('')
       : '<option value="">No nodes discovered yet</option>';
     renderClearGroup();
@@ -232,6 +232,7 @@ const DevicesScreen = (() => {
     clearTimeout(clearArmTimer);
     clearBusy = true;
     renderClearGroup();
+    renderDiscoveryControls();
     try {
       let res;
       if (kind === 'all') {
@@ -249,6 +250,7 @@ const DevicesScreen = (() => {
     clearArmed = null;
     clearArmedScope = null;
     renderClearGroup();
+    renderDiscoveryControls();
   }
 
   function renderClearGroup() {

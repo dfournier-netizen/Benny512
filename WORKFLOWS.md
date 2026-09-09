@@ -47,8 +47,35 @@ Device Info and the Parameters mode selector fetch RDM mode names automatically.
 
 Benny512 is **Art-Net-only**. The sACN monitor and its mapping question have been removed.
 
+## Devices discovery
+
+**Discover this port** scans the selected output. **Discover all ports** scans
+every currently discovered node's output ports, regardless of list filters.
+The target list is frozen at the start and processed one port at a time.
+**Stop after this port** lets the current request finish and skips the remainder.
+Progress reports unique UIDs, failed ports and incomplete tables; a silent port
+can still take the normal discovery timeout. Do not close the browser to stop
+a scan: use its Stop control. A browser queue does not coordinate discovery
+buttons in other browsers, so run one operator's discovery at a time.
+
+Node filters group by physical IP. The port picker preserves reported names
+and identifies separate Art-Net bindings explicitly; a binding-local index of
+zero is not a physical faceplate port number. Routing retains the original IP,
+binding and canonical universe. Node/RDM updates and connection recovery
+refresh the list without reloading the page or replacing an inspector draft.
+
+Device class is derived from reported RDM metadata, not the model name. The
+Paladin Cubes in `Logs/RDM-LOG27.txt` report category `0x0509`, which ANSI E1.20
+defines as a specialized LED dimmer. Benny512 consequently shows Dimmer/Power.
+This is separate from the earlier hardware discovery fault; no model-specific
+classification override is installed.
+
 ## Development verification and known limits
 
 Use a disposable `--demo` installation for browser checks. Never launch the real installation just to test software changes. Go tests cover the storage, workspace, rehearsal and packet seams; physical hardware and race detection are separate gates.
+
+The stock demo seeds its discovery tables but does not answer fresh ToD
+requests. For end-to-end rediscovery checks, build a rehearsal from its demo
+patch: the rehearsal responder answers ToD requests on fake transport.
 
 The E1.37-2 network-configuration wire formats were corrected on 8 September 2026 against the primary text, including its Appendix B worked example (commit `55264ec`). They have not yet been confirmed against a real gateway, so verify on hardware before relying on these controls in the field. No authentication or untrusted-network hardening is added by this batch: operate on the intended trusted lighting LAN.

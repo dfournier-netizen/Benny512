@@ -47,6 +47,15 @@ const node = (ip, bind, address, name = '') => ({ip, bindIndex: bind, longName: 
 const fixture = uid => ({uid, nodeIp: '2.11.90.4', bindIndex: 2, portAddress: 17,
   class: 'Fixture', model: uid, manufacturer: 'Test'});
 const tests = {
+  async 'clear completion restores discovery controls'() {
+    const h = setup(); h.state.nodes = [node('2.11.90.4', 1, 0)];
+    h.api.clearDevicesAll = async () => ({cleared: 0, todCleared: 0});
+    h.screen.init(); await settle();
+    h.elements.btnClearAll.handlers.click();
+    await h.elements.btnClearConfirm.handlers.click();
+    assert.equal(h.elements.btnDiscoverAll.disabled, false, 'clear must not leave discovery disabled');
+    assert.equal(h.elements.btnDiscover.disabled, false);
+  },
   async 'physical node grouping and honest bind labels preserve targets'() {
     const h = setup();
     h.state.nodes = [node('2.11.90.4', 2, 17), node('2.11.90.4', 1, 0), node('2.11.90.10', 1, 32)];

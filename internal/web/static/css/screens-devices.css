@@ -170,6 +170,13 @@
    closed, so changing from one device to another does not mean travelling to
    the bottom of the page. */
 #screen-devices .b5-devices-target { margin-bottom: var(--b5-space-3); }
+#screen-devices #btnStopDiscovery[hidden] { display: none; }
+#screen-devices #discoverStatus {
+  flex-basis: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+#screen-devices #discoverStatus:empty { display: none; }
 #screen-devices .b5-devices-clear { margin-bottom: var(--b5-space-4); }
 #screen-devices .b5-devices-clear > summary { cursor: pointer; }
 #screen-devices .b5-section-head {
