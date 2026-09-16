@@ -147,7 +147,15 @@ type Server struct {
 
 	settingsMu sync.Mutex
 	settings   Settings
-	rdmLogger  *capture.DiskLogger
+	// settingsStore owns benny512-settings.json (see settingsdurable.go).
+	// Never nil: New installs an in-memory-only store (empty path, reads and
+	// writes nothing), and cmd/benny512 upgrades it to a file beside the exe
+	// via SetSettingsStorePath in real mode only — mirroring PatchStore, and
+	// for the same reason --demo skips SetPatchStorePath: a QA session and an
+	// offline rehearsal run on disposable state and must never write over the
+	// installation's real configuration.
+	settingsStore *settingsStore
+	rdmLogger     *capture.DiskLogger
 
 	// unreachLogged deduplicates the "stopped asking this device" NOTE line
 	// in the RDM log, keyed UID -> the breaker RetryAt already reported.
@@ -259,9 +267,14 @@ func New(nodes *session.ArtNetSession, rdmc *session.RDMController, dmx *session
 	s := &Server{
 		showRevision: uint64(time.Now().UnixNano()),
 		Nodes:        nodes, RDM: rdmc, DMX: dmx, Registry: reg, Capture: cap, RDMCapture: rdmCap,
-		settings:   defaultSettings(),
-		walkStore:  walk.NewStore(""),
-		PatchStore: patch.NewStore(""),
+		settings: defaultSettings(),
+		// An in-memory-only settings store: no path, so nothing is read from
+		// or written to disk and this Server's settings live and die with the
+		// process — what every test, --demo and every offline-rehearsal child
+		// gets until SetSettingsStorePath says otherwise.
+		settingsStore: newSettingsStore(""),
+		walkStore:     walk.NewStore(""),
+		PatchStore:    patch.NewStore(""),
 		// The library store is constructed here beside the patch store so a
 		// Server is never in a state where s.LibraryStore is nil — every
 		// handler in library.go dereferences it unconditionally.
@@ -341,6 +354,40 @@ func (s *Server) SetPatchStorePath(path string) {
 // internal/library.NewStore).
 func (s *Server) SetLibraryStorePath(path string) {
 	s.LibraryStore = library.NewStore(path)
+}
+
+// SetSettingsStorePath switches Settings persistence to path (a JSON file
+// next to the exe) and loads whatever is already there, so the server comes
+// up on the configuration the user last saved rather than on New's defaults.
+//
+// The returned error reports a file that exists but could not be read or
+// parsed. It is NOT fatal and the Server is always usable afterwards: the
+// settings in memory are the defaults, the damaged file is left on disk
+// untouched, and a later successful save replaces it. cmd/benny512 logs it as
+// a warning — a venue laptop with a corrupt settings file must still open.
+//
+// Deliberately NOT called by --demo or by the offline-rehearsal child (see
+// cmd/benny512/main.go and cmd/benny512/rehearsal.go): those run on
+// disposable state, and a QA session that rewrote the installation's real
+// settings file would be a worse bug than the one this method fixes.
+func (s *Server) SetSettingsStorePath(path string) error {
+	st := newSettingsStore(path)
+	loaded, err := st.Load()
+	s.settingsMu.Lock()
+	s.settingsStore = st
+	s.settings = loaded
+	s.settingsMu.Unlock()
+	return err
+}
+
+// SettingsStorePath reports the settings file this server persists to, or ""
+// when it has none (in-memory only — every test, --demo and every rehearsal
+// child). Exported so cmd/benny512's tests can assert that --demo's server
+// really is file-less rather than take it on trust.
+func (s *Server) SettingsStorePath() string {
+	s.settingsMu.Lock()
+	defer s.settingsMu.Unlock()
+	return s.settingsStore.Path()
 }
 
 // SetLogRDMPath opens (or closes, if path=="") the continuous RDM disk
@@ -1202,6 +1249,18 @@ func (s *Server) handlePostSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.settingsMu.Lock()
+	// Persist BEFORE publishing. A failed save must not leave the running
+	// server on settings it could not write down: that is the rule
+	// internal/patch and internal/sacn already follow, and the reason is that
+	// the alternative lies to the user — "Apply settings" would appear to
+	// succeed, and the next launch would silently come up on the old values
+	// with nothing to explain why. On failure the in-memory settings are
+	// exactly what they were and the real error goes back in the response.
+	if err := s.settingsStore.Save(req); err != nil {
+		s.settingsMu.Unlock()
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
 	logPathChanged := req.LogRDMPath != s.settings.LogRDMPath
 	s.settings = req
 	var logErr error

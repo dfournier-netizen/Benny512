@@ -108,6 +108,7 @@ const SettingsScreen = (() => {
             <label class="b5-field__label" for="nicSelect">Network interface (NIC)</label>
             <select id="nicSelect" class="b5-select"></select>
             <span class="b5-field__hint">If nodes never answer a poll, this is the first thing to check — it must be the card on the lighting network, not the one with the internet on it.</span>
+            <span class="b5-field__hint"><strong>Takes effect when Benny512 restarts.</strong> The Art&nbsp;Net socket is opened once, against the card chosen at launch, and cannot be moved while the program is running &mdash; so saving a different card here changes what the next launch binds, not this one. Restart to use it. (A <code>--iface</code> given on the command line overrides this setting for that run, and if the saved card is missing on the next machine Benny512 picks one automatically and says so rather than refusing to start.)</span>
           </div>
           <div class="b5-field">
             <label class="b5-field__label" for="pollInterval">Poll interval (ms)</label>

@@ -16,11 +16,14 @@ import (
 // the exe (benny512-sacn.json), written with the same synced-temp-file and
 // checked-rename discipline internal/patch/durable.go uses for the show.
 //
-// It is deliberately NOT part of web.Settings. web.Settings is in-memory only
-// -- there is no settings file and no load/save anywhere in this application
-// -- so folding these fields into it would either leave them unpersisted or
-// silently make NIC, poll interval and capture limit survive a restart, which
-// is a behaviour change nobody asked for.
+// It is deliberately NOT part of web.Settings, and stays separate now that
+// web.Settings has a file of its own (internal/web/settingsdurable.go,
+// benny512-settings.json). The reason is no longer "web.Settings does not
+// persist" -- it does, as of that change -- but RESET SEMANTICS: the full
+// reset rewrites benny512-settings.json with defaults, while THIS file is
+// exempt from reset entirely, because the CID below is this installation's
+// E1.31 source identity and is meant to outlive a reset. Two files with
+// opposite lifetimes cannot be one file.
 
 // DefaultStartUniverse is the sACN universe this application puts SHOW
 // universe 1 on when nothing has been configured. 1, because sACN universes

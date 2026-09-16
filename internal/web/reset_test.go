@@ -276,6 +276,99 @@ func TestReset_ResetsSettingsToDefaults(t *testing.T) {
 	}
 }
 
+// TestReset_WritesDefaultSettingsThroughToDisk is the half the in-memory
+// assertion above cannot make. Now that Settings persist, a reset that only
+// cleared them in memory would be undone by the very next launch reloading
+// the file — and the full reset's whole contract is "reset and exit", so that
+// next launch is seconds away. The check is deliberately made by reading the
+// file back through a FRESH store, i.e. exactly what the next process does.
+func TestReset_WritesDefaultSettingsThroughToDisk(t *testing.T) {
+	h := newHarness(t)
+	path := filepath.Join(t.TempDir(), "benny512-settings.json")
+	if err := h.srv.SetSettingsStorePath(path); err != nil {
+		t.Fatalf("SetSettingsStorePath: %v", err)
+	}
+	custom := Settings{NIC: "eth0", PollIntervalMS: 9999, CaptureLimit: 42, TimeoutProfiles: map[string]string{"x": "y"}, ArtnetStartUniverse: 100}
+	if rr := doJSON(t, h.srv.Handler(), "POST", "/api/settings", custom); rr.Code != http.StatusOK {
+		t.Fatalf("seed settings: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	// Precondition: the custom settings really are on disk, so a pass below
+	// cannot come from the file never having been written in the first place.
+	if seeded, err := newSettingsStore(path).Load(); err != nil || seeded.ArtnetStartUniverse != 100 || seeded.NIC != "eth0" {
+		t.Fatalf("precondition: seeded file = %+v err=%v, want the custom settings", seeded, err)
+	}
+
+	rr := doJSON(t, h.srv.Handler(), "POST", "/api/reset", map[string]string{"confirm": "RESET"})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var resp resetResponse
+	mustUnmarshal(t, rr, &resp)
+	if len(resp.Errors) != 0 {
+		t.Errorf("reset reported errors: %v", resp.Errors)
+	}
+
+	onDisk, err := newSettingsStore(path).Load()
+	if err != nil {
+		t.Fatalf("reload the settings file the way the next launch would: %v", err)
+	}
+	want := defaultSettings()
+	if onDisk.NIC != want.NIC || onDisk.PollIntervalMS != want.PollIntervalMS ||
+		onDisk.CaptureLimit != want.CaptureLimit || onDisk.LogRDMPath != want.LogRDMPath ||
+		onDisk.ArtnetStartUniverse != want.ArtnetStartUniverse {
+		t.Errorf("settings ON DISK after reset = %+v, want defaults %+v — a reset that does not reach the file is undone by the restart it triggers", onDisk, want)
+	}
+	if len(onDisk.TimeoutProfiles) != 0 {
+		t.Errorf("TimeoutProfiles on disk after reset = %#v, want empty", onDisk.TimeoutProfiles)
+	}
+	// The pre-reset configuration is still one step back, which is the
+	// reason step 6 rewrites the file rather than deleting it.
+	if bak, err := os.ReadFile(path + ".bak"); err != nil {
+		t.Errorf("no recovery copy of the pre-reset settings: %v", err)
+	} else {
+		var recovered Settings
+		if err := json.Unmarshal(bak, &recovered); err != nil || recovered.NIC != "eth0" {
+			t.Errorf(".bak after reset = %s err=%v, want the pre-reset settings", bak, err)
+		}
+	}
+}
+
+// TestReset_LeavesTheSACNFileAlone pins the deliberate exemption alongside
+// the new settings behaviour, so the two are read together: the E1.31 CID in
+// benny512-sacn.json is this installation's source identity and must outlive
+// a reset. Nothing in handleReset may be changed to delete or rewrite it.
+func TestReset_LeavesTheSACNFileAlone(t *testing.T) {
+	h := newHarness(t)
+	dir := t.TempDir()
+	sacnPath := filepath.Join(dir, "benny512-sacn.json")
+	if err := h.srv.SetSACNStorePath(sacnPath); err != nil {
+		t.Fatalf("SetSACNStorePath: %v", err)
+	}
+	if _, err := h.srv.SACNSettings.Set(7, 111, ""); err != nil {
+		t.Fatalf("seed sACN settings: %v", err)
+	}
+	before, err := os.ReadFile(sacnPath)
+	if err != nil {
+		t.Fatalf("precondition: %v", err)
+	}
+	cidBefore := h.srv.SACNSettings.Get().CID
+
+	if rr := doJSON(t, h.srv.Handler(), "POST", "/api/reset", map[string]string{"confirm": "RESET"}); rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	after, err := os.ReadFile(sacnPath)
+	if err != nil {
+		t.Fatalf("benny512-sacn.json was deleted by the reset: %v", err)
+	}
+	if string(after) != string(before) {
+		t.Errorf("benny512-sacn.json was rewritten by the reset.\nbefore: %s\n after: %s", before, after)
+	}
+	if h.srv.SACNSettings.Get().CID != cidBefore {
+		t.Error("the E1.31 CID changed across a reset; it is meant to outlive one")
+	}
+}
+
 func TestReset_ExitingFalseWithoutShutdownHook(t *testing.T) {
 	h := newHarness(t) // OnShutdownRequest left nil, as every test-built Server does
 	rr := doJSON(t, h.srv.Handler(), "POST", "/api/reset", map[string]string{"confirm": "RESET"})

@@ -70,12 +70,32 @@ func main() {
 	var start func()
 	var closeTransport func()
 
+	// Which NIC to bind has to be answered BEFORE anything is built: the
+	// Art-Net socket is opened inside buildReal and cannot be rebound
+	// afterwards. So the saved settings file is read here, ahead of
+	// everything, for one field — Settings.NIC — and the store proper is
+	// installed further down via srv.SetSettingsStorePath.
+	//
+	// The error is deliberately ignored at THIS call: an unreadable or
+	// damaged file means "no saved NIC", which auto-selection already handles
+	// correctly, and reporting it twice would be noise. The install below
+	// reads the same file again and logs the one warning.
+	//
+	// --demo reads nothing: it must not so much as open the installation's
+	// real settings file, let alone bind a NIC from it.
+	bindIface := *iface
+	if !*demo {
+		persisted, _ := web.LoadSettingsFile(settingsStorePath())
+		ifaces, _ := transport.ListInterfaces()
+		bindIface = resolveStartupNIC(ifaces, *iface, persisted.NIC, logf)
+	}
+
 	if *demo {
 		logf("info", "starting in --demo mode: 2 fake nodes, 6 fake fixtures, synthetic ArtDmx traffic")
 		srv, start = buildDemo(ctx, *legacyRdmStartCode, *logNodes)
 	} else {
 		var err error
-		srv, start, closeTransport, err = buildReal(*iface, *legacyRdmStartCode, *logNodes, logf)
+		srv, start, closeTransport, err = buildReal(bindIface, *legacyRdmStartCode, *logNodes, logf)
 		if err != nil {
 			logger.Fatalf("startup failed: %v", err)
 		}
@@ -133,7 +153,38 @@ func main() {
 	if err := srv.SetSACNStorePath(sacnStorePath()); err != nil {
 		logf("warn", "sACN settings: %v", err)
 	}
+	// The Settings screen's configuration (NIC, poll interval, capture limit,
+	// RDM log path, Art-Net starting universe) persists in REAL MODE ONLY —
+	// the same exemption --demo gets from SetPatchStorePath above, for a
+	// stronger reason: --demo exists to be poked at, and a QA session that
+	// pressed "Apply settings" would otherwise overwrite the installation's
+	// real configuration with whatever it happened to be trying. The
+	// offline-rehearsal child is excluded structurally rather than by a flag:
+	// it builds its Server with web.New and never calls any Set*StorePath
+	// (see rehearsal.go), so its store stays the in-memory one New installs.
+	//
+	// A damaged file is reported and survived, never fatal: the server comes
+	// up on defaults with the file left untouched on disk to be inspected.
+	if !*demo {
+		if err := srv.SetSettingsStorePath(settingsStorePath()); err != nil {
+			logf("warn", "settings: %v", err)
+		}
+	}
 
+	// A saved Settings.LogRDMPath is OPENED here, not merely remembered.
+	// Persisting it and then not acting on it would make the Settings screen
+	// promise continuous logging that silently never happens — the same
+	// dishonesty a persisted-but-inert NIC would be. An explicit --logrdm
+	// always wins (it is applied below and replaces whatever this opened),
+	// and a saved path that can no longer be opened — a removed USB stick, a
+	// share that is not mounted — is a warning, never fatal.
+	if saved := srv.SettingsSnapshot().LogRDMPath; saved != "" && *logRDM == "" {
+		if err := srv.SetLogRDMPath(saved); err != nil {
+			logf("warn", "saved RDM log path %s could not be opened (%v); continuous logging is off until it is changed on the Settings screen", saved, err)
+		} else {
+			logf("info", "logging RDM/ToD traffic to %s (saved setting)", saved)
+		}
+	}
 	if *logRDM != "" {
 		if err := srv.SetLogRDMPath(*logRDM); err != nil {
 			logger.Fatalf("--logrdm: %v", err)
@@ -168,7 +219,7 @@ func main() {
 
 	localIP := "127.0.0.1"
 	if !*demo {
-		if ip, ok := firstDisplayIP(*iface); ok {
+		if ip, ok := firstDisplayIP(bindIface); ok {
 			localIP = ip
 		}
 	}
@@ -337,6 +388,60 @@ func selectInterface(ifaces []transport.Interface, want string) (transport.Inter
 	return transport.Interface{}, fmt.Errorf("no usable network interface found")
 }
 
+// resolveStartupNIC answers which interface name to bind at startup, given
+// the machine's current interface list, the --iface flag, and the NIC name
+// saved in the settings file. "" means "auto-select", which is what
+// selectInterface already does for an empty name.
+//
+// The rules, and why:
+//
+//   - AN EXPLICIT --iface ALWAYS WINS. It is the escape hatch someone reaches
+//     for precisely when the saved setting is wrong, so it cannot be
+//     second-guessed. It is also still FATAL when the named interface does
+//     not exist (selectInterface returns an error and main exits): a person
+//     who typed a NIC name wants to be told they typed it wrong, not quietly
+//     put on a different card. When it disagrees with the saved setting the
+//     divergence is logged, because the Settings screen will go on showing
+//     the saved name while the socket is somewhere else.
+//
+//   - A SAVED NIC IS THE DEFAULT WHEN --iface IS ABSENT. This is the whole
+//     point of persisting it. Before this, Settings.NIC was cosmetic —
+//     nothing read it, and choosing a NIC on the Settings screen changed
+//     nothing at all — which is worse than not offering the setting.
+//
+//   - A SAVED NIC THAT NO LONGER EXISTS DEGRADES, NEVER FAILS. A venue laptop
+//     changes cards: docked one day, a USB adapter the next, on the house
+//     wireless the day after. Refusing to start because last week's interface
+//     is gone would strand someone in a dark room. It falls back to exactly
+//     the auto-selection this application has always done, says so, and
+//     leaves the saved setting alone — the Settings screen already renders an
+//     absent NIC as "(not present on this machine)", which is the honest
+//     thing for it to show.
+//
+// Note what this does NOT do: it never rewrites Settings.NIC. Silently
+// replacing the user's saved choice with whatever was auto-selected would
+// destroy the record of what they asked for, and make the fallback
+// unnoticeable the moment the real card came back.
+func resolveStartupNIC(ifaces []transport.Interface, explicit, persisted string, logf func(level, format string, args ...any)) string {
+	if explicit != "" {
+		if persisted != "" && persisted != explicit {
+			logf("warn", "--iface %q is being used instead of the saved Settings NIC %q for this run; nothing on disk was changed, and the Settings screen still shows the saved one", explicit, persisted)
+		}
+		return explicit
+	}
+	if persisted == "" {
+		return ""
+	}
+	for _, i := range ifaces {
+		if i.Name == persisted {
+			logf("info", "using the saved Settings NIC %q (no --iface given)", persisted)
+			return persisted
+		}
+	}
+	logf("warn", "the saved Settings NIC %q is not present on this machine; auto-selecting an interface instead. The saved setting is left as it is — choose a NIC on the Settings screen to change it.", persisted)
+	return ""
+}
+
 func firstDisplayIP(ifaceName string) (string, bool) {
 	ifaces, err := transport.ListInterfaces()
 	if err != nil {
@@ -395,6 +500,24 @@ func sacnStorePath() string {
 		return filepath.Join(filepath.Dir(exe), "benny512-sacn.json")
 	}
 	return "benny512-sacn.json"
+}
+
+// settingsStorePath resolves the persisted Settings screen configuration to a
+// path next to the running exe — mirrors sacnStorePath exactly, and is a
+// separate file from the patch, the library and the sACN configuration for
+// the same reason those are separate from each other: it belongs to this
+// INSTALLATION, not to any one show, so it must not share a lifetime — or a
+// delete — with a show's file.
+//
+// It is distinct from benny512-sacn.json in particular because the two have
+// opposite reset semantics: the full reset REWRITES this file with defaults
+// (see internal/web/reset.go step 6), while benny512-sacn.json is exempt so
+// the E1.31 CID inside it survives.
+func settingsStorePath() string {
+	if exe, err := os.Executable(); err == nil {
+		return filepath.Join(filepath.Dir(exe), "benny512-settings.json")
+	}
+	return "benny512-settings.json"
 }
 
 func shouldLog(configured, level string) bool {

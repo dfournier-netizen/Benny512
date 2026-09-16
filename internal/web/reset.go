@@ -138,17 +138,42 @@ func (s *Server) handleReset(w http.ResponseWriter, r *http.Request) {
 	// Server, so there is nothing here to call and no path here to delete.
 	// See Server.LibraryStore's doc comment and
 	// TestLibrary_SurvivesFullReset.
+
+	// 6. Reset Settings to the same defaults New installs — and WRITE those
+	// defaults through to benny512-settings.json, so the reset survives the
+	// restart this handler is about to trigger. Settings became durable in
+	// settingsdurable.go; a reset that only cleared them in memory would be
+	// undone by the very next launch reloading the file, which is the exact
+	// shape of bug persistence introduces if the destructive paths are not
+	// updated alongside it.
+	//
+	// The file is REWRITTEN rather than deleted (unlike the patch and
+	// rig-walk files above) for two reasons: the previous configuration then
+	// survives one step back in benny512-settings.json.bak, and "the file
+	// says defaults" and "there is no file" are the same thing to the loader
+	// anyway, so writing is strictly the more recoverable of the two.
+	//
+	// A failed write is collected like any other reset error rather than
+	// aborting: the in-memory settings are defaults either way, and the user
+	// is told the file could not be written.
+	//
+	// DELIBERATELY ABSENT, as before: benny512-sacn.json. The CID inside it
+	// is this installation's E1.31 source identity and is supposed to outlive
+	// a reset (see internal/sacn/settings.go) — do not add it here.
+	s.settingsMu.Lock()
+	s.settings = defaultSettings()
+	settingsErr := s.settingsStore.Save(s.settings)
+	s.settingsMu.Unlock()
+	if settingsErr != nil {
+		resetErrs = append(resetErrs, settingsErr.Error())
+	}
+
 	if deleted == nil {
 		deleted = []string{}
 	}
 	if resetErrs == nil {
 		resetErrs = []string{}
 	}
-
-	// 6. Reset Settings to the same defaults New installs.
-	s.settingsMu.Lock()
-	s.settings = defaultSettings()
-	s.settingsMu.Unlock()
 
 	// 7. Write the response and flush it before doing anything that might
 	// end the process.
