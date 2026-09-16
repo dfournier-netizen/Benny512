@@ -415,8 +415,8 @@ func TestPattern_AdjustPattern_ReResolvesTarget(t *testing.T) {
 	if !ok2 {
 		t.Fatal("expected a frame after AdjustPattern")
 	}
-	if frame2[0] != 0 || frame2[1] != 0 {
-		t.Errorf("after retargeting to tilt_min, Pan channels = %d/%d, want 0/0 (no longer driven)", frame2[0], frame2[1])
+	if frame2[0] != 128 || frame2[1] != 0 {
+		t.Errorf("after retargeting to tilt_min, Pan channels = %d/%d, want 128/0 fallback", frame2[0], frame2[1])
 	}
 	if frame2[2] != 0 || frame2[3] != 0 {
 		t.Errorf("tilt_min: coarse/fine = %d/%d, want 0/0", frame2[2], frame2[3])
@@ -687,6 +687,51 @@ func strobeBarEntry(id string, universe uint16, addr uint16) Entry {
 //     emits no light however the dimmer moves.
 //   - leave the DIMMER to the dimmer test — the base state must not drive it
 //     to full on top of the test that owns it.
+func TestPattern_BaseState_PositionFallback(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		attr       string
+		bytes      uint16
+		hasDefault bool
+		def        uint32
+		isolate    bool
+		want       byte
+	}{
+		{"pan coarse", "Pan", 1, false, 0, false, 128},
+		{"tilt fine", "Tilt", 2, false, 0, false, 128},
+		{"explicit zero", "Pan", 2, true, 0, false, 0},
+		{"explicit noncenter", "Tilt", 1, true, 77, false, 77},
+		{"speed excluded", "PanTiltSpeed", 1, false, 0, false, 0},
+		{"rotation excluded", "PanRotate", 1, false, 0, false, 0},
+		{"isolate", "Pan", 2, false, 0, true, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rc, tr, _ := harness(t)
+			e := Entry{ID: "fallback", Universe: 0, StartAddress: 11, Footprint: 4, ChannelFunctions: map[uint16]ChannelFunction{
+				1: gdtfCF("Dimmer", "Dimmer", true, 0, 1),
+				2: gdtfCF(tc.attr, tc.attr, tc.hasDefault, tc.def, tc.bytes),
+			}}
+			if tc.bytes == 2 {
+				e.ChannelFunctions[4] = e.ChannelFunctions[2]
+			}
+			if _, err := rc.SetPatternTests([]Entry{e}, []PatternSpec{{Kind: PatternDimmerSine, Params: PatternParams{Max: 255}}}, tc.isolate); err != nil {
+				t.Fatal(err)
+			}
+			st, err := rc.StartPatternOutput()
+			if err != nil {
+				t.Fatal(err)
+			}
+			frame, ok := lastFrame(t, tr.TakeSent(), 0)
+			if !ok || frame[11] != tc.want || frame[13] != 0 || frame[12] != 0 {
+				t.Fatalf("position coarse/fine/gap = %d/%d/%d, want %d/0/0 (frame=%v)", frame[11], frame[13], frame[12], tc.want, ok)
+			}
+			if !tc.isolate && !tc.hasDefault && st.BaseState.DefaultsKnownCount != 1 {
+				t.Fatalf("assumed center must not be counted as known GDTF: %+v", st.BaseState)
+			}
+		})
+	}
+}
+
 func TestPattern_BaseState_DefaultsDimmerAndShutter(t *testing.T) {
 	rc, tr, clock := harness(t)
 	e := strobeBarEntry("jdc1", 0, 1)

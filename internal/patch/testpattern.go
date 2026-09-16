@@ -1155,8 +1155,9 @@ type entryBaseState struct {
 	defaults []baseWrite
 	// dimmer/shutter are the "drive it so the fixture can actually emit
 	// light" writes, applied only where no active test owns the offsets.
-	dimmer  []baseWrite
-	shutter []baseWrite
+	dimmer   []baseWrite
+	shutter  []baseWrite
+	position []baseWrite
 	// knownCount/unknownCount count DMX slots in this entry's footprint
 	// whose resting value GDTF stated / did not state. An unknown slot is
 	// left at 0 — that is not a claim, it is this package declining to
@@ -1199,6 +1200,14 @@ func buildEntryBaseState(e Entry) entryBaseState {
 				bs.knownCount += len(offs)
 			} else {
 				bs.unknownCount += len(offs)
+			}
+			if !cf.HasDefault && (strings.HasPrefix(rf.Attribute, "Pan") || strings.HasPrefix(rf.Attribute, "Tilt")) && !strings.Contains(rf.Attribute, "Speed") && !strings.Contains(rf.Attribute, "Rotate") {
+				raw := uint32(128)
+				if n >= 2 {
+					raw = 32768
+				}
+				bs.position = append(bs.position, baseWrite{offsets: offs, nbytes: n, raw: raw})
+				bs.unknownCount -= len(offs)
 			}
 			switch {
 			case strings.HasPrefix(rf.Attribute, "Dimmer"):
@@ -2033,6 +2042,9 @@ func (r *RigCheck) composePatternLocked(elapsed float64) patternComposition {
 				if apply(w) {
 					opened = true
 				}
+			}
+			for _, w := range bs.position {
+				apply(w)
 			}
 			if opened {
 				comp.base.ShutterOpenedCount++

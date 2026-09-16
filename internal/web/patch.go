@@ -1128,12 +1128,13 @@ type rigCheckStartRequest struct {
 	// one universe / one position / an explicit set of fixtures" — and
 	// shared here since it's equally meaningful for the classic
 	// channel-level walk).
-	ScopeKind string   `json:"scopeKind"`
-	Universe  uint16   `json:"universe"`
-	Position  string   `json:"position"`
-	EntryIDs  []string `json:"entryIds"`
-	Mode      string   `json:"mode"`
-	Level     byte     `json:"level"`
+	ScopeKind   string   `json:"scopeKind"`
+	Universe    uint16   `json:"universe"`
+	Position    string   `json:"position"`
+	EntryIDs    []string `json:"entryIds"`
+	FixtureType string   `json:"fixtureType"`
+	Mode        string   `json:"mode"`
+	Level       byte     `json:"level"`
 }
 
 // rigCheckScopeEntries resolves ScopeKind into the ordered []patch.Entry
@@ -1141,7 +1142,7 @@ type rigCheckStartRequest struct {
 // engine (handleRigCheckPatternStart) drive over — one scope-resolution
 // implementation so the two surfaces' "whole rig / one universe / one
 // position / a selection" options can never quietly diverge in meaning.
-func (s *Server) rigCheckScopeEntries(p patch.Patch, kind string, universe uint16, position string, entryIDs []string) ([]patch.Entry, error) {
+func (s *Server) rigCheckScopeEntries(p patch.Patch, kind string, universe uint16, position string, entryIDs []string, fixtureType ...string) ([]patch.Entry, error) {
 	var out []patch.Entry
 	switch kind {
 	case "", "all":
@@ -1167,6 +1168,22 @@ func (s *Server) rigCheckScopeEntries(p patch.Patch, kind string, universe uint1
 			if want[e.ID] {
 				out = append(out, e)
 			}
+		}
+	case "fixtureType":
+		want := ""
+		if len(fixtureType) > 0 {
+			want = strings.TrimSpace(fixtureType[0])
+		}
+		if want == "" {
+			return nil, fmt.Errorf("fixtureType is required")
+		}
+		for _, e := range p.Entries {
+			if strings.TrimSpace(e.FixtureType) == want {
+				out = append(out, e)
+			}
+		}
+		if len(out) == 0 {
+			return nil, fmt.Errorf("fixtureType %q does not exist", want)
 		}
 	default:
 		return nil, fmt.Errorf("scopeKind must be all|universe|position|selection, got %q", kind)
@@ -1638,10 +1655,11 @@ func (s *Server) handleRigCheckPatternStatus(w http.ResponseWriter, r *http.Requ
 // (patch.ErrRigCheckEmptyScope): the engine refuses to hold an empty scope
 // rather than silently selecting nothing.
 type patternScopeFields struct {
-	ScopeKind string   `json:"scopeKind"`
-	Universe  uint16   `json:"universe"`
-	Position  string   `json:"position"`
-	EntryIDs  []string `json:"entryIds"`
+	ScopeKind   string   `json:"scopeKind"`
+	Universe    uint16   `json:"universe"`
+	Position    string   `json:"position"`
+	EntryIDs    []string `json:"entryIds"`
+	FixtureType string   `json:"fixtureType"`
 }
 
 // resolveScope turns the scope fields into the ordered entries the engine
@@ -1652,7 +1670,7 @@ func (s *Server) resolveScope(w http.ResponseWriter, f patternScopeFields) ([]pa
 		writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("no active patch"))
 		return nil, false
 	}
-	entries, err := s.rigCheckScopeEntries(p, f.ScopeKind, f.Universe, f.Position, f.EntryIDs)
+	entries, err := s.rigCheckScopeEntries(p, f.ScopeKind, f.Universe, f.Position, f.EntryIDs, f.FixtureType)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return nil, false
@@ -1952,10 +1970,12 @@ type patternStatusJSON struct {
 	// the browser formats it only at display time. EntryIDs is non-nil even
 	// for every non-selection scope, so a client never has to distinguish an
 	// empty valid selection from an absent field.
-	ScopeKind     string   `json:"scopeKind"`
-	ScopeUniverse uint16   `json:"scopeUniverse"`
-	ScopePosition string   `json:"scopePosition"`
-	ScopeEntryIDs []string `json:"scopeEntryIds"`
+	ScopeKind        string                  `json:"scopeKind"`
+	ScopeUniverse    uint16                  `json:"scopeUniverse"`
+	ScopePosition    string                  `json:"scopePosition"`
+	ScopeEntryIDs    []string                `json:"scopeEntryIds"`
+	ScopeFixtureType string                  `json:"scopeFixtureType"`
+	FixtureTypes     []fixtureTypeOptionJSON `json:"fixtureTypes"`
 
 	Tests     []patternTestStatusJSON `json:"tests"`
 	Contested []contestedOffsetJSON   `json:"contested"`
@@ -2041,10 +2061,17 @@ func toPatternStatusJSON(st patch.PatternStatus) patternStatusJSON {
 // receives already-resolved entries and is rightly independent of patch UI
 // vocabulary; this companion preserves that vocabulary for status readback.
 type patternScopeStatus struct {
-	Kind     string
-	Universe uint16
-	Position string
-	EntryIDs []string
+	Kind        string
+	Universe    uint16
+	Position    string
+	EntryIDs    []string
+	FixtureType string
+}
+
+type fixtureTypeOptionJSON struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	Count int    `json:"count"`
 }
 
 func (s *Server) setPatternScope(f patternScopeFields, entries []patch.Entry) {
@@ -2052,7 +2079,7 @@ func (s *Server) setPatternScope(f patternScopeFields, entries []patch.Entry) {
 	if kind == "" {
 		kind = "all"
 	}
-	state := patternScopeStatus{Kind: kind, Universe: f.Universe, Position: f.Position, EntryIDs: make([]string, 0)}
+	state := patternScopeStatus{Kind: kind, Universe: f.Universe, Position: f.Position, FixtureType: strings.TrimSpace(f.FixtureType), EntryIDs: make([]string, 0)}
 	if kind == "selection" {
 		for _, entry := range entries {
 			state.EntryIDs = append(state.EntryIDs, entry.ID)
@@ -2073,6 +2100,26 @@ func (s *Server) patternStatusJSON(st patch.PatternStatus) patternStatusJSON {
 		out.ScopeUniverse = scope.Universe
 		out.ScopePosition = scope.Position
 		out.ScopeEntryIDs = append(make([]string, 0, len(scope.EntryIDs)), scope.EntryIDs...)
+		out.ScopeFixtureType = scope.FixtureType
+	}
+	if p, ok := s.PatchStore.Get(); ok {
+		counts := map[string]int{}
+		for _, e := range p.Entries {
+			if k := strings.TrimSpace(e.FixtureType); k != "" {
+				counts[k]++
+			}
+		}
+		keys := make([]string, 0, len(counts))
+		for k := range counts {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		out.FixtureTypes = make([]fixtureTypeOptionJSON, 0, len(keys))
+		for _, k := range keys {
+			out.FixtureTypes = append(out.FixtureTypes, fixtureTypeOptionJSON{Key: k, Label: k, Count: counts[k]})
+		}
+	} else {
+		out.FixtureTypes = make([]fixtureTypeOptionJSON, 0)
 	}
 	return out
 }

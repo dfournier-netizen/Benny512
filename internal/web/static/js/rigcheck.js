@@ -83,6 +83,8 @@ const RigCheckPanel = (() => {
   let scopeUniverse = 0;
   let scopePosition = '';
   let scopeSelection = {}; // entryId -> bool, for scopeKind 'selection'
+  let scopeFixtureType = '';
+  let scopeFixtureTypeDraft = '';
 
   // expanded: which test tiles have their parameter panel open. Pure
   // presentation, deliberately not on the server.
@@ -102,7 +104,7 @@ const RigCheckPanel = (() => {
 
   window.addEventListener('b5-show-changed', () => {
     snap = null; scopeKind = 'all'; scopeUniverse = 0; scopePosition = '';
-    scopeSelection = {}; mounted = false; expanded = {};
+    scopeSelection = {}; scopeFixtureType = ''; scopeFixtureTypeDraft = ''; mounted = false; expanded = {};
   });
 
   // ---- taxonomy / presentation ------------------------------------------
@@ -240,6 +242,7 @@ const RigCheckPanel = (() => {
     if (scopeKind === 'universe') b.universe = scopeUniverse;
     if (scopeKind === 'position') b.position = scopePosition;
     if (scopeKind === 'selection') b.entryIds = Object.keys(scopeSelection).filter(id => scopeSelection[id]);
+    if (scopeKind === 'fixtureType') b.fixtureType = scopeFixtureTypeDraft;
     return b;
   }
 
@@ -252,6 +255,8 @@ const RigCheckPanel = (() => {
     scopePosition = snap.scopePosition || '';
     scopeSelection = {};
     (snap.scopeEntryIds || []).forEach(id => { scopeSelection[id] = true; });
+    scopeFixtureType = snap.scopeFixtureType || sessionStorage.getItem('benny512.rigcheck.fixtureType') || '';
+    scopeFixtureTypeDraft = scopeFixtureType;
     sessionStorage.setItem('benny512.rigcheck.scopeKind', scopeKind);
   }
 
@@ -271,7 +276,7 @@ const RigCheckPanel = (() => {
       errMsg = e && e.message ? e.message : String(e);
       // Re-read the truth: a rejected mutation means the server's state is
       // whatever it was, and the screen must show that, not the attempt.
-      try { snap = await Api.getPattern(); syncScopeFromSnapshot(); } catch (e2) { /* keep last snapshot */ }
+      try { snap = await Api.getPattern(); syncScopeFromSnapshot(); scopeFixtureTypeDraft = scopeFixtureType; } catch (e2) { /* keep last snapshot */ }
       return false;
     } finally {
       render();
@@ -283,11 +288,17 @@ const RigCheckPanel = (() => {
   // on screen (still the OLD scope's, because that is what the server
   // reports) silently disagrees with the universe in the box.
   async function setScope() {
+    const acceptedFixtureType = scopeFixtureType || sessionStorage.getItem('benny512.rigcheck.fixtureType') || '';
     sessionStorage.setItem('benny512.rigcheck.scopeKind', scopeKind);
     const ok = await apply(() => Api.patternSetScope(scopeBody()));
     if (!ok) {
+      scopeFixtureType = acceptedFixtureType;
+      scopeFixtureTypeDraft = acceptedFixtureType;
       errMsg = 'Nothing is patched there, so the scope was left as it was. ' + errMsg;
       render();
+    } else if (scopeKind === 'fixtureType') {
+      scopeFixtureType = scopeFixtureTypeDraft;
+      sessionStorage.setItem('benny512.rigcheck.fixtureType', scopeFixtureType);
     }
   }
 
@@ -596,6 +607,7 @@ const RigCheckPanel = (() => {
       { id: 'all', label: 'Whole rig' },
       { id: 'universe', label: 'One universe' },
       { id: 'position', label: 'One position' },
+      { id: 'fixtureType', label: 'Fixture type' },
       { id: 'selection', label: 'Pick fixtures' },
     ];
     const ua = UI.userInputAttrs();
@@ -624,6 +636,9 @@ const RigCheckPanel = (() => {
               <span>${escapeHtml(e.name || e.fixtureType || e.id)} <span class="b5-text-muted b5-text-xs">U${UI.formatUser(e.universe)}/${e.startAddress}</span></span>
             </label>`).join('') : '<span class="b5-text-muted b5-text-sm">no entries in this patch</span>'}
         </div>`;
+    } else if (scopeKind === 'fixtureType') {
+      const opts = snap.fixtureTypes || [];
+      value = `<div class="b5-rcp-scope__value"><label class="b5-field__label" for="rcpScopeFixtureType">Fixture type</label><select id="rcpScopeFixtureType" class="b5-select"><option value="">Choose a fixture type</option>${opts.map(o => `<option value="${escapeHtml(o.key)}" ${o.key === scopeFixtureTypeDraft ? 'selected' : ''}>${escapeHtml(o.label)} (${o.count})</option>`).join('')}</select><button type="button" class="b5-btn b5-btn--secondary" id="rcpScopeApply">Apply fixture type</button></div>`;
     }
 
     const total = snap.totalScope || 0;
@@ -851,6 +866,7 @@ const RigCheckPanel = (() => {
         if (!positions.length) { errMsg = 'no fixture in this patch has a position'; render(); return; }
       }
       if (k === 'selection' && !Object.keys(scopeSelection).some(id => scopeSelection[id])) { render(); return; }
+      if (k === 'fixtureType') { scopeFixtureTypeDraft = ''; render(); return; }
       await setScope();
     }));
 
@@ -863,6 +879,11 @@ const RigCheckPanel = (() => {
       scopeUniverse = UI.parseUser(e.target.value);
       await setScope();
     });
+
+    const ft = el.querySelector('#rcpScopeFixtureType');
+    if (ft) ft.addEventListener('change', e => { scopeFixtureTypeDraft = e.target.value; });
+    const fa = el.querySelector('#rcpScopeApply');
+    if (fa) fa.addEventListener('click', async () => { if (!scopeFixtureTypeDraft) { errMsg = 'choose a fixture type'; render(); return; } await setScope(); });
 
     const pos = el.querySelector('#rcpScopePosition');
     if (pos) pos.addEventListener('change', async (e) => { scopePosition = e.target.value; await setScope(); });
@@ -966,6 +987,7 @@ const RigCheckPanel = (() => {
     const scopeWord = scopeKind === 'all' ? 'the whole rig'
       : scopeKind === 'universe' ? `universe ${UI.formatUser(scopeUniverse)}`
         : scopeKind === 'position' ? `position "${scopePosition}"`
+      : scopeKind === 'fixtureType' ? `fixture type "${scopeFixtureType}"`
           : `${total} picked fixture${total === 1 ? '' : 's'}`;
     if (!confirm(`Let output flow: ${n} test${n === 1 ? '' : 's'} on ${scopeWord} (${total} fixture${total === 1 ? '' : 's'}). This moves real fixtures now.`)) return;
     starting = true;
