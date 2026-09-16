@@ -65,6 +65,7 @@ import (
 	"benny512/internal/params"
 	"benny512/internal/patch"
 	"benny512/internal/rdm"
+	"benny512/internal/sacn"
 )
 
 // --- patch CRUD --------------------------------------------------------
@@ -1097,6 +1098,11 @@ type rigCheckStateJSON struct {
 	CurrentEntryName string `json:"currentEntryName,omitempty"`
 	ChannelOffset    int    `json:"channelOffset"`
 	CurrentChannel   uint16 `json:"currentChannel,omitempty"`
+	// Protocol echoes the armed wire protocol back, following the same
+	// scope-echo convention the pattern endpoints use: the server, not an
+	// unverified browser-side guess, is the authority on what is armed.
+	// Always present — "artnet" is meaningful data, not a missing key.
+	Protocol string `json:"protocol"`
 }
 
 func (s *Server) buildRigCheckStateJSON() rigCheckStateJSON {
@@ -1105,6 +1111,7 @@ func (s *Server) buildRigCheckStateJSON() rigCheckStateJSON {
 		Running: st.Running, Mode: string(st.Mode), Level: st.Level,
 		EntryIndex: st.EntryIndex, EntryCount: len(st.EntryIDs),
 		ChannelOffset: st.ChannelOffset, CurrentChannel: st.CurrentChannel,
+		Protocol: string(st.Protocol),
 	}
 	if st.EntryIndex >= 0 && st.EntryIndex < len(st.EntryIDs) {
 		out.CurrentEntryID = st.EntryIDs[st.EntryIndex]
@@ -1135,6 +1142,13 @@ type rigCheckStartRequest struct {
 	FixtureType string   `json:"fixtureType"`
 	Mode        string   `json:"mode"`
 	Level       byte     `json:"level"`
+	// Protocol selects the wire protocol this run transmits on: "artnet"
+	// (the default) or "sacn". ABSENT MEANS ARTNET, byte for byte the
+	// behaviour every client had before sACN existed — that is the whole
+	// backwards-compatibility contract. Any other value is a 400; it is
+	// never quietly treated as Art-Net, because a tech who asked for sACN
+	// and silently got Art-Net has no way to see that from the console.
+	Protocol string `json:"protocol"`
 }
 
 // rigCheckScopeEntries resolves ScopeKind into the ordered []patch.Entry
@@ -1226,7 +1240,12 @@ func (s *Server) handleRigCheckStart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if err := s.RigCheck.Start(entries, patch.Mode(req.Mode), req.Level); err != nil {
+	proto, err := patch.NormalizeProtocol(req.Protocol)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.RigCheck.StartWithProtocol(entries, patch.Mode(req.Mode), req.Level, proto); err != nil {
 		writeRigCheckError(w, err)
 		return
 	}
@@ -1336,7 +1355,15 @@ func writeRigCheckError(w http.ResponseWriter, err error) {
 		// Its own doc comment above already promised a 409 here.
 		errors.Is(err, patch.ErrRigCheckAmbiguousTest):
 		writeError(w, http.StatusConflict, err)
-	case errors.Is(err, patch.ErrRigCheckEmptyScope):
+	case errors.Is(err, patch.ErrRigCheckEmptyScope),
+		// A well-formed request for a scope that cannot be expressed on the
+		// chosen protocol: an Art-Net Port-Address whose show universe maps
+		// outside sACN's 1..63999, or sACN asked of a server with no sACN
+		// binding. 422, not 400 — the request is fine, the combination of
+		// this scope and this configuration is not. The error text names the
+		// offending universe (sacn.ArtnetPortAddressToSACNUniverse).
+		errors.Is(err, sacn.ErrInvalidUniverse),
+		errors.Is(err, patch.ErrSACNNotConfigured):
 		writeError(w, http.StatusUnprocessableEntity, err)
 	default:
 		writeError(w, http.StatusBadRequest, err)

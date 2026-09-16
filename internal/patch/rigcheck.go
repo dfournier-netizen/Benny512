@@ -3,7 +3,6 @@ package patch
 import (
 	"errors"
 	"fmt"
-	"net/netip"
 	"sync"
 	"time"
 
@@ -134,6 +133,13 @@ type State struct {
 	// running, the overwhelmingly common case) is real, meaningful data a
 	// client must be able to tell apart from a key that's merely missing.
 	PatternRunning bool `json:"patternRunning"`
+	// Protocol is the wire protocol this rig check drives (see
+	// rigcheckout.go). It is the protocol the LAST Start selected and
+	// survives a Stop, so a reconnecting client reads back the choice that
+	// is actually armed rather than guessing. Deliberately no `omitempty`:
+	// "artnet" is real, meaningful data and must not be mistaken for a
+	// missing key.
+	Protocol Protocol `json:"protocol"`
 }
 
 // RigCheck steps through an ordered, scoped list of patch entries, driving
@@ -144,6 +150,11 @@ type State struct {
 type RigCheck struct {
 	dmx   *session.DMXOutputEngine
 	clock session.Clock // same Clock dmx was built with — see Clock's doc comment (session/dmxout.go) and testpattern.go's package doc comment
+	// out is the protocol-aware output boundary (rigcheckout.go). Every
+	// frame this file pushes and every universe it starts or stops goes
+	// through it, so Art-Net and sACN can never both be driving the same
+	// universe. Always non-nil: NewRigCheck builds it.
+	out *rigOutput
 
 	mu      sync.Mutex
 	entries []Entry
@@ -177,7 +188,72 @@ type RigCheck struct {
 // FakeClock deterministically drives both the DMX retransmit tick and every
 // pattern's own value recomputation.
 func NewRigCheck(dmx *session.DMXOutputEngine) *RigCheck {
-	return &RigCheck{dmx: dmx, clock: dmx.Clock(), started: map[uint16]bool{}, level: DefaultLevel, selection: newPatternSelection()}
+	r := &RigCheck{dmx: dmx, clock: dmx.Clock(), started: map[uint16]bool{}, level: DefaultLevel, selection: newPatternSelection()}
+	r.out = newRigOutput(dmx, r.clock)
+	r.out.onTick = r.sacnRefreshTick
+	return r
+}
+
+// SetSACNBinding wires the sACN half of the output boundary. Called once at
+// server construction; until it is called, a Start that asks for sACN fails
+// with ErrSACNNotConfigured rather than quietly falling back to Art-Net.
+func (r *RigCheck) SetSACNBinding(b SACNBinding) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.out.binding = b
+}
+
+// Protocol reports the wire protocol the last Start selected.
+func (r *RigCheck) Protocol() Protocol {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.out.proto
+}
+
+// LiveProtocolFor reports which protocol a raw Art-Net Port-Address is
+// currently being driven on, and whether it is driven at all. Exposed so the
+// "a universe is never driven by both protocols at once" guarantee is
+// directly assertable rather than inferred from wire captures alone.
+func (r *RigCheck) LiveProtocolFor(universe uint16) (Protocol, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.out.liveProtocolFor(universe)
+}
+
+// SACNSendError reports the most recent sACN transmit error, if any.
+func (r *RigCheck) SACNSendError() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.out.sendErr
+}
+
+// sacnRefreshTick is the sACN refresh timer's callback — the E1.31 cadence
+// counterpart to DMXOutputEngine.tick, which only ever drives Art-Net. See
+// rigcheckout.go's cadence constants for the Section 6.6.2 reasoning.
+func (r *RigCheck) sacnRefreshTick() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.out.refresh(r.clock.Now())
+}
+
+// scopeUniversesLocked returns the distinct, valid raw Port-Addresses an
+// entry list covers, in first-appearance order. An entry whose Universe is
+// not a valid Art-Net Port-Address is skipped, not fatal — the same
+// tolerance the pre-sACN code had inline.
+func scopeUniverses(entries []Entry) []uint16 {
+	seen := map[uint16]bool{}
+	out := make([]uint16, 0, len(entries))
+	for _, e := range entries {
+		if seen[e.Universe] {
+			continue
+		}
+		if _, err := artnet.PortAddressFromRaw(e.Universe); err != nil {
+			continue
+		}
+		seen[e.Universe] = true
+		out = append(out, e.Universe)
+	}
+	return out
 }
 
 // Start begins a new rig check over entries (already ordered/scoped by the
@@ -187,12 +263,32 @@ func NewRigCheck(dmx *session.DMXOutputEngine) *RigCheck {
 // Previous can still walk past them for reference) but never light any
 // channel, matching DetectCollisions' zero-footprint tolerance.
 func (r *RigCheck) Start(entries []Entry, mode Mode, level byte) error {
+	return r.StartWithProtocol(entries, mode, level, ProtocolArtNet)
+}
+
+// StartWithProtocol is Start with an explicit wire protocol. Start is exactly
+// StartWithProtocol(..., ProtocolArtNet), so every existing caller keeps its
+// pre-sACN behaviour to the byte.
+//
+// The scope's universes are ALL mapped before anything is stopped or started
+// (rigOutput.validate). A scope containing one universe that cannot be
+// expressed on the chosen protocol — Art-Net Port-Address 0 with an sACN
+// start universe of 0, say — fails here, names the universe, and leaves
+// whatever was running before untouched. It never clamps into range.
+func (r *RigCheck) StartWithProtocol(entries []Entry, mode Mode, level byte, proto Protocol) error {
 	if len(entries) == 0 {
 		return ErrRigCheckEmptyScope
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	raws := scopeUniverses(entries)
+	if err := r.out.validate(proto, raws); err != nil {
+		return err
+	}
+
 	r.stopLocked("restarted") // always start clean — no stale universes left driving from a previous scope, and this supersedes any running pattern too
+	r.out.proto = proto
 
 	r.entries = append([]Entry(nil), entries...)
 	r.mode = normalizeMode(mode)
@@ -204,18 +300,23 @@ func (r *RigCheck) Start(entries []Entry, mode Mode, level byte) error {
 	r.chOff = 0
 	r.running = true
 
-	for _, e := range r.entries {
-		if r.started[e.Universe] {
-			continue
+	for _, u := range raws {
+		if err := r.out.startUniverse(u); err != nil {
+			// Validation above already cleared the mapping, so reaching here
+			// means the socket itself would not open. Nothing is left lit.
+			r.stopLocked("restarted")
+			r.running = false
+			return err
 		}
-		pa, err := artnet.PortAddressFromRaw(e.Universe)
-		if err != nil {
-			continue // an invalid universe value in a scoped entry is skipped, not fatal to the whole run
-		}
-		r.dmx.StartUniverse(pa, netip.AddrPort{}, session.DMXUniverseSize)
-		r.started[e.Universe] = true
+		r.started[u] = true
 	}
-	r.dmx.Start() // idempotent if the engine's tick loop is already running (e.g. Send screen also using it)
+	if proto == ProtocolArtNet {
+		// Only the Art-Net path needs the shared engine's tick loop; an sACN
+		// run registers nothing with the engine, which is exactly what takes
+		// the universe OFF Art-Net. Idempotent if the loop is already
+		// running (e.g. the Send screen is also using it).
+		r.dmx.Start()
+	}
 	r.recomputeLocked()
 	return nil
 }
@@ -264,11 +365,13 @@ func (r *RigCheck) ResetSelection() {
 // the selection gone replaces it via SetPatternTests.
 func (r *RigCheck) stopLocked(reason string) {
 	r.blackoutLocked()
-	for u := range r.started {
-		if pa, err := artnet.PortAddressFromRaw(u); err == nil {
-			r.dmx.StopUniverse(pa)
-		}
-	}
+	// One call takes every live universe off whichever protocol is driving
+	// it: Art-Net universes are removed from the shared DMX engine, sACN
+	// universes get three zero frames and three Stream_Terminated packets
+	// and the socket is closed. Without the sACN half, handleStopAllOutput
+	// and the pattern watchdog would leave receivers holding a zeroed stream
+	// until E131_NETWORK_DATA_LOSS_TIMEOUT (2.5s, ANSI E1.31-2025 §6.7.1).
+	r.out.stopAll()
 	r.started = map[uint16]bool{}
 	r.running = false
 	r.cancelPatternOutputLocked(reason)
@@ -302,13 +405,14 @@ func (r *RigCheck) Blackout() {
 }
 
 func (r *RigCheck) blackoutLocked() {
-	zero := make([]byte, session.DMXUniverseSize)
+	frames := make(map[uint16][]byte, len(r.started))
 	for u := range r.started {
-		if pa, err := artnet.PortAddressFromRaw(u); err == nil {
-			_ = r.dmx.SetFrame(pa, zero)
-		}
+		frames[u] = make([]byte, session.DMXUniverseSize)
 	}
-	r.dmx.SendNow()
+	// force=true: a blackout must put a packet on the wire even when the
+	// frame it replaces was already zero, so E1.31's change-only
+	// transmission rule (§6.6.2) does not quietly swallow the panic button.
+	r.out.setFrames(frames, true)
 }
 
 // SetMode changes the drive mode and re-applies output immediately,
@@ -436,7 +540,7 @@ func (r *RigCheck) State() State {
 	defer r.mu.Unlock()
 	st := State{
 		Running: r.running, Mode: r.mode, Level: r.level, EntryIndex: r.idx, ChannelOffset: r.chOff,
-		PatternRunning: r.patternOutput,
+		PatternRunning: r.patternOutput, Protocol: r.out.proto,
 	}
 	for _, e := range r.entries {
 		st.EntryIDs = append(st.EntryIDs, e.ID)
@@ -478,12 +582,7 @@ func (r *RigCheck) recomputeLocked() {
 			fillChannel(frames, cur, r.chOff, r.level)
 		}
 	}
-	for u, data := range frames {
-		if pa, err := artnet.PortAddressFromRaw(u); err == nil {
-			_ = r.dmx.SetFrame(pa, data)
-		}
-	}
-	r.dmx.SendNow()
+	r.out.setFrames(frames, false)
 }
 
 // fillEntry sets every channel e occupies, in its universe's frame, to

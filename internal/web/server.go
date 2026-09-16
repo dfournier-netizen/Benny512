@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -30,6 +31,7 @@ import (
 	"benny512/internal/patch"
 	"benny512/internal/rdm"
 	"benny512/internal/registry"
+	"benny512/internal/sacn"
 	"benny512/internal/session"
 	"benny512/internal/walk"
 	"benny512/internal/web/ws"
@@ -116,6 +118,32 @@ type Server struct {
 	// capture export headers. Set once after construction; read
 	// concurrently, so it must not be mutated after startup.
 	NIC string
+
+	// OutputInterface / OutputBindIP retain the NIC cmd/benny512 actually
+	// chose at startup (--iface, or the first non-loopback IPv4 interface).
+	// NIC above is a display string and cannot be used to pin a socket.
+	// Until sACN existed nothing needed these: the Art-Net transport is
+	// built inside buildReal and the choice was discarded there. An sACN
+	// sender opens its OWN socket later, on demand, and multicast egress is
+	// picked by the routing table unless IP_MULTICAST_IF says otherwise —
+	// so it has to be told which NIC to leave by. Both are nil in --demo
+	// mode and in every test, which leaves the choice to the OS exactly as
+	// sacn.Config documents. Set once after construction, read
+	// concurrently; must not be mutated after startup.
+	OutputInterface *net.Interface
+	OutputBindIP    net.IP
+
+	// SACNSettings is the persisted sACN configuration (internal/sacn's
+	// Store): the generated-once CID, the sACN start universe, the priority
+	// and an optional unicast destination. Constructed in memory by New so
+	// it is never nil; cmd/benny512 upgrades it to a file beside the exe via
+	// SetSACNStorePath, mirroring SetPatchStorePath/SetLibraryStorePath.
+	SACNSettings *sacn.Store
+
+	// sacnPort overrides the E1.31 destination port (0 = ACN_SDT_MULTICAST_
+	// PORT, 5568). Only the protocol-isolation test sets it, so a real-socket
+	// test can bind a listener without competing for the well-known port.
+	sacnPort int
 
 	settingsMu sync.Mutex
 	settings   Settings
@@ -241,6 +269,12 @@ func New(nodes *session.ArtNetSession, rdmc *session.RDMController, dmx *session
 		RigCheck:     patch.NewRigCheck(dmx),
 		hub:          newHub(),
 	}
+	// An in-memory store: no path, so nothing is read from or written to
+	// disk and the CID is a fresh one for the life of this Server. NewStore
+	// only ever returns an error for a failed SAVE, which cannot happen with
+	// an empty path.
+	s.SACNSettings, _ = sacn.NewStore("")
+	s.RigCheck.SetSACNBinding(s.sacnBinding())
 	s.mux = http.NewServeMux()
 	s.routes()
 	return s
@@ -367,6 +401,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/dmx/stop", s.handleDMXStop)
 	s.mux.HandleFunc("GET /api/settings", s.handleGetSettings)
 	s.mux.HandleFunc("POST /api/settings", s.handlePostSettings)
+	s.mux.HandleFunc("GET /api/sacn", s.handleGetSACNConfig)
+	s.mux.HandleFunc("POST /api/sacn", s.handlePostSACNConfig)
 	s.mux.HandleFunc("GET /api/capture/snapshot", s.handleCaptureSnapshot)
 	s.mux.HandleFunc("GET /api/capture/rdm/snapshot", s.handleRDMCaptureSnapshot)
 	s.mux.HandleFunc("GET /api/capture/export", s.handleCaptureExport)

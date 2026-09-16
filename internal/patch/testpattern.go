@@ -224,12 +224,10 @@ package patch
 import (
 	"fmt"
 	"math"
-	"net/netip"
 	"sort"
 	"strings"
 	"time"
 
-	"benny512/internal/artnet"
 	"benny512/internal/session"
 )
 
@@ -1758,18 +1756,19 @@ func (r *RigCheck) StartPatternOutput() (PatternStatus, error) {
 	}
 	r.stopLocked("restarted") // supersede any classic run; leaves the selection alone
 
-	for _, e := range r.selection.scope {
-		if r.started[e.Universe] {
-			continue
+	// Pattern output goes out on whatever protocol the last Start armed
+	// (r.out.proto), through the same output boundary the classic walk uses,
+	// so a universe is never driven by both protocols here either.
+	for _, u := range scopeUniverses(r.selection.scope) {
+		if err := r.out.startUniverse(u); err != nil {
+			r.stopLocked("restarted")
+			return PatternStatus{}, err
 		}
-		pa, err := artnet.PortAddressFromRaw(e.Universe)
-		if err != nil {
-			continue
-		}
-		r.dmx.StartUniverse(pa, netip.AddrPort{}, session.DMXUniverseSize)
-		r.started[e.Universe] = true
+		r.started[u] = true
 	}
-	r.dmx.Start()
+	if r.out.proto == ProtocolArtNet {
+		r.dmx.Start()
+	}
 
 	now := r.clock.Now()
 	r.patternOutput = true
@@ -2106,12 +2105,7 @@ func (r *RigCheck) recomputePatternLocked(elapsed float64) {
 		return
 	}
 	comp := r.composePatternLocked(elapsed)
-	for u, data := range comp.frames {
-		if pa, err := artnet.PortAddressFromRaw(u); err == nil {
-			_ = r.dmx.SetFrame(pa, data)
-		}
-	}
-	r.dmx.SendNow()
+	r.out.setFrames(comp.frames, false)
 }
 
 // armPatternTickLocked (re)schedules the next patternTick, ticking at the

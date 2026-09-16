@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/netip"
 	"os"
@@ -122,6 +123,16 @@ func main() {
 	// comment), so a mode in which it silently evaporated on exit would be
 	// the same bug this call fixes.
 	srv.SetLibraryStorePath(libraryStorePath())
+	// The sACN configuration persists in EVERY mode, --demo included, for
+	// the same reason the library does: it is this INSTALLATION's identity
+	// and network configuration (a CID generated once and reused for the
+	// life of the install, the sACN start universe, priority and optional
+	// unicast destination), not one show's data. A failed save is logged and
+	// survived — an unwritable directory must not stop the server coming up,
+	// and SetSACNStorePath always leaves a usable in-memory configuration.
+	if err := srv.SetSACNStorePath(sacnStorePath()); err != nil {
+		logf("warn", "sACN settings: %v", err)
+	}
 
 	if *logRDM != "" {
 		if err := srv.SetLogRDMPath(*logRDM); err != nil {
@@ -236,6 +247,19 @@ func buildReal(ifaceName string, legacyRdmStartCode bool, logNodes bool, logf fu
 
 	srv = web.New(nodes, rdmc, dmx, reg, ring, rdmRing)
 	srv.NIC = fmt.Sprintf("%s (%v)", chosen.Name, chosen.IPv4)
+	// Retain the NIC we actually chose, not just its display string. The
+	// Art-Net transport above is bound here and then the choice was thrown
+	// away; an sACN sender opens its own socket later, on demand, and has to
+	// be told which interface to leave by or the routing table decides for
+	// it (see web.Server.OutputInterface). Neither lookup is fatal: a nil
+	// interface or IP leaves the choice to the OS, which is exactly what
+	// --demo and every test already get.
+	if ifi, err := net.InterfaceByName(chosen.Name); err == nil {
+		srv.OutputInterface = ifi
+	} else {
+		logf("warn", "sACN: could not re-resolve interface %q (%v); leaving the egress NIC to the routing table", chosen.Name, err)
+	}
+	srv.OutputBindIP = net.ParseIP(chosen.IPv4[0])
 
 	tap := func(dir capture.Direction, peer netip.AddrPort, data []byte) {
 		e := capture.DecodeEntry(dir, peer, data)
@@ -358,6 +382,19 @@ func libraryStorePath() string {
 		return filepath.Join(filepath.Dir(exe), "benny512-library.json")
 	}
 	return "benny512-library.json"
+}
+
+// sacnStorePath resolves the persisted sACN configuration to a path next to
+// the running exe — mirrors libraryStorePath exactly. A separate file from
+// the patch and the library for the same reason they are separate from each
+// other: it outlives every show, and the CID inside it must survive a full
+// reset of this rig's state, so it must not share a lifetime — or a delete —
+// with any one show's file.
+func sacnStorePath() string {
+	if exe, err := os.Executable(); err == nil {
+		return filepath.Join(filepath.Dir(exe), "benny512-sacn.json")
+	}
+	return "benny512-sacn.json"
 }
 
 func shouldLog(configured, level string) bool {
