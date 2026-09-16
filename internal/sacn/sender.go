@@ -49,12 +49,14 @@ const StopZeroFrameCount = 3
 // terminationPacketCount is how many Stream_Terminated packets Sender.Stop
 // sends.
 //
-// DELIBERATE DIVERGENCE FROM THE STANDARD: Section 6.2.6 says "Three packets
-// containing this bit set to 1 shall be sent by sources upon terminating
-// sourcing of a universe." Dom specified one. Keeping the count here as a
-// named constant makes the divergence auditable and reversible -- setting it
-// to 3 is the only change needed to conform.
-const terminationPacketCount = 1
+// Three, because Section 6.2.6 says "Three packets containing this bit set to
+// 1 shall be sent by sources upon terminating sourcing of a universe." That is
+// a "shall", and the reason for it is the same reason StopZeroFrameCount is
+// three: a terminate packet is unacknowledged, so a single dropped datagram
+// would leave the receiver holding the universe until its 2.5 second data loss
+// timeout expired. Dom asked for zero frames followed by Stream_Terminated and
+// did not name a packet count; the standard names it.
+const terminationPacketCount = 3
 
 // ErrSenderClosed is returned by Send and Stop after Close.
 var ErrSenderClosed = errors.New("sacn: sender is closed")

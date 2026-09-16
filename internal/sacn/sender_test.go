@@ -379,8 +379,9 @@ func TestUniversesHaveIndependentSequences(t *testing.T) {
 }
 
 // TestStopSequenceEndToEnd exercises the whole blackout-and-terminate run on
-// the wire: StopZeroFrameCount all-zero data frames, then exactly one packet
-// with the Stream_Terminated bit (Section 6.2.6 bit 6 = 0x40), then silence.
+// the wire: StopZeroFrameCount all-zero data frames, then the packets
+// with the Stream_Terminated bit (Section 6.2.6 bit 6 = 0x40) x3, then
+// silence.
 // The sequence must run on unbroken through the stop packets.
 func TestStopSequenceEndToEnd(t *testing.T) {
 	h := newHarness(t, Config{CID: senderTestCID})
@@ -397,12 +398,14 @@ func TestStopSequenceEndToEnd(t *testing.T) {
 		t.Fatalf("Stop: %v", err)
 	}
 
-	if StopZeroFrameCount != 3 {
-		t.Fatalf("this test transcribes the expected stop run for StopZeroFrameCount = 3, got %d",
-			StopZeroFrameCount)
+	if StopZeroFrameCount != 3 || terminationPacketCount != 3 {
+		t.Fatalf("this test transcribes the expected stop run for StopZeroFrameCount = 3 "+
+			"and terminationPacketCount = 3, got %d and %d",
+			StopZeroFrameCount, terminationPacketCount)
 	}
 	// Hand-written expectation for the stop run: sequences continue 02, 03,
-	// 04 with options 0x00, then 05 with options 0x40.
+	// 04 with options 0x00, then 05, 06, 07 with options 0x40 -- the three
+	// termination packets Section 6.2.6 requires.
 	stopRun := []struct {
 		seq     string
 		options string
@@ -411,6 +414,8 @@ func TestStopSequenceEndToEnd(t *testing.T) {
 		{"03", "00"},
 		{"04", "00"},
 		{"05", "40"},
+		{"06", "40"},
+		{"07", "40"},
 	}
 	for i, want := range stopRun {
 		pkt := h.recv()

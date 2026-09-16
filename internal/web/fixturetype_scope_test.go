@@ -33,9 +33,9 @@ func TestFixtureTypeScopeWireContract(t *testing.T) {
 	rr := doJSON(t, h.srv.Handler(), "GET", "/api/patch/rigcheck/pattern", nil)
 	obj := decode(rr.Body.Bytes())
 	var opts []struct {
-		Key string `json:"key"`
+		Key   string `json:"key"`
 		Label string `json:"label"`
-		Count int `json:"count"`
+		Count int    `json:"count"`
 	}
 	if err := json.Unmarshal(obj["fixtureTypes"], &opts); err != nil {
 		t.Fatalf("status must expose fixtureTypes options: %v; body=%s", err, rr.Body.String())
