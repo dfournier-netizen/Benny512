@@ -627,10 +627,22 @@ type RDMController struct {
 	profiles    map[NodeKey]TimeoutProfile
 	tod         map[todKey]*todEntry
 	discoveries map[todKey]*Discovery
-	tn          byte
-	nextID      uint64
-	stopped     bool
-	stats       RDMStats
+	// todNodes is the ONE NodeRef this controller uses for a Port-Address,
+	// first-learned-wins. An Art-Net node may advertise the same
+	// Port-Address on several bind indices (RDM-LOG31: 2.11.90.2 answers
+	// ArtPollReply with Port-Address 31 under BindIndex 1 AND BindIndex 2),
+	// and ArtTodData carries no usable BindIndex of its own, so the same
+	// physical responder used to be announced under whichever BindIndex the
+	// discovery in flight happened to carry - or under a hardcoded 1 when
+	// there was none. Downstream keys the fixture table and the automatic
+	// read ledger on (IP, BindIndex, Port-Address, UID), so that made one
+	// device two devices, each with its own full read budget. See
+	// canonicalNodeLocked.
+	todNodes map[todKey]NodeRef
+	tn       byte
+	nextID   uint64
+	stopped  bool
+	stats    RDMStats
 
 	events chan Event
 }
@@ -674,6 +686,7 @@ func NewRDMController(cfg RDMConfig) *RDMController {
 		profiles:     make(map[NodeKey]TimeoutProfile),
 		tod:          make(map[todKey]*todEntry),
 		discoveries:  make(map[todKey]*Discovery),
+		todNodes:     make(map[todKey]NodeRef),
 		events:       make(chan Event, cfg.EventBuffer),
 	}
 }

@@ -127,7 +127,6 @@ func (c *RDMController) RequestToD(node NodeRef) *Discovery {
 func (c *RDMController) startDiscovery(node NodeRef, wire []byte) *Discovery {
 	key := todKey{ip: node.Key.IP, port: node.Port.RawValue()}
 	d := &Discovery{
-		node:     node,
 		key:      key,
 		done:     make(chan DiscoveryResult, 1),
 		seen:     make(map[rdm.UID]struct{}),
@@ -136,6 +135,13 @@ func (c *RDMController) startDiscovery(node NodeRef, wire []byte) *Discovery {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// One identity per Port-Address, decided here and reported back in the
+	// DiscoveryResult, so a caller that asked for "bind 2's universe 31"
+	// gets its answers filed under the same node port as every other
+	// announcement of universe 31 on this IP.
+	d.node = c.canonicalNodeLocked(key, node)
+	node = d.node
 
 	if c.stopped {
 		d.finished = true
@@ -190,11 +196,15 @@ func (c *RDMController) HandleTodData(td artnet.TodData, from netip.AddrPort) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	node := NodeRef{Key: NodeKey{IP: ip, BindIndex: 1}, Addr: from, Port: port}
+	// BindIndex 1 here is a fallback for a port nothing has ever discovered:
+	// ArtTodData carries no BindIndex this codec can read (see todKey), so
+	// the only honest answer for a never-seen port is the node's first
+	// binding. canonicalNodeLocked keeps whatever was learned first for this
+	// Port-Address instead, which is what stops one responder being filed
+	// under two identities depending on whether a discovery happened to be
+	// open when its table arrived.
+	node := c.canonicalNodeLocked(key, NodeRef{Key: NodeKey{IP: ip, BindIndex: 1}, Addr: from, Port: port})
 	d := c.discoveries[key]
-	if d != nil {
-		node = d.node
-	}
 
 	if td.CommandResponse == TodNak {
 		if d != nil {
@@ -255,6 +265,51 @@ func (c *RDMController) mergeUnsolicitedTodLocked(key todKey, node NodeRef, td a
 	c.emitLocked(Event{Kind: EventToDUpdate, Node: node, UIDs: uids, Complete: complete, At: c.cfg.Clock.Now()})
 }
 
+// canonicalNodeLocked returns the one NodeRef this controller files a
+// Port-Address under, remembering the first one it is given.
+//
+// WHY (RDM-LOG31, 2026-09-16, live rig)
+//
+// todKey is (IP, Port-Address) on purpose: a Port-Address is unambiguous on
+// its own and ArtTodData's BindIndex byte offset is unresolved in the codec.
+// But registry.fixtureKey and autoread.Key are (IP, BindIndex, Port-Address,
+// UID), and the BindIndex they got came from whichever NodeRef happened to
+// reach them:
+//
+//	2.11.90.2 ArtPollReply  bind=1  portAddrs=[31,16,16,16]
+//	2.11.90.2 ArtPollReply  bind=2  portAddrs=[31,16,16,16]
+//
+// The Devices screen lists both bindings, so the rig sweep discovers
+// Port-Address 31 twice - 17:22:03, 17:22:19 and again 17:23:12 - once per
+// binding. Each discovery announced the SAME eleven responders under a
+// different BindIndex, and an unsolicited ArtTodData for the same port (the
+// late tables at 17:22:15 and 17:22:31, which are the whole point of the
+// automatic read) announced them under a hardcoded BindIndex 1. One physical
+// fixture, three identities, three fixture rows, and three independent
+// MaxAttempts budgets in the read ledger - so a responder that never answers
+// costs 3x its cap, and a fourth rediscovery would cost a fourth.
+//
+// Deciding it here rather than teaching the ledger a second, looser key is
+// deliberate: two notions of "which device is this" is how the universe
+// numbering defect happened. There is one identity, and this is where it is
+// chosen.
+//
+// First-learned-wins, and it is forgotten exactly when the Table of Devices
+// for that port is (ClearToDPort / ClearToD / Stop), so an operator clearing
+// a port really does re-learn the binding.
+func (c *RDMController) canonicalNodeLocked(key todKey, node NodeRef) NodeRef {
+	if have, ok := c.todNodes[key]; ok {
+		// Addr can legitimately change (a node that moved to a new UDP
+		// source port); the identity - IP, BindIndex, Port-Address - does
+		// not.
+		have.Addr = node.Addr
+		c.todNodes[key] = have
+		return have
+	}
+	c.todNodes[key] = node
+	return node
+}
+
 func (c *RDMController) finishDiscoveryLocked(d *Discovery, err error) {
 	if d.finished {
 		return
@@ -306,6 +361,9 @@ func (c *RDMController) ClearToD() int {
 	defer c.mu.Unlock()
 	n := len(c.tod)
 	c.tod = make(map[todKey]*todEntry)
+	// The remembered binding goes with the table it belongs to: a cleared
+	// port is re-learned from whatever announces it next.
+	c.todNodes = make(map[todKey]NodeRef)
 	return n
 }
 
@@ -319,9 +377,11 @@ func (c *RDMController) ClearToDPort(ip netip.Addr, port artnet.PortAddress) int
 	defer c.mu.Unlock()
 	key := todKey{ip: ip, port: port.RawValue()}
 	if _, ok := c.tod[key]; !ok {
+		delete(c.todNodes, key)
 		return 0
 	}
 	delete(c.tod, key)
+	delete(c.todNodes, key)
 	return 1
 }
 

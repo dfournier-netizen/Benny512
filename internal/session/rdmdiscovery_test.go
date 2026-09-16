@@ -409,3 +409,69 @@ func tryDiscovery(d *Discovery) (DiscoveryResult, bool) {
 		return DiscoveryResult{}, false
 	}
 }
+
+// TestOnePortAddressHasOneNodeIdentity is the identity half of the RDM-LOG31
+// regression, asserted at the layer that decides it.
+//
+// An Art-Net node may advertise the same Port-Address on more than one bind
+// index — RDM-LOG31's 2.11.90.2 answers ArtPollReply with Port-Address 31
+// under BindIndex 1 and again under BindIndex 2 — and ArtTodData carries no
+// BindIndex this codec can read. Everything downstream (registry.fixtureKey,
+// autoread.Key) keys a device on (IP, BindIndex, Port-Address, UID), so if
+// this controller reports a different BindIndex depending on which binding
+// happened to ask, or on whether a discovery was open when the table arrived,
+// one responder becomes two or three — two Devices rows, and two or three
+// independent automatic-read budgets.
+func TestOnePortAddressHasOneNodeIdentity(t *testing.T) {
+	h := newHarness(t)
+	port := mustPortAddress(t, 0, 1, 15) // Port-Address 31, the port in the log
+	from := addrPort("2.11.90.2", ArtNetUDPPort)
+	ip := from.Addr()
+
+	// 17:22:03 — the rig sweep discovers Port-Address 31 through bind 1.
+	d1 := h.ctrl.Discover(nodeRef("2.11.90.2", 1, port))
+	h.ctrl.HandleInbound(todDataInbound(port, 1, 0, []rdm.UID{uidA}, from))
+	res1 := <-d1.Done()
+	if res1.Node.Key.BindIndex != 1 {
+		t.Fatalf("first discovery reported bind %d, want 1", res1.Node.Key.BindIndex)
+	}
+
+	// 17:22:15 — the node announces the same table unsolicited, with no
+	// discovery open. This is the late ToD the automatic read exists for.
+	h.ctrl.HandleInbound(todDataInbound(port, 1, 0, []rdm.UID{uidA}, from))
+	var unsolicited *Event
+	for _, e := range drainEvents(h.ctrl.Events()) {
+		if e.Kind == EventToDUpdate {
+			cp := e
+			unsolicited = &cp
+		}
+	}
+	if unsolicited == nil {
+		t.Fatal("no EventToDUpdate for the unsolicited re-announcement")
+	}
+	if got := unsolicited.Node.Key.BindIndex; got != 1 {
+		t.Errorf("the unsolicited table was filed under bind %d, want 1 — the same "+
+			"Port-Address announced twice is the same node port", got)
+	}
+
+	// 17:23:12 — the sweep reaches the SAME Port-Address through the node's
+	// other binding.
+	d2 := h.ctrl.Discover(nodeRef("2.11.90.2", 2, port))
+	h.ctrl.HandleInbound(todDataInbound(port, 1, 0, []rdm.UID{uidA}, from))
+	res2 := <-d2.Done()
+	if got := res2.Node.Key.BindIndex; got != 1 {
+		t.Errorf("discovering Port-Address 31 through bind 2 reported bind %d, want 1 — "+
+			"a Port-Address belongs to one node port however it is reached, and reporting "+
+			"a second BindIndex hands the same responder a second identity downstream", got)
+	}
+
+	// Requirement: a deliberate clear really does re-learn the binding.
+	h.ctrl.ClearToDPort(ip, port)
+	d3 := h.ctrl.Discover(nodeRef("2.11.90.2", 2, port))
+	h.ctrl.HandleInbound(todDataInbound(port, 1, 0, []rdm.UID{uidA}, from))
+	res3 := <-d3.Done()
+	if got := res3.Node.Key.BindIndex; got != 2 {
+		t.Errorf("after a port clear the binding was still %d, want 2 — clearing a port is "+
+			"the operator saying 'forget what you know about it'", got)
+	}
+}

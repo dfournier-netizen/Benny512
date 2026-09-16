@@ -938,8 +938,14 @@ func (s *Server) handleDiscover(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusGatewayTimeout, err)
 		return
 	}
+	// res.Node, not ref: the controller decides which node port a
+	// Port-Address belongs to (session.canonicalNodeLocked), and filing
+	// these UIDs under the BindIndex this request happened to name would
+	// give the same responder a second identity - a duplicate Devices row
+	// and a second automatic-read budget - every time the rig sweep reached
+	// it through a different binding of the same node.
 	for _, uid := range res.UIDs {
-		s.Registry.NoteFixture(ref, uid)
+		s.Registry.NoteFixture(res.Node, uid)
 	}
 	uids := make([]string, 0, len(res.UIDs))
 	for _, u := range res.UIDs {

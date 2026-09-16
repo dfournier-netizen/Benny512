@@ -538,16 +538,36 @@ func TestSecondToDDoesNotReReadKnownDevices(t *testing.T) {
 	// exactly what a rediscovery of a port already read looks like.
 	r.deliver(todLate31A)
 	r.deliver(todLate31A)
+
+	// ...and once more THROUGH A DIFFERENT BINDING of the same node. This
+	// line is the one this test was missing: every announcement above
+	// arrives with no discovery open, so before it was added the NodeRef
+	// handed to the ledger was the same hardcoded BindIndex 1 every time and
+	// the test could not tell "already read" apart from "never keyed the
+	// same way twice". RDM-LOG31's 2.11.90.2 advertises Port-Address 31 on
+	// bind 1 AND bind 2, and the rig sweep discovers both.
+	disc := r.ctrl.Discover(session.NodeRef{
+		Key:  session.NodeKey{IP: node2119002, BindIndex: 2},
+		Addr: netip.AddrPortFrom(node2119002, session.ArtNetUDPPort),
+		Port: r.port,
+	})
+	r.deliver(todLate31A)
+	select {
+	case <-disc.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("the bind-2 rediscovery never finished")
+	}
 	// Give the reader every chance to do the wrong thing.
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	for _, u := range all {
 		if n := r.count(u, rdm.PIDDeviceInfo); n != 1 {
-			t.Errorf("%s: DEVICE_INFO asked %d times across three identical ToDs, want 1", u, n)
+			t.Errorf("%s: DEVICE_INFO asked %d times across four identical ToDs (one of them "+
+				"through the node's other binding), want 1", u, n)
 		}
 	}
 	if got := r.passCount(); got != len(all) {
-		t.Errorf("%d read passes for %d devices across three identical ToDs, want %d",
+		t.Errorf("%d read passes for %d devices across four identical ToDs, want %d",
 			got, len(all), len(all))
 	}
 }
@@ -785,6 +805,220 @@ func TestSpeculativePIDsStayGated(t *testing.T) {
 	for _, u := range []rdm.UID{quiet, proxy} {
 		if n := r.count(u, rdm.PIDSupportedParameters); n != 1 {
 			t.Errorf("%s: SUPPORTED_PARAMETERS fetched %d times in one pass, want 1", u, n)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The regression (RDM-LOG31, 2026-09-16, live rig).
+//
+// 4D50:0011593E never answered anything and was asked DEVICE_INFO 233 times
+// across 13.5 minutes; the two other silent responders on its port took 78
+// requests each. On the build before the automatic reader existed
+// (RDM-LOG30) the worst silent UID took 63 requests and 12 DEVICE_INFO.
+//
+// The cap was never lifted - it was minted again. LOG31's own ArtPollReply
+// bytes say why:
+//
+//	2.11.90.2  bind=1  portAddrs=[31,16,16,16]
+//	2.11.90.2  bind=2  portAddrs=[31,16,16,16]
+//
+// One node, one Port-Address 31, TWO bind indices advertising it, and the
+// Devices screen offers - and the rig sweep discovers - one port option per
+// binding. LOG31 shows exactly that: AtcFlush addr=[31] to 2.11.90.2 at
+// 17:22:03, again at 17:22:19 and again at 17:23:12. The reader's ledger is
+// keyed on (IP, BindIndex, Port-Address, UID), so each of those sweeps
+// announced the same eleven responders under a different BindIndex and each
+// minted a fresh entry with a fresh, full MaxAttempts budget. The late,
+// unsolicited tables in between (17:22:15 uids=11, 17:22:31 uids=11 - the
+// very packets the automatic read exists for) arrived with no discovery open
+// and were filed under a hardcoded BindIndex 1, which is a third identity
+// again.
+// ---------------------------------------------------------------------------
+
+// refBind is r.ref for one binding of the same node and the same
+// Port-Address - what portOptions() in devices.js hands POST /api/discover
+// once per binding.
+func refBind(r *rig, bind byte) session.NodeRef {
+	return session.NodeRef{
+		Key:  session.NodeKey{IP: node2119002, BindIndex: bind},
+		Addr: netip.AddrPortFrom(node2119002, session.ArtNetUDPPort),
+		Port: r.port,
+	}
+}
+
+// discoverAs runs one solicited discovery of Port-Address 31 through the
+// binding bind, answered by the literal late table from the log, and waits
+// for it to finish.
+func discoverAs(t *testing.T, r *rig, bind byte) {
+	t.Helper()
+	disc := r.ctrl.Discover(refBind(r, bind))
+	r.deliver(todLate31A)
+	select {
+	case <-disc.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatalf("discovery through bind %d never finished", bind)
+	}
+}
+
+// TestSilentDeviceKeepsOneBudgetAcrossBindings is the regression LOG31
+// caught, asserted where "did we send it?" has an honest answer: the count at
+// the responder.
+//
+// Three announcements of one Port-Address - bind 1, an unsolicited late table
+// with no discovery open, and bind 2 - must cost a silent responder ONE
+// budget, not three. ProfileDirect is 1 transmission + 2 retries, so the
+// whole cost of a device that never answers is MaxAttempts x 3 = 6
+// DEVICE_INFO packets, ever.
+func TestSilentDeviceKeepsOneBudgetAcrossBindings(t *testing.T) {
+	r := newRig(t, session.ProfileDirect, 2)
+	// The three silent responders from the table, plus enough answering
+	// company for the reader to have a queue to work through. Kept small on
+	// purpose: every silent pass costs 4.5 s of fake clock.
+	all := uidsFromStrings(t, wantLateA[:3])
+	for _, u := range all {
+		r.devices[u] = &fakeDevice{silent: true}
+	}
+	for _, u := range uidsFromStrings(t, wantLateA[3:]) {
+		r.devices[u] = &fakeDevice{advertised: []rdm.ParameterID{rdm.PIDDMXStartAddress}, model: "m", mfr: "f"}
+	}
+	_, stop := r.start()
+	defer stop()
+
+	// The cap, stated once so the arithmetic is visible: 2 attempts, each
+	// one transmission plus ProfileDirect's two retries.
+	const budget = 2 * (1 + 2)
+
+	worst := func() (rdm.UID, int) {
+		var wu rdm.UID
+		w := 0
+		for _, u := range all {
+			if n := r.count(u, rdm.PIDDeviceInfo); n > w {
+				w, wu = n, u
+			}
+		}
+		return wu, w
+	}
+	// settle waits for the reader to be idle - nothing queued and nothing on
+	// the wire, whatever key the work is filed under - and only then counts.
+	// Waiting on one key's state would sample while a second ledger entry
+	// for the same device was still spending its own budget, which is the
+	// very thing being measured.
+	settle := func(what string) int {
+		waitFor(t, what, func() bool {
+			if st := r.reader.Stats(); st.Pending != 0 {
+				return false
+			}
+			r.mu.Lock()
+			n := len(r.order)
+			r.mu.Unlock()
+			time.Sleep(150 * time.Millisecond)
+			if st := r.reader.Stats(); st.Pending != 0 {
+				return false
+			}
+			r.mu.Lock()
+			defer r.mu.Unlock()
+			return len(r.order) == n
+		})
+		_, n := worst()
+		return n
+	}
+
+	// 17:22:03 - the rig sweep discovers Port-Address 31 through bind 1.
+	discoverAs(t, r, 1)
+	afterBind1 := settle("the reader to finish the bind-1 table")
+
+	// 17:22:15 / 17:22:31 - the node announces the same table unsolicited,
+	// with no discovery open. This is the late ToD the reader exists for.
+	r.deliver(todLate31A)
+	afterUnsolicited := settle("the reader to finish anything the unsolicited re-announcement started")
+
+	// 17:23:12 - the sweep reaches the SAME Port-Address again through the
+	// node's other binding.
+	discoverAs(t, r, 2)
+	afterBind2 := settle("the reader to finish anything the second binding started")
+
+	// LOG31 flushed Port-Address 31 on 2.11.90.2 three times (17:22:03,
+	// 17:22:19, 17:23:12). The capture suppressed ArtPollReply after three
+	// per node so it only names bind 1 and bind 2 for that node, but the
+	// third flush is in the log, and the point of a third sweep here is to
+	// show the cost is per BINDING and does not stop growing.
+	discoverAs(t, r, 3)
+	afterBind3 := settle("the reader to finish anything the third binding started")
+
+	t.Logf("worst-case DEVICE_INFO per silent UID: bind1=%d unsolicited=%d bind2=%d bind3=%d (budget %d)",
+		afterBind1, afterUnsolicited, afterBind2, afterBind3, budget)
+
+	if afterBind1 > budget {
+		t.Errorf("one binding already cost %d DEVICE_INFO packets, want at most %d", afterBind1, budget)
+	}
+	if afterUnsolicited > afterBind1 || afterBind2 > afterBind1 || afterBind3 > afterBind1 {
+		u, n := worst()
+		t.Errorf("the same responder cost MORE after being re-announced: %d -> %d -> %d -> %d "+
+			"(worst UID %s at %d). A Port-Address announced through a second binding, or "+
+			"announced with no discovery open, is the SAME device - re-minting its ledger "+
+			"entry hands it a second full MaxAttempts budget, which is how RDM-LOG31's "+
+			"4D50:0011593E reached 233 DEVICE_INFO requests",
+			afterBind1, afterUnsolicited, afterBind2, afterBind3, u, n)
+	}
+	if afterBind3 > budget {
+		u, n := worst()
+		t.Errorf("a silent responder cost %d DEVICE_INFO packets across four announcements "+
+			"of one Port-Address, want at most %d (worst UID %s at %d)",
+			afterBind3, budget, u, n)
+	}
+
+	// Requirement 3 of the original change, unchanged: the device is still
+	// listed, still explicitly unread, and nothing was invented for it.
+	for _, u := range all {
+		st, attempts := r.reader.State(autoread.KeyFor(node2119002, 1, r.port, u))
+		if st != autoread.StateGaveUp || attempts != 2 {
+			t.Errorf("%s: state %q / %d attempts, want %q / 2", u, st, attempts, autoread.StateGaveUp)
+		}
+	}
+}
+
+// TestForgetDropsStaleQueueSlots is the second half of the same defect, and
+// it is about the ledger rather than the key.
+//
+// A key can sit in Reader.queue more than once (readOne re-queues on a failed
+// pass, and a Note that follows a Forget queues again), and take() only drops
+// a surplus slot when it finds the entry gone or not pending. An operator
+// Inspect is entitled to reopen the budget - it is entitled to reopen it
+// ONCE, not to leave behind slots that each buy another pass.
+func TestForgetDropsStaleQueueSlots(t *testing.T) {
+	r := newRig(t, session.ProfileDirect, 2)
+	uid := uidsFromStrings(t, []string{"4D50:0011593E"})[0]
+	r.devices[uid] = &fakeDevice{silent: true}
+	_, stop := r.start()
+	defer stop()
+
+	key := autoread.KeyFor(node2119002, 1, r.port, uid)
+	const budget = 2 * (1 + 2)
+
+	gaveUp := func() {
+		waitFor(t, "the reader to give up", func() bool { st, _ := r.reader.State(key); return st == autoread.StateGaveUp })
+	}
+
+	r.reg.NoteFixture(r.ref, uid)
+	gaveUp()
+	if n := r.count(uid, rdm.PIDDeviceInfo); n != budget {
+		t.Fatalf("first budget cost %d DEVICE_INFO packets, want %d", n, budget)
+	}
+
+	// The operator opens Inspect five times on a device that is still not
+	// answering. Each Inspect reopens the budget; none of them may hand out
+	// more than one budget's worth.
+	for i := 0; i < 5; i++ {
+		r.reader.Forget(uid)
+		r.reg.NoteFixture(r.ref, uid)
+		gaveUp()
+		time.Sleep(100 * time.Millisecond)
+		want := budget * (i + 2)
+		if n := r.count(uid, rdm.PIDDeviceInfo); n != want {
+			t.Fatalf("after %d Inspects the device had been asked DEVICE_INFO %d times, want %d "+
+				"- an Inspect buys exactly one more %d-packet budget, not a queue slot that "+
+				"buys another pass every time round", i+1, n, want, budget)
 		}
 	}
 }

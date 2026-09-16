@@ -137,6 +137,17 @@ type Stats struct {
 
 // Key identifies one device on one node port — the same identity
 // registry.Registry keys its fixture table on.
+//
+// Bind is only as stable as the NodeRef it is built from, which is why
+// session.RDMController decides one canonical NodeRef per (IP, Port-Address)
+// (see canonicalNodeLocked). Before it did, a node that advertised the same
+// Port-Address on two bind indices — RDM-LOG31's 2.11.90.2, Port-Address 31
+// on bind 1 and bind 2 — got one ledger entry per binding, each with its own
+// full MaxAttempts budget, so a silent responder cost two, three, N times the
+// cap as the rig sweep reached it through one more binding. The fix is one
+// identity, decided in one place; a second, looser key here would be two
+// notions of "which device is this", which is how the universe-numbering
+// defect happened.
 type Key struct {
 	IP   netip.Addr
 	Bind byte
@@ -350,7 +361,27 @@ func (r *Reader) Forget(uid rdm.UID) int {
 			n++
 		}
 	}
+	r.dropQueuedLocked(func(k Key) bool { return k.UID == uid })
 	return n
+}
+
+// dropQueuedLocked removes every queue slot matching drop.
+//
+// A key can sit in the queue more than once - readOne re-queues, and a Note
+// that follows a Forget queues again - and take() only drops a surplus slot
+// when it finds the entry gone or not pending. Leaving the slots behind
+// therefore let a Forget-then-Note pair hand one UID more passes than
+// MaxAttempts: every stale slot the queue still held became another pass the
+// moment the re-noted entry was pending again. Forgetting a device forgets
+// its queue slots too. Callers must hold r.mu.
+func (r *Reader) dropQueuedLocked(drop func(Key) bool) {
+	kept := r.queue[:0]
+	for _, k := range r.queue {
+		if !drop(k) {
+			kept = append(kept, k)
+		}
+	}
+	r.queue = kept
 }
 
 // ForgetPort drops every ledger entry on one node port, matched on IP and
@@ -368,6 +399,7 @@ func (r *Reader) ForgetPort(ip netip.Addr, port artnet.PortAddress) int {
 			n++
 		}
 	}
+	r.dropQueuedLocked(func(k Key) bool { return k.IP == ip && k.Port == port.RawValue() })
 	return n
 }
 
