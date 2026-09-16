@@ -157,6 +157,16 @@ const Api = (() => {
     dmxStop: () => req('POST', '/api/dmx/stop'),
     getSettings: () => req('GET', '/api/settings'),
     postSettings: (s) => req('POST', '/api/settings', s),
+    // getSACNConfig/postSACNConfig: the persisted sACN configuration
+    // (internal/web/sacn.go). The body is exactly {startUniverse, priority,
+    // unicastTo} in BOTH directions — the server's decoder sets
+    // DisallowUnknownFields, so an extra key is a flat 400 rather than a
+    // silent no-op. The E1.31 Component Identifier is deliberately absent:
+    // it is generated and persisted server-side, a receiver tells sources
+    // apart by it (ANSI E1.31-2025 Section 6.2.3), and there is nothing a
+    // browser could correctly do with it.
+    getSACNConfig: () => req('GET', '/api/sacn'),
+    postSACNConfig: (cfg) => req('POST', '/api/sacn', cfg),
     captureSnapshot: (params) => {
       const qs = new URLSearchParams(params || {}).toString();
       return req('GET', '/api/capture/snapshot' + (qs ? '?' + qs : ''));

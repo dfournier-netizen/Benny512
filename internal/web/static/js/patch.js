@@ -1,7 +1,9 @@
 // patch.js — Phase 2a Patch screen: entry table (add/edit/delete/reorder),
 // collision warnings, the patch<->RDM Reconcile view (diff grouped by
 // state, per-row/bulk fix, Identify assist), and channel-level Rig Check
-// controls.
+// controls — including the Art-Net / sACN output protocol the run is
+// started on (see the RC_PROTOCOLS block below for why that choice lives
+// here and its configuration lives in Settings).
 //
 // Rules (same as every other screen, architecture rev 5 §4): oninput
 // mutates local draft state only, re-render on onchange/explicit action;
@@ -92,6 +94,82 @@ const PatchScreen = (() => {
   let rcMode = sessionStorage.getItem('benny512.patch.rcMode') || 'highlight';
   let rcLevel = 255;
   let rcStarting = false;
+
+  // --- Rig Check output protocol (Art-Net / sACN) --------------------------
+  //
+  // WHERE THIS LIVES, AND WHY IT IS NOT IN SETTINGS. The protocol is a field
+  // on POST /api/patch/rigcheck/start (internal/web/patch.go's
+  // rigCheckStartRequest), so it is a property of a RUN, not of the
+  // installation: it belongs beside the Start button that carries it. The
+  // sACN start universe, priority and unicast override are the opposite —
+  // persisted server-side in benny512-sacn.json, unchanged from run to run —
+  // so they live in Settings beside the Art-Net starting universe.
+  //
+  // APPLY-TO-CONFIRM, not direct action. The signed-off exceptions to the
+  // project's Apply-to-confirm contract (Identify, the Send / Rig Check
+  // level faders, the Function-check test toggles) are all adjustments to
+  // something ALREADY LIVE, made by feel while watching the rig, where an
+  // intermediate value on the way to the intended one is harmless. A
+  // protocol has no intermediate value. Switching it while output flows
+  // stops the outgoing stream properly first — sACN sends three zero frames
+  // and three Stream_Terminated packets (ANSI E1.31-2025 Section 6.2.6),
+  // Art-Net a zero frame and StopUniverse — and then restarts the check at
+  // the FIRST fixture in scope. That is a real operation on a rig, so it
+  // stages on the press and commits on Apply.
+  const RC_PROTOCOLS = [
+    { id: 'artnet', label: 'Art-Net' },
+    { id: 'sacn', label: 'sACN' },
+  ];
+  // rcProtocolArmed is what the NEXT Start will send; while a run is live it
+  // is the server's own echoed `protocol`, which is the only authority on
+  // what is actually on the wire. rcProtocolDraft is the staged choice, and
+  // differs from armed only between a press and its Apply.
+  let rcProtocolArmed = 'artnet';
+  let rcProtocolDraft = 'artnet';
+  let rcProtocolApplying = false;
+  // rcProtocolTouched: the operator has applied a protocol on this screen.
+  // Until then the armed protocol simply follows the server's echo.
+  let rcProtocolTouched = false;
+  // rcProtocolError holds the SERVER'S OWN WORDS. The 422 for a scope that
+  // cannot be expressed on sACN names the offending universe
+  // ("sACN universe must be 1..63999: show universe -99 …"), and that name is
+  // the only part of the message that tells a tech what to change — so it is
+  // shown verbatim, never folded into a house phrase.
+  let rcProtocolError = '';
+  // sacnConfig: the last GET /api/sacn ({startUniverse, priority, unicastTo}).
+  // null means it has not been read; the note says so rather than inventing
+  // a start universe.
+  let sacnConfig = null;
+
+  function isProtocol(id) { return RC_PROTOCOLS.some(p => p.id === id); }
+  function protocolLabel(id) {
+    const p = RC_PROTOCOLS.find(x => x.id === id);
+    return p ? p.label : (id || 'unknown');
+  }
+
+  // syncProtocolFromState: adopt the server's echo. While a run is live the
+  // echo IS the armed protocol — there is no daylight between "what is on
+  // the wire" and "what the next start sends" until something is staged.
+  function syncProtocolFromState() {
+    const p = rigCheckState && rigCheckState.protocol;
+    if (!isProtocol(p)) return;
+    if ((rigCheckState && rigCheckState.running) || !rcProtocolTouched) {
+      rcProtocolArmed = p;
+      if (!rcProtocolApplying) rcProtocolDraft = p;
+    }
+  }
+
+  // snapProtocolToServer: the control returns to SERVER TRUTH after a
+  // refused start — the same discipline rigcheck.js's scope echo follows.
+  // A browser-side guess the server rejected must not stay on screen looking
+  // armed, or the next press repeats the same refusal.
+  function snapProtocolToServer() {
+    const p = rigCheckState && rigCheckState.protocol;
+    if (!isProtocol(p)) return;
+    rcProtocolTouched = false;
+    rcProtocolArmed = p;
+    rcProtocolDraft = p;
+  }
 
   // Function check state — the attribute-level test-pattern engine — now
   // lives entirely in rigcheck.js (RigCheckPanel), which owns its own
@@ -460,6 +538,15 @@ const PatchScreen = (() => {
   async function refreshRigCheck() {
     try {
       rigCheckState = await Api.getRigCheckState();
+      syncProtocolFromState();
+    } catch (e) { /* best-effort */ }
+    // The sACN configuration is what the mapping note under the protocol
+    // control is computed from. Best-effort, and a failure leaves sacnConfig
+    // null so the note says it could not be read rather than showing a
+    // plausible start universe nobody configured.
+    try {
+      sacnConfig = await Api.getSACNConfig();
+      UI.setSacnStart(sacnConfig.startUniverse);
     } catch (e) { /* best-effort */ }
     // The pattern engine's status is fetched regardless of which Rig Check
     // sub-view is on screen — the Channel check sub-view needs to know
@@ -1533,6 +1620,7 @@ const PatchScreen = (() => {
     const patternRunning = RigCheckPanel.outputEnabled();
 
     body.innerHTML = `
+      ${renderRigCheckProtocol(st, entries)}
       ${patternRunning ? `
         <div class="b5-alert b5-alert--caution" style="margin-bottom:var(--b5-space-4)">
           ${UI.icon('status-warning')}
@@ -1579,6 +1667,8 @@ const PatchScreen = (() => {
       <div id="rcActiveWrap">${st.running ? renderRigCheckActive(st) : `<div class="b5-empty">${UI.icon('status-pending')}<span class="b5-empty__title">Not running</span><span class="b5-empty__body">Choose a scope and mode, then Start.</span></div>`}</div>
     `;
 
+    wireRigCheckProtocol(body);
+
     const stopPatternBtn = document.getElementById('rcStopPatternFromClassic');
     if (stopPatternBtn) stopPatternBtn.addEventListener('click', async () => {
       try { await RigCheckPanel.stopOutput(); setStatus('function test output stopped'); await refreshRigCheck(); render(); } catch (e) { setStatus('error: ' + e.message); }
@@ -1616,13 +1706,186 @@ const PatchScreen = (() => {
     if (startBtn) startBtn.addEventListener('click', onRigCheckStart);
     const stopBtn = document.getElementById('rcStop');
     if (stopBtn) stopBtn.addEventListener('click', async () => {
-      try { rigCheckState = await Api.rigCheckStop(); render(); } catch (e) { setStatus('error: ' + e.message); }
+      try { rigCheckState = await Api.rigCheckStop(); syncProtocolFromState(); render(); } catch (e) { setStatus('error: ' + e.message); }
     });
     document.getElementById('rcBlackout').addEventListener('click', async () => {
       try { await Api.rigCheckBlackout(); setStatus('blackout'); } catch (e) { setStatus('error: ' + e.message); }
     });
 
     if (st.running) wireRigCheckActiveHandlers();
+  }
+
+  // renderRigCheckProtocol: which protocol is live RIGHT NOW, stated in
+  // words, plus the staged choice and its Apply. This is an instrument read
+  // in a dark venue: the state word ("LIVE ON sACN" / "STOPPED · armed for
+  // Art-Net") and a per-option word on each button carry the whole signal,
+  // so nothing here depends on hue — desaturate it and it still reads.
+  function renderRigCheckProtocol(st, entries) {
+    const running = !!st.running;
+    const liveLabel = protocolLabel((rigCheckState && rigCheckState.protocol) || rcProtocolArmed);
+    const armedLabel = protocolLabel(rcProtocolArmed);
+    const draftLabel = protocolLabel(rcProtocolDraft);
+    const dirty = rcProtocolDraft !== rcProtocolArmed;
+
+    const statePill = running
+      ? `<span class="b5-pill b5-pill--lg b5-pill--ok b5-pill--solid">${UI.icon('status-ok')}LIVE ON ${escapeHtml(liveLabel)}</span>`
+      : `<span class="b5-pill b5-pill--lg b5-pill--open">${UI.icon('status-pending')}STOPPED &middot; armed for ${escapeHtml(armedLabel)}</span>`;
+
+    const options = RC_PROTOCOLS.map(pr => {
+      const isDraft = pr.id === rcProtocolDraft;
+      const isArmed = pr.id === rcProtocolArmed;
+      // Every option carries its own WORD, so the choice survives greyscale
+      // and does not rely on which button happens to look pressed.
+      const word = running && isArmed ? 'ON THE WIRE' : isArmed ? 'ARMED' : isDraft ? 'STAGED' : 'not selected';
+      const tone = isArmed ? ' b5-pill--ok' : isDraft ? ' b5-pill--warn' : ' b5-pill--open';
+      return `<button type="button" class="b5-seg ${isDraft ? 'is-on' : ''}" data-rc-protocol="${pr.id}" aria-pressed="${isDraft}" ${rcProtocolApplying ? 'disabled' : ''}>${escapeHtml(pr.label)} <span class="b5-pill b5-pill--tag${tone}">${word}</span></button>`;
+    }).join('');
+
+    const applyRow = dirty
+      ? `<div class="b5-row" style="margin-top:var(--b5-space-3)">
+          <span class="b5-pill b5-pill--md b5-pill--warn">${UI.icon('status-warning')}Not applied yet &mdash; ${escapeHtml(armedLabel)} is still ${running ? 'on the wire' : 'armed'}</span>
+          <button type="button" id="rcProtocolApply" class="b5-btn b5-btn--primary" ${rcProtocolApplying ? 'disabled' : ''}>${rcProtocolApplying ? UI.spinner() : UI.icon('apply')}Apply ${escapeHtml(draftLabel)}</button>
+          <button type="button" id="rcProtocolRevert" class="b5-btn b5-btn--ghost" ${rcProtocolApplying ? 'disabled' : ''}>${UI.icon('revert')}Revert</button>
+        </div>
+        <p class="b5-caption">${running
+          ? `Applying stops the check on ${escapeHtml(armedLabel)} &mdash; receivers are told the stream has ended &mdash; and restarts it on ${escapeHtml(draftLabel)} at the first fixture in scope.`
+          : 'Nothing goes on the wire until Start. Apply decides which protocol Start uses.'}</p>`
+      : '';
+
+    const err = rcProtocolError
+      ? `<div class="b5-alert b5-alert--danger" role="alert" style="margin-top:var(--b5-space-3)">
+          ${UI.icon('status-error')}
+          <div>
+            <p class="b5-alert__title">The server refused that run</p>
+            <p class="b5-alert__body">${escapeHtml(rcProtocolError)}</p>
+          </div>
+        </div>`
+      : '';
+
+    return `
+      <section class="b5-step-section" aria-labelledby="rcProtocolHead">
+        <h2 class="b5-step-section__head" id="rcProtocolHead">Output protocol
+          <span class="b5-step-section__note" id="rcProtocolState">${statePill}</span>
+        </h2>
+        <div class="b5-segmented" role="group" aria-label="Output protocol">${options}</div>
+        ${applyRow}
+        ${err}
+        ${renderSacnMappingNote(entries)}
+      </section>`;
+  }
+
+  // renderSacnMappingNote: the worked example, and the single most useful
+  // thing on this screen when sACN is chosen. It says which sACN universes
+  // THIS show's universes will actually be sourced as, and where they go —
+  // because the case that bites is the one that cannot be expressed at all:
+  // Art-Net Port-Address 0 is legal and is this app's default show universe
+  // 1, while sACN has no universe 0. The server refuses that scope with a
+  // 422 naming the universe; this says so before the press.
+  //
+  // Every number here goes through UI.formatSacn / UI.sacnMulticastAddress.
+  // There is no arithmetic in this file: one ambiguous universe formatter
+  // applied at a call site is what shipped an off-by-one here before.
+  function renderSacnMappingNote(entries) {
+    if (rcProtocolDraft !== 'sacn' && rcProtocolArmed !== 'sacn') return '';
+    if (!sacnConfig) {
+      return `<div class="b5-inset"><p class="b5-inset__head">${UI.icon('status-warning')}sACN configuration not read</p>
+        <p class="b5-note">The sACN start universe, priority and unicast override could not be read from this server, so the universes this run would source cannot be worked out here. They are set on the Settings screen.</p></div>`;
+    }
+    const raws = Array.from(new Set((entries || []).map(e => Math.floor(Number(e.universe) || 0)))).sort((a, b) => a - b);
+    const unicast = (sacnConfig.unicastTo || '').trim();
+    const dest = u => (unicast ? `unicast to ${escapeHtml(unicast)}` : `multicast to ${UI.sacnMulticastAddress(u)}`);
+
+    const rows = raws.map(raw => {
+      const u = UI.artnetToSacn(raw);
+      return u === null
+        ? `<li>show universe ${escapeHtml(UI.formatUser(raw))} (Art-Net Port-Address ${raw}) &mdash; <strong>${escapeHtml(UI.formatSacn(raw))}</strong>. Rig Check will refuse to start on sACN while this universe is in scope.</li>`
+        : `<li>show universe ${escapeHtml(UI.formatUser(raw))} &rarr; sACN universe <strong>${escapeHtml(UI.formatSacn(raw))}</strong>, ${dest(u)}</li>`;
+    });
+    const refused = raws.filter(raw => UI.artnetToSacn(raw) === null);
+
+    return `
+      <div class="b5-inset">
+        <p class="b5-inset__head">${UI.icon('apply')}What sACN this show is sourced as</p>
+        <p class="b5-note">sACN start universe ${escapeHtml(String(sacnConfig.startUniverse))} &middot; priority ${escapeHtml(String(sacnConfig.priority))} &middot; ${unicast ? `unicast to ${escapeHtml(unicast)} (no multicast group is used)` : 'multicast (ANSI E1.31-2025 Table 9-10)'}. Change these on the Settings screen.</p>
+        ${raws.length ? `<ul class="b5-rcp-list">${rows.join('')}</ul>` : '<p class="b5-note">Nothing is patched yet, so there is no universe to map.</p>'}
+        ${refused.length ? `<p class="b5-note"><strong>${refused.length} universe${refused.length === 1 ? '' : 's'} cannot be expressed on sACN at all.</strong> sACN universes start at 1; Art-Net Port-Address 0 is legal and is this show&rsquo;s default universe 1. Nothing is clamped or shifted &mdash; the run is refused instead, so the wrong universe is never lit.</p>` : ''}
+      </div>`;
+  }
+
+  function wireRigCheckProtocol(body) {
+    body.querySelectorAll('[data-rc-protocol]').forEach(b => b.addEventListener('click', () => {
+      // STAGING ONLY. Apply-to-confirm: this press never sends anything.
+      const id = b.dataset.rcProtocol;
+      if (!isProtocol(id) || id === rcProtocolDraft) return;
+      rcProtocolDraft = id;
+      rcProtocolError = '';
+      render();
+    }));
+    const applyBtn = document.getElementById('rcProtocolApply');
+    if (applyBtn) applyBtn.addEventListener('click', applyProtocol);
+    const revertBtn = document.getElementById('rcProtocolRevert');
+    if (revertBtn) revertBtn.addEventListener('click', () => {
+      rcProtocolDraft = rcProtocolArmed;
+      rcProtocolError = '';
+      render();
+    });
+  }
+
+  // applyProtocol: the commit half of Apply-to-confirm.
+  //
+  // While a run is LIVE this is a real operation on a rig, so it is also
+  // confirmed by name: the check is stopped on the outgoing protocol (which
+  // is what terminates the sACN stream properly rather than just going
+  // quiet) and restarted on the incoming one, back at the first fixture.
+  //
+  // While nothing is running there is nothing to tell the server — the
+  // protocol travels as a field on the next Start — so Apply moves the
+  // staged choice to ARMED and says so. It is still the commit step: the
+  // press that changed the buttons did not decide anything.
+  async function applyProtocol() {
+    if (rcProtocolDraft === rcProtocolArmed) return;
+    const st = rigCheckState || {};
+    const from = protocolLabel(rcProtocolArmed);
+    const to = protocolLabel(rcProtocolDraft);
+    if (st.running && !confirm(`Switch live output from ${from} to ${to}?\n\nThe check stops on ${from} (receivers are told the stream has ended) and restarts on ${to} at the FIRST fixture in scope. Real fixtures change state now.`)) return;
+    rcProtocolApplying = true;
+    rcProtocolError = '';
+    render();
+    try {
+      if (st.running) {
+        await Api.rigCheckStop();
+        rigCheckState = await Api.rigCheckStart(rigCheckStartBody(rcProtocolDraft));
+        rcProtocolArmed = rcProtocolDraft;
+        rcProtocolTouched = true;
+        syncProtocolFromState();
+        setStatus('rig check restarted on ' + to);
+      } else {
+        rcProtocolArmed = rcProtocolDraft;
+        rcProtocolTouched = true;
+        setStatus('armed for ' + to + ' — nothing is on the wire until Start');
+      }
+    } catch (e) {
+      rcProtocolError = e.message;
+      setStatus('error: ' + e.message);
+      try { rigCheckState = await Api.getRigCheckState(); } catch (e2) { /* keep the last good snapshot */ }
+      snapProtocolToServer();
+    } finally {
+      rcProtocolApplying = false;
+      render();
+    }
+  }
+
+  // rigCheckStartBody: the one place POST /api/patch/rigcheck/start's body is
+  // built, so the protocol can never be sent by one path and omitted by
+  // another. `protocol` is always stated explicitly: absent means Art-Net
+  // server-side, which is the backwards-compatibility contract for clients
+  // that predate this control — but this screen HAS the control, so it says
+  // what it means.
+  function rigCheckStartBody(proto) {
+    const body = { scopeKind: rcScopeKind, mode: rcMode, level: rcLevel, protocol: proto };
+    if (rcScopeKind === 'universe') body.universe = rcScopeUniverse;
+    if (rcScopeKind === 'selection') body.entryIds = Object.keys(rcSelection).filter(id => rcSelection[id]);
+    return body;
   }
 
   function renderRigCheckScopeValue(entries) {
@@ -1645,18 +1908,26 @@ const PatchScreen = (() => {
   }
 
   async function onRigCheckStart() {
-    const body = { scopeKind: rcScopeKind, mode: rcMode, level: rcLevel };
-    if (rcScopeKind === 'universe') body.universe = rcScopeUniverse;
-    if (rcScopeKind === 'selection') body.entryIds = Object.keys(rcSelection).filter(id => rcSelection[id]);
     rcStarting = true;
+    rcProtocolError = '';
     render();
     try {
-      rigCheckState = await Api.rigCheckStart(body);
+      rigCheckState = await Api.rigCheckStart(rigCheckStartBody(rcProtocolArmed));
       rcStarting = false;
+      syncProtocolFromState();
       render();
     } catch (e) {
       rcStarting = false;
+      // 422 is the case this screen exists to make legible: a scope that
+      // cannot be expressed on the chosen protocol. The server's message
+      // NAMES the universe it could not map, and that name is the only part
+      // that tells the operator what to change, so it is kept verbatim.
+      rcProtocolError = e.message;
       setStatus('error: ' + e.message);
+      // Server truth wins: a refused start left the server armed on whatever
+      // it was armed on, and the control must show that, not the attempt.
+      try { rigCheckState = await Api.getRigCheckState(); } catch (e2) { /* keep the last good snapshot */ }
+      snapProtocolToServer();
       render();
     }
   }

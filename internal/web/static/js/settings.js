@@ -1,6 +1,6 @@
 // settings.js — Settings screen: NIC picker, poll interval, universe
-// numbering base, capture limit, RDM log path, and the danger-zone full
-// reset. NIC list is populated from GET /api/nics
+// numbering base, the sACN output configuration, capture limit, RDM log
+// path, and the danger-zone full reset. NIC list is populated from GET /api/nics
 // (internal/transport.ListInterfaces); current.nic is matched against the
 // real interface list by name, falling back to a synthesized option if the
 // previously-saved NIC name isn't present on this machine (e.g.
@@ -11,7 +11,7 @@
 // the same reason: a screen cannot use the kit if its skeleton is frozen in
 // a static file. Every id the old markup carried is unchanged.
 //
-// Two things about this screen make it different from the others:
+// Three things about this screen make it different from the others:
 //
 //  1. IT IS THE SOURCE OF THE ART-NET STARTING UNIVERSE. UI.setArtnetStart is
 //     what fires 'b5-universe-base-changed', and every other screen listens
@@ -30,6 +30,16 @@
 //     and the action bar both say, in a word, that there are staged changes
 //     the server has not been told about.
 //
+//  3. THE sACN CONFIGURATION IS A SECOND DOCUMENT. Start universe, priority
+//     and unicast override are persisted by their own endpoint
+//     (GET/POST /api/sacn, internal/web/sacn.go) with their own validation,
+//     so Apply sends two requests, not one. They are HERE rather than on the
+//     Rig Check page because they are properties of the INSTALLATION — the
+//     same three numbers every run — exactly like the Art-Net starting
+//     universe above them. Which protocol a given run uses is the opposite,
+//     a field on that run's start request, and lives on Rig Check beside the
+//     Start button that carries it.
+//
 // The "Default timeout profile" control that used to sit in this screen's
 // static markup has been replaced by a plain statement of fact. It was
 // never read and never written: settings.js's save() has always sent
@@ -41,16 +51,40 @@
 const SettingsScreen = (() => {
   let current = null;
   let nics = [];
+  // sacnCurrent: the last SAVED sACN configuration from GET /api/sacn —
+  // {startUniverse, priority, unicastTo} and nothing else. The E1.31
+  // Component Identifier is deliberately not part of this shape in either
+  // direction: it is generated and persisted server-side, a receiver tells
+  // sources apart by it (ANSI E1.31-2025 Section 6.2.3), and the server's
+  // decoder rejects a body that carries one.
+  let sacnCurrent = null;
 
   // baseline: the last SAVED settings, as strings, keyed by element id. The
   // dirty marker compares live inputs against this — never against the
   // previous keystroke, so reverting a field by hand clears the marker.
   let baseline = {};
 
-  const FIELD_IDS = ['nicSelect', 'pollInterval', 'captureLimit', 'logRdmPath', 'artnetStartUniverse'];
+  const FIELD_IDS = ['nicSelect', 'pollInterval', 'captureLimit', 'logRdmPath', 'artnetStartUniverse',
+    'sacnStartUniverse', 'sacnPriority', 'sacnUnicastTo'];
+
+  // The bounds internal/sacn/settings.go enforces, restated here so the
+  // inputs cannot offer a value the server will refuse. Priority's low end
+  // is 1 rather than the standard's 0 on purpose — sacn.Sender's
+  // Config.Priority is a byte whose zero means "use the default of 100", so
+  // a stored 0 would come out of the socket as 100. See MinPriority's
+  // comment in settings.go; the store refuses it and says why.
+  const SACN_MIN_PRIORITY = 1;
+  const SACN_MAX_PRIORITY = 200;
+  const SACN_DEFAULT_PRIORITY = 100;
 
   async function refresh() {
-    [current, nics] = await Promise.all([Api.getSettings(), Api.getNICs().catch(() => [])]);
+    [current, nics, sacnCurrent] = await Promise.all([
+      Api.getSettings(),
+      Api.getNICs().catch(() => []),
+      // Best-effort: an sACN store that cannot be read leaves the form on
+      // its defaults rather than blanking the whole Settings screen.
+      Api.getSACNConfig().catch(() => null),
+    ]);
     render();
   }
 
@@ -106,9 +140,42 @@ const SettingsScreen = (() => {
         </div>
       </section>
 
+      <section class="b5-step-section" aria-labelledby="setSacnHead">
+        <h2 class="b5-step-section__head" id="setSacnHead">
+          <span class="b5-step-num">3</span> sACN output
+          <span class="b5-step-section__note" id="setSacnNote"></span>
+        </h2>
+        <p class="b5-caption">Whether a run goes out on Art-Net or sACN is chosen on the <strong>Rig Check</strong> screen, next to the Start button that carries it &mdash; it is a property of a run. What is set here is how this installation sources sACN when a run asks for it: the same three numbers every time.</p>
+        <div class="b5-group">
+          <h3 class="b5-group__head">Universes and priority</h3>
+          <div class="b5-field">
+            <label class="b5-field__label" for="sacnStartUniverse">sACN starting universe</label>
+            <input id="sacnStartUniverse" class="b5-input b5-input--mono" type="number" min="1" max="63999" step="1">
+            <span class="b5-field__hint">The sACN universe this show&rsquo;s <strong>universe 1</strong> is sourced as. sACN universes start at 1 &mdash; ANSI E1.31-2025 reserves universe 0, so there is no 0 to choose.</span>
+          </div>
+          <div class="b5-field">
+            <label class="b5-field__label" for="sacnPriority">Priority</label>
+            <input id="sacnPriority" class="b5-input b5-input--mono" type="number" min="1" max="200" step="1">
+            <span class="b5-field__hint">Stamped on every packet (E1.31 Section 6.2.3). 100 is the value a source without variable priority transmits, and is the default. Higher wins on a console that merges by priority. 0 is refused by this build and the server says why.</span>
+          </div>
+          <div class="b5-field">
+            <label class="b5-field__label" for="sacnUnicastTo">Unicast override (optional)</label>
+            <input id="sacnUnicastTo" class="b5-input b5-input--mono" type="text" autocomplete="off" spellcheck="false" placeholder="leave blank to multicast">
+            <span class="b5-field__hint">Blank means multicast, which is what almost every rig wants. An IPv4 address here sends every universe to that one node instead &mdash; useful on a network where multicast is blocked or where one gateway is the only receiver.</span>
+          </div>
+        </div>
+        <div class="b5-inset">
+          <p class="b5-inset__head">${UI.icon('apply')}What this mapping actually produces</p>
+          <p class="b5-note" id="sacnExample"></p>
+          <p class="b5-note" id="sacnRefusal"></p>
+          <p class="b5-note">Nothing stored is rewritten. Every universe Benny512 saves stays the raw Art-Net Port-Address; the sACN number is worked out at the output boundary, once per universe, when a run starts. A universe that lands outside 1&ndash;63999 is <strong>refused, never clamped</strong> &mdash; a clamp would light the wrong universe on a real rig and nothing would say so.</p>
+          <p class="b5-note">The E1.31 Component Identifier that identifies this installation to receivers is generated once by the server and kept beside the executable. It is not shown or settable here on purpose: it exists to stay the same across restarts, and a source identity a browser could set is a source identity a browser could impersonate.</p>
+        </div>
+      </section>
+
       <section class="b5-step-section" aria-labelledby="setCapHead">
         <h2 class="b5-step-section__head" id="setCapHead">
-          <span class="b5-step-num">3</span> Capture &amp; logging
+          <span class="b5-step-num">4</span> Capture &amp; logging
           <span class="b5-step-section__note">what the Analyzer keeps, and what goes to disk</span>
         </h2>
         <div class="b5-field">
@@ -125,7 +192,7 @@ const SettingsScreen = (() => {
 
       <section class="b5-step-section" aria-labelledby="setResetHead">
         <h2 class="b5-step-section__head" id="setResetHead">
-          <span class="b5-step-num">4</span> Danger zone &mdash; full reset
+          <span class="b5-step-num">5</span> Danger zone &mdash; full reset
           <span class="b5-step-section__note">deletes the patch and shuts Benny512 down</span>
         </h2>
         <div class="b5-stack" id="resetPanelRoot"></div>
@@ -182,9 +249,20 @@ const SettingsScreen = (() => {
     const startInput = document.getElementById('artnetStartUniverse');
     if (startInput) startInput.value = String(start);
     UI.setArtnetStart(start);
+
+    const sacn = sacnCurrent || { startUniverse: 1, priority: SACN_DEFAULT_PRIORITY, unicastTo: '' };
+    const sacnStartInput = document.getElementById('sacnStartUniverse');
+    if (sacnStartInput) sacnStartInput.value = String(sacn.startUniverse || 1);
+    const sacnPriorityInput = document.getElementById('sacnPriority');
+    if (sacnPriorityInput) sacnPriorityInput.value = String(sacn.priority || SACN_DEFAULT_PRIORITY);
+    const sacnUnicastInput = document.getElementById('sacnUnicastTo');
+    if (sacnUnicastInput) sacnUnicastInput.value = sacn.unicastTo || '';
+    UI.setSacnStart(sacn.startUniverse || 1);
+
     captureBaseline();
     renderDirty();
     renderUniverseNotes();
+    renderSacnNotes();
   }
 
   // renderUniverseNotes: the active correlation stated as a WORKED EXAMPLE
@@ -227,6 +305,110 @@ const SettingsScreen = (() => {
       (applied
         ? 'This is the numbering in use right now.'
         : 'This is not in use yet — press Apply settings below to switch every screen over.');
+  }
+
+  // renderSacnNotes: the same worked-example discipline renderUniverseNotes
+  // uses, for the same reason — a starting universe is exactly the kind of
+  // off-by-one that looks right at arm's length and is wrong on the truss.
+  //
+  // It is composed from the value CURRENTLY IN THE BOX, applied or not, and
+  // every number goes through UI.formatSacn / UI.sacnMulticastAddress rather
+  // than being worked out here. The refusal line is the one that matters:
+  // Art-Net Port-Address 0 is legal and is this app's default show universe
+  // 1, and sACN has no universe 0, so the combination of an Art-Net starting
+  // universe above 0 and a low sACN start produces universes that cannot be
+  // expressed at all. The server answers 422 naming them; this says so
+  // first.
+  function renderSacnNotes() {
+    const startInput = document.getElementById('sacnStartUniverse');
+    const priorityInput = document.getElementById('sacnPriority');
+    const unicastInput = document.getElementById('sacnUnicastTo');
+    const ex = document.getElementById('sacnExample');
+    const refusal = document.getElementById('sacnRefusal');
+    const note = document.getElementById('setSacnNote');
+    if (!startInput || !ex) return;
+
+    const typedStart = parseInt(startInput.value, 10);
+    const typedPriority = priorityInput ? parseInt(priorityInput.value, 10) : NaN;
+    const unicast = unicastInput ? unicastInput.value.trim() : '';
+    const startValid = Number.isFinite(typedStart) && typedStart >= UI.SACN_MIN_UNIVERSE && typedStart <= UI.SACN_MAX_UNIVERSE;
+    const priorityValid = Number.isFinite(typedPriority) && typedPriority >= SACN_MIN_PRIORITY && typedPriority <= SACN_MAX_PRIORITY;
+    const applied = startValid && sacnCurrent && typedStart === sacnCurrent.startUniverse;
+
+    if (note) {
+      note.textContent = !startValid
+        ? `enter an sACN universe between ${UI.SACN_MIN_UNIVERSE} and ${UI.SACN_MAX_UNIVERSE}`
+        : !priorityValid
+          ? `enter a priority between ${SACN_MIN_PRIORITY} and ${SACN_MAX_PRIORITY}`
+          : `show universe 1 = sACN universe ${typedStart}` + (applied ? '' : ' — not applied yet');
+    }
+
+    if (!startValid) {
+      ex.textContent = `An sACN starting universe must be between ${UI.SACN_MIN_UNIVERSE} and ${UI.SACN_MAX_UNIVERSE}. There is no sACN universe 0 to fall back to.`;
+      if (refusal) refusal.textContent = '';
+      return;
+    }
+
+    // Two concrete rows in the same direction the operator reads them, with
+    // the destination named — multicast group or the unicast override — so
+    // "where does this actually go" is answered on the screen that sets it.
+    const artnetStart = UI.getArtnetStart();
+    const opts = { artnetStart, sacnStart: typedStart };
+    const rawOne = UI.userToArtnet(1);
+    const rawFive = UI.userToArtnet(5);
+    const oneSacn = UI.artnetToSacn(rawOne, opts);
+    const fiveSacn = UI.artnetToSacn(rawFive, opts);
+    const where = u => (unicast
+      ? `unicast to ${unicast}`
+      : `multicast to ${UI.sacnMulticastAddress(u)}`);
+    ex.textContent =
+      `With this setting: show universe 1 (Art-Net Port-Address ${rawOne}) is sourced as sACN universe ` +
+      `${UI.formatSacn(rawOne, opts)}${oneSacn === null ? '' : `, ${where(oneSacn)}`}. ` +
+      `Show universe 5 (Art-Net Port-Address ${rawFive}) is sACN universe ` +
+      `${UI.formatSacn(rawFive, opts)}${fiveSacn === null ? '' : `, ${where(fiveSacn)}`}. ` +
+      (unicast
+        ? 'Every universe goes to that one address; no multicast group is joined.'
+        : 'Multicast groups follow ANSI E1.31-2025 Table 9-10 — 239.255, then the universe high byte, then its low byte.') +
+      (applied ? ' This is the configuration in use right now.' : ' This is not saved yet — press Apply settings below.');
+
+    // The refusal line always says something TRUE, because the case it warns
+    // about cannot be detected from this screen: show universes 1 and 5
+    // always map to a legal sACN universe when the start is >= 1. What
+    // cannot is a fixture patched BELOW the Art-Net starting universe —
+    // outside this show's own range — and Settings does not hold the patch.
+    // A line that only appears when this screen can prove a problem would
+    // therefore never appear at all, which is worse than no line: it would
+    // read as "checked, nothing wrong". So it states the rule and points at
+    // the screen that can check it against real fixtures.
+    if (refusal) {
+      refusal.textContent = artnetStart > 0
+        ? `A fixture patched on an Art-Net Port-Address below ${artnetStart} is outside this show's range and has no sACN universe at all — sACN universes start at 1, and this mapping would put it at or below 0. Rig Check refuses to start on sACN while one is in scope and names it; the Rig Check screen lists this show's actual universes and what each becomes.`
+        : `With an Art-Net starting universe of 0, every universe this show can patch maps to a legal sACN universe at this start. The Rig Check screen lists this show's actual universes and what each becomes.`;
+    }
+  }
+
+  // sacnPayload: the ONE place the POST /api/sacn body is built. Exactly the
+  // three keys internal/web's sacnConfigJSON names — the server's decoder
+  // sets DisallowUnknownFields, so an extra or renamed key is a flat 400
+  // rather than a silent no-op, and internal/web/sacn_ui_test.go pins these
+  // keys against that struct's tags in both directions.
+  function sacnPayload() {
+    return {
+      startUniverse: sacnIntFrom('sacnStartUniverse', UI.SACN_MIN_UNIVERSE, UI.SACN_MAX_UNIVERSE, 1),
+      priority: sacnIntFrom('sacnPriority', SACN_MIN_PRIORITY, SACN_MAX_PRIORITY, SACN_DEFAULT_PRIORITY),
+      unicastTo: (document.getElementById('sacnUnicastTo') || { value: '' }).value.trim(),
+    };
+  }
+
+  // sacnIntFrom reads one bounded integer field, falling back to the
+  // documented default rather than sending NaN. Out-of-range values are
+  // still sent as typed where they parse, so the server's own message — the
+  // one that explains WHY 0 is refused — is what the operator reads.
+  function sacnIntFrom(id, min, max, fallback) {
+    const el = document.getElementById(id);
+    const n = el ? parseInt(el.value, 10) : NaN;
+    if (!Number.isFinite(n)) return fallback;
+    return n;
   }
 
   // --- dirty tracking (staged, never sent) ---------------------------------
@@ -281,12 +463,24 @@ const SettingsScreen = (() => {
       // The one line the whole app hangs off: this fires
       // 'b5-universe-base-changed', which every other screen listens for.
       UI.setArtnetStart(payload.artnetStartUniverse);
+      // The sACN configuration is a SEPARATE document with its own endpoint
+      // and its own validation (POST /api/sacn), so it is a second call, not
+      // a field on the settings body. It is sent after the settings save
+      // succeeds and its errors are reported in the server's own words —
+      // the priority-0 refusal in particular explains itself and would be
+      // worthless paraphrased.
+      sacnCurrent = await Api.postSACNConfig(sacnPayload());
+      UI.setSacnStart(sacnCurrent.startUniverse);
       status.innerHTML = UI.icon('status-ok') + 'applied';
       captureBaseline();
       renderDirty();
       renderUniverseNotes();
+      renderSacnNotes();
     } catch (e) {
       status.innerHTML = UI.icon('status-error') + ('error: ' + e.message);
+      // A half-applied save must not leave the form claiming to be clean.
+      renderDirty();
+      renderSacnNotes();
     }
   }
 
@@ -405,8 +599,15 @@ const SettingsScreen = (() => {
     FIELD_IDS.forEach(id => {
       const el = document.getElementById(id);
       if (!el) return;
-      el.addEventListener('input', () => { renderDirty(); if (id === 'artnetStartUniverse') renderUniverseNotes(); });
-      el.addEventListener('change', () => { renderDirty(); if (id === 'artnetStartUniverse') renderUniverseNotes(); });
+      const restate = () => {
+        renderDirty();
+        // The Art-Net starting universe moves BOTH worked examples: the sACN
+        // mapping is composed on top of it.
+        if (id === 'artnetStartUniverse') { renderUniverseNotes(); renderSacnNotes(); }
+        if (id.indexOf('sacn') === 0) renderSacnNotes();
+      };
+      el.addEventListener('input', restate);
+      el.addEventListener('change', restate);
     });
     buildResetPanel();
     // Baseline the empty form before the first paint, so the dirty marker
@@ -415,6 +616,7 @@ const SettingsScreen = (() => {
     captureBaseline();
     renderDirty();
     renderUniverseNotes();
+    renderSacnNotes();
     refresh();
   }
 

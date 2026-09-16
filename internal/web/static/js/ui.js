@@ -104,6 +104,81 @@ const UI = (() => {
   }
   function parseUser(displayed) { return userToArtnet(displayed); }
 
+  // --- sACN universe numbering ---------------------------------------------
+  // A THIRD numbering, and it is named like the other two: it says what it
+  // RETURNS. formatUser returns the show's own number, formatArtnet returns
+  // the Art-Net Port-Address, formatSacn returns the sACN universe. That
+  // naming rule is not style — one ambiguous `formatUniverse` applied across
+  // every screen is what shipped a universe off-by-one here.
+  //
+  // This is the browser-side twin of sacn.ArtnetPortAddressToSACNUniverse
+  // (internal/sacn/mapping.go), and it must agree with it exactly, because
+  // the server REFUSES a scope it cannot map (422) and this screen's whole
+  // job is to say so before the operator presses START.
+  //
+  //   showUniverse = raw - artnetStart + 1
+  //   sacnUniverse = sacnStart + showUniverse - 1
+  //
+  // sacnStart is sacn.Settings.StartUniverse (GET/POST /api/sacn): the sACN
+  // universe the show's universe 1 lives on. Default 1, because sACN
+  // universes start at 1 — ANSI E1.31-2025 reserves 0.
+  let sacnStart = 1;
+  const SACN_MIN_UNIVERSE = 1;
+  const SACN_MAX_UNIVERSE = 63999; // sacn.maxUniverse / codec.go's ErrInvalidUniverse bound
+  function getSacnStart() { return sacnStart; }
+  function setSacnStart(v) {
+    v = Number(v);
+    if (!Number.isFinite(v) || v < SACN_MIN_UNIVERSE || v > SACN_MAX_UNIVERSE) v = 1;
+    v = Math.floor(v);
+    if (v === sacnStart) return;
+    sacnStart = v;
+    window.dispatchEvent(new CustomEvent('b5-sacn-start-changed', { detail: { sacnStart: v } }));
+  }
+
+  // artnetToSacn: raw Port-Address -> sACN universe, or NULL when that
+  // universe has no sACN universe at all.
+  //
+  // NULL, NEVER A CLAMP. Art-Net Port-Address 0 is perfectly legal and is
+  // this app's default show universe 1; sACN universe 0 does not exist. With
+  // an Art-Net starting universe above 0, a fixture patched below it is a
+  // show universe of 0 or less and maps outside sACN's range entirely.
+  // Clamping to 1 would light the WRONG universe on a real rig and nothing
+  // on screen would say so. The server refuses the same case with a 422
+  // naming the universe; this returns null so the screen can warn first.
+  //
+  // Takes an optional explicit start pair so a settings form can describe
+  // the value currently in the box, before it is applied — the same reason
+  // settings.js's renderUniverseNotes composes from the pending value.
+  function artnetToSacn(raw, opts) {
+    opts = opts || {};
+    const aStart = opts.artnetStart === undefined ? artnetStart : Math.floor(Number(opts.artnetStart) || 0);
+    const sStart = opts.sacnStart === undefined ? sacnStart : Math.floor(Number(opts.sacnStart) || 0);
+    const n = Math.floor(Number(raw) || 0);
+    const show = n - aStart + 1;
+    const u = sStart + show - 1;
+    if (!Number.isFinite(u) || u < SACN_MIN_UNIVERSE || u > SACN_MAX_UNIVERSE) return null;
+    return u;
+  }
+
+  // formatSacn: the sACN universe as a string, or NO_SACN_UNIVERSE in words.
+  // Rule 3 of the screen kit — name the unknown, never print a plausible 0.
+  const NO_SACN_UNIVERSE = 'no sACN universe';
+  function formatSacn(raw, opts) {
+    const u = artnetToSacn(raw, opts);
+    return u === null ? NO_SACN_UNIVERSE : String(u);
+  }
+
+  // sacnMulticastAddress: the IPv4 multicast group an sACN universe is
+  // transmitted to, per ANSI E1.31-2025 Table 9-10 — octet 1 is 239, octet 2
+  // is 255, octet 3 is the universe high byte, octet 4 is the low byte. The
+  // browser-side twin of sacn.MulticastIP (sender.go). Returns '' for a
+  // universe that does not exist, so a caller cannot print a group for one.
+  function sacnMulticastAddress(sacnUniverse) {
+    const u = Math.floor(Number(sacnUniverse) || 0);
+    if (u < SACN_MIN_UNIVERSE || u > SACN_MAX_UNIVERSE) return '';
+    return `239.255.${(u >> 8) & 0xff}.${u & 0xff}`;
+  }
+
   // formatArtnet / parseArtnet: the protocol-facing pair. Identity in both
   // directions -- the flat Port-Address, shown and typed as itself.
   function formatArtnet(raw) { return String(Math.floor(Number(raw) || 0)); }
@@ -285,6 +360,8 @@ const UI = (() => {
     artnetToUser, userToArtnet,
     formatUser, parseUser, userInputAttrs,
     formatArtnet, parseArtnet, artnetInputAttrs,
+    getSacnStart, setSacnStart, artnetToSacn, formatSacn, sacnMulticastAddress,
+    SACN_MIN_UNIVERSE, SACN_MAX_UNIVERSE, NO_SACN_UNIVERSE,
     formatBoth, universeScheme, OUTSIDE_SHOW,
   };
 })();
