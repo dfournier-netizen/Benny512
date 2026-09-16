@@ -102,9 +102,27 @@ const DevicesScreen = (() => {
   let sortOrder = sessionStorage.getItem('benny512.devices.sort') || 'address';
   let activeTab = 'info'; // info | params | sensors | status
 
-  // classifying tracks the background device_info/PRODUCT_DETAIL_ID_LIST
-  // classification sweep below — unrelated to DeviceDetail's own caches.
-  let classifying = {};
+  // readStateOf reports what the SERVER's automatic identity reader
+  // (internal/autoread) has done about a device, straight off the Devices
+  // JSON: '' (untracked), 'pending', 'reading', 'read' or 'gaveUp'.
+  //
+  // This replaces a browser-side `classifying` map and the classifyUnknown()
+  // sweep that fed it. That sweep was the ONLY thing in the app that read a
+  // newly discovered device, which is the defect RDM-LOG30 caught: a Table of
+  // Devices that arrives after discovery has finished (2.11.90.2 Port-Address
+  // 31 — three empty ToDs inside 240 ms, then 11 and 14 UIDs 11.5 s later)
+  // produced rows with null data that stayed null until someone opened
+  // Inspect. A browser cannot be the thing that reads the rig: it is not
+  // always open, it only ever probed rows it happened to be rendering, and it
+  // re-probed them on every refresh — RDM-LOG30 counted 173 DEVICE_INFO
+  // requests in one session, 48-63 of them spent on four fixtures that never
+  // answered.
+  //
+  // It is deliberately NOT replaced by a browser-side equivalent. Two paths
+  // asking the same device the same PIDs would double the traffic on a shared
+  // half-duplex RDM bus, which is the one thing this change exists to avoid.
+  function readStateOf(f) { return (f && f.readState) || ''; }
+  function isReading(f) { const s = readStateOf(f); return s === 'pending' || s === 'reading'; }
   let nodesRevision = 0, fixturesRevision = 0;
   let nodesLoaded = false, fixturesLoaded = false;
   let liveTimer = null, liveBusy = false, liveNodes = false, liveFixtures = false;
@@ -310,7 +328,10 @@ const DevicesScreen = (() => {
     refreshFilterOptions();
   }
 
+  // refreshFixtures keeps its `probe` parameter for call-site compatibility;
+  // it no longer triggers anything, because the reading is the server's now.
   async function refreshFixtures(probe = true) {
+    void probe;
     const revision = ++fixturesRevision;
     const snapshot = await Api.getFixtures();
     if (revision !== fixturesRevision) return;
@@ -319,7 +340,6 @@ const DevicesScreen = (() => {
     refreshFilterOptions();
     render();
     renderNodeSelect();
-    if (probe) classifyUnknown();
   }
 
   // Events refresh registry snapshots only. No automatic RDM probe loop, and
@@ -383,25 +403,6 @@ const DevicesScreen = (() => {
     sessionStorage.setItem('benny512.devices.sort', sortOrder);
   }
 
-  // classifyUnknown fires a background classification probe for every
-  // device the registry hasn't classified yet — unchanged from before the
-  // refactor; independent of DeviceDetail's own probing.
-  function classifyUnknown() {
-    const targets = fixtures.filter(f => f.class === 'Unknown' && !classifying[f.uid]);
-    if (!targets.length) return;
-    targets.forEach(f => { classifying[f.uid] = true; });
-    Promise.allSettled(targets.map(f => Promise.allSettled([
-      Api.getParam(f.uid, 'device_info').then(r => DeviceDetail.noteDeviceInfo(f.uid, r.value)),
-      Api.getDeviceParam(f.uid, '0070'),
-      Api.getDeviceParam(f.uid, '0011'),
-      Api.getDeviceParam(f.uid, '0081'),
-      Api.getDeviceParam(f.uid, '0080'),
-    ]))).then(async () => {
-      targets.forEach(f => { classifying[f.uid] = false; });
-      await refreshFixtures(false);
-    }).catch(() => {}); // A subsequent live event/reconnect retries the snapshot.
-  }
-
   function filteredFixtures() {
     return fixtures.filter(f => {
       if (classFilter && f.class !== classFilter) return false;
@@ -418,10 +419,10 @@ const DevicesScreen = (() => {
       uid: f.uid,
       model: f.model || '',
       portAddress: f.portAddress,
-      address: di ? di.DMXStartAddress : 0,
-      footprint: di ? di.DMXFootprint : 0,
-      footprintKnown: !!di,
-      addressKnown: !!di,
+      address: di ? di.DMXStartAddress : (f.hasDeviceInfo ? f.dmxStartAddress : 0),
+      footprint: di ? di.DMXFootprint : (f.hasDeviceInfo ? f.dmxFootprint : 0),
+      footprintKnown: !!di || !!f.hasDeviceInfo,
+      addressKnown: !!di || !!f.hasDeviceInfo,
     };
   }
 
@@ -464,8 +465,14 @@ const DevicesScreen = (() => {
   // flight, and "address not read yet" when it is not. It never prints a
   // plausible 0, and it never prints a bare dash that reads as "none".
   function addressLabel(f) {
+    // The server now reports DEVICE_INFO's addressing pair on the Devices
+    // JSON (dmxStartAddress/dmxFootprint, gated by hasDeviceInfo), because
+    // the server is what read it. DeviceDetail's own cache is still consulted
+    // as a fallback for a device whose detail pane has been opened in a
+    // session where the list JSON predates this field.
     const info = DeviceDetail._caches.infoCache[f.uid];
-    const di = info && info.deviceInfo;
+    const di = (info && info.deviceInfo) ||
+      (f.hasDeviceInfo ? { DMXStartAddress: f.dmxStartAddress, DMXFootprint: f.dmxFootprint } : null);
     if (di) {
       // Rule 3, the exact case DESIGN.md names: never "addr 0".
       //
@@ -488,9 +495,11 @@ const DevicesScreen = (() => {
       if (!di.DMXFootprint) return '<span class="b5-text-muted">no DMX footprint</span>';
       return escapeHtml(Api.formatAddressRange(di.DMXStartAddress, di.DMXFootprint, true));
     }
-    return classifying[f.uid]
-      ? '<span class="b5-text-muted">reading address…</span>'
-      : '<span class="b5-text-muted">address not read yet</span>';
+    if (isReading(f)) return '<span class="b5-text-muted">reading address…</span>';
+    if (readStateOf(f) === 'gaveUp') {
+      return '<span class="b5-text-muted">no answer — address not read</span>';
+    }
+    return '<span class="b5-text-muted">address not read yet</span>';
   }
 
   // manufacturerLabel / modelLabel: rule 3 again. The old table cells printed
@@ -498,14 +507,13 @@ const DevicesScreen = (() => {
   // "still reading" and "the device never told us" is true. These say it.
   function manufacturerLabel(f) {
     if (f.manufacturer || f.manufacturerName) return escapeHtml(f.manufacturer || f.manufacturerName);
-    return classifying[f.uid]
-      ? '<span class="b5-text-muted">reading manufacturer…</span>'
-      : '<span class="b5-text-muted">manufacturer not reported</span>';
+    if (isReading(f)) return '<span class="b5-text-muted">reading manufacturer…</span>';
+    return '<span class="b5-text-muted">manufacturer not reported</span>';
   }
 
   function modelLabel(f) {
     if (f.model) return escapeHtml(f.model);
-    return (classifying[f.uid] && !f.modelDescriptionKnown && !f.hasDeviceInfo)
+    return (isReading(f) && !f.modelDescriptionKnown && !f.hasDeviceInfo)
       ? 'Reading model…'
       : 'Model not reported';
   }
@@ -528,7 +536,7 @@ const DevicesScreen = (() => {
   }
 
   function modelCell(f) {
-    if (classifying[f.uid] && !f.modelDescriptionKnown && !f.hasDeviceInfo) return '…';
+    if (isReading(f) && !f.modelDescriptionKnown && !f.hasDeviceInfo) return '…';
     return f.model || '—';
   }
 

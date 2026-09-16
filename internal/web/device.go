@@ -290,6 +290,13 @@ func (s *Server) handleIntrospectDevice(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	uidStr := uid.String()
+	// An operator asking for this device by name outranks the background
+	// reader's attempt cap: forget what autoread thinks it knows, so a
+	// device it had given up on (autoread.StateGaveUp) is read again from
+	// scratch the next time any Table of Devices names it. This does not
+	// itself issue the core-identity read — Introspect below is a heavier,
+	// different pass — it only reopens the budget.
+	s.AutoRead.Forget(uid)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), introspectTimeout)
 		defer cancel()

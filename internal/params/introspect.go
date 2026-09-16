@@ -971,6 +971,48 @@ func (c *Client) resolveSupportedSet(ctx context.Context) (set map[rdm.Parameter
 	return set, known
 }
 
+// noteSupportedParametersRead folds a SUPPORTED_PARAMETERS response this
+// Client fetched by hand into the same per-UID probe cache resolveSupportedSet
+// fills, so the speculative-PID gate does not then spend a SECOND
+// SUPPORTED_PARAMETERS transaction on the same device for the same answer.
+//
+// This is not a micro-optimisation, it is the difference between the
+// core-identity pass (coreidentity.go) costing one SUPPORTED_PARAMETERS
+// round-trip per device and costing two: the pass reads the PID explicitly
+// because the Devices screen wants it, and then reads PRODUCT_DETAIL_ID_LIST
+// and PROXIED_DEVICE_COUNT, whose gate would otherwise have to go and ask
+// again. Caught at the wire by autoread's TestSpeculativePIDsStayGated.
+//
+// A failed read is recorded as "attempted" only when it actually reached the
+// device — a cancelled or locally refused read says nothing about the
+// responder and must not poison the cache for the life of the process.
+func (c *Client) noteSupportedParametersRead(data []byte, err error, reached bool) {
+	st := stateFor(c.uid)
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.supportedKnown {
+		return
+	}
+	if err != nil {
+		if reached {
+			st.supportedAttempted = true
+		}
+		return
+	}
+	pids, decErr := rdm.DecodeSupportedParameters(data)
+	if decErr != nil {
+		st.supportedAttempted = true
+		return
+	}
+	m := make(map[rdm.ParameterID]bool, len(pids))
+	for _, p := range pids {
+		m[p] = true
+	}
+	st.supportedSet = m
+	st.supportedKnown = true
+	st.supportedAttempted = true
+}
+
 // ensureAdvertised is getRaw's speculative-PID gate: it returns
 // ErrPIDNotAdvertised when pid is a speculative PID this UID has already
 // been confirmed NOT to support (either a fresh/cached SUPPORTED_PARAMETERS

@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"benny512/internal/artnet"
+	"benny512/internal/autoread"
 	"benny512/internal/capture"
 	"benny512/internal/library"
 	"benny512/internal/params"
@@ -112,6 +113,18 @@ type Server struct {
 	// never evicted by DMX chatter in the shared ring above. This is what
 	// the RDM-focused Analyzer view and GET /api/capture/export serve from.
 	RDMCapture *capture.Ring
+
+	// AutoRead is the server-side automatic identity reader
+	// (internal/autoread). It is fed by registry.SetOnDeviceSeen, wired in
+	// New below, and its one goroutine is started by Run — so a UID learned
+	// from ANY Table of Devices gets read whether or not a browser is
+	// connected and whichever screen is open. Never nil.
+	//
+	// It is the fix for RDM-LOG30's late-ToD symptom: the devices behind
+	// 2.11.90.2 Port-Address 31, whose table arrived 11.5 s after discovery
+	// had accepted the port as empty, used to appear in the list with null
+	// data and stay that way until an operator opened Inspect on each one.
+	AutoRead *autoread.Reader
 
 	// NIC is a human-readable label for the network interface this server
 	// is bound to (or "demo (fake transport)" in --demo mode) — surfaced in
@@ -282,6 +295,16 @@ func New(nodes *session.ArtNetSession, rdmc *session.RDMController, dmx *session
 		RigCheck:     patch.NewRigCheck(dmx),
 		hub:          newHub(),
 	}
+	// The automatic identity read. Constructed here so s.AutoRead is never
+	// nil, and hooked to the registry immediately — but it sends nothing
+	// until Run starts its goroutine, so a test that builds a Server and
+	// never calls Run gets the pre-existing behaviour and no surprise
+	// traffic. A nil registry (some narrow unit tests) simply leaves the
+	// reader unfed.
+	s.AutoRead = autoread.New(autoread.Config{Ctrl: rdmc})
+	if reg != nil {
+		reg.SetOnDeviceSeen(s.AutoRead.Note)
+	}
 	// An in-memory store: no path, so nothing is read from or written to
 	// disk and the CID is a fresh one for the life of this Server. NewStore
 	// only ever returns an error for a failed SAVE, which cannot happen with
@@ -426,6 +449,11 @@ func (s *Server) Run(ctx context.Context) {
 	go s.pumpNodeEvents(ctx)
 	go s.pumpRDMEvents(ctx)
 	go s.pumpCapture(ctx)
+	// One goroutine, bound to the same ctx as the pumps: it owns no socket
+	// and no timer of its own, so cancelling ctx (shutdown, or the full
+	// reset's "reset and exit") ends the pass in flight through the
+	// controller's own context plumbing and returns.
+	go s.AutoRead.Run(ctx)
 	<-ctx.Done()
 }
 
@@ -718,6 +746,31 @@ type fixtureJSON struct {
 	DeviceModelID uint16 `json:"deviceModelId"`
 	HasDeviceInfo bool   `json:"hasDeviceInfo"`
 
+	// DMXStartAddress/DMXFootprint are DEVICE_INFO's addressing pair, served
+	// from the registry so the Devices list no longer has to fetch
+	// DEVICE_INFO from the browser to fill its Address column. Both are
+	// meaningful ONLY when HasDeviceInfo is true: neither carries
+	// `omitempty`, because a device genuinely reporting footprint 0 (a
+	// gateway) is real data and must round-trip, and a zero with
+	// HasDeviceInfo false means "never read", never "patched at 0". The UI
+	// rule this pairs with is addressLabel's in devices.js — never print
+	// "addr 0", and never print a bare dash that reads as "none".
+	DMXStartAddress uint16 `json:"dmxStartAddress"`
+	DMXFootprint    uint16 `json:"dmxFootprint"`
+
+	// ReadState/ReadAttempts are the server-side automatic identity reader's
+	// account of this device (internal/autoread): "" (untracked), "pending",
+	// "reading", "read" or "gaveUp". This replaces the browser's own
+	// `classifying` map, which could only describe devices the Devices
+	// screen had itself decided to probe — and could not describe a device
+	// read while no browser was connected at all.
+	//
+	// "gaveUp" is a first-class answer, not an error: it means the reader
+	// spent its bounded attempts and the device never answered DEVICE_INFO,
+	// so the row is explicitly unread. Nothing about it is guessed.
+	ReadState    string `json:"readState,omitempty"`
+	ReadAttempts int    `json:"readAttempts,omitempty"`
+
 	// Unreachable / UnreachableNote / RetryAt state that Benny512 has
 	// stopped asking this device, and why.
 	//
@@ -805,7 +858,11 @@ func effectiveModel(f registry.Fixture) string {
 	return "—"
 }
 
-func toFixtureJSON(f registry.Fixture) fixtureJSON {
+// toFixtureJSON renders one registry fixture for the Devices screen. read/
+// attempts come from the automatic identity reader (autoread.Reader.State);
+// callers with no reader to consult pass autoread.StateUnknown and 0, which
+// marshals the two fields away entirely.
+func toFixtureJSON(f registry.Fixture, read autoread.State, attempts int) fixtureJSON {
 	out := fixtureJSON{
 		UID: f.UID.String(), ManufacturerID: f.ManufacturerID, ManufacturerName: f.ManufacturerName,
 		NodeIP: f.Node.IP.String(), BindIndex: f.Node.BindIndex, PortAddress: f.Port.RawValue(),
@@ -817,6 +874,8 @@ func toFixtureJSON(f registry.Fixture) fixtureJSON {
 		Unreachable: f.ProxyUnreachable, UnreachableNote: unreachableNote(f),
 		ProxiedDeviceCount: f.ProxiedDeviceCount, ProxiedDeviceCountKnown: f.ProxiedDeviceCountKnown,
 		ProxiedListChanged: f.ProxiedListChanged,
+		DMXStartAddress:    f.DMXStartAddress, DMXFootprint: f.DMXFootprint,
+		ReadState: string(read), ReadAttempts: attempts,
 	}
 	if f.ProxyUnreachable && !f.ProxyRetryAt.IsZero() {
 		at := f.ProxyRetryAt
@@ -829,7 +888,8 @@ func (s *Server) handleGetFixtures(w http.ResponseWriter, r *http.Request) {
 	fixtures := s.Registry.Fixtures(session.NodeKey{}, artnet.PortAddress{}, false)
 	out := make([]fixtureJSON, 0, len(fixtures))
 	for _, f := range fixtures {
-		out = append(out, toFixtureJSON(f))
+		read, attempts := s.AutoRead.State(autoread.KeyFor(f.Node.IP, f.Node.BindIndex, f.Port, f.UID))
+		out = append(out, toFixtureJSON(f, read, attempts))
 	}
 	writeJSON(w, http.StatusOK, out)
 }

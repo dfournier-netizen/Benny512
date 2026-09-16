@@ -55,6 +55,13 @@ type Fixture struct {
 	ProductDetails  []rdm.ProductDetail
 	DMXFootprint    uint16
 	IsWirelessProxy bool
+	// DMXStartAddress is DEVICE_INFO's reported start address. Like
+	// DMXFootprint it is meaningful only once HasDeviceInfo is true; a zero
+	// with HasDeviceInfo false means "never read", NOT "patched at 0".
+	// Callers must consult HasDeviceInfo before rendering it — "addr 0" on a
+	// device card sends a tech looking for a fixture that isn't there (see
+	// the Devices screen's addressLabel).
+	DMXStartAddress uint16
 	// SubDeviceCount is DEVICE_INFO's reported number of sub-devices. It is
 	// meaningful only once HasDeviceInfo is true; zero then means a root-only
 	// responder, while a non-zero value can be used by a phase-aware client
@@ -172,6 +179,24 @@ type Registry struct {
 	mu       sync.RWMutex
 	fixtures map[fixtureKey]*Fixture
 
+	// onDeviceSeen, when set, is called once per UID for every Table of
+	// Devices this registry merges — solicited, unsolicited, late, or a
+	// rediscovery of a port it already knows. It is the seam the server-side
+	// automatic identity read hangs off (internal/autoread): before it
+	// existed, EventToDUpdate recorded a UID here and triggered no read at
+	// all, which is why a device whose ToD arrived after discovery had
+	// finished sat in the list with null data until an operator opened
+	// Inspect on it (RDM-LOG30, 2.11.90.2 Port-Address 31).
+	//
+	// Contract, because it is called from Registry's own event loop while
+	// nothing is held but the caller's own state: it MUST NOT block and MUST
+	// NOT call back into this Registry. It is deliberately fired for every
+	// mention rather than only for a UID that is new to the fixture table —
+	// deciding what has already been read is the reader's ledger to keep,
+	// not this table's, and a fixture entry exists here the moment a UID is
+	// named regardless of whether anything was ever read from it.
+	onDeviceSeen func(session.NodeRef, rdm.UID)
+
 	// nodeOut/rdmOut are the fan-out republish channels described above.
 	// Buffered and non-blocking-send (drop-if-full, mirroring
 	// RDMController.emitLocked's own policy) so a slow or absent WS
@@ -204,6 +229,14 @@ func New(a *session.ArtNetSession, r *session.RDMController) *Registry {
 		nodeOut:  make(chan session.NodeEvent, fanOutBufferSize),
 		rdmOut:   make(chan session.Event, fanOutBufferSize),
 	}
+}
+
+// SetOnDeviceSeen installs the callback described on Registry.onDeviceSeen.
+// Call it once, before Run; it is not safe to change while Run is going.
+// Passing nil disables the hook, which restores the pre-autoread behaviour
+// exactly (a ToD records UIDs and triggers nothing).
+func (reg *Registry) SetOnDeviceSeen(fn func(session.NodeRef, rdm.UID)) {
+	reg.onDeviceSeen = fn
 }
 
 // NodeEvents is Registry's fan-out republish of every ArtNetSession node
@@ -353,10 +386,19 @@ func (reg *Registry) getOrCreateLocked(node session.NodeKey, port artnet.PortAdd
 func (reg *Registry) mergeToD(node session.NodeRef, uids []rdm.UID) {
 	now := time.Now()
 	reg.mu.Lock()
-	defer reg.mu.Unlock()
 	for _, uid := range uids {
 		f := reg.getOrCreateLocked(node.Key, node.Port, uid, now)
 		f.LastSeen = now
+	}
+	hook := reg.onDeviceSeen
+	reg.mu.Unlock()
+	// Fired outside reg.mu deliberately: the callback belongs to another
+	// package and the one thing that must never happen is a stall inside
+	// Registry's event loop with the fixture table locked.
+	if hook != nil {
+		for _, uid := range uids {
+			hook(node, uid)
+		}
 	}
 }
 
@@ -439,6 +481,7 @@ func reclassify(f *Fixture, pid rdm.ParameterID, data []byte) {
 		if di, err := decodeDeviceInfoFields(data); err == nil {
 			f.ProductCategory = di.category
 			f.DMXFootprint = di.dmxFootprint
+			f.DMXStartAddress = di.dmxStartAddress
 			f.DeviceModelID = di.deviceModelID
 			f.SubDeviceCount = di.subDeviceCount
 			f.HasDeviceInfo = true
@@ -483,10 +526,11 @@ func reclassify(f *Fixture, pid rdm.ParameterID, data []byte) {
 // today, but keeping registry PID-decoding self-contained via package rdm
 // directly avoids a needless params<->registry coupling for two fields).
 type deviceInfoFields struct {
-	category       rdm.ProductCategory
-	dmxFootprint   uint16
-	deviceModelID  uint16
-	subDeviceCount uint16
+	category        rdm.ProductCategory
+	dmxFootprint    uint16
+	dmxStartAddress uint16
+	deviceModelID   uint16
+	subDeviceCount  uint16
 }
 
 func decodeDeviceInfoFields(data []byte) (deviceInfoFields, error) {
@@ -494,10 +538,11 @@ func decodeDeviceInfoFields(data []byte) (deviceInfoFields, error) {
 		return deviceInfoFields{}, fmt.Errorf("registry: DEVICE_INFO wants 19 bytes, got %d", len(data))
 	}
 	return deviceInfoFields{
-		deviceModelID:  uint16(data[2])<<8 | uint16(data[3]),
-		category:       rdm.ProductCategory(uint16(data[4])<<8 | uint16(data[5])),
-		dmxFootprint:   uint16(data[10])<<8 | uint16(data[11]),
-		subDeviceCount: uint16(data[16])<<8 | uint16(data[17]),
+		deviceModelID:   uint16(data[2])<<8 | uint16(data[3]),
+		category:        rdm.ProductCategory(uint16(data[4])<<8 | uint16(data[5])),
+		dmxFootprint:    uint16(data[10])<<8 | uint16(data[11]),
+		dmxStartAddress: uint16(data[14])<<8 | uint16(data[15]),
+		subDeviceCount:  uint16(data[16])<<8 | uint16(data[17]),
 	}, nil
 }
 

@@ -72,6 +72,11 @@ func (s *Server) handleDevicesClear(w http.ResponseWriter, r *http.Request) {
 	case "all":
 		cleared := s.Registry.ClearDevices()
 		todCleared := s.RDM.ClearToD()
+		// Same reason as the full reset: a cleared device table behind a
+		// full read ledger is a rig that never fills in again. Clearing is
+		// also the operator's explicit "read it all again", so it is the
+		// right place for the attempt cap to be forgiven.
+		s.AutoRead.Reset()
 		s.broadcastDevicesCleared("all", cleared)
 		writeJSON(w, http.StatusOK, devicesClearResponse{Scope: "all", Cleared: cleared, TodCleared: todCleared})
 
@@ -88,6 +93,9 @@ func (s *Server) handleDevicesClear(w http.ResponseWriter, r *http.Request) {
 		}
 		cleared := s.Registry.ClearDevicesOnPort(ip, pa)
 		todCleared := s.RDM.ClearToDPort(ip, pa)
+		// Matched on ip + Port-Address alone, exactly as the two calls above
+		// are — see autoread.Reader.ForgetPort.
+		s.AutoRead.ForgetPort(ip, pa)
 		s.broadcastDevicesCleared("port", cleared)
 		writeJSON(w, http.StatusOK, devicesClearResponse{
 			Scope: "port", IP: ip.String(), PortAddress: req.PortAddress,

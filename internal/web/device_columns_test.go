@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"benny512/internal/autoread"
 	"benny512/internal/params"
 	"benny512/internal/rdm"
 	"benny512/internal/registry"
@@ -81,7 +82,7 @@ func TestFixtureJSONManufacturerModelFields(t *testing.T) {
 		ManufacturerLabel: "LumenRadio", ManufacturerLabelKnown: true, ManufacturerName: "LumenRadio AB",
 		ModelDescription: "Aurora", ModelDescriptionKnown: true, HasDeviceInfo: true, DeviceModelID: 3,
 	}
-	b, err := json.Marshal(toFixtureJSON(f))
+	b, err := json.Marshal(toFixtureJSON(f, autoread.StateUnknown, 0))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +255,7 @@ func TestFixtureJSONStatesUnreachabilityInPlainLanguage(t *testing.T) {
 		ManufacturerName: "LumenRadio AB",
 		ProxyUnreachable: true, ProxyRetryAt: retry, ProxyRefusals: 3,
 	}
-	out := toFixtureJSON(f)
+	out := toFixtureJSON(f, autoread.StateUnknown, 0)
 	if !out.Unreachable {
 		t.Fatal("unreachable = false for a fixture whose breaker is open")
 	}
@@ -280,7 +281,7 @@ func TestFixtureJSONStatesUnreachabilityInPlainLanguage(t *testing.T) {
 	}
 
 	// A healthy fixture carries neither the flag, the note, nor a retry time.
-	healthy := toFixtureJSON(registry.Fixture{ManufacturerName: "LumenRadio AB"})
+	healthy := toFixtureJSON(registry.Fixture{ManufacturerName: "LumenRadio AB"}, autoread.StateUnknown, 0)
 	if healthy.Unreachable || healthy.UnreachableNote != "" || healthy.RetryAt != nil {
 		t.Errorf("healthy fixture = %+v, want no unreachability at all", healthy)
 	}

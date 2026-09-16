@@ -83,6 +83,11 @@ func (s *Server) handleReset(w http.ResponseWriter, r *http.Request) {
 	s.Registry.ClearDevices()
 	s.Nodes.ClearNodes()
 	s.RDM.ClearToD()
+	// The automatic identity reader's ledger goes with the device table it
+	// describes. Left behind, every UID would still read as "already read"
+	// after the reset that deleted what was read — and the rig would never
+	// fill in again.
+	s.AutoRead.Reset()
 	params.ClearDescriptorCache()
 	params.ClearAllDeviceState()
 	s.Capture.Clear()
