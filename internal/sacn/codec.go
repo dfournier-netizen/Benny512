@@ -61,6 +61,26 @@ const (
 	pduFlags             = 0x7000 // high nibble of every Flags & Length field
 )
 
+// Option bits of the E1.31 Data Packet Options field (octet 112), per ANSI
+// E1.31-2025 Section 6.2.6. Bits 0 through 4 are reserved for future use and
+// "shall be transmitted as 0".
+const (
+	// OptionPreviewData is bit 7. Set to 1, the data is for visualization or
+	// media server preview only and shall not generate live output.
+	OptionPreviewData byte = 1 << 7
+
+	// OptionStreamTerminated is bit 6. Set to 1, it tells receivers that the
+	// source has terminated transmission of this universe, and that they
+	// should enter network data loss condition without waiting for
+	// E131_NETWORK_DATA_LOSS_TIMEOUT. Section 6.2.6 also states that any
+	// property values in a packet carrying this bit shall be ignored.
+	OptionStreamTerminated byte = 1 << 6
+
+	// OptionForceSynchronization is bit 5. Only meaningful for synchronized
+	// streams, which this package does not emit.
+	OptionForceSynchronization byte = 1 << 5
+)
+
 // acnPacketIdentifier is the 12 octet identifier that marks a packet as E1.17.
 var acnPacketIdentifier = []byte("ASC-E1.17\x00\x00\x00")
 
@@ -69,8 +89,16 @@ var acnPacketIdentifier = []byte("ASC-E1.17\x00\x00\x00")
 // than 512 slots. A payload longer than 512 slots is rejected.
 //
 // The packet is emitted unsynchronized: the Synchronization Address field is
-// 0, which ANSI E1.31-2025 defines as "not synchronized".
+// 0, which ANSI E1.31-2025 defines as "not synchronized". The Options field
+// is 0; use EncodeDataPacketWithOptions to set it.
 func EncodeDataPacket(payload []byte, cid [16]byte, source string, priority byte, sequence byte, universe uint16) ([]byte, error) {
+	return EncodeDataPacketWithOptions(payload, cid, source, priority, sequence, universe, 0)
+}
+
+// EncodeDataPacketWithOptions is EncodeDataPacket with an explicit value for
+// the Options field (octet 112), built from the Option* constants. See ANSI
+// E1.31-2025 Section 6.2.6.
+func EncodeDataPacketWithOptions(payload []byte, cid [16]byte, source string, priority byte, sequence byte, universe uint16, options byte) ([]byte, error) {
 	if universe == 0 || universe > maxUniverse {
 		return nil, ErrInvalidUniverse
 	}
@@ -96,7 +124,7 @@ func EncodeDataPacket(payload []byte, cid [16]byte, source string, priority byte
 	b[offPriority] = priority
 	binary.BigEndian.PutUint16(b[offSyncAddress:], syncAddressNone)
 	b[offSequence] = sequence
-	b[offOptions] = 0
+	b[offOptions] = options
 	binary.BigEndian.PutUint16(b[offUniverse:], universe)
 
 	// DMP layer.
