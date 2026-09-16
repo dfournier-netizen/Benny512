@@ -239,6 +239,27 @@ const RigCheckPanel = (() => {
     shaper_rotate: { rate: true, range: true, direction: true },
   };
 
+  // RATE_BOUNDS: the Rate slider's range, per kind. Every rate-bearing test
+  // shares DEFAULT_RATE_BOUNDS; a kind listed here overrides it.
+  //
+  // Ballyhoo is the one override, at Dom's instruction after a real gig: the
+  // shared minimum was still too fast to watch a moving head through, and the
+  // shared maximum threw fixtures around harder than a rig check ever needs
+  // to. So its minimum is a TENTH of the shared one and its maximum is HALF,
+  // giving 0.005-2.5 Hz -- a 200-second sweep at the slow end, 0.4 seconds at
+  // the fast end. The step drops with the minimum, because a 0.05 step cannot
+  // express 0.005 and a control whose smallest increment is ten times its
+  // minimum is a control that cannot reach its own low end.
+  //
+  // Deliberately per-kind and NOT a change to the shared bounds: every other
+  // rate-bearing test keeps the range it was tuned and signed off with.
+  const DEFAULT_RATE_BOUNDS = { min: 0.05, max: 5, step: 0.05 };
+  const RATE_BOUNDS = {
+    ballyhoo: { min: 0.005, max: 2.5, step: 0.005 },
+  };
+
+  function rateBoundsFor(kind) { return RATE_BOUNDS[kind] || DEFAULT_RATE_BOUNDS; }
+
   function paramsFor(kind) { return PARAMS_FOR[kind] || { rate: true, range: true }; }
   function isStatic(kind) { return !!STATIC_KINDS[kind]; }
 
@@ -816,7 +837,10 @@ const RigCheckPanel = (() => {
         </div>`);
     }
     if (p.value) rows.push(slider(t.id, 'value', 'Value', t.value, 0, 255, 1));
-    if (p.rate) rows.push(slider(t.id, 'rateHz', 'Rate', t.rateHz, 0.05, 5, 0.05, ' Hz'));
+    if (p.rate) {
+      const rb = rateBoundsFor(t.kind);
+      rows.push(slider(t.id, 'rateHz', 'Rate', t.rateHz, rb.min, rb.max, rb.step, ' Hz'));
+    }
     if (p.range) {
       rows.push(slider(t.id, 'min', 'Min level', t.min, 0, 255, 1));
       rows.push(slider(t.id, 'max', 'Max level', t.max, 0, 255, 1));
@@ -868,8 +892,19 @@ const RigCheckPanel = (() => {
       ${rows.join('')}`;
   }
 
+  // decimalsFor: how many decimal places a step needs to be written exactly.
+  function decimalsFor(step) {
+    const s = String(step);
+    const dot = s.indexOf('.');
+    return dot < 0 ? 0 : s.length - dot - 1;
+  }
+
   function slider(testId, field, label, value, min, max, step, suffix) {
-    const shown = step < 1 ? Number(value).toFixed(2) : String(value);
+    // Show as many decimals as the step actually has. A fixed 2 places was
+    // fine while every fractional step was 0.05, but it rounds a 0.005 step's
+    // values into each other -- 0.005 and 0.01 both reading "0.01" is a
+    // readout that lies about where the control is.
+    const shown = step < 1 ? Number(value).toFixed(decimalsFor(step)) : String(value);
     return `
       <div class="b5-param">
         <span class="b5-param__label">${escapeHtml(label)} <span class="b5-text-mono b5-param__value" data-rcp-out="${escapeHtml(testId)}:${field}">${escapeHtml(shown)}${suffix || ''}</span></span>
