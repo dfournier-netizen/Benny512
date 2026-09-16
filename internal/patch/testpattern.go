@@ -1516,6 +1516,14 @@ type PatternStatus struct {
 	// finds nothing running can still tell "the user hit Stop" apart from
 	// "the browser tab died and the watchdog caught it".
 	LastEndReason string
+	// Protocol is the wire protocol pattern output is currently being
+	// transmitted on, or -- when output is off -- the one the next
+	// StartPatternOutput would use unless it names another. It is the same
+	// value RigCheck.Protocol() reports, because there is exactly ONE armed
+	// protocol per RigCheck (rigcheckout.go): the Function check and the
+	// classic channel walk share the output boundary, and a screen that
+	// cannot see this field cannot tell which wire it is about to drive.
+	Protocol Protocol
 }
 
 // --- the selection -------------------------------------------------------
@@ -1747,19 +1755,58 @@ func (r *RigCheck) afterSelectionChangeLocked() {
 func (r *RigCheck) StartPatternOutput() (PatternStatus, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.startPatternOutputLocked(r.out.proto)
+}
+
+// StartPatternOutputWithProtocol is StartPatternOutput with an explicit wire
+// protocol, and StartPatternOutput is exactly
+// StartPatternOutputWithProtocol(currently-armed) -- which is what makes a
+// caller that names no protocol behave byte for byte as it did before this
+// method existed.
+//
+// It is the SAME armed protocol StartWithProtocol sets, not a second
+// selection mechanism: rigOutput (rigcheckout.go) is the one place that knows
+// which wire a universe is on, and "exactly one protocol is live for a given
+// universe" depends on there being exactly one such place.
+//
+// Asking for the protocol that is already armed while output is already
+// flowing is the idempotent touch it has always been; asking for a DIFFERENT
+// one restarts output on it, which stops the outgoing stream properly first
+// (sACN: three zero frames and three Stream_Terminated packets, ANSI
+// E1.31-2025 6.2.6) through the usual stopLocked choke point.
+func (r *RigCheck) StartPatternOutputWithProtocol(proto Protocol) (PatternStatus, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.startPatternOutputLocked(proto)
+}
+
+func (r *RigCheck) startPatternOutputLocked(proto Protocol) (PatternStatus, error) {
 	if len(r.selection.scope) == 0 {
 		return PatternStatus{}, ErrRigCheckEmptyScope
 	}
-	if r.patternOutput {
+
+	// Every universe in the scope is mapped BEFORE anything is stopped or
+	// started, exactly as StartWithProtocol does it: a scope containing one
+	// universe that cannot be expressed on the chosen protocol fails here,
+	// names the universe, and leaves whatever was running untouched. It
+	// never clamps into range.
+	raws := scopeUniverses(r.selection.scope)
+	if err := r.out.validate(proto, raws); err != nil {
+		return PatternStatus{}, err
+	}
+
+	if r.patternOutput && proto == r.out.proto {
 		r.lastTouch = r.clock.Now()
 		return r.patternStatusLocked(), nil
 	}
 	r.stopLocked("restarted") // supersede any classic run; leaves the selection alone
+	// Set the armed protocol only AFTER the stop, so the stream that was
+	// running is terminated on the protocol it was actually running on.
+	r.out.proto = proto
 
-	// Pattern output goes out on whatever protocol the last Start armed
-	// (r.out.proto), through the same output boundary the classic walk uses,
-	// so a universe is never driven by both protocols here either.
-	for _, u := range scopeUniverses(r.selection.scope) {
+	// Pattern output goes out through the same output boundary the classic
+	// walk uses, so a universe is never driven by both protocols here either.
+	for _, u := range raws {
 		if err := r.out.startUniverse(u); err != nil {
 			r.stopLocked("restarted")
 			return PatternStatus{}, err
@@ -1881,6 +1928,7 @@ func (r *RigCheck) patternStatusLocked() PatternStatus {
 		OutputEnabled: r.patternOutput,
 		TotalScope:    len(sel.scope),
 		LastEndReason: r.lastPatternEnd,
+		Protocol:      r.out.proto,
 		Tests:         make([]TestStatus, 0, len(sel.order)),
 		Contested:     make([]ContestedOffset, 0),
 		Available:     AvailableTests(sel.scope),

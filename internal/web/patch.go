@@ -1380,6 +1380,8 @@ func writeRigCheckError(w http.ResponseWriter, err error) {
 //	POST /api/patch/rigcheck/pattern/scope   <- patternScopeRequest   -> patternStatusJSON
 //	POST /api/patch/rigcheck/pattern/isolate <- patternIsolateRequest -> patternStatusJSON
 //	POST /api/patch/rigcheck/pattern/output  <- patternOutputRequest  -> patternStatusJSON
+//	                                            (the only one that carries an
+//	                                            optional "protocol"; see it)
 //	POST /api/patch/rigcheck/pattern/start   <- patternStartRequest   -> patternStatusJSON  (legacy)
 //	POST /api/patch/rigcheck/pattern/adjust  <- patternAdjustRequest  -> patternStatusJSON  (legacy)
 //	GET  /api/patch/rigcheck/pattern         -> patternStatusJSON
@@ -1838,8 +1840,42 @@ func (s *Server) handleRigCheckPatternIsolate(w http.ResponseWriter, r *http.Req
 //
 // Starting with an empty scope is a 422; starting with an empty SELECTION is
 // a legitimate 200 that renders only the base state.
+//
+// Protocol names the wire this run goes out on, with EXACTLY the vocabulary
+// rigCheckStartRequest.Protocol uses ("artnet" / "sacn"), resolved by the
+// same patch.NormalizeProtocol. It is a POINTER because absent and present
+// mean different things here, and the difference is the whole
+// backwards-compatibility contract:
+//
+//	absent          keep whatever protocol is currently armed — byte for byte
+//	                the behaviour every caller of this endpoint had before
+//	                the field existed, when pattern output simply inherited
+//	                r.out.proto from the last Channel-check Start.
+//	"artnet"/"sacn" arm that protocol for this run, restarting output on it
+//	                if output is already flowing on the other one.
+//	""              Art-Net. NormalizeProtocol's empty string is Art-Net and
+//	                this endpoint does not invent a second reading of it; a
+//	                client that means "leave it alone" omits the key.
+//	anything else   400, naming both accepted values. It NEVER falls back to
+//	                Art-Net: a tech who asked for sACN and silently got
+//	                Art-Net cannot see that from the console.
+//
+// A scope that cannot be expressed on the chosen protocol is a 422 carrying
+// the server's own universe-naming message (writeRigCheckError), and nothing
+// is stopped, started or clamped.
 type patternOutputRequest struct {
-	Enabled bool `json:"enabled"`
+	Enabled  bool    `json:"enabled"`
+	Protocol *string `json:"protocol"`
+}
+
+// patternProtocol resolves patternOutputRequest.Protocol: nil is "keep the
+// armed protocol", anything else goes through patch.NormalizeProtocol. There
+// is deliberately no second protocol table on this path.
+func (s *Server) patternProtocol(p *string) (patch.Protocol, error) {
+	if p == nil {
+		return s.RigCheck.Protocol(), nil
+	}
+	return patch.NormalizeProtocol(*p)
 }
 
 func (s *Server) handleRigCheckPatternOutput(w http.ResponseWriter, r *http.Request) {
@@ -1852,7 +1888,12 @@ func (s *Server) handleRigCheckPatternOutput(w http.ResponseWriter, r *http.Requ
 		writeJSON(w, http.StatusOK, s.patternStatusJSON(s.RigCheck.StopPatternOutput()))
 		return
 	}
-	st, err := s.RigCheck.StartPatternOutput()
+	proto, err := s.patternProtocol(req.Protocol)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	st, err := s.RigCheck.StartPatternOutputWithProtocol(proto)
 	if err != nil {
 		writeRigCheckError(w, err)
 		return
@@ -2014,6 +2055,13 @@ type patternStatusJSON struct {
 	// the fact can tell a deliberate Stop from an abandoned run the watchdog
 	// caught.
 	LastEndReason string `json:"lastEndReason,omitempty"`
+	// Protocol is the wire this pattern is on ("artnet"/"sacn"), or the one
+	// the next start would use. Always present, deliberately NO omitempty:
+	// "artnet" is real data and a missing key would read as "unknown" to a
+	// screen that has to state what is on the wire in words. GET
+	// .../rigcheck/pattern doubles as the 5s watchdog heartbeat, so this is
+	// also how the Function check tab stays truthful while output flows.
+	Protocol string `json:"protocol"`
 }
 
 func toPatternEntriesJSON(in []patch.PatternEntryStatus) []patternEntryStatusJSON {
@@ -2032,6 +2080,7 @@ func toPatternStatusJSON(st patch.PatternStatus) patternStatusJSON {
 		Running: st.OutputEnabled, OutputEnabled: st.OutputEnabled,
 		SelectedCount: len(st.Tests), ElapsedMS: st.ElapsedMS, TotalScope: st.TotalScope,
 		LastEndReason: st.LastEndReason,
+		Protocol:      string(st.Protocol),
 		Entries:       make([]patternEntryStatusJSON, 0),
 		ScopeKind:     "all",
 		ScopeEntryIDs: make([]string, 0),

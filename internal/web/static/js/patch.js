@@ -116,10 +116,11 @@ const PatchScreen = (() => {
   // Art-Net a zero frame and StopUniverse — and then restarts the check at
   // the FIRST fixture in scope. That is a real operation on a rig, so it
   // stages on the press and commits on Apply.
-  const RC_PROTOCOLS = [
-    { id: 'artnet', label: 'Art-Net' },
-    { id: 'sacn', label: 'sACN' },
-  ];
+  // The table itself lives in ui.js, because the Function check tab
+  // (rigcheck.js) sends the same vocabulary on its own endpoint and two
+  // copies of a wire vocabulary are two things that can drift apart. See
+  // UI.RC_PROTOCOLS.
+  const RC_PROTOCOLS = UI.RC_PROTOCOLS;
   // rcProtocolArmed is what the NEXT Start will send; while a run is live it
   // is the server's own echoed `protocol`, which is the only authority on
   // what is actually on the wire. rcProtocolDraft is the staged choice, and
@@ -141,11 +142,8 @@ const PatchScreen = (() => {
   // a start universe.
   let sacnConfig = null;
 
-  function isProtocol(id) { return RC_PROTOCOLS.some(p => p.id === id); }
-  function protocolLabel(id) {
-    const p = RC_PROTOCOLS.find(x => x.id === id);
-    return p ? p.label : (id || 'unknown');
-  }
+  const isProtocol = UI.isProtocol;
+  const protocolLabel = UI.protocolLabel;
 
   // syncProtocolFromState: adopt the server's echo. While a run is live the
   // echo IS the armed protocol — there is no daylight between "what is on
@@ -1736,7 +1734,7 @@ const PatchScreen = (() => {
       const isArmed = pr.id === rcProtocolArmed;
       // Every option carries its own WORD, so the choice survives greyscale
       // and does not rely on which button happens to look pressed.
-      const word = running && isArmed ? 'ON THE WIRE' : isArmed ? 'ARMED' : isDraft ? 'STAGED' : 'not selected';
+      const word = UI.protocolOptionWord(running, isArmed, isDraft);
       const tone = isArmed ? ' b5-pill--ok' : isDraft ? ' b5-pill--warn' : ' b5-pill--open';
       return `<button type="button" class="b5-seg ${isDraft ? 'is-on' : ''}" data-rc-protocol="${pr.id}" aria-pressed="${isDraft}" ${rcProtocolApplying ? 'disabled' : ''}>${escapeHtml(pr.label)} <span class="b5-pill b5-pill--tag${tone}">${word}</span></button>`;
     }).join('');

@@ -97,6 +97,37 @@ const RigCheckPanel = (() => {
   let containerEl = null;
   let pollTimer = null;
   let starting = false;
+
+  // ---- output protocol (Art-Net / sACN) ----------------------------------
+  //
+  // The pattern engine and the classic channel walk share ONE armed protocol
+  // (internal/patch/rigcheckout.go's rigOutput): exactly one protocol is live
+  // for a given universe at a time, by design. Before this control existed
+  // the Function check simply inherited whatever a Channel-check Start last
+  // armed, and said nothing about it — so the tab could be driving sACN with
+  // nothing on screen saying so. It now carries the choice on POST
+  // .../pattern/output and paints itself from the server's echoed
+  // `protocol`, which is the only authority on what is actually on the wire.
+  //
+  // Apply-to-confirm, exactly as the Rig Check page does it, and for the
+  // same reason: the signed-off direct-action exceptions on this screen (the
+  // test toggles, the parameter faders) all ADJUST SOMETHING ALREADY LIVE by
+  // feel, where an intermediate value on the way to the intended one is
+  // harmless. A protocol has no intermediate value — switching it while
+  // output flows terminates one stream (sACN: three zero frames and three
+  // Stream_Terminated packets, ANSI E1.31-2025 6.2.6) and opens another. So a
+  // press stages, and Apply commits.
+  //
+  // The vocabulary is UI.RC_PROTOCOLS, shared with patch.js and checked
+  // against patch.NormalizeProtocol by internal/web/sacn_ui_test.go. There is
+  // no protocol table in this file.
+  let fcProtocolArmed = 'artnet';
+  let fcProtocolDraft = 'artnet';
+  let fcProtocolApplying = false;
+  // fcProtocolTouched: the operator has applied a protocol HERE. Until then
+  // the armed protocol simply follows the server's echo, so arriving on this
+  // tab during a live sACN run shows sACN without anyone pressing anything.
+  let fcProtocolTouched = false;
   // mounted: true between attach() and leave(). Guards enter()'s scope push
   // so it happens once per visit to the sub-tab rather than on every
   // re-render of the owning screen.
@@ -105,6 +136,7 @@ const RigCheckPanel = (() => {
   window.addEventListener('b5-show-changed', () => {
     snap = null; scopeKind = 'all'; scopeUniverse = 0; scopePosition = '';
     scopeSelection = {}; scopeFixtureType = ''; scopeFixtureTypeDraft = ''; mounted = false; expanded = {};
+    fcProtocolArmed = 'artnet'; fcProtocolDraft = 'artnet'; fcProtocolApplying = false; fcProtocolTouched = false;
   });
 
   // ---- taxonomy / presentation ------------------------------------------
@@ -260,6 +292,30 @@ const RigCheckPanel = (() => {
     sessionStorage.setItem('benny512.rigcheck.scopeKind', scopeKind);
   }
 
+  // syncProtocolFromSnapshot: adopt the server's echo. While output flows the
+  // echo IS the armed protocol — there is no daylight between "what is on the
+  // wire" and "what the next start sends" until something is staged here.
+  function syncProtocolFromSnapshot() {
+    const p = snap && snap.protocol;
+    if (!UI.isProtocol(p)) return;
+    if ((snap && snap.outputEnabled) || !fcProtocolTouched) {
+      fcProtocolArmed = p;
+      if (!fcProtocolApplying) fcProtocolDraft = p;
+    }
+  }
+
+  // snapProtocolToServer: after a REFUSAL the control returns to server
+  // truth — the same discipline the scope echo above follows, for the same
+  // reason. A browser-side guess the server rejected must not stay on screen
+  // looking armed, or the next press just repeats the refusal.
+  function snapProtocolToServer() {
+    const p = snap && snap.protocol;
+    if (!UI.isProtocol(p)) return;
+    fcProtocolTouched = false;
+    fcProtocolArmed = p;
+    fcProtocolDraft = p;
+  }
+
   // apply: the single funnel every mutator goes through. It exists so that
   // "re-render from the returned snapshot, never from local state" is one
   // line that cannot be forgotten at a call site — and so an error leaves
@@ -269,6 +325,7 @@ const RigCheckPanel = (() => {
     try {
       snap = await fn();
       syncScopeFromSnapshot();
+      syncProtocolFromSnapshot();
       watchdogFired = false;
       syncPolling();
       return true;
@@ -276,7 +333,7 @@ const RigCheckPanel = (() => {
       errMsg = e && e.message ? e.message : String(e);
       // Re-read the truth: a rejected mutation means the server's state is
       // whatever it was, and the screen must show that, not the attempt.
-      try { snap = await Api.getPattern(); syncScopeFromSnapshot(); scopeFixtureTypeDraft = scopeFixtureType; } catch (e2) { /* keep last snapshot */ }
+      try { snap = await Api.getPattern(); syncScopeFromSnapshot(); syncProtocolFromSnapshot(); scopeFixtureTypeDraft = scopeFixtureType; } catch (e2) { /* keep last snapshot */ }
       return false;
     } finally {
       render();
@@ -346,8 +403,12 @@ const RigCheckPanel = (() => {
     await apply(() => Api.patternSelect(specForTest(t, overrides), true));
   }
 
+  // setOutput: the start/stop call. Starting NAMES the armed protocol rather
+  // than relying on the server's "absent means keep what is armed" default —
+  // this screen has a protocol control now, so it says what it means, exactly
+  // as patch.js's rigCheckStartBody does. Stopping never carries one.
   async function setOutput(on) {
-    await apply(() => Api.patternSetOutput(on));
+    return apply(() => Api.patternSetOutput(on, on ? fcProtocolArmed : undefined));
   }
 
   // ---- watchdog heartbeat -------------------------------------------------
@@ -378,6 +439,7 @@ const RigCheckPanel = (() => {
       const before = snap;
       snap = next;
       syncScopeFromSnapshot();
+      syncProtocolFromSnapshot();
       if (!snap.outputEnabled) {
         stopPolling();
         if (snap.lastEndReason === 'watchdog') {
@@ -406,6 +468,7 @@ const RigCheckPanel = (() => {
     if (!s) return '';
     return [
       s.outputEnabled ? '1' : '0',
+      s.protocol || '',
       s.baseState && s.baseState.isolate ? '1' : '0',
       (s.available || []).map(a => a.id + ':' + a.fixtureCount).join(','),
       (s.tests || []).map(t => [t.id, t.rateHz, t.min, t.max, t.value, t.on, t.waveform, t.offsetMin, t.offsetMax, t.direction].join('|')).join(','),
@@ -449,11 +512,12 @@ const RigCheckPanel = (() => {
         snap = await Api.getPattern();
         if (!snap.scopeKind) snap = await Api.patternSetScope(scopeBody());
         syncScopeFromSnapshot();
+        syncProtocolFromSnapshot();
     } catch (e) {
       // A scope that resolves to nothing is a 422 — legitimate and worth
       // saying plainly rather than leaving a blank screen.
       errMsg = e && e.message ? e.message : String(e);
-      try { snap = await Api.getPattern(); syncScopeFromSnapshot(); } catch (e2) { /* leave snap as-is */ }
+      try { snap = await Api.getPattern(); syncScopeFromSnapshot(); syncProtocolFromSnapshot(); } catch (e2) { /* leave snap as-is */ }
     }
     syncPolling();
     render();
@@ -462,7 +526,7 @@ const RigCheckPanel = (() => {
   function leave() { mounted = false; stopPolling(); containerEl = null; }
 
   async function refreshStatus() {
-    try { snap = await Api.getPattern(); syncScopeFromSnapshot(); } catch (e) { /* best effort */ }
+    try { snap = await Api.getPattern(); syncScopeFromSnapshot(); syncProtocolFromSnapshot(); } catch (e) { /* best effort */ }
     syncPolling();
     return snap;
   }
@@ -470,7 +534,7 @@ const RigCheckPanel = (() => {
   function outputEnabled() { return !!(snap && snap.outputEnabled); }
   function selectedCount() { return snap ? (snap.tests || []).length : 0; }
 
-  async function stopOutput() { await apply(() => Api.patternSetOutput(false)); }
+  async function stopOutput() { await setOutput(false); }
 
   function selectedById() {
     const m = {};
@@ -500,6 +564,7 @@ const RigCheckPanel = (() => {
       ${renderScope()}
       ${renderIsolate()}
       ${renderGrid(sel)}
+      ${renderProtocol()}
       ${renderOutputBar()}
     `;
     wire();
@@ -814,6 +879,114 @@ const RigCheckPanel = (() => {
 
   // ---- output bar ---------------------------------------------------------
 
+  // ---- output protocol ----------------------------------------------------
+
+  // renderProtocol: which wire this check is on RIGHT NOW, stated in WORDS,
+  // plus the staged choice and its Apply. Read in a dark venue on a tablet at
+  // arm's length, so the state word ("LIVE ON sACN", "STOPPED - armed for
+  // Art-Net") and the per-option word carry the whole signal: desaturate this
+  // section and it still reads. Screen-kit components only — b5-step-section,
+  // b5-segmented/b5-seg, b5-pill, b5-btn — so every control keeps the 44px
+  // touch minimum the kit already sets, and no new CSS is introduced.
+  //
+  // It sits directly above the START button that carries the choice, because
+  // the press and its consequence belong in one field of view.
+  function renderProtocol() {
+    const running = !!snap.outputEnabled;
+    const liveLabel = UI.protocolLabel(snap.protocol || fcProtocolArmed);
+    const armedLabel = UI.protocolLabel(fcProtocolArmed);
+    const draftLabel = UI.protocolLabel(fcProtocolDraft);
+    const dirty = fcProtocolDraft !== fcProtocolArmed;
+
+    const statePill = running
+      ? `<span class="b5-pill b5-pill--lg b5-pill--ok b5-pill--solid">${UI.icon('status-ok')}LIVE ON ${escapeHtml(liveLabel)}</span>`
+      : `<span class="b5-pill b5-pill--lg b5-pill--open">${UI.icon('status-pending')}STOPPED &middot; armed for ${escapeHtml(armedLabel)}</span>`;
+
+    const options = UI.RC_PROTOCOLS.map(pr => {
+      const isDraft = pr.id === fcProtocolDraft;
+      const isArmed = pr.id === fcProtocolArmed;
+      const word = UI.protocolOptionWord(running, isArmed, isDraft);
+      const tone = isArmed ? ' b5-pill--ok' : isDraft ? ' b5-pill--warn' : ' b5-pill--open';
+      return `<button type="button" class="b5-seg ${isDraft ? 'is-on' : ''}" data-rcp-protocol="${pr.id}" aria-pressed="${isDraft}" ${fcProtocolApplying ? 'disabled' : ''}>${escapeHtml(pr.label)} <span class="b5-pill b5-pill--tag${tone}">${word}</span></button>`;
+    }).join('');
+
+    const applyRow = dirty
+      ? `<div class="b5-row" style="margin-top:var(--b5-space-3)">
+          <span class="b5-pill b5-pill--md b5-pill--warn">${UI.icon('status-warning')}Not applied yet &mdash; ${escapeHtml(armedLabel)} is still ${running ? 'on the wire' : 'armed'}</span>
+          <button type="button" id="rcpProtocolApply" class="b5-btn b5-btn--primary" ${fcProtocolApplying ? 'disabled' : ''}>${fcProtocolApplying ? UI.spinner() : UI.icon('apply')}Apply ${escapeHtml(draftLabel)}</button>
+          <button type="button" id="rcpProtocolRevert" class="b5-btn b5-btn--ghost" ${fcProtocolApplying ? 'disabled' : ''}>${UI.icon('revert')}Revert</button>
+        </div>
+        <p class="b5-caption">${running
+        ? `Applying stops output on ${escapeHtml(armedLabel)} &mdash; receivers are told the stream has ended &mdash; and restarts the same tests on ${escapeHtml(draftLabel)}. Your selection is untouched.`
+        : 'Nothing goes on the wire until START. Apply decides which protocol START uses.'}</p>`
+      : '';
+
+    return `
+      <section class="b5-step-section" aria-labelledby="rcpProtocolHead">
+        <h2 class="b5-step-section__head" id="rcpProtocolHead">Output protocol
+          <span class="b5-step-section__note" id="rcpProtocolState">${statePill}</span>
+        </h2>
+        <div class="b5-segmented" role="group" aria-label="Output protocol">${options}</div>
+        ${applyRow}
+        <p class="b5-rcp-scope__note">This is the same armed protocol the Channel check uses &mdash; one wire is live at a time, never both. The sACN start universe, priority and unicast override are set on the Settings screen.</p>
+      </section>`;
+  }
+
+  // wireProtocol / applyProtocol: the staging half and the commit half. The
+  // press handler sends NOTHING — that is the whole point of the contract.
+  function wireProtocol(el) {
+    el.querySelectorAll('[data-rcp-protocol]').forEach(b => b.addEventListener('click', () => {
+      const id = b.dataset.rcpProtocol;
+      if (!UI.isProtocol(id) || id === fcProtocolDraft) return;
+      fcProtocolDraft = id;
+      render();
+    }));
+    const applyBtn = el.querySelector('#rcpProtocolApply');
+    if (applyBtn) applyBtn.addEventListener('click', applyProtocol);
+    const revertBtn = el.querySelector('#rcpProtocolRevert');
+    if (revertBtn) revertBtn.addEventListener('click', () => { fcProtocolDraft = fcProtocolArmed; render(); });
+  }
+
+  // applyProtocol: while output is LIVE this is a real operation on a rig, so
+  // it is confirmed BY NAME first. The single output call does the whole
+  // switch server-side, which is what terminates the outgoing sACN stream
+  // properly instead of just going quiet.
+  //
+  // While nothing is running there is nothing to tell the server — the
+  // protocol travels as a field on the next START — so Apply moves the staged
+  // choice to ARMED and says so. It is still the commit step: the press that
+  // changed the buttons decided nothing on its own.
+  async function applyProtocol() {
+    if (fcProtocolDraft === fcProtocolArmed) return;
+    const running = !!(snap && snap.outputEnabled);
+    const from = UI.protocolLabel(fcProtocolArmed);
+    const to = UI.protocolLabel(fcProtocolDraft);
+    const want = fcProtocolDraft;
+    if (running && !confirm(`Switch live output from ${from} to ${to}?\n\nOutput stops on ${from} (receivers are told the stream has ended) and restarts on ${to} with the same tests selected. Real fixtures change state now.`)) return;
+
+    let ok = true;
+    if (running) {
+      fcProtocolApplying = true;
+      render();
+      ok = await apply(() => Api.patternSetOutput(true, want));
+      fcProtocolApplying = false;
+    }
+    if (ok) {
+      fcProtocolArmed = want;
+      fcProtocolDraft = want;
+      fcProtocolTouched = true;
+      host.setStatus(running ? ('output restarted on ' + to) : ('armed for ' + to + ' — nothing goes on the wire until START'));
+    } else {
+      // apply() has already re-read the server and left its refusal in
+      // errMsg VERBATIM (renderErrors shows it whole — the 422 for a scope
+      // that cannot be expressed on sACN NAMES the universe, and that name
+      // is the only part that tells a tech what to change). Server truth
+      // wins on the control itself.
+      snapProtocolToServer();
+    }
+    render();
+  }
+
   // renderOutputBar: START and STOP, both always present and both always in
   // the same place — the owner must never have to hunt for STOP, and a
   // control that appears/disappears moves its neighbour under a moving
@@ -965,6 +1138,8 @@ const RigCheckPanel = (() => {
       if (t) editParam(t, { offsetMin: Number(min), offsetMax: Number(max) });
     }));
 
+    wireProtocol(el);
+
     const startBtn = el.querySelector('#rcpStart');
     if (startBtn) startBtn.addEventListener('click', onStart);
     const stopBtn = el.querySelector('#rcpStop');
@@ -989,13 +1164,19 @@ const RigCheckPanel = (() => {
         : scopeKind === 'position' ? `position "${scopePosition}"`
       : scopeKind === 'fixtureType' ? `fixture type "${scopeFixtureType}"`
           : `${total} picked fixture${total === 1 ? '' : 's'}`;
-    if (!confirm(`Let output flow: ${n} test${n === 1 ? '' : 's'} on ${scopeWord} (${total} fixture${total === 1 ? '' : 's'}). This moves real fixtures now.`)) return;
+    const proto = UI.protocolLabel(fcProtocolArmed);
+    if (!confirm(`Let output flow over ${proto}: ${n} test${n === 1 ? '' : 's'} on ${scopeWord} (${total} fixture${total === 1 ? '' : 's'}). This moves real fixtures now.`)) return;
     starting = true;
     render();
-    await setOutput(true);
+    const ok = await setOutput(true);
     starting = false;
+    // A refused start (a scope that cannot be expressed on the chosen
+    // protocol is a 422) leaves the server armed on whatever it was armed
+    // on. Show that, not the attempt; errMsg already carries the server's
+    // own words.
+    if (!ok) snapProtocolToServer();
     render();
-    host.setStatus('output running');
+    host.setStatus(ok ? ('output running on ' + proto) : ('error: ' + errMsg));
   }
 
   return { init, attach, enter, leave, render, refreshStatus, outputEnabled, selectedCount, stopOutput, stopPolling };

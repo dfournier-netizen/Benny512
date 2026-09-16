@@ -79,9 +79,13 @@ async function main() {
     Api, escapeHtml, console,
     sessionStorage: { getItem: k => store.get(k) || null, setItem: (k, v) => store.set(k, v) },
     window: { addEventListener() {} }, document: { body: { contains: () => true } },
-    UI: { icon: () => '', spinner: () => '', userInputAttrs: () => ({ min: 0, max: 32767 }), formatUser: String, universeScheme: () => 'Art-Net' },
     setInterval: () => 1, clearInterval() {}, confirm: () => { throw new Error('Unexpected output confirmation'); },
   });
+  // The REAL ui.js, not a stub of it. rigcheck.js reads the shared protocol
+  // vocabulary (UI.RC_PROTOCOLS) and the shared numbering helpers from it;
+  // a hand-written UI stub here would go stale the moment either grows, and
+  // would hide exactly the kind of drift these tests exist to catch.
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'ui.js'), 'utf8'), context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'rigcheck.js'), 'utf8') + '\nthis.panel = RigCheckPanel;', context);
   const root = container();
   context.panel.init({ getEntries: () => [] });

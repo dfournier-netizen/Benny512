@@ -122,6 +122,41 @@ const UI = (() => {
   // sacnStart is sacn.Settings.StartUniverse (GET/POST /api/sacn): the sACN
   // universe the show's universe 1 lives on. Default 1, because sACN
   // universes start at 1 — ANSI E1.31-2025 reserves 0.
+  // RC_PROTOCOLS is the ONE protocol vocabulary the browser has. Both Rig
+  // Check screens send a `protocol` field on the wire — patch.js on POST
+  // /api/patch/rigcheck/start, rigcheck.js on POST
+  // /api/patch/rigcheck/pattern/output — and both resolve to the same
+  // patch.NormalizeProtocol on the server, so there must not be two tables
+  // that can drift apart. It lives here for the same reason formatUser and
+  // formatSacn do: a value two screens must agree on is declared once, in
+  // ui.js, and internal/web/sacn_ui_test.go reads THIS table when it checks
+  // the vocabulary against the Go the server accepts.
+  //
+  // `id` is the literal wire value. `label` is what a human reads; a state
+  // is never carried by colour alone on either screen, so the label is what
+  // actually tells an operator which wire is live.
+  const RC_PROTOCOLS = [
+    { id: 'artnet', label: 'Art-Net' },
+    { id: 'sacn', label: 'sACN' },
+  ];
+  function isProtocol(id) { return RC_PROTOCOLS.some(p => p.id === id); }
+  function protocolLabel(id) {
+    const p = RC_PROTOCOLS.find(x => x.id === id);
+    return p ? p.label : (id || 'unknown');
+  }
+  // protocolOptionWord is the WORD one protocol button carries, and it is
+  // shared for the same reason the table is: both Rig Check screens show the
+  // identical control and an operator who learns it on one must read it the
+  // same on the other. Rule 1 of the screen kit — never colour as the sole
+  // signal — is satisfied by this word, not by which button looks pressed,
+  // so it is not decoration and not a per-screen choice.
+  function protocolOptionWord(running, isArmed, isDraft) {
+    if (running && isArmed) return 'ON THE WIRE';
+    if (isArmed) return 'ARMED';
+    if (isDraft) return 'STAGED';
+    return 'not selected';
+  }
+
   let sacnStart = 1;
   const SACN_MIN_UNIVERSE = 1;
   const SACN_MAX_UNIVERSE = 63999; // sacn.maxUniverse / codec.go's ErrInvalidUniverse bound
@@ -361,6 +396,7 @@ const UI = (() => {
     formatUser, parseUser, userInputAttrs,
     formatArtnet, parseArtnet, artnetInputAttrs,
     getSacnStart, setSacnStart, artnetToSacn, formatSacn, sacnMulticastAddress,
+    RC_PROTOCOLS, isProtocol, protocolLabel, protocolOptionWord,
     SACN_MIN_UNIVERSE, SACN_MAX_UNIVERSE, NO_SACN_UNIVERSE,
     formatBoth, universeScheme, OUTSIDE_SHOW,
   };

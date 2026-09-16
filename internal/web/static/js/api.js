@@ -350,7 +350,18 @@ const Api = (() => {
     patternSetScope: (body) => req('POST', '/api/patch/rigcheck/pattern/scope', body),
     patternSetIsolate: (isolate) => req('POST', '/api/patch/rigcheck/pattern/isolate', { isolate: !!isolate }),
     // patternSetOutput(true) = the start button, (false) = the stop button.
-    patternSetOutput: (enabled) => req('POST', '/api/patch/rigcheck/pattern/output', { enabled: !!enabled }),
+    //
+    // `protocol` is OPTIONAL and, when not given, the key is left off the
+    // body entirely — absent means "keep whatever protocol is armed", which
+    // is byte for byte what this endpoint did before the field existed. It
+    // is never sent on the stop direction: stopping is protocol-agnostic
+    // (the server terminates whatever stream is actually running) and a stop
+    // must not re-arm anything.
+    patternSetOutput: (enabled, protocol) => {
+      const body = { enabled: !!enabled };
+      if (enabled && protocol) body.protocol = protocol;
+      return req('POST', '/api/patch/rigcheck/pattern/output', body);
+    },
 
     getRigCheckState: () => req('GET', '/api/patch/rigcheck'),
     rigCheckStart: (body) => req('POST', '/api/patch/rigcheck/start', body),
