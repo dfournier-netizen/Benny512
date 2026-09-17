@@ -163,6 +163,7 @@ func reachedTheWire(err error) bool {
 	}
 	switch {
 	case errors.Is(err, ErrPIDNotAdvertised),
+		errors.Is(err, ErrDeviceNotAnswering),
 		errors.Is(err, ErrResetDeviceHasNoGet),
 		errors.Is(err, ErrCapturePresetHasNoGet),
 		errors.Is(err, ErrSlotDescriptionNeedsIndex),

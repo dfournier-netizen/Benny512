@@ -239,6 +239,20 @@
 }
 .b5-inspector__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--b5-space-2); }
 
+.b5-discovery-summary {
+  min-width: 0;
+  padding: var(--b5-space-3) var(--b5-space-4);
+  border-bottom: 1px solid var(--b5-color-border);
+  overflow-wrap: anywhere;
+}
+.b5-discovery-summary summary {
+  cursor: pointer;
+  font-weight: 600;
+  min-height: var(--b5-size-touch-min);
+  align-content: center;
+}
+#devicePortSummaries { max-height: 18rem; overflow-y: auto; }
+
 @media (max-width: 899px) {
   .b5-inspector {
     top: auto;

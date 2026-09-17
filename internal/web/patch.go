@@ -2004,6 +2004,7 @@ type availableTestJSON struct {
 // nothing is selected), kept so the pre-stackable-tests client keeps working
 // unchanged; a new client should read `tests` and ignore them.
 type patternStatusJSON struct {
+	FadeMS int64 `json:"fadeMs"`
 	// Running and OutputEnabled are the same bit under two names: whether
 	// the selected tests are currently being rendered to DMX. `running` is
 	// the legacy name; `outputEnabled` says what it actually means now that
@@ -2077,6 +2078,7 @@ func toPatternEntriesJSON(in []patch.PatternEntryStatus) []patternEntryStatusJSO
 
 func toPatternStatusJSON(st patch.PatternStatus) patternStatusJSON {
 	out := patternStatusJSON{
+		FadeMS:  st.FadeMS,
 		Running: st.OutputEnabled, OutputEnabled: st.OutputEnabled,
 		SelectedCount: len(st.Tests), ElapsedMS: st.ElapsedMS, TotalScope: st.TotalScope,
 		LastEndReason: st.LastEndReason,

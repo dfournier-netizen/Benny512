@@ -348,6 +348,26 @@ func (c *RDMController) ToD(ip netip.Addr, port artnet.PortAddress) ([]rdm.UID, 
 	return append([]rdm.UID(nil), e.uids...), true
 }
 
+// ToDSnapshot is one cached gateway announcement, not a physical fixture count.
+type ToDSnapshot struct {
+	IP          netip.Addr
+	PortAddress uint16
+	UIDs        []rdm.UID
+	Complete    bool
+	Updated     time.Time
+}
+
+// ToDSnapshots returns detached copies, including empty and partial tables.
+func (c *RDMController) ToDSnapshots() []ToDSnapshot {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]ToDSnapshot, 0, len(c.tod))
+	for key, entry := range c.tod {
+		out = append(out, ToDSnapshot{key.ip, key.port, append([]rdm.UID(nil), entry.uids...), entry.complete, entry.updated})
+	}
+	return out
+}
+
 // ClearToD drops every cached Table of Devices entry, for every node port —
 // the "wipe all ports" granularity of the discovered-RDM-device cache clear
 // (task ask). This is a bare cache wipe, not the destructive Stop(): any

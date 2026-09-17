@@ -23,6 +23,7 @@ type savedGroup struct {
 }
 type savedTestPreset struct {
 	savedGroup
+	FadeMS  *int64              `json:"fadeMs,omitempty"`
 	Specs   []patch.PatternSpec `json:"specs"`
 	Isolate bool                `json:"isolate"`
 }
@@ -294,6 +295,10 @@ func (s *Server) handleWorkspaceAction(w http.ResponseWriter, r *http.Request) {
 	if action == "load-preset" {
 		for _, preset := range data.Presets {
 			if preset.ID == req.ID {
+				if preset.FadeMS != nil && (*preset.FadeMS < 0 || *preset.FadeMS > 30000) {
+					writeError(w, 422, fmt.Errorf("saved fade time must be between 0 and 30000 ms"))
+					return
+				}
 				entries, err := exactEntries(p, preset.EntryIDs)
 				if err != nil {
 					writeError(w, 409, err)
@@ -304,6 +309,9 @@ func (s *Server) handleWorkspaceAction(w http.ResponseWriter, r *http.Request) {
 				if err != nil {
 					writeRigCheckError(w, err)
 					return
+				}
+				if preset.FadeMS != nil {
+					st, _ = s.RigCheck.SetPatternFade(time.Duration(*preset.FadeMS) * time.Millisecond)
 				}
 				s.setPatternScope(patternScopeFields{ScopeKind: "selection", EntryIDs: preset.EntryIDs}, entries)
 				writeJSON(w, 200, s.patternStatusJSON(st))
@@ -331,7 +339,7 @@ func (s *Server) handleWorkspaceAction(w http.ResponseWriter, r *http.Request) {
 		}
 		data.Groups = append(data.Groups, savedGroup{ID: id, Name: name, EntryIDs: req.EntryIDs})
 	case "save-preset":
-		ids, specs, isolate := s.RigCheck.SavedPattern()
+		ids, specs, isolate, fadeMS := s.RigCheck.SavedPattern()
 		if len(specs) == 0 {
 			writeError(w, 400, fmt.Errorf("select function tests before saving a preset"))
 			return
@@ -344,7 +352,7 @@ func (s *Server) handleWorkspaceAction(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, fmt.Errorf("100 preset limit reached"))
 			return
 		}
-		data.Presets = append(data.Presets, savedTestPreset{savedGroup: savedGroup{ID: id, Name: name, EntryIDs: ids}, Specs: specs, Isolate: isolate})
+		data.Presets = append(data.Presets, savedTestPreset{savedGroup: savedGroup{ID: id, Name: name, EntryIDs: ids}, Specs: specs, Isolate: isolate, FadeMS: &fadeMS})
 	case "snapshot":
 		if len(data.Baselines) >= 10 {
 			writeError(w, 400, fmt.Errorf("10 baseline limit reached; export and delete an old baseline first"))

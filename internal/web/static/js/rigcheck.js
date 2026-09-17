@@ -490,6 +490,7 @@ const RigCheckPanel = (() => {
     return [
       s.outputEnabled ? '1' : '0',
       s.protocol || '',
+      s.fadeMs,
       s.baseState && s.baseState.isolate ? '1' : '0',
       (s.available || []).map(a => a.id + ':' + a.fixtureCount).join(','),
       (s.tests || []).map(t => [t.id, t.rateHz, t.min, t.max, t.value, t.on, t.waveform, t.offsetMin, t.offsetMax, t.direction].join('|')).join(','),
@@ -586,6 +587,7 @@ const RigCheckPanel = (() => {
       ${renderIsolate()}
       ${renderGrid(sel)}
       ${renderProtocol()}
+      ${renderFade()}
       ${renderOutputBar()}
     `;
     wire();
@@ -1027,6 +1029,18 @@ const RigCheckPanel = (() => {
   // control that appears/disappears moves its neighbour under a moving
   // thumb. Sticky to the bottom edge so it is thumb-reachable on a tablet
   // however far down the test grid is scrolled.
+  function renderFade() {
+    const ms = Number.isFinite(snap.fadeMs) ? snap.fadeMs : 1000;
+    const choices = [0, 250, 500, 1000, 2000, 3000, 5000, 10000, 30000];
+    if (!choices.includes(ms)) choices.push(ms);
+    choices.sort((a, b) => a - b);
+    return `<div class="b5-field" style="margin-bottom:var(--space-3)">
+      <label for="rcpFade">Fade time</label>
+      <select id="rcpFade" aria-describedby="rcpFadeHint">${choices.map(v => `<option value="${v}"${v === ms ? ' selected' : ''}>${v === 0 ? 'Snap (0 s)' : `${v / 1000} s`}</option>`).join('')}</select>
+      <p id="rcpFadeHint" class="b5-text-sm b5-text-muted">Applies to level changes and entering or leaving continuous tests. Rate still sets the test speed. STOP stays immediate.</p>
+    </div>`;
+  }
+
   function renderOutputBar() {
     const on = !!snap.outputEnabled;
     const n = (snap.tests || []).length;
@@ -1050,6 +1064,9 @@ const RigCheckPanel = (() => {
   function wire() {
     const el = containerEl;
     if (!el) return;
+
+    const fade = el.querySelector('#rcpFade');
+    if (fade) fade.addEventListener('change', () => apply(() => Api.patternSetFade(Number(fade.value))));
 
     el.querySelectorAll('[data-rcp-scope]').forEach(b => b.addEventListener('click', async () => {
       const k = b.dataset.rcpScope;

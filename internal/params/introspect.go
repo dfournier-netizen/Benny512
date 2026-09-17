@@ -327,16 +327,36 @@ type uidState struct {
 	// isSpeculativePID/ensureAdvertised below, consulted from params.go's
 	// getRaw) doesn't re-fetch it for every gated GET, and so Introspect and
 	// any other caller share one cache instead of each issuing their own
-	// GET SUPPORTED_PARAMETERS. supportedAttempted is tracked separately
-	// from supportedKnown so a device that NACKs/times out on
-	// SUPPORTED_PARAMETERS itself (legal — some responders simply don't
-	// implement even required PIDs correctly) is asked at most once per
-	// process, not once per gated PID, while still falling back to "allow
-	// the probe" (today's behavior) rather than ever blocking such a device
-	// outright — see ensureAdvertised's doc comment.
-	supportedSet       map[rdm.ParameterID]bool
-	supportedKnown     bool
-	supportedAttempted bool
+	// GET SUPPORTED_PARAMETERS.
+	//
+	// supportedAttempted means THE DEVICE ANSWERED and its answer was not a
+	// usable list — it NACKed (legal enough; some responders don't
+	// implement even required PIDs correctly), or it ACKed a payload that
+	// would not decode. Such a device is asked at most once per process,
+	// not once per gated PID, while the gate still falls back to "allow the
+	// probe" rather than ever blocking it outright: absence of a list is
+	// not evidence of absence of a PID. See ensureAdvertised.
+	//
+	// supportedAttempted must NEVER be set for SILENCE. A timeout is not an
+	// answer, and recording one as a completed attempt is what made a dead
+	// UID simultaneously un-re-askable and permanently OPEN to every
+	// speculative probe — the worst of both, spent on the device least able
+	// to afford it. RDM-LOG31: 4D50:0011597E answered nothing at all, ever,
+	// and still drew 15 PRODUCT_DETAIL_ID_LIST and 15 PROXIED_DEVICE_COUNT
+	// requests against 3 SUPPORTED_PARAMETERS packets.
+	//
+	// supportedSilentAttempts counts the SUPPORTED_PARAMETERS attempts that
+	// drew silence. It keeps such a device retryable — a responder that was
+	// booting, powered down or out of radio range can start answering — but
+	// bounds that retry (maxSupportedSilentAttempts), since "just don't
+	// record it" on its own turns one stuck gate into one SUPPORTED_
+	// PARAMETERS transaction per speculative GET. It is also what
+	// ensureAdvertised reads to hold a silent device's speculative gate
+	// CLOSED instead of open.
+	supportedSet            map[rdm.ParameterID]bool
+	supportedKnown          bool
+	supportedAttempted      bool
+	supportedSilentAttempts int
 	// supportedFlight is non-nil while one caller is resolving
 	// SUPPORTED_PARAMETERS. It is closed after that caller publishes either
 	// a decoded set or the remembered unknown result, so simultaneous callers
@@ -914,13 +934,35 @@ func isSpeculativePID(pid rdm.ParameterID) bool {
 	}
 }
 
+// maxSupportedSilentAttempts bounds how many times one UID's
+// SUPPORTED_PARAMETERS may be asked while the device answers nothing at all.
+//
+// Two: the first ask, plus exactly one retry for a responder that was merely
+// booting, powered down or momentarily out of radio range when we first
+// asked. The guarantee this buys, per silent UID per process (until
+// ForgetDevice / the UI's rescan clears the state):
+//
+//	at most 2 SUPPORTED_PARAMETERS transactions, and exactly 0 speculative-
+//	PID transactions.
+//
+// E1.20-required PIDs are unaffected — they are never gated, by anything,
+// ever (TestProbeCache_RequiredPIDsAreNeverGated).
+const maxSupportedSilentAttempts = 2
+
 // resolveSupportedSet returns this UID's SUPPORTED_PARAMETERS set,
-// resolving and caching it (at most once per UID per process) if not already
-// known. Simultaneous callers wait for the in-flight resolution rather than
-// each queueing a GET. known=false means the device's support status could
-// not be determined at all (SUPPORTED_PARAMETERS itself NACKed, timed out,
-// or a prior attempt already failed) — callers must treat that as "don't
-// know", never as "nothing is supported".
+// resolving and caching it if not already known. Simultaneous callers wait
+// for the in-flight resolution rather than each queueing a GET.
+//
+// known=false means the device's support status could not be determined at
+// all — callers must treat that as "don't know", never as "nothing is
+// supported". It covers two cases the cache keeps apart, and only
+// ensureAdvertised needs to tell them apart:
+//
+//	the device ANSWERED and the answer was unusable (NACK, undecodable
+//	payload): resolved once per process, never re-asked, gate fails OPEN.
+//
+//	the device SAID NOTHING (timeout, unreachable): re-askable, but at most
+//	maxSupportedSilentAttempts times, and the gate stays CLOSED meanwhile.
 func (c *Client) resolveSupportedSet(ctx context.Context) (set map[rdm.ParameterID]bool, known bool) {
 	st := stateFor(c.uid)
 	st.mu.Lock()
@@ -930,6 +972,14 @@ func (c *Client) resolveSupportedSet(ctx context.Context) (set map[rdm.Parameter
 		return set, known
 	}
 	if st.supportedAttempted {
+		// The device answered once and the answer was unusable. Asking
+		// again gets the same non-answer; the gate fails open for it.
+		st.mu.Unlock()
+		return nil, false
+	}
+	if st.supportedSilentAttempts >= maxSupportedSilentAttempts {
+		// It has said nothing, twice. Stop spending the line on it; the
+		// gate holds its speculative PIDs closed until ForgetDevice.
 		st.mu.Unlock()
 		return nil, false
 	}
@@ -953,17 +1003,7 @@ func (c *Client) resolveSupportedSet(ctx context.Context) (set map[rdm.Parameter
 	data, err := c.getRaw(ctx, rdm.PIDSupportedParameters, nil)
 
 	st.mu.Lock()
-	st.supportedAttempted = true
-	if err == nil {
-		if pids, decErr := rdm.DecodeSupportedParameters(data); decErr == nil {
-			m := make(map[rdm.ParameterID]bool, len(pids))
-			for _, p := range pids {
-				m[p] = true
-			}
-			st.supportedSet = m
-			st.supportedKnown = true
-		}
-	}
+	st.recordSupportedOutcomeLocked(data, err, ctx.Err() == nil)
 	set, known = st.supportedSet, st.supportedKnown
 	close(flight)
 	st.supportedFlight = nil
@@ -990,38 +1030,86 @@ func (c *Client) noteSupportedParametersRead(data []byte, err error, reached boo
 	st := stateFor(c.uid)
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	st.recordSupportedOutcomeLocked(data, err, reached)
+}
+
+// recordSupportedOutcomeLocked folds one SUPPORTED_PARAMETERS read's outcome
+// into this UID's probe-cache state. It is the ONE place the distinction the
+// whole cache turns on is made, shared by resolveSupportedSet and
+// noteSupportedParametersRead so the two cannot drift apart:
+//
+//	answered, decodable    supportedKnown — the gate works per-PID
+//	answered, unusable     supportedAttempted — never ask again, FAIL OPEN
+//	                       (a NACK, or an ACK whose payload won't decode)
+//	said nothing           supportedSilentAttempts++ — still askable, at
+//	                       most maxSupportedSilentAttempts times, and the
+//	                       speculative gate stays CLOSED meanwhile
+//	never reached the wire  nothing recorded at all
+//
+// live is false when our own context was already cancelled: giving up is a
+// fact about us, not about the responder, so it is recorded as neither an
+// attempt nor a silence.
+//
+// Caller holds st.mu.
+func (st *uidState) recordSupportedOutcomeLocked(data []byte, err error, live bool) {
 	if st.supportedKnown {
 		return
 	}
-	if err != nil {
-		if reached {
+	if err == nil {
+		pids, decErr := rdm.DecodeSupportedParameters(data)
+		if decErr != nil {
+			// The device answered; its answer was unusable. Same class as a
+			// NACK, and fail-open for it is deliberate.
 			st.supportedAttempted = true
+			return
 		}
-		return
-	}
-	pids, decErr := rdm.DecodeSupportedParameters(data)
-	if decErr != nil {
+		m := make(map[rdm.ParameterID]bool, len(pids))
+		for _, p := range pids {
+			m[p] = true
+		}
+		st.supportedSet = m
+		st.supportedKnown = true
 		st.supportedAttempted = true
 		return
 	}
-	m := make(map[rdm.ParameterID]bool, len(pids))
-	for _, p := range pids {
-		m[p] = true
+	if !reachedTheWire(err) || !live {
+		return
 	}
-	st.supportedSet = m
-	st.supportedKnown = true
+	if isSilence(err) {
+		st.supportedSilentAttempts++
+		return
+	}
 	st.supportedAttempted = true
 }
 
-// ensureAdvertised is getRaw's speculative-PID gate: it returns
-// ErrPIDNotAdvertised when pid is a speculative PID this UID has already
-// been confirmed NOT to support (either a fresh/cached SUPPORTED_PARAMETERS
-// omits it, or a past live GET for it already NACKed UNKNOWN_PID), and nil
-// otherwise — including, deliberately, when support could not be
-// determined at all. A device that doesn't implement SUPPORTED_PARAMETERS
-// (or NACKs/times out on it) must keep working exactly as it did before
-// this gate existed: every speculative PID falls back to "go ahead and
-// ask", never "assume unsupported and block".
+// ensureAdvertised is getRaw's speculative-PID gate. It returns:
+//
+//	ErrPIDNotAdvertised    pid is a speculative PID this UID has been
+//	                       confirmed NOT to support — a fresh/cached
+//	                       SUPPORTED_PARAMETERS omits it, or a past live GET
+//	                       for it already NACKed UNKNOWN_PID.
+//	ErrDeviceNotAnswering  this UID is not answering at all: every
+//	                       SUPPORTED_PARAMETERS attempt drew silence.
+//	nil                    otherwise, INCLUDING when support could not be
+//	                       determined because the device ANSWERED
+//	                       unusably.
+//
+// That last case is the deliberate fail-open, and it stays exactly as it
+// was: a device that NACKs SUPPORTED_PARAMETERS (or ACKs garbage for it)
+// must keep working exactly as it did before this gate existed, or a
+// non-conforming fixture becomes invisible precisely because it is
+// non-conforming.
+//
+// Silence is not that case. A NACK is an answer — "I don't support that" —
+// and treating it as evidence is sound. A response timeout is the absence
+// of an answer, and it is evidence of nothing except that nobody is home.
+// Failing open on it is backwards: it spends the most speculative traffic
+// on the responder least able to absorb it, forever, because the same
+// timeout also marked the device "already asked". So the gate closes for
+// it instead, and only for the speculative PIDs — every E1.20-required PID
+// stays ungated here as everywhere else, which is what keeps a silent
+// device's DEVICE_INFO/DMX_START_ADDRESS reads (and the "is it back yet?"
+// question they answer) working untouched.
 func (c *Client) ensureAdvertised(ctx context.Context, pid rdm.ParameterID) error {
 	st := stateFor(c.uid)
 	st.mu.RLock()
@@ -1032,8 +1120,20 @@ func (c *Client) ensureAdvertised(ctx context.Context, pid rdm.ParameterID) erro
 	}
 
 	set, known := c.resolveSupportedSet(ctx)
-	if known && !set[pid] {
-		return fmt.Errorf("%w: 0x%04X", ErrPIDNotAdvertised, uint16(pid))
+	if known {
+		if !set[pid] {
+			return fmt.Errorf("%w: 0x%04X", ErrPIDNotAdvertised, uint16(pid))
+		}
+		return nil
+	}
+
+	st.mu.RLock()
+	silent := !st.supportedAttempted && st.supportedSilentAttempts > 0
+	silentAttempts := st.supportedSilentAttempts
+	st.mu.RUnlock()
+	if silent {
+		return fmt.Errorf("%w: 0x%04X (SUPPORTED_PARAMETERS drew silence %d time(s))",
+			ErrDeviceNotAnswering, uint16(pid), silentAttempts)
 	}
 	return nil
 }

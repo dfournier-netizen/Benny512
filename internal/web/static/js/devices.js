@@ -86,6 +86,7 @@ const DevicesScreen = (() => {
 
   let nodes = [];
   let fixtures = [];
+  let portSummaries = [];
   let selectedUID = null;
   let inspectorOpen = false;
   // Filters combine (AND) — class + node + universe (task ask, item 3: the
@@ -333,9 +334,12 @@ const DevicesScreen = (() => {
   async function refreshFixtures(probe = true) {
     void probe;
     const revision = ++fixturesRevision;
-    const snapshot = await Api.getFixtures();
+    const [snapshot, ports] = await Promise.all([
+      Api.getFixtures(), Api.getDevicePorts().catch(() => null),
+    ]);
     if (revision !== fixturesRevision) return;
     fixtures = snapshot;
+    portSummaries = ports;
     fixturesLoaded = true;
     refreshFilterOptions();
     render();
@@ -583,7 +587,30 @@ const DevicesScreen = (() => {
     `;
   }
 
+  function renderPortSummaries() {
+    const el = document.getElementById('devicePortSummaries');
+    if (!el) return;
+    if (portSummaries === null) {
+      el.innerHTML = '<p class="b5-caption">Port response summary unavailable. Refresh to try again.</p>';
+      return;
+    }
+    if (!portSummaries.length) {
+      el.innerHTML = '<p class="b5-caption">No gateway discovery tables recorded yet.</p>';
+      return;
+    }
+    el.innerHTML = `<p class="b5-caption">All discovered ports, independent of list filters. Counts use the latest cached gateway table; answered means an RDM reply was recorded since discovery memory was cleared, not that the device is healthy now.</p>` +
+      portSummaries.map(p => {
+        const details = [`${p.advertised} advertised`, `${p.answered} answered`];
+        if (p.noResponse) details.push(`${p.noResponse} no response after automatic attempts`);
+        if (p.pending) details.push(`${p.pending} awaiting reads`);
+        if (p.notRead) details.push(`${p.notRead} not read`);
+        if (!p.complete) details.push('partial table');
+        return `<p class="b5-caption"><strong>${escapeHtml(p.nodeIp)} · ${escapeHtml(UI.formatBoth(p.portAddress))}</strong> — ${details.join(' · ')}</p>`;
+      }).join('');
+  }
+
   function render() {
+    renderPortSummaries();
     updateFilterSummary();
     const list = document.getElementById('deviceList');
     if (!list) return;
@@ -775,6 +802,10 @@ const DevicesScreen = (() => {
           </div>
           <p class="b5-caption" id="deviceFilterSummary"></p>
         </div>
+        <details class="b5-discovery-summary" open>
+          <summary>Gateway advertisements and RDM replies</summary>
+          <div id="devicePortSummaries" role="status" aria-live="polite" tabindex="0" aria-label="Port response counts"></div>
+        </details>
         <div class="b5-board__list" id="deviceList"></div>
       </section>
 

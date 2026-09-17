@@ -37,6 +37,9 @@ type Fixture struct {
 	Port             artnet.PortAddress
 	FirstSeen        time.Time
 	LastSeen         time.Time
+	// HasResponded is evidence from RDM replies, never from a gateway ToD.
+	// Retained until discovery memory is cleared; not a current health claim.
+	HasResponded bool
 	// Params caches the last-known value of any param the UI has fetched,
 	// keyed by PID. Values are raw parameter data; internal/params decodes
 	// them. Absent from this map means "not yet fetched".
@@ -334,6 +337,9 @@ func (reg *Registry) handleRDMEvent(ev session.Event) {
 		if ev.Result == nil {
 			return
 		}
+		if ev.Result.AckTimers > 0 || ev.Result.Blocks > 0 {
+			reg.noteResponse(ev.Node, ev.UID)
+		}
 		switch ev.Result.Kind {
 		case session.ResultAck:
 			// Cache on every ACK, including a legitimate zero-length one
@@ -437,9 +443,18 @@ func (reg *Registry) noteReachable(node session.NodeRef, uid rdm.UID) {
 	reg.mu.Lock()
 	defer reg.mu.Unlock()
 	f := reg.getOrCreateLocked(node.Key, node.Port, uid, time.Now())
+	f.HasResponded = true
 	f.ProxyUnreachable = false
 	f.ProxyUnreachableSince = time.Time{}
 	f.ProxyRetryAt = time.Time{}
+}
+
+// A deferred/partial response is evidence even when the command later fails.
+// Do not clear proxy trouble here: final command handling owns that decision.
+func (reg *Registry) noteResponse(node session.NodeRef, uid rdm.UID) {
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+	reg.getOrCreateLocked(node.Key, node.Port, uid, time.Now()).HasResponded = true
 }
 
 // noteParamNack records that a GET for pid completed with a NACK, for the

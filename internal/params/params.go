@@ -119,6 +119,19 @@ var ErrSlotDescriptionNeedsIndex = errors.New("params: SLOT_DESCRIPTION GET requ
 // unknown/unsupported — see ensureAdvertised's doc comment in introspect.go.
 var ErrPIDNotAdvertised = errors.New("params: PID not advertised in this device's SUPPORTED_PARAMETERS")
 
+// ErrDeviceNotAnswering is returned by getRaw when a speculative PID is
+// refused locally because this UID is not answering AT ALL: every
+// SUPPORTED_PARAMETERS attempt for it drew silence (response timeout,
+// device unreachable) rather than any answer.
+//
+// It is deliberately a different error from ErrPIDNotAdvertised, because it
+// is a different claim. ErrPIDNotAdvertised says "the device told us it
+// does not have this PID". This one says nothing whatsoever about what the
+// device supports — only that there is nobody there to ask. A NACK is an
+// answer and keeps its fail-open treatment (see ensureAdvertised); silence
+// is not, and 25 speculative probes buy a silent responder nothing.
+var ErrDeviceNotAnswering = errors.New("params: device is not answering; speculative PIDs are not probed")
+
 // getRaw issues a GET and returns the raw ACK data, translating any
 // non-ACK result into an error (NackError for NACK, session's own typed
 // errors for timeout/deadline/etc).

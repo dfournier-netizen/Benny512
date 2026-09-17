@@ -18,10 +18,11 @@ function setup() {
   const doc = {getElementById: id => elements[id] || (elements[id] = element(id)),
     createElement: () => element(''), querySelectorAll: () => [], querySelector: () => null,
     addEventListener() {}, body: element('body')};
-  const state = {nodes: [], fixtures: [], nodeGets: 0, fixtureGets: 0, probes: 0, calls: []};
+  const state = {nodes: [], fixtures: [], ports: [], nodeGets: 0, fixtureGets: 0, probes: 0, calls: []};
   const api = {
     getNodes: async () => { state.nodeGets++; return state.nodes; },
     getFixtures: async () => { state.fixtureGets++; return state.fixtures; },
+    getDevicePorts: async () => state.ports,
     discover: async (...args) => { state.calls.push(args); return {uids: [], complete: true}; },
     compareDevices: (a, b) => a.uid.localeCompare(b.uid),
     getParam: async () => { state.probes++; return {value: {}}; },
@@ -55,6 +56,30 @@ const node = (ip, bind, address, name = '') => ({ip, bindIndex: bind, longName: 
 const fixture = uid => ({uid, nodeIp: '2.11.90.4', bindIndex: 2, portAddress: 17,
   class: 'Fixture', model: uid, manufacturer: 'Test'});
 const tests = {
+  async 'port summary distinguishes replies, silence and pending without probing'() {
+    const h = setup();
+    h.state.ports = [{nodeIp: '2.11.90.1', portAddress: 21, advertised: 11, answered: 8,
+      noResponse: 3, pending: 0, notRead: 0, complete: true}];
+    h.screen.init(); await settle();
+    let html = h.elements.devicePortSummaries.innerHTML;
+    assert.match(html, /11 advertised/); assert.match(html, /8 answered/);
+    assert.match(html, /3 no response after automatic attempts/);
+    assert.doesNotMatch(html, /phantom|healthy devices/);
+    assert.match(html, /Art-Net 21/);
+    h.state.ports = [{...h.state.ports[0], answered: 9, noResponse: 0, pending: 1, notRead: 1, complete: false}];
+    h.emit('rdm'); await h.flush();
+    html = h.elements.devicePortSummaries.innerHTML;
+    assert.match(html, /9 answered/); assert.match(html, /1 awaiting reads/);
+    assert.match(html, /1 not read/); assert.match(html, /partial table/);
+    assert.doesNotMatch(html, /no response after/);
+    h.api.getDevicePorts = async () => { throw new Error('offline'); };
+    await h.screen.refreshFixtures();
+    assert.match(h.elements.devicePortSummaries.innerHTML, /unavailable/);
+    h.api.getDevicePorts = async () => [];
+    await h.screen.refreshFixtures();
+    assert.match(h.elements.devicePortSummaries.innerHTML, /No gateway discovery tables/);
+    assert.equal(h.state.probes, 0);
+  },
   async 'clear completion restores discovery controls'() {
     const h = setup(); h.state.nodes = [node('2.11.90.4', 1, 0)];
     h.api.clearDevicesAll = async () => ({cleared: 0, todCleared: 0});

@@ -170,12 +170,16 @@ type RigCheck struct {
 	// selection and patternOutput are the two independent halves of that
 	// engine's state model (see testpattern.go's doc comment): selection
 	// survives every stop, patternOutput is what stop clears.
-	selection      *patternSelection
-	patternOutput  bool
-	patternEpoch   time.Time     // stamped when output was last enabled — the shared time base every active test's waveform is sampled against
-	patternTimer   session.Timer // self-rescheduling AfterFunc chain driving patternTick, mirrors DMXOutputEngine's own tick()/scheduleLocked()
-	lastTouch      time.Time     // last pattern-surface call (including a PatternStatus read) — see PatternWatchdogTimeout
-	lastPatternEnd string        // "" (never run) | "manual" | "restarted" | "watchdog" — see PatternStatus.LastEndReason
+	selection       *patternSelection
+	patternOutput   bool
+	patternEpoch    time.Time     // stamped when output was last enabled — the shared time base every active test's waveform is sampled against
+	patternTimer    session.Timer // self-rescheduling AfterFunc chain driving patternTick, mirrors DMXOutputEngine's own tick()/scheduleLocked()
+	lastTouch       time.Time     // last pattern-surface call (including a PatternStatus read) — see PatternWatchdogTimeout
+	lastPatternEnd  string        // "" (never run) | "manual" | "restarted" | "watchdog" — see PatternStatus.LastEndReason
+	patternFadeTime time.Duration
+	patternFrames   map[uint16][]byte
+	patternUnits    map[patternUnitKey]patternUnit
+	patternFades    map[patternUnitKey]patternFade
 }
 
 // NewRigCheck builds a RigCheck driving dmx. dmx is required and typically
@@ -188,7 +192,7 @@ type RigCheck struct {
 // FakeClock deterministically drives both the DMX retransmit tick and every
 // pattern's own value recomputation.
 func NewRigCheck(dmx *session.DMXOutputEngine) *RigCheck {
-	r := &RigCheck{dmx: dmx, clock: dmx.Clock(), started: map[uint16]bool{}, level: DefaultLevel, selection: newPatternSelection()}
+	r := &RigCheck{dmx: dmx, clock: dmx.Clock(), started: map[uint16]bool{}, level: DefaultLevel, selection: newPatternSelection(), patternFadeTime: time.Second}
 	r.out = newRigOutput(dmx, r.clock)
 	r.out.onTick = r.sacnRefreshTick
 	return r

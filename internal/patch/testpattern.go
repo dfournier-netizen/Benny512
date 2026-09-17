@@ -629,7 +629,8 @@ func funcTarget(e Entry, rf ResolvedFunction, role string, idx, total int) patte
 		sets = cf.ChannelSets
 	}
 	return patternFuncTarget{
-		role: role, offsets: offs, channelSets: sets, nbytes: funcByteCount(cf, len(offs)),
+		attribute: rf.Attribute,
+		role:      role, offsets: offs, channelSets: sets, nbytes: funcByteCount(cf, len(offs)),
 		inferred: rf.Source == SourceRDMInferred, index: idx, total: total,
 	}
 }
@@ -696,6 +697,7 @@ func pickMixChannels(fns []ResolvedFunction) []string {
 // change while output flows) so every tick only has to evaluate a waveform
 // and write bytes, never re-walk the taxonomy.
 type patternFuncTarget struct {
+	attribute string
 	// role tells the per-tick renderer (patternValueForFunc) which physical
 	// concept this target is, when that's not fully determined by the
 	// pattern Kind alone (a Kind can drive several roles — e.g.
@@ -1138,9 +1140,10 @@ func shutterNameRejected(name, matched string) bool {
 // baseWrite is one precomputed base-state assignment: raw value across
 // offsets, exactly like a pattern's own write.
 type baseWrite struct {
-	offsets []uint16
-	nbytes  int
-	raw     uint32
+	attribute string
+	offsets   []uint16
+	nbytes    int
+	raw       uint32
 }
 
 // entryBaseState is one scoped entry's precomputed base state — see this
@@ -1194,7 +1197,7 @@ func buildEntryBaseState(e Entry) entryBaseState {
 				covered[off] = true
 			}
 			if cf.HasDefault {
-				bs.defaults = append(bs.defaults, baseWrite{offsets: offs, nbytes: n, raw: cf.Default})
+				bs.defaults = append(bs.defaults, baseWrite{attribute: rf.Attribute, offsets: offs, nbytes: n, raw: cf.Default})
 				bs.knownCount += len(offs)
 			} else {
 				bs.unknownCount += len(offs)
@@ -1204,7 +1207,7 @@ func buildEntryBaseState(e Entry) entryBaseState {
 				if n >= 2 {
 					raw = 32768
 				}
-				bs.position = append(bs.position, baseWrite{offsets: offs, nbytes: n, raw: raw})
+				bs.position = append(bs.position, baseWrite{attribute: rf.Attribute, offsets: offs, nbytes: n, raw: raw})
 				bs.unknownCount -= len(offs)
 			}
 			switch {
@@ -1213,7 +1216,7 @@ func buildEntryBaseState(e Entry) entryBaseState {
 				if n >= 2 {
 					full = 65535
 				}
-				bs.dimmer = append(bs.dimmer, baseWrite{offsets: offs, nbytes: n, raw: full})
+				bs.dimmer = append(bs.dimmer, baseWrite{attribute: rf.Attribute, offsets: offs, nbytes: n, raw: full})
 			case isShutterAttr(rf.Attribute):
 				bs.hasShutter = true
 				v, ok, src := shutterOpenValue(cf)
@@ -1222,7 +1225,7 @@ func buildEntryBaseState(e Entry) entryBaseState {
 					continue
 				}
 				bs.shutterSource = src
-				bs.shutter = append(bs.shutter, baseWrite{offsets: offs, nbytes: n, raw: v})
+				bs.shutter = append(bs.shutter, baseWrite{attribute: rf.Attribute, offsets: offs, nbytes: n, raw: v})
 			}
 		}
 	}
@@ -1493,6 +1496,7 @@ type BaseStateStatus struct {
 // state model (see this file's doc comment): the SELECTION (Scope*, Tests,
 // Isolate), which persists across stop/start, and the OUTPUT flag.
 type PatternStatus struct {
+	FadeMS int64
 	// OutputEnabled is whether the selected tests are currently being
 	// rendered to DMX. Toggling it never changes the selection.
 	OutputEnabled bool
@@ -1664,6 +1668,9 @@ func (r *RigCheck) SetPatternScope(entries []Entry) (PatternStatus, error) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if err := r.preparePatternScopeLocked(entries); err != nil {
+		return PatternStatus{}, err
+	}
 	r.selection.scope = append([]Entry(nil), entries...)
 	r.selection.rebuild()
 	r.afterSelectionChangeLocked()
@@ -1710,6 +1717,9 @@ func (r *RigCheck) SetPatternTests(entries []Entry, specs []PatternSpec, isolate
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if err := r.preparePatternScopeLocked(entries); err != nil {
+		return PatternStatus{}, err
+	}
 	r.selection.scope = append([]Entry(nil), entries...)
 	r.selection.tests = make(map[TestID]PatternSpec, len(normalized))
 	for _, spec := range normalized {
@@ -1830,7 +1840,7 @@ func (r *RigCheck) startPatternOutputLocked(proto Protocol) (PatternStatus, erro
 }
 
 // SavedPattern captures settings only, without touching the watchdog or output.
-func (r *RigCheck) SavedPattern() ([]string, []PatternSpec, bool) {
+func (r *RigCheck) SavedPattern() ([]string, []PatternSpec, bool, int64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	ids := make([]string, 0, len(r.selection.scope))
@@ -1841,7 +1851,7 @@ func (r *RigCheck) SavedPattern() ([]string, []PatternSpec, bool) {
 	for _, id := range r.selection.order {
 		specs = append(specs, r.selection.tests[id])
 	}
-	return ids, specs, r.selection.isolate
+	return ids, specs, r.selection.isolate, r.patternFadeTime.Milliseconds()
 }
 
 // StopPatternOutput blacks out and ceases output while leaving the selection
@@ -1925,6 +1935,7 @@ func (r *RigCheck) AdjustPattern(params PatternParams) (PatternStatus, error) {
 func (r *RigCheck) patternStatusLocked() PatternStatus {
 	sel := r.selection
 	st := PatternStatus{
+		FadeMS:        r.patternFadeTime.Milliseconds(),
 		OutputEnabled: r.patternOutput,
 		TotalScope:    len(sel.scope),
 		LastEndReason: r.lastPatternEnd,
@@ -1986,6 +1997,7 @@ func (r *RigCheck) patternStatusLocked() PatternStatus {
 // patternComposition is one built frame set plus everything the status needs
 // to say about how it was built.
 type patternComposition struct {
+	writers   map[uint32]patternUnit
 	frames    map[uint16][]byte
 	contested []ContestedOffset
 	base      BaseStateStatus
@@ -2002,6 +2014,7 @@ func slotKey(universe uint16, ch int) uint32 { return uint32(universe)<<16 | uin
 func (r *RigCheck) composePatternLocked(elapsed float64) patternComposition {
 	sel := r.selection
 	comp := patternComposition{
+		writers:   make(map[uint32]patternUnit),
 		frames:    make(map[uint16][]byte, len(sel.scope)),
 		contested: make([]ContestedOffset, 0),
 		base:      BaseStateStatus{Isolate: sel.isolate, ShutterUnknownEntries: make([]string, 0)},
@@ -2042,6 +2055,7 @@ func (r *RigCheck) composePatternLocked(elapsed float64) patternComposition {
 			}
 			for _, ft := range et.functions {
 				raw, nbytes := patternValueForFunc(pt.spec, ft, elapsed, et.phase)
+				comp.noteUnit(et.universe, et.startAddr, ft.offsets, nbytes, patternSource{entry: et.entryID, spec: pt.spec, phase: et.phase}, continuousPatternAttribute(ft.attribute))
 				for _, ch := range writeFuncValue(frame, et.startAddr, ft.offsets, nbytes, raw) {
 					claim(et.universe, ch, et.entryID, id)
 				}
@@ -2073,6 +2087,7 @@ func (r *RigCheck) composePatternLocked(elapsed float64) patternComposition {
 					}
 				}
 				writeFuncValue(frame, bs.startAddr, w.offsets, w.nbytes, w.raw)
+				comp.noteUnit(bs.universe, bs.startAddr, w.offsets, w.nbytes, patternSource{entry: bs.entryID, baseValue: w.raw}, continuousPatternAttribute(w.attribute))
 				return true
 			}
 			for _, w := range bs.defaults {
@@ -2153,6 +2168,7 @@ func (r *RigCheck) recomputePatternLocked(elapsed float64) {
 		return
 	}
 	comp := r.composePatternLocked(elapsed)
+	r.fadePatternLocked(comp, r.clock.Now())
 	r.out.setFrames(comp.frames, false)
 }
 
@@ -2197,6 +2213,7 @@ func (r *RigCheck) patternTick() {
 // way. It deliberately does NOT touch the selection: the owner's stop button
 // stops output and deselects nothing.
 func (r *RigCheck) cancelPatternOutputLocked(reason string) {
+	r.patternFrames, r.patternUnits, r.patternFades = nil, nil, nil
 	if r.patternTimer != nil {
 		r.patternTimer.Stop()
 		r.patternTimer = nil

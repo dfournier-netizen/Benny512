@@ -138,6 +138,7 @@ const Api = (() => {
     getNodes: () => req('GET', '/api/nodes'),
     getRdmDiagnostics: () => req('GET', '/api/diagnostics/rdm'),
     getFixtures: () => req('GET', '/api/fixtures'),
+    getDevicePorts: () => req('GET', '/api/devices/ports'),
     discover: (node, bindIndex, portAddress) =>
       req('POST', '/api/discover', { node, bindIndex, portAddress }),
     // getParam's optional `query` (e.g. {index:3}) drives the *_DESCRIPTION-
@@ -349,6 +350,7 @@ const Api = (() => {
     patternSelect: (test, enabled) => req('POST', '/api/patch/rigcheck/pattern/select', { test, enabled: enabled !== false }),
     patternSetScope: (body) => req('POST', '/api/patch/rigcheck/pattern/scope', body),
     patternSetIsolate: (isolate) => req('POST', '/api/patch/rigcheck/pattern/isolate', { isolate: !!isolate }),
+    patternSetFade: (fadeMs) => req('POST', '/api/patch/rigcheck/pattern/fade', { fadeMs }),
     // patternSetOutput(true) = the start button, (false) = the stop button.
     //
     // `protocol` is OPTIONAL and, when not given, the key is left off the

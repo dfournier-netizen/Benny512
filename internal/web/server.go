@@ -467,6 +467,7 @@ func (s *Server) routes() {
 
 	s.mux.HandleFunc("GET /api/nodes", s.handleGetNodes)
 	s.mux.HandleFunc("GET /api/fixtures", s.handleGetFixtures)
+	s.mux.HandleFunc("GET /api/devices/ports", s.handleDevicePorts)
 	s.mux.HandleFunc("POST /api/discover", s.handleDiscover)
 	s.mux.HandleFunc("GET /api/fixture/{uid}/param/{pid}", s.handleGetParam)
 	s.mux.HandleFunc("POST /api/fixture/{uid}/param/{pid}", s.handleSetParam)
@@ -604,6 +605,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/select", s.handleRigCheckPatternSelect)
 	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/scope", s.handleRigCheckPatternScope)
 	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/isolate", s.handleRigCheckPatternIsolate)
+	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/fade", s.handlePatternFade)
 	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/output", s.handleRigCheckPatternOutput)
 	s.mux.HandleFunc("GET /api/patch/rigcheck/pattern", s.handleRigCheckPatternStatus)
 

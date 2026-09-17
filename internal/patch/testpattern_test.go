@@ -69,7 +69,11 @@ func harness(t *testing.T) (*RigCheck, *session.FakeTransport, *session.FakeCloc
 	tr := session.NewFakeTransport()
 	dmx := session.NewDMXOutputEngine(session.DMXConfig{Clock: clock, Transport: tr, Rate: 40})
 	t.Cleanup(dmx.Stop)
-	return NewRigCheck(dmx), tr, clock
+	rc := NewRigCheck(dmx)
+	// Legacy waveform/composition cases deliberately use Snap. Fade behavior
+	// and the one-second production default are exercised in patternfade_test.
+	_, _ = rc.SetPatternFade(0)
+	return rc, tr, clock
 }
 
 func lastFrame(t *testing.T, sent []session.SentPacket, universe uint16) ([]byte, bool) {
