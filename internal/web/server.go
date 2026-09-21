@@ -102,6 +102,8 @@ type Server struct {
 	Nodes        *session.ArtNetSession
 	RDM          *session.RDMController
 	DMX          *session.DMXOutputEngine
+	identifyMu   sync.Mutex // also serializes competing HTTP output commands
+	identify     universeIdentify
 	Registry     *registry.Registry
 	// Capture is the general-purpose ring: every decoded packet, all kinds,
 	// bounded at capture.DefaultCapacity so high-rate ArtDmx traffic doesn't
@@ -320,6 +322,7 @@ func New(nodes *session.ArtNetSession, rdmc *session.RDMController, dmx *session
 // an active RDM disk logger, if one was configured via --logrdm or
 // Settings). Safe to call even if nothing was ever opened.
 func (s *Server) Close() {
+	s.stopUniverseIdentify()
 	// Blackout-and-stop the rig check on server shutdown, same discipline
 	// as leaving the Patch screen or a page unload — never leave the rig
 	// lit (task ask, item 4's safety rule) even across a process restart.
@@ -440,7 +443,7 @@ func (s *Server) applyLogRDMPathLocked(path string) error {
 }
 
 // Handler returns the http.Handler to serve (routes + static UI).
-func (s *Server) Handler() http.Handler { return s.showGuard(s.mux) }
+func (s *Server) Handler() http.Handler { return s.showGuard(s.identifyOutputGuard(s.mux)) }
 
 // Run starts the WS hub's broadcast pumps (capture batches, node/RDM
 // events) and the capture ring's throttle ticker. Call once at startup;
@@ -475,6 +478,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/dmx", s.handleDMX)
 	s.mux.HandleFunc("POST /api/dmx/start", s.handleDMXStart)
 	s.mux.HandleFunc("POST /api/dmx/stop", s.handleDMXStop)
+	s.mux.HandleFunc("GET /api/dmx/identify", s.handleUniverseIdentifyStatus)
+	s.mux.HandleFunc("POST /api/dmx/identify/arm", s.handleUniverseIdentifyArm)
+	s.mux.HandleFunc("POST /api/dmx/identify/start", s.handleUniverseIdentifyStart)
+	s.mux.HandleFunc("POST /api/dmx/identify/heartbeat", s.handleUniverseIdentifyHeartbeat)
+	s.mux.HandleFunc("POST /api/dmx/identify/stop", s.handleUniverseIdentifyStop)
 	s.mux.HandleFunc("GET /api/settings", s.handleGetSettings)
 	s.mux.HandleFunc("POST /api/settings", s.handlePostSettings)
 	s.mux.HandleFunc("GET /api/sacn", s.handleGetSACNConfig)

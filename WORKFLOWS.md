@@ -4,7 +4,7 @@ Use **Patch → New show** for a separate rig; use the saved-show selector to re
 
 ## Before testing
 
-Check the persistent show name, NIC and output status. **Stop all output** stops Rig Check and the DMX output engine; it is not an RDM Identify-off command or a stop for another console.
+Check the persistent show name, NIC and output status. **Stop all output** stops Rig Check, manual DMX and Universe Identify; it is not an RDM Identify-off command or a stop for another console.
 
 For multi-cell phase spacing, edit the patch entry's **Phase slots**: `0` selects automatic counting; `16` explicitly gives a Rayzor sixteen phase slots. Automatic counting prefers repeated GDTF geometry, then the live RDM sub-device count. It changes only phase spacing between root fixtures, not fixture counts or channel mappings. Previously imported profiles without geometry metadata need re-profiling or an override.
 
@@ -18,6 +18,14 @@ For multi-cell phase spacing, edit the patch entry's **Phase slots**: `0` select
 - **Show recovery:** restore the preceding save, export show JSON, or reset only this show. Reset clears that show's entries/groups/presets/baselines but keeps other shows and the Fixture Library.
 
 Deleting a saved group, preset or baseline asks for confirmation. The preceding-save recovery copy includes the deleted item until another successful show save replaces that copy.
+
+## Send → Universe Identify
+
+Enter both ends of an inclusive range and choose Art-Net or sACN. These are **raw protocol universe numbers**, independent of the Settings numbering offsets. The fields start blank and never use the patch to infer a range. Universes 1–512 send 255 on channel N of universe N and zero on every other channel. **Art-Net universe 0 sends 255 on all 512 channels.** sACN zero and all numbers above 512 are rejected by this tool.
+
+Stop manual Send and Rig Check, then press **Arm range** to validate without transmitting. Press **Identify on** to send. While armed, other Send/Rig Check commands are refused. Editing the range or protocol requires a fresh arm. **Off / Disarm**, Send's **Stop**, leaving the Send tab, switching shows, and server shutdown clear and release Identify's range. The server also disarms after five seconds without the owning browser's heartbeat. sACN sends zero frames followed by stream termination. Prior manual levels are retained in their separate buffer but never automatically resumed.
+
+The demo/rehearsal can exercise Art-Net Identify over fake transport; sACN Identify is refused there to avoid opening a real output socket. Packet tests verify sACN using loopback.
 
 ## Backup and recovery
 
@@ -45,7 +53,7 @@ Saving a port does not save hidden sibling drafts. Changes that would move other
 
 Device Info and the Parameters mode selector fetch RDM mode names automatically. Current mode loads first, then remaining names sequentially and from cache where possible. A missing response is labelled “Mode name unavailable,” not guessed.
 
-Benny512 is **Art-Net-only**. The sACN monitor and its mapping question have been removed.
+RDM discovery uses Art-Net. Rig Check and Send's Universe Identify support selectable Art-Net or sACN output.
 
 ## Devices discovery
 

@@ -113,9 +113,12 @@ const SendScreen = (() => {
     return `
       <div class="b5-page-header">
         <h1 class="b5-page-header__title">Send</h1>
-        <span class="b5-page-header__meta b5-text-muted b5-text-sm">Drive one Art-Net universe by hand.</span>
+        <span class="b5-page-header__meta b5-text-muted b5-text-sm">Manual levels and universe identification.</span>
       </div>
 
+      ${UniverseIdentify.html()}
+
+      <div class="b5-send-manual">
       <section class="b5-step-section" aria-labelledby="sendUniverseHead">
         <h2 class="b5-step-section__head" id="sendUniverseHead">
           <span class="b5-step-num">1</span> Universe to send on
@@ -163,6 +166,7 @@ const SendScreen = (() => {
           <button id="btnDmxStop" class="b5-bigbtn b5-bigbtn--stop">${UI.icon('status-error')}STOP</button>
         </div>
       </section>
+      </div>
     `;
   }
 
@@ -350,12 +354,14 @@ const SendScreen = (() => {
   function init() {
     const screen = document.getElementById('screen-send');
     if (screen) screen.innerHTML = screenHtml();
+    UniverseIdentify.init();
     buildGrid();
     document.getElementById('btnDmxStart').addEventListener('click', async () => {
       try { await Api.dmxStart(); outputState = 'started'; } catch (e) { console.error('DMX start failed', e); }
       renderOutputPill();
     });
     document.getElementById('btnDmxStop').addEventListener('click', async () => {
+      void UniverseIdentify.disarm();
       try { await Api.dmxStop(); outputState = 'stopped'; } catch (e) { console.error('DMX stop failed', e); }
       renderOutputPill();
     });
@@ -374,5 +380,5 @@ const SendScreen = (() => {
     renderTally();
   }
 
-  return { init };
+  return { init, onLeaveScreen: () => UniverseIdentify.leave(), onEnterScreen: () => UniverseIdentify.refresh() };
 })();

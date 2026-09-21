@@ -105,6 +105,13 @@ func (e *DMXOutputEngine) Interval() time.Duration { return e.interval }
 // always defaults cfg.Clock to RealClock{} before storing it.
 func (e *DMXOutputEngine) Clock() Clock { return e.cfg.Clock }
 
+// NewIsolatedOutput shares the transport and wire settings, but starts with
+// no universes, frames or timers. Bounded tools must never inherit the manual
+// sender's registered universes: SendNow and Blackout visit the entire engine.
+func (e *DMXOutputEngine) NewIsolatedOutput() *DMXOutputEngine {
+	return NewDMXOutputEngine(e.cfg)
+}
+
 // TickCount reports how many ticks have fired.
 func (e *DMXOutputEngine) TickCount() uint64 {
 	e.mu.Lock()

@@ -83,3 +83,8 @@
     min-height: var(--b5-size-touch-min);
   }
 }
+/* Universe Identify has its own inline controls; only the manual Send output
+   bar sticks to the screen edge. Group labels with their inputs when wrapping. */
+.b5-identify .b5-field { flex: 1 1 160px; min-width: 0; }
+.b5-identify__actions { position: static; }
+.b5-identify__actions .b5-actionbar__buttons { flex-wrap: wrap; }

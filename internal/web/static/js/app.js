@@ -43,6 +43,9 @@
     if (currentTab === 'patch' && name !== 'patch') {
       PatchScreen.onLeaveScreen();
     }
+    if (currentTab === 'send' && name !== 'send') {
+      SendScreen.onLeaveScreen();
+    }
     tabs.forEach(t => t.classList.toggle('is-active', t.dataset.tab === name));
     screens.forEach(s => s.classList.toggle('active', s.id === 'screen-' + name));
     // Rig Walk's own fixed b5-walk-bar and the phone bottom tab bar both
@@ -57,6 +60,9 @@
     }
     if (name === 'patch') {
       PatchScreen.onEnterScreen();
+    }
+    if (name === 'send') {
+      SendScreen.onEnterScreen();
     }
   }
 

@@ -156,7 +156,10 @@ func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
 	// Do not call PatternStatus here: an unrelated browser's context polling
 	// must not keep another operator's abandoned test alive.
 	name, ok := s.PatchStore.Context()
-	writeJSON(w, 200, map[string]any{"active": ok, "name": name, "nic": s.NIC, "output": s.DMX.OutputRunning(), "simulation": s.Simulation})
+	s.identifyMu.Lock()
+	identifyRunning := s.identify.Running
+	s.identifyMu.Unlock()
+	writeJSON(w, 200, map[string]any{"active": ok, "name": name, "nic": s.NIC, "output": s.DMX.OutputRunning() || identifyRunning, "simulation": s.Simulation})
 }
 func (s *Server) handleStopAllOutput(w http.ResponseWriter, r *http.Request) {
 	s.RigCheck.Stop()

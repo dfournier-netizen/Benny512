@@ -156,6 +156,14 @@ const Api = (() => {
     sendDmx: (universe, channelBytes) => req('POST', '/api/dmx', { universe, channels: bytesToBase64(channelBytes) }),
     dmxStart: () => req('POST', '/api/dmx/start'),
     dmxStop: () => req('POST', '/api/dmx/stop'),
+    universeIdentifyStatus: () => req('GET', '/api/dmx/identify'),
+    universeIdentifyArm: (range) => req('POST', '/api/dmx/identify/arm', range),
+    universeIdentifyStart: (token) => req('POST', '/api/dmx/identify/start', { token }),
+    universeIdentifyHeartbeat: (token) => req('POST', '/api/dmx/identify/heartbeat', { token }),
+    universeIdentifyStop: () => req('POST', '/api/dmx/identify/stop'),
+    universeIdentifyStopBeacon: () => {
+      try { fetch('/api/dmx/identify/stop', { method: 'POST', keepalive: true }); } catch (e) { /* lease is the backstop */ }
+    },
     getSettings: () => req('GET', '/api/settings'),
     postSettings: (s) => req('POST', '/api/settings', s),
     // getSACNConfig/postSACNConfig: the persisted sACN configuration

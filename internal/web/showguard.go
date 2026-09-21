@@ -34,6 +34,7 @@ func (s *Server) showGuard(next http.Handler) http.Handler {
 				s.patternScopeMu.Unlock()
 			}
 			if boundary {
+				s.stopUniverseIdentify()
 				s.showRevision++
 			}
 		}
