@@ -77,9 +77,20 @@ Four shipped UI defects were caught this way that no Go test could see.
 - **Commit messages are load-bearing here.** State the root cause in plain
   words, cite the section of the primary text that governs it, and include the
   captured proof-of-failure lines.
-- Versions are tags: `vMAJOR.MINOR.PATCH`. The Windows executable is attached
-  to a GitHub Release with its SHA-256 in the release notes. **`dist/` is
-  gitignored and binaries are never committed.**
+- Versions are tags: `vMAJOR.MINOR.PATCH`. **CI builds the release**: pushing a
+  tag runs the gate suite and, only if it passes, publishes a Release with the
+  Windows executable and its SHA-256. **`dist/` is gitignored and binaries are
+  never committed.**
+- `.github/workflows/gates.yml` runs every gate above on each push and PR, so a
+  broken build is caught before anyone runs it. It installs Node deliberately:
+  a dozen test files `t.Skip` when node is absent, so a runner without it goes
+  green having tested none of the browser seams. The workflow fails instead.
+- Local test builds are unchanged and disposable:
+  `go build -buildvcs=false -o dist\benny512.exe ./cmd/benny512`. Build,
+  double-click, overwrite next time.
+- The binary knows what it is: `benny512.exe --version` prints the tag, commit
+  and build time, stamped by the release workflow's ldflags. A local build says
+  `dev / unknown` rather than claiming a version it does not have.
 - Never `git add -A`. Add by path. The tree routinely carries unrelated
   untracked state.
 

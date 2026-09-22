@@ -1,0 +1,85 @@
+name: release
+
+# Push a tag, get a Release with the Windows executable and its SHA-256.
+#
+#     git tag -a v0.1.0 -m "what this release is"
+#     git push origin v0.1.0
+#
+# The gates run first and the release is not published if they fail: a tagged
+# build that was never verified is worse than no tagged build, because it looks
+# official.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  gates:
+    uses: ./.github/workflows/gates.yml
+
+  release:
+    needs: gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x'
+          cache: true
+
+      - name: Build the Windows executable
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          COMMIT="$(git rev-parse --short HEAD)"
+          BUILT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          mkdir -p out
+          go build -buildvcs=false \
+            -ldflags "-X main.version=${VERSION} -X main.commit=${COMMIT} -X main.built=${BUILT}" \
+            -o "out/benny512_${VERSION}.exe" ./cmd/benny512
+          cd out
+          sha256sum "benny512_${VERSION}.exe" | tee SHA256SUMS.txt
+          ls -l
+
+      - name: Publish the Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          SHA="$(cut -d' ' -f1 out/SHA256SUMS.txt)"
+          SIZE="$(stat -c%s "out/benny512_${VERSION}.exe")"
+          cat > notes.md <<EOF
+          Windows x86-64, self-contained. No runtime dependencies.
+
+          | | |
+          | --- | --- |
+          | File | \`benny512_${VERSION}.exe\` |
+          | Size | ${SIZE} bytes |
+          | SHA-256 | \`${SHA}\` |
+          | Commit | \`$(git rev-parse HEAD)\` |
+
+          Built by CI from this tag with the full gate suite passing: gofmt, vet,
+          \`node --check\`, build, \`go test -count=1 ./...\`,
+          \`go test -race -count=1 ./...\`, and the Windows cross-build.
+
+          Run \`benny512.exe --version\` to confirm which build is running.
+
+          **Keep the runtime data files beside the executable** when moving an
+          installation: the saved show, its \`.bak\`, the patches catalog, the
+          Fixture Library, settings and the sACN identity. They are not in this
+          archive and are not in the repository.
+          EOF
+          gh release create "${VERSION}" \
+            "out/benny512_${VERSION}.exe" \
+            "out/SHA256SUMS.txt" \
+            --title "${VERSION}" \
+            --notes-file notes.md

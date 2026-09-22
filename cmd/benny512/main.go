@@ -25,7 +25,23 @@ import (
 	"benny512/internal/web"
 )
 
+// Build identity, set by the release workflow's ldflags. The zero values are
+// what a local `go build` produces, and they say so rather than claiming a
+// version the binary does not have: an executable that cannot tell you which
+// commit it came from should admit it.
+var (
+	version = "dev"
+	commit  = "unknown"
+	built   = "unknown"
+)
+
+// BuildInfo is the one-line build identity, for --version and the UI.
+func BuildInfo() string {
+	return fmt.Sprintf("benny512 %s (commit %s, built %s)", version, commit, built)
+}
+
 func main() {
+	showVersion := flag.Bool("version", false, "print the build identity and exit")
 	port := flag.Int("port", web.DefaultPort, "HTTP port to serve the UI and API on")
 	iface := flag.String("iface", "", "network interface name to bind for Art-Net (default: first non-loopback IPv4 interface)")
 	demo := flag.Bool("demo", false, "run against fake pre-scripted nodes/fixtures instead of real hardware")
@@ -34,6 +50,11 @@ func main() {
 	logNodes := flag.Bool("lognodes", false, "with --logrdm: also log Art-Net node-configuration traffic to the same file — the complete ArtAddress/ArtInput/ArtIpProg/ArtIpProgReply history (every instance, since these are rare and user-initiated), plus a bounded sample of the periodic ArtPoll/ArtPollReply background chatter (per-node, since that repeats for the life of the session). Has no effect without --logrdm.")
 	legacyRdmStartCode := flag.Bool("legacy-rdm-startcode", false, "escape hatch: include the 0xCC RDM start code in outbound ArtRdm payloads (pre-fix, spec-incorrect framing). Default false sends the spec-correct payload starting at the RDM sub-start code (0x01). Inbound decode accepts both forms either way.")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(BuildInfo())
+		return
+	}
 
 	logger := log.New(os.Stdout, "", log.LstdFlags)
 	logf := func(level, format string, args ...any) {
