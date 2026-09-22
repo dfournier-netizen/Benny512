@@ -1,6 +1,6 @@
 # Benny512 — Session Handoff Brief (current)
 
-**Last updated:** 2026-09-17 08:10 -0400
+**Last updated:** 2026-09-22 13:01:39 -0400
 
 ## Current delta — Rig Check fade-time transitions and ERA LOG32–34 audit
 
@@ -622,3 +622,21 @@ honest-reporting discipline already applied elsewhere in this app, pointed at
 discovery. Bounded, high value, not yet built. `86e0f16`'s attempt cap already
 bounds the wasted traffic (222 requests in LOG30 alone) but says nothing on
 screen.
+
+## Where the documents live now
+
+This project's working documents are in the repo, not beside it:
+
+| Path | What |
+| --- | --- |
+| `CLAUDE.md` | Operating rules. Loaded automatically; read it first. |
+| `docs/HANDOFF.md` | This file. Current state, overwritten in place. |
+| `docs/notes/YYYY-MM.md` | Append-only history, split by month. |
+| `docs/decisions/` | One file per durable decision. |
+| `docs/reference/` | Architecture, protocol and PID research. |
+| `docs/evidence/captures/` | Raw RDM captures from real rigs. |
+
+`main` stays releasable; work happens on a short-lived branch per chunk with a
+PR. Versions are tags and the Windows executable attaches to a GitHub Release
+with its SHA-256 -- **executables are no longer committed and `dist/` is
+ignored**, so the timestamped-exe FIFO ritual no longer applies to builds.
