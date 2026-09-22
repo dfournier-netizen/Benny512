@@ -1,0 +1,175 @@
+[2026-09-01 10:15:57.111] OUT  ArtPoll  peer=-  size=22
+  flags=0x02 (sendPollReplyOnChange=true)  diagPriority=0
+  hex: 4172742d4e6574000020000e02000000000000000000
+
+[2026-09-01 10:15:57.111] IN   ArtPoll  peer=2.11.15.26:6454  size=22
+  flags=0x02 (sendPollReplyOnChange=true)  diagPriority=0
+  hex: 4172742d4e6574000020000e02000000000000000000
+
+[2026-09-01 10:15:57.112] IN   ArtPollReply  peer=2.11.90.4:6454  size=239
+  node="Port 1" ("NETRON EN4")  ip=2.11.90.4  numPorts=1
+  netSwitch=0x00  subSwitch=0x00  status1=0xE2  nodeReport="#0001 [0189] RcPowerOk"
+  port[0]: portTypes=0x80 (input=false output=true)  goodInput=0x08  goodOutputA=0x00  goodOutputB=0x40  swIn=0x0B  swOut=0x0B
+  port[1]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  port[2]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  port[3]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  hex: 4172742d4e6574000021020b5a043619030100002a2000e2a622506f727420310000000000000000000000004e4554524f4e20454e340000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002330303031205b303138395d205263506f7765724f6b00000000000000000000000000000000000000000000000000000000000000000000000000000000000000018000000008000000000000000b0000000b00000000000000000000424c8a57476a020b5a0401dd400000003c22a606d5067f000000280000000000000000000000
+
+[2026-09-01 10:15:57.112] IN   ArtPollReply  peer=2.11.90.4:6454  size=239
+  node="Port 2" ("NETRON EN4")  ip=2.11.90.4  numPorts=1
+  netSwitch=0x00  subSwitch=0x00  status1=0xE2  nodeReport="#0001 [0190] RcPowerOk"
+  port[0]: portTypes=0x80 (input=false output=true)  goodInput=0x08  goodOutputA=0x00  goodOutputB=0x40  swIn=0x01  swOut=0x01
+  port[1]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  port[2]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  port[3]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  hex: 4172742d4e6574000021020b5a043619030100002a2000e2a622506f727420320000000000000000000000004e4554524f4e20454e340000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002330303031205b303139305d205263506f7765724f6b0000000000000000000000000000000000000000000000000000000000000000000000000000000000000001800000000800000000000000010000000100000064000000000000424c8a57476a020b5a0402dd400000003c22a606d5067f000000280000000000000000000000
+
+[2026-09-01 10:15:57.112] IN   ArtPollReply  peer=2.11.90.4:6454  size=239
+  node="Port 3" ("NETRON EN4")  ip=2.11.90.4  numPorts=1
+  netSwitch=0x00  subSwitch=0x00  status1=0xE2  nodeReport="#0001 [0191] RcPowerOk"
+  port[0]: portTypes=0x80 (input=false output=true)  goodInput=0x08  goodOutputA=0x00  goodOutputB=0x40  swIn=0x02  swOut=0x02
+  port[1]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  port[2]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  port[3]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  hex: 4172742d4e6574000021020b5a043619030100002a2000e2a622506f727420330000000000000000000000004e4554524f4e20454e340000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002330303031205b303139315d205263506f7765724f6b0000000000000000000000000000000000000000000000000000000000000000000000000000000000000001800000000800000000000000020000000200000064000000000000424c8a57476a020b5a0403dd400000003c22a606d5067f000000280000000000000000000000
+
+[2026-09-01 10:15:57.113] IN   CaptureSuppressed  peer=2.11.90.4:6454  size=239
+  suppressing further ArtPollReply from 2.11.90.4:6454 after 3 logged this session; further instances are being counted but not logged
+
+[2026-09-01 10:16:00.112] OUT  ArtPoll  peer=-  size=22
+  flags=0x02 (sendPollReplyOnChange=true)  diagPriority=0
+  hex: 4172742d4e6574000020000e02000000000000000000
+
+[2026-09-01 10:16:00.112] IN   ArtPoll  peer=2.11.15.26:6454  size=22
+  flags=0x02 (sendPollReplyOnChange=true)  diagPriority=0
+  hex: 4172742d4e6574000020000e02000000000000000000
+
+[2026-09-01 10:16:03.113] OUT  ArtPoll  peer=-  size=22
+  flags=0x02 (sendPollReplyOnChange=true)  diagPriority=0
+  hex: 4172742d4e6574000020000e02000000000000000000
+
+[2026-09-01 10:16:03.113] IN   ArtPoll  peer=2.11.15.26:6454  size=22
+  flags=0x02 (sendPollReplyOnChange=true)  diagPriority=0
+  hex: 4172742d4e6574000020000e02000000000000000000
+
+[2026-09-01 10:16:06.113] IN   CaptureSuppressed  peer=2.11.15.26:6454  size=22
+  suppressing further ArtPoll from 2.11.15.26:6454 after 3 logged this session; further instances are being counted but not logged
+
+[2026-09-01 10:16:06.113] OUT  CaptureSuppressed  peer=-  size=22
+  suppressing further ArtPoll from invalid AddrPort after 3 logged this session; further instances are being counted but not logged
+
+[2026-09-01 10:16:13.416] OUT  ArtIpProg  peer=2.11.90.4:6454  size=34
+  ArtIpProg  command=0x86 (enable=true enableDHCP=false setDefault=false programGateway=false programSubnetMask=true programIP=true)
+  progIP=2.11.90.12  progSubnetMask=255.255.0.0  progGateway=0.0.0.0
+  hex: 4172742d4e65740000f8000e00008600020b5a0cffff000000000000000000000000
+
+[2026-09-01 10:16:13.512] IN   ArtIpProgReply  peer=2.11.90.12:6454  size=34
+  ArtIpProgReply  status=0x00 (dhcpEnabled=false)
+  currentIP=2.11.90.12  currentSubnet=255.255.0.0  currentGateway=169.254.107.1  currentPort=6454
+  hex: 4172742d4e65740000f9000e00000000020b5a0cffff000019360000a9fe6b010000
+
+[2026-09-01 10:16:15.122] IN   ArtPollReply  peer=2.11.90.12:6454  size=239
+  node="Port 1" ("NETRON EN4")  ip=2.11.90.12  numPorts=1
+  netSwitch=0x00  subSwitch=0x00  status1=0xE2  nodeReport="#0001 [0213] RcPowerOk"
+  port[0]: portTypes=0x80 (input=false output=true)  goodInput=0x08  goodOutputA=0x00  goodOutputB=0x40  swIn=0x0B  swOut=0x0B
+  port[1]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  port[2]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  port[3]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  hex: 4172742d4e6574000021020b5a0c3619030100002a2000e2a622506f727420310000000000000000000000004e4554524f4e20454e340000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002330303031205b303231335d205263506f7765724f6b00000000000000000000000000000000000000000000000000000000000000000000000000000000000000018000000008000000000000000b0000000b00000000000000000000424c8a57476a020b5a0c01dd400000003c22a606d5067f000000280000000000000000000000
+
+[2026-09-01 10:16:15.123] IN   ArtPollReply  peer=2.11.90.12:6454  size=239
+  node="Port 2" ("NETRON EN4")  ip=2.11.90.12  numPorts=1
+  netSwitch=0x00  subSwitch=0x00  status1=0xE2  nodeReport="#0001 [0214] RcPowerOk"
+  port[0]: portTypes=0x80 (input=false output=true)  goodInput=0x08  goodOutputA=0x00  goodOutputB=0x40  swIn=0x01  swOut=0x01
+  port[1]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  port[2]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  port[3]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  hex: 4172742d4e6574000021020b5a0c3619030100002a2000e2a622506f727420320000000000000000000000004e4554524f4e20454e340000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002330303031205b303231345d205263506f7765724f6b0000000000000000000000000000000000000000000000000000000000000000000000000000000000000001800000000800000000000000010000000100000064000000000000424c8a57476a020b5a0c02dd400000003c22a606d5067f000000280000000000000000000000
+
+[2026-09-01 10:16:15.123] IN   ArtPollReply  peer=2.11.90.12:6454  size=239
+  node="Port 3" ("NETRON EN4")  ip=2.11.90.12  numPorts=1
+  netSwitch=0x00  subSwitch=0x00  status1=0xE2  nodeReport="#0001 [0215] RcPowerOk"
+  port[0]: portTypes=0x80 (input=false output=true)  goodInput=0x08  goodOutputA=0x00  goodOutputB=0x40  swIn=0x02  swOut=0x02
+  port[1]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  port[2]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  port[3]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  hex: 4172742d4e6574000021020b5a0c3619030100002a2000e2a622506f727420330000000000000000000000004e4554524f4e20454e340000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002330303031205b303231355d205263506f7765724f6b0000000000000000000000000000000000000000000000000000000000000000000000000000000000000001800000000800000000000000020000000200000064000000000000424c8a57476a020b5a0c03dd400000003c22a606d5067f000000280000000000000000000000
+
+[2026-09-01 10:16:15.123] IN   CaptureSuppressed  peer=2.11.90.12:6454  size=239
+  suppressing further ArtPollReply from 2.11.90.12:6454 after 3 logged this session; further instances are being counted but not logged
+
+[2026-09-01 10:16:22.880] OUT  ArtIpProg  peer=2.11.90.4:6454  size=34
+  ArtIpProg  command=0x86 (enable=true enableDHCP=false setDefault=false programGateway=false programSubnetMask=true programIP=true)
+  progIP=2.11.90.4  progSubnetMask=255.255.0.0  progGateway=0.0.0.0
+  hex: 4172742d4e65740000f8000e00008600020b5a04ffff000000000000000000000000
+
+[2026-09-01 10:16:42.747] OUT  ArtIpProg  peer=2.11.90.4:6454  size=34
+  ArtIpProg  command=0x86 (enable=true enableDHCP=false setDefault=false programGateway=false programSubnetMask=true programIP=true)
+  progIP=2.11.90.4  progSubnetMask=255.255.0.0  progGateway=0.0.0.0
+  hex: 4172742d4e65740000f8000e00008600020b5a04ffff000000000000000000000000
+
+[2026-09-01 10:17:10.392] OUT  ArtIpProg  peer=2.11.90.12:6454  size=34
+  ArtIpProg  command=0xC0 (enable=true enableDHCP=true setDefault=false programGateway=false programSubnetMask=false programIP=false)
+  progIP=0.0.0.0  progSubnetMask=0.0.0.0  progGateway=0.0.0.0
+  hex: 4172742d4e65740000f8000e0000c000000000000000000000000000000000000000
+
+[2026-09-01 10:18:57.192] IN   ArtPollReply  peer=2.11.107.71:6454  size=239
+  node="Port 1" ("NETRON EN4")  ip=2.11.107.71  numPorts=1
+  netSwitch=0x00  subSwitch=0x00  status1=0xE2  nodeReport="#0001 [0289] RcPowerOk"
+  port[0]: portTypes=0x80 (input=false output=true)  goodInput=0x08  goodOutputA=0x00  goodOutputB=0x40  swIn=0x0B  swOut=0x0B
+  port[1]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  port[2]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  port[3]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  hex: 4172742d4e6574000021020b6b473619030100002a2000e2a622506f727420310000000000000000000000004e4554524f4e20454e340000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002330303031205b303238395d205263506f7765724f6b00000000000000000000000000000000000000000000000000000000000000000000000000000000000000018000000008000000000000000b0000000b00000000000000000000424c8a57476a020b6b4701dd400000003c22a606d5067f000000280000000000000000000000
+
+[2026-09-01 10:18:57.193] IN   ArtPollReply  peer=2.11.107.71:6454  size=239
+  node="Port 2" ("NETRON EN4")  ip=2.11.107.71  numPorts=1
+  netSwitch=0x00  subSwitch=0x00  status1=0xE2  nodeReport="#0001 [0290] RcPowerOk"
+  port[0]: portTypes=0x80 (input=false output=true)  goodInput=0x08  goodOutputA=0x00  goodOutputB=0x40  swIn=0x01  swOut=0x01
+  port[1]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  port[2]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  port[3]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  hex: 4172742d4e6574000021020b6b473619030100002a2000e2a622506f727420320000000000000000000000004e4554524f4e20454e340000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002330303031205b303239305d205263506f7765724f6b0000000000000000000000000000000000000000000000000000000000000000000000000000000000000001800000000800000000000000010000000100000064000000000000424c8a57476a020b6b4702dd400000003c22a606d5067f000000280000000000000000000000
+
+[2026-09-01 10:18:57.193] IN   ArtPollReply  peer=2.11.107.71:6454  size=239
+  node="Port 3" ("NETRON EN4")  ip=2.11.107.71  numPorts=1
+  netSwitch=0x00  subSwitch=0x00  status1=0xE2  nodeReport="#0001 [0291] RcPowerOk"
+  port[0]: portTypes=0x80 (input=false output=true)  goodInput=0x08  goodOutputA=0x00  goodOutputB=0x40  swIn=0x02  swOut=0x02
+  port[1]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  port[2]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  port[3]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  hex: 4172742d4e6574000021020b6b473619030100002a2000e2a622506f727420330000000000000000000000004e4554524f4e20454e340000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002330303031205b303239315d205263506f7765724f6b0000000000000000000000000000000000000000000000000000000000000000000000000000000000000001800000000800000000000000020000000200000064000000000000424c8a57476a020b6b4703dd400000003c22a606d5067f000000280000000000000000000000
+
+[2026-09-01 10:18:57.193] IN   CaptureSuppressed  peer=2.11.107.71:6454  size=239
+  suppressing further ArtPollReply from 2.11.107.71:6454 after 3 logged this session; further instances are being counted but not logged
+
+[2026-09-01 10:19:00.218] IN   ArtPollReply  peer=2.11.90.71:6454  size=239
+  node="Port 1" ("NETRON EN4")  ip=2.11.90.71  numPorts=1
+  netSwitch=0x00  subSwitch=0x00  status1=0xE2  nodeReport="#0001 [0293] RcPowerOk"
+  port[0]: portTypes=0x80 (input=false output=true)  goodInput=0x08  goodOutputA=0x00  goodOutputB=0x40  swIn=0x0B  swOut=0x0B
+  port[1]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  port[2]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  port[3]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  hex: 4172742d4e6574000021020b5a473619030100002a2000e2a622506f727420310000000000000000000000004e4554524f4e20454e340000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002330303031205b303239335d205263506f7765724f6b00000000000000000000000000000000000000000000000000000000000000000000000000000000000000018000000008000000000000000b0000000b00000000000000000000424c8a57476a020b5a4701dd400000003c22a606d5067f000000280000000000000000000000
+
+[2026-09-01 10:19:00.218] IN   ArtPollReply  peer=2.11.90.71:6454  size=239
+  node="Port 2" ("NETRON EN4")  ip=2.11.90.71  numPorts=1
+  netSwitch=0x00  subSwitch=0x00  status1=0xE2  nodeReport="#0001 [0294] RcPowerOk"
+  port[0]: portTypes=0x80 (input=false output=true)  goodInput=0x08  goodOutputA=0x00  goodOutputB=0x40  swIn=0x01  swOut=0x01
+  port[1]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  port[2]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  port[3]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  hex: 4172742d4e6574000021020b5a473619030100002a2000e2a622506f727420320000000000000000000000004e4554524f4e20454e340000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002330303031205b303239345d205263506f7765724f6b0000000000000000000000000000000000000000000000000000000000000000000000000000000000000001800000000800000000000000010000000100000064000000000000424c8a57476a020b5a4702dd400000003c22a606d5067f000000280000000000000000000000
+
+[2026-09-01 10:19:00.218] IN   ArtPollReply  peer=2.11.90.71:6454  size=239
+  node="Port 3" ("NETRON EN4")  ip=2.11.90.71  numPorts=1
+  netSwitch=0x00  subSwitch=0x00  status1=0xE2  nodeReport="#0001 [0295] RcPowerOk"
+  port[0]: portTypes=0x80 (input=false output=true)  goodInput=0x08  goodOutputA=0x00  goodOutputB=0x40  swIn=0x02  swOut=0x02
+  port[1]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  port[2]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  port[3]: portTypes=0x00 (input=false output=false)  goodInput=0x00  goodOutputA=0x00  goodOutputB=0x00  swIn=0x00  swOut=0x00
+  hex: 4172742d4e6574000021020b5a473619030100002a2000e2a622506f727420330000000000000000000000004e4554524f4e20454e340000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002330303031205b303239355d205263506f7765724f6b0000000000000000000000000000000000000000000000000000000000000000000000000000000000000001800000000800000000000000020000000200000064000000000000424c8a57476a020b5a4703dd400000003c22a606d5067f000000280000000000000000000000
+
+[2026-09-01 10:19:00.218] IN   CaptureSuppressed  peer=2.11.90.71:6454  size=239
+  suppressing further ArtPollReply from 2.11.90.71:6454 after 3 logged this session; further instances are being counted but not logged
+

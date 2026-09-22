@@ -4,3 +4,8 @@ dist/
 /benny512.exe
 .gocache/
 .gocache-sacn/
+
+# Runtime data and captures the app writes locally
+Logs/
+benny512-*.json
+benny512-*.json.bak

@@ -1,0 +1,18 @@
+
+[2026-09-02 15:59:48.562] OUT  ArtTodControl  peer=2.11.90.4:6454  size=24
+  ArtTodControl  command=0x01 (AtcFlush)  net=0
+  addresses: [3]
+  hex: 4172742d4e6574000082000e000000000000000000000103
+
+[2026-09-02 16:00:18.757] OUT  ArtTodControl  peer=2.11.90.4:6454  size=24
+  ArtTodControl  command=0x01 (AtcFlush)  net=0
+  addresses: [11]
+  hex: 4172742d4e6574000082000e00000000000000000000010b
+
+[2026-09-02 16:00:18.982] IN   ArtTodData  peer=2.11.90.4:6454  size=28
+  ArtTodData  command=0x00 (TodFull)  net=0
+  addresses: [11]
+  rdmVersion=1 port=1 uidTotal=0 blockCount=0
+  uids: (none in this block)
+  hex: 4172742d4e6574000081000e01010000000000000400000b00000000
+
