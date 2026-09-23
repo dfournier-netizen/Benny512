@@ -1,0 +1,72 @@
+name: gates
+
+# The gate suite from CLAUDE.md, run on every push and pull request. A build
+# that has not passed these has not been verified, and the point of running
+# them here is that nobody has to remember to.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Called by release.yml so a tag cannot publish a build these never passed.
+  workflow_call:
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x'
+          cache: true
+
+      # Node is NOT optional here. A dozen test files call exec.LookPath("node")
+      # and t.Skip when it is missing, so a runner without Node produces a green
+      # run that tested none of the browser seams. The guard below turns that
+      # silent skip into a failure.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Node must be present, or the browser-seam tests skip silently
+        run: |
+          command -v node >/dev/null || {
+            echo "node is not on PATH: the Go<->JS seam tests would t.Skip and this run would be green while testing nothing"
+            exit 1
+          }
+          node --version
+
+      # -buildvcs=false throughout: the repo's .git trips a VCS-ownership check.
+      - name: gofmt (must be empty)
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt reported unformatted files:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet -buildvcs=false ./...
+
+      - name: node --check every browser script
+        run: |
+          find internal/web/static/js -name '*.js' -print0 | xargs -0 -n1 node --check
+
+      - name: go build
+        run: go build -buildvcs=false ./...
+
+      - name: go test
+        run: go test -buildvcs=false -count=1 ./...
+
+      - name: go test -race
+        run: go test -buildvcs=false -race -count=1 ./...
+
+      - name: windows cross-build
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: go build -buildvcs=false ./...

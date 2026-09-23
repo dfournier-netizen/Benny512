@@ -1,0 +1,50 @@
+
+LOG29: 1292 hex-bearing packet records; raw RDM checksum failures: 2
+4d50001158fe out/in 64 6 PID requests {'0060': 12, '0050': 3, '0081': 9, '0080': 12, '0070': 10, '0011': 12, '00f0': 6}
+  reply 2026-09-14 09:56:40.004 line 182 PID 0081 type 0 data 4d415254494e valid True latest request delay ms 30.0
+  reply 2026-09-14 09:59:49.501 line 6912 PID 0070 type 2 data 0000 valid True latest request delay ms 27.0
+  reply 2026-09-14 09:59:52.518 line 7274 PID 0011 type 2 data 0000 valid True latest request delay ms 16.0
+  reply 2026-09-14 10:01:16.575 line 8732 PID 0070 type 2 data 0000 valid True latest request delay ms 26.0
+  reply 2026-09-14 10:01:19.594 line 8765 PID 0011 type 2 data 0000 valid True latest request delay ms 18.0
+  reply 2026-09-14 10:01:21.106 line 8792 PID 0081 type 0 data 4d415254494e valid True latest request delay ms 12.0
+4d500011593e out/in 0 0 PID requests {}
+4d500011597e out/in 84 0 PID requests {'0060': 15, '0050': 3, '0081': 15, '0080': 15, '0070': 15, '0011': 12, '00c0': 3, '00f0': 6}
+4d50001159be out/in 66 0 PID requests {'0060': 12, '0050': 3, '0081': 12, '0080': 12, '0070': 12, '0011': 12, '00f0': 3}
+4d50001159fe out/in 66 0 PID requests {'0060': 12, '0050': 3, '0081': 12, '0080': 12, '0070': 12, '0011': 12, '00f0': 3}
+Martin tables (raw UID bytes):
+  2026-09-14 09:56:30.896 line 36 2.11.90.1:6454 raw address 21 ['4d50001159be', '4d500011597e', '4d50001159fe', '4d50001158fe', '4d50001158ff', '4d50001158ea', '4d5000115907', '4d500011591c', '4d5000115918', '4d500011592d', '4d5000115940']
+  2026-09-14 09:59:08.037 line 6533 2.11.90.6:6454 raw address 11 ['4d50001158f6', '4d5000115902', '4d5000115905', '4d500011590b', '4d5000115911', '4d500011592f', '4d5000115933', '4d5000115949']
+Healthy Martin response totals:
+2.11.90.1:6454 35 35
+2.11.90.6:6454 40 40
+
+LOG30: 1915 hex-bearing packet records; raw RDM checksum failures: 0
+4d50001158fe out/in 63 2 PID requests {'0060': 12, '0050': 3, '0081': 12, '0070': 9, '0011': 9, '0080': 12, '00c0': 3, '0082': 3}
+  reply 2026-09-16 14:03:49.457 line 259 PID 0070 type 2 data 0000 valid True latest request delay ms 9.0
+  reply 2026-09-16 14:06:54.477 line 7828 PID 0070 type 2 data 0000 valid True latest request delay ms 8.0
+4d500011593e out/in 0 0 PID requests {}
+4d500011597e out/in 63 0 PID requests {'0060': 12, '0050': 3, '0081': 12, '0080': 12, '0070': 12, '0011': 9, '00c0': 3}
+4d50001159be out/in 48 0 PID requests {'0060': 9, '0050': 3, '0081': 9, '0080': 9, '0070': 9, '0011': 9}
+4d50001159fe out/in 48 0 PID requests {'0060': 9, '0050': 3, '0081': 9, '0080': 9, '0070': 9, '0011': 9}
+Martin tables (raw UID bytes):
+  2026-09-16 14:03:34.307 line 26 2.11.90.1:6454 raw address 21 ['4d50001159be', '4d50001159fe', '4d500011597e', '4d50001158fe', '4d50001158ff', '4d50001158ea', '4d500011591c', '4d5000115907', '4d5000115918', '4d500011592d', '4d5000115940']
+  2026-09-16 14:06:01.666 line 6636 2.11.90.6:6454 raw address 11 ['4d50001158f6', '4d5000115902', '4d5000115905', '4d500011590b', '4d5000115911', '4d500011592f', '4d5000115933', '4d5000115949']
+Healthy Martin response totals:
+2.11.90.1:6454 89 89
+2.11.90.6:6454 79 79
+
+LOG31: 1451 hex-bearing packet records; raw RDM checksum failures: 0
+4d50001158fe out/in 28 3 PID requests {'0060': 4, '0050': 3, '0081': 6, '0080': 6, '0070': 3, '0011': 6}
+  reply 2026-09-16 17:19:51.007 line 545 PID 0070 type 2 data 0000 valid True latest request delay ms 11.0
+  reply 2026-09-16 17:21:16.875 line 2018 PID 0060 type 0 data 0100009b0509000000f0002a01010001000001 valid True latest request delay ms 27.0
+  reply 2026-09-16 17:21:16.879 line 2035 PID 0070 type 2 data 0000 valid True latest request delay ms 4.0
+4d500011593e out/in 374 0 PID requests {'0060': 233, '0050': 3, '0081': 21, '0080': 21, '0070': 21, '0011': 18, '00c0': 3, '0082': 3, '00e0': 3, '0345': 3, '0343': 3, '1000': 3, '0347': 3, '0341': 3, '0342': 3, '1040': 3, '0030': 3, '0400': 3, '1010': 3, '0401': 3, '0402': 3, '0405': 3, '0403': 3, '1020': 3, '1031': 3}
+4d500011597e out/in 78 0 PID requests {'0060': 15, '0050': 3, '0081': 15, '0080': 15, '0070': 15, '0011': 15}
+4d50001159be out/in 0 0 PID requests {}
+4d50001159fe out/in 78 0 PID requests {'0060': 15, '0050': 3, '0081': 15, '0080': 15, '0070': 15, '0011': 15}
+Martin tables (raw UID bytes):
+  2026-09-16 17:19:31.377 line 316 2.11.90.1:6454 raw address 21 ['4d50001159fe', '4d500011597e', '4d50001158fe', '4d50001158ff', '4d50001158ea', '4d500011593e', '4d5000115907', '4d500011591c', '4d5000115918', '4d500011592d', '4d5000115940']
+  2026-09-16 17:24:19.854 line 8393 2.11.90.6:6454 raw address 11 ['4d50001158f6', '4d5000115902', '4d5000115905', '4d500011590b', '4d5000115911', '4d500011592f', '4d5000115933', '4d5000115949']
+Healthy Martin response totals:
+2.11.90.1:6454 48 48
+2.11.90.6:6454 32 32
