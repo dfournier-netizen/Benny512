@@ -6,7 +6,7 @@
 
 The previously deferred Rig Check fade-time work is now implemented. The Rig Check UI defaults to a **1 second** fade and offers Snap (0 seconds) plus 250 ms through 30 seconds. The setting applies to manual/test level transitions, entry and scope changes, and leaves waveform rate unchanged. Continuous values interpolate as complete 16-bit values; discrete shutter/wheel/control values remain discrete. Stop and the watchdog still blackout immediately. The setting is included in saved Rig Check presets. Focused fade tests and the affected Go packages pass; JavaScript syntax checks pass.
 
-The ERA investigation now includes LOG32, LOG33 and LOG34. LOG33 showed exactly seven healthy fixtures while the suspect was power cycling. LOG34 showed the anomaly returning after reset: 11 then 10 advertised identities, with changing extras (`001159BC`, `001159FC`, `0011597E`, `001159FE`) while the same seven healthy fixtures answered 28/28. The consistent `001159FE` can be generated as a valid E1.20 discovery collision pattern from encoded responses, but this is a hypothesis rather than captured serial evidence. See `Logs/ERA-LOG32-investigation.md`, `Logs/ERA-LOG33-investigation.md`, `Logs/ERA-LOG34-investigation.md`, and `Logs/ERA-discovery-mechanism-analysis.md`.
+The ERA investigation now includes LOG32, LOG33 and LOG34. LOG33 showed exactly seven healthy fixtures while the suspect was power cycling. LOG34 showed the anomaly returning after reset: 11 then 10 advertised identities, with changing extras (`001159BC`, `001159FC`, `0011597E`, `001159FE`) while the same seven healthy fixtures answered 28/28. The consistent `001159FE` can be generated as a valid E1.20 discovery collision pattern from encoded responses, but this is a hypothesis rather than captured serial evidence. See `docs/evidence/analysis/ERA-LOG32-investigation.md`, `docs/evidence/analysis/ERA-LOG33-investigation.md`, `docs/evidence/analysis/ERA-LOG34-investigation.md`, and `docs/evidence/analysis/ERA-discovery-mechanism-analysis.md`.
 
 ## Current delta — September 17: port advertisement/reply reporting completed
 
@@ -14,7 +14,7 @@ The ERA-related software follow-up is implemented: Devices → **Gateway adverti
 
 Latest executable: **`Benny512/dist/benny512_091726_0535AM.exe`**. It is a build of the current uncommitted worktree at HEAD `981ed63`, including the pre-existing params/probe-cache changes; those files were not changed by this reporting task. No commit was made. Affected-package tests, browser behavior tests, build and vet pass. Full-suite validation has one reproducible adapter-dependent sACN test failure; do not describe this build as passing every test. Hard-reload the browser after switching executables.
 
-ERA root cause remains unproven. Read `Logs/ERA-investigation-2026-09-17.md` and the September 17 correction entry before relying on the older categorical hardware conclusions.
+ERA root cause remains unproven. Read `docs/evidence/analysis/ERA-investigation-2026-09-17.md` and the September 17 correction entry before relying on the older categorical hardware conclusions.
 
 ## What Benny512 is
 
