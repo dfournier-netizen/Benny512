@@ -20,7 +20,7 @@ func TestBuildRDMInferredChannelFunctions_PrimaryMapped(t *testing.T) {
 		{Offset: 5, Type: rdm.SlotTypePrimary, Value: uint16(rdm.SDPan)},
 	}
 	got := BuildRDMInferredChannelFunctions(slots, nil)
-	cf, ok := got[5]
+	cf, ok := got[6]
 	if !ok {
 		t.Fatal("expected an entry at offset 5")
 	}
@@ -38,14 +38,28 @@ func TestBuildRDMInferredChannelFunctions_PrimaryMapped(t *testing.T) {
 	}
 }
 
+// RDM offsets start at zero; patch offsets start at one. A zero key is
+// ignored by the function-pattern engine and an unshifted key drives the
+// preceding DMX channel.
+func TestRDMOffsetsResolveToPatchChannels(t *testing.T) {
+	slots := []rdm.SlotInfoEntry{
+		{Offset: 0, Type: rdm.SlotTypePrimary, Value: uint16(rdm.SDPan)},
+		{Offset: 1, Type: rdm.SlotTypeSecondaryFine, Value: 0},
+	}
+	got := BuildRDMInferredChannelFunctions(slots, nil)
+	if _, wrong := got[0]; wrong || got[1].Attribute != "Pan" || got[2].Attribute != "Pan" {
+		t.Fatalf("zero-based RDM slots must become patch channels 1 and 2: %+v", got)
+	}
+}
+
 // TestBuildRDMInferredChannelFunctions_SlotDescriptionPreferred: when a
 // SLOT_DESCRIPTION text is supplied for an offset, it takes precedence over
 // the symbolic Slot Label ID name in RDMSlotLabel — stronger raw evidence.
 func TestBuildRDMInferredChannelFunctions_SlotDescriptionPreferred(t *testing.T) {
 	slots := []rdm.SlotInfoEntry{{Offset: 0, Type: rdm.SlotTypePrimary, Value: uint16(rdm.SDIntensity)}}
 	got := BuildRDMInferredChannelFunctions(slots, map[uint16]string{0: "Master Dim"})
-	if got[0].RDMSlotLabel != "Master Dim" {
-		t.Errorf("RDMSlotLabel = %q, want device's own SLOT_DESCRIPTION text", got[0].RDMSlotLabel)
+	if got[1].RDMSlotLabel != "Master Dim" {
+		t.Errorf("RDMSlotLabel = %q, want device's own SLOT_DESCRIPTION text", got[1].RDMSlotLabel)
 	}
 }
 
@@ -59,11 +73,11 @@ func TestBuildRDMInferredChannelFunctions_SecondaryResolvesViaPrimary(t *testing
 		{Offset: 1, Type: rdm.SlotTypeSecondaryFine, Value: 0},
 	}
 	got := BuildRDMInferredChannelFunctions(slots, nil)
-	if got[1].Attribute != "Pan" {
-		t.Errorf("secondary slot Attribute = %q, want Pan (resolved via primary at offset 0)", got[1].Attribute)
+	if got[2].Attribute != "Pan" {
+		t.Errorf("secondary slot Attribute = %q, want Pan (resolved via primary at offset 0)", got[2].Attribute)
 	}
-	if got[1].Source != patch.SourceRDMInferred {
-		t.Errorf("secondary slot Source = %v, want SourceRDMInferred", got[1].Source)
+	if got[2].Source != patch.SourceRDMInferred {
+		t.Errorf("secondary slot Source = %v, want SourceRDMInferred", got[2].Source)
 	}
 }
 
@@ -75,7 +89,7 @@ func TestBuildRDMInferredChannelFunctions_OrphanSecondarySkipped(t *testing.T) {
 		{Offset: 1, Type: rdm.SlotTypeSecondaryFine, Value: 99}, // offset 99 not in slots
 	}
 	got := BuildRDMInferredChannelFunctions(slots, nil)
-	if _, ok := got[1]; ok {
+	if _, ok := got[2]; ok {
 		t.Error("expected orphan secondary slot to be skipped, not resolved")
 	}
 }
@@ -88,7 +102,7 @@ func TestBuildRDMInferredChannelFunctions_OrphanSecondarySkipped(t *testing.T) {
 func TestBuildRDMInferredChannelFunctions_UnmappedLabelStillPresent(t *testing.T) {
 	slots := []rdm.SlotInfoEntry{{Offset: 0, Type: rdm.SlotTypePrimary, Value: uint16(rdm.SDMacro)}}
 	got := BuildRDMInferredChannelFunctions(slots, nil)
-	cf, ok := got[0]
+	cf, ok := got[1]
 	if !ok {
 		t.Fatal("expected an entry even for an unmapped slot label")
 	}
@@ -117,8 +131,8 @@ func TestBuildRDMInferredChannelFunctions_NeverProducesGDTFSource(t *testing.T) 
 			t.Errorf("offset %d: Source = %v, want SourceRDMInferred", offset, cf.Source)
 		}
 	}
-	if got[2].Attribute != "Shaper" {
-		t.Errorf("SD_FRAMING_SHUTTER Attribute = %q, want Shaper", got[2].Attribute)
+	if got[3].Attribute != "Shaper" {
+		t.Errorf("SD_FRAMING_SHUTTER Attribute = %q, want Shaper", got[3].Attribute)
 	}
 }
 

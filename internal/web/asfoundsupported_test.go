@@ -329,7 +329,8 @@ func TestAsFound_LOG24_NeverAsksForWhatTheFixtureDoesNotAdvertise(t *testing.T) 
 // params' own CURVE gate), DEVICE_INFO, DMX_START_ADDRESS, DEVICE_LABEL,
 // CURVE, CURVE_DESCRIPTION, DMX_PERSONALITY_DESCRIPTION, TILT_INVERT — and
 // PAN_INVERT and PAN_TILT_SWAP, both NACK UNKNOWN_PID, both avoidable.
-// After it, 8: the same list without those two.
+// After it, 8 settings GETs plus an optional SLOT_INFO GET for an
+// unprofiled committed fixture that advertises it.
 func TestAsFound_LOG24_TotalGETCount(t *testing.T) {
 	h := newHarness(t)
 	dev := &jdc1Recorder{supported: jdc1SupportedPIDs()}
@@ -342,6 +343,7 @@ func TestAsFound_LOG24_TotalGETCount(t *testing.T) {
 		rdm.PIDDeviceLabel,               // 0x0082
 		rdm.PIDDMXPersonalityDescription, // 0x00E1
 		rdm.PIDDMXStartAddress,           // 0x00F0
+		rdm.PIDSlotInfo,                  // 0x0120 — RDM channel inference
 		rdm.PIDCurve,                     // 0x0343
 		rdm.PIDCurveDescription,          // 0x0344
 		rdm.PIDTiltInvert,                // 0x0601

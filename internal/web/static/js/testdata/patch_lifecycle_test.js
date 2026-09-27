@@ -306,8 +306,6 @@ function clickTab(view) { live('#patchViewTabs .detail-tab-btn', b => b.dataset.
 async function goToRigCheckFunction() {
   clickTab('rigcheck');
   await settle();
-  doc.getElementById('rcSubFunction').fire('click');
-  await settle();
 }
 
 async function startOutput() {
@@ -331,16 +329,12 @@ async function main() {
     'calls after the switch: ' + JSON.stringify(callNames()));
   check(outputEnabled === false, 'pattern output is off after the sub-tab switch', 'outputEnabled=' + outputEnabled);
 
-  console.log('2. leaving the Function SUB-VIEW for Channel check stops the output');
+  console.log('2. Rig Check opens Function check directly');
   await goToRigCheckFunction();
-  check(await startOutput(), 'output is flowing before the sub-view switch', 'outputEnabled=' + outputEnabled);
-  calls.length = 0;
-  doc.getElementById('rcSubClassic').fire('click');
-  await settle();
-  const stop2 = calls.filter(c => c.name === 'patternSetOutput' && c.args === false);
-  check(stop2.length === 1, 'Function -> Channel check sends exactly one patternSetOutput(false)',
-    'calls after the switch: ' + JSON.stringify(callNames()));
-  check(outputEnabled === false, 'pattern output is off after the sub-view switch', 'outputEnabled=' + outputEnabled);
+  check(!/Channel check/.test(doc.getElementById('rcSubBody').innerHTML),
+    'removed Channel check is absent from Rig Check');
+  check(!!doc.getElementById('rcpStart').handlers.click,
+    'Function check Start is available directly');
 
   console.log('3. a Reconcile commit reaches the screen\'s own patch copy without a manual refresh');
   clickTab('reconcile');

@@ -29,13 +29,13 @@ The demo/rehearsal can exercise Art-Net Identify over fake transport; sACN Ident
 
 ## Backup and recovery
 
-The executable's directory is the data root. Keep `benny512-patch.json`, its `.bak`, the `benny512-patch.json.patches` directory and `.active` marker, library and Rig Walk JSON together when backing up. The `.bak` files provide ONE preceding save, not historical version control or a substitute for off-machine backup.
+The executable's directory holds show and Rig Walk data. Keep `benny512-patch.json`, its `.bak`, the `benny512-patch.json.patches` directory and `.active` marker, and Rig Walk JSON together when backing up. Back up the Fixture Library separately from `%APPDATA%\Benny512\benny512-library.json`, or use its Export library JSON action. The `.bak` files provide ONE preceding save, not historical version control or a substitute for off-machine backup.
 
 If the selected show is damaged, Benny512 will not silently switch to another rig. Open Show tools and restore its preceding save. If that copy is unavailable, close Benny512 and restore a known-good exported show JSON to the corresponding runtime file. Settings → Full Reset is different: it erases ALL shows and their recovery copies, retaining only the Fixture Library among those stores.
 
 ## Fixture library
 
-Open **Fixture library** in the top strip. It is saved as `benny512-library.json` beside the executable, shared across shows and retained by Full Reset.
+Open **Fixture library** in the top strip. It is saved in `%APPDATA%\Benny512\benny512-library.json` on Windows, shared across shows and installations for that Windows user, and retained by Full Reset. On first launch after upgrading, a valid library beside the executable is copied there if no shared library exists. The original remains untouched. Export the library JSON to transfer it to another computer or user account.
 
 - **Import GDTF / library JSON:** preview, then Apply import. Modes merge into the matching fixture type. Original GDTFs imported here are retained and individually downloadable.
 - **Save profiles from this patch:** remembers fixture types, modes and channel maps from the active show. It cannot recreate an original GDTF archive from a patch.

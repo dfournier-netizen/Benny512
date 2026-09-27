@@ -212,6 +212,7 @@ const PatchScreen = (() => {
     // to the Entries tab, and a way to ask for a full re-render.
     RigCheckPanel.init({
       getEntries: () => (patchData.active && patchData.patch ? patchData.patch.entries || [] : []),
+      reloadPatch: () => refreshPatchDataOnly(),
       setStatus: (m) => setStatus(m),
       goToEntries: () => setView('entries'),
     });
@@ -1574,18 +1575,8 @@ const PatchScreen = (() => {
   // Entries/Reconcile/Rig Check switcher one level up, and nesting the same
   // component two deep reads as confusing in the kit's own styling.
   function renderRigCheck(body) {
-    body.innerHTML = `
-      <div class="b5-row" style="margin-bottom:var(--b5-space-3)" role="tablist" aria-label="Rig check mode">
-        <button id="rcSubClassic" class="b5-btn b5-btn--sm ${rcSubView === 'classic' ? 'b5-btn--primary' : ''}" role="tab" aria-selected="${rcSubView === 'classic'}">Channel check</button>
-        <button id="rcSubFunction" class="b5-btn b5-btn--sm ${rcSubView === 'function' ? 'b5-btn--primary' : ''}" role="tab" aria-selected="${rcSubView === 'function'}">Function check</button>
-      </div>
-      <div id="rcSubBody"></div>
-    `;
-    document.getElementById('rcSubClassic').addEventListener('click', () => setRcSubView('classic'));
-    document.getElementById('rcSubFunction').addEventListener('click', () => setRcSubView('function'));
-    const sub = document.getElementById('rcSubBody');
-    if (rcSubView === 'function') RigCheckPanel.attach(sub);
-    else renderClassicRigCheck(sub);
+    body.innerHTML = '<div id="rcSubBody"></div>';
+    RigCheckPanel.attach(document.getElementById('rcSubBody'));
   }
 
   async function setRcSubView(v) {

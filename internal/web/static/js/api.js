@@ -273,6 +273,7 @@ const Api = (() => {
 
     // --- Phase 2a: patch model, patch<->RDM reconcile, rig check ---
     getPatch: () => req('GET', '/api/patch'),
+    readPatchRDMSlots: (id) => req('POST', `/api/patch/entries/${encodeURIComponent(id)}/rdm-slots`),
     getPatches: () => req('GET', '/api/patches'),
     createSavedPatch: (name) => req('POST', '/api/patches', { name }),
     loadSavedPatch: (id) => req('POST', `/api/patches/${encodeURIComponent(id)}/load`),
