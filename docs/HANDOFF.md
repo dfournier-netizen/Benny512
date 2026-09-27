@@ -1,6 +1,16 @@
 # Benny512 — Session Handoff Brief (current)
 
-**Last updated:** 2026-09-22 13:01:39 -0400
+**Last updated:** 2026-09-26 22:16:58 -0400
+
+## Current delta — RDM channel slots, one Rig Check page, shared library path
+
+Work in progress on `fix/rdm-slots-and-library` from `ec98c84`. RDM `SLOT_INFO` offsets are zero-based, while patch channel offsets are one-based; the bridge now converts them. A confirmed, unprofiled entry reads advertised slots during Reconcile's as-found pass when the live footprint agrees, and Rig Check offers a read action for existing confirmed entries. Unsupported, empty, malformed, or mismatched replies do not invent channels; GDTF maps remain authoritative. Physical output has not been exercised.
+
+Rig Check opens directly on function tests; the Channel check subview is removed. Parameters introspection starts automatically when the selected fixture's Parameters pane opens, once per selected UID, with manual Refresh available. Generic boolean/bit-field toggles show explicit reported on/off and preserve checkbox state across a section render. Nodes inspector's duplicate static port report and the misleading staged-control status copy are removed; the remaining port report uses the node's live data.
+
+The Fixture Library now uses the user's configuration directory (`%APPDATA%\Benny512\benny512-library.json` on Windows), shared by installations under that Windows user. A valid old file beside the executable is copied on first launch only; the old file is left in place, and an existing shared file is never overwritten. Show files still live beside their executable. Back up/export the shared library when moving to another computer or user account.
+
+Go 1.26 was installed locally for validation. Focused web/cmd tests pass apart from `TestGetNICs`, which fails in this container because netlink returns `operation not permitted`. The normal and race full suites additionally hit the same restriction in `TestListInterfaces`. Vet and Linux/Windows builds pass. The disposable demo browser connection stalled, so visual and hardware verification remain outstanding. No Windows executable or release has been made. See the latest project-notes entry for the precise scope.
 
 ## Current delta — Rig Check fade-time transitions and ERA LOG32–34 audit
 
@@ -9,6 +19,8 @@ The previously deferred Rig Check fade-time work is now implemented. The Rig Che
 The ERA investigation now includes LOG32, LOG33 and LOG34. LOG33 showed exactly seven healthy fixtures while the suspect was power cycling. LOG34 showed the anomaly returning after reset: 11 then 10 advertised identities, with changing extras (`001159BC`, `001159FC`, `0011597E`, `001159FE`) while the same seven healthy fixtures answered 28/28. The consistent `001159FE` can be generated as a valid E1.20 discovery collision pattern from encoded responses, but this is a hypothesis rather than captured serial evidence. See `docs/evidence/analysis/ERA-LOG32-investigation.md`, `docs/evidence/analysis/ERA-LOG33-investigation.md`, `docs/evidence/analysis/ERA-LOG34-investigation.md`, and `docs/evidence/analysis/ERA-discovery-mechanism-analysis.md`.
 
 ## Current delta — September 17: port advertisement/reply reporting completed
+
+The following September 17 and earlier sections preserve historical snapshots. The current branch and validation state are in the delta above.
 
 The ERA-related software follow-up is implemented: Devices → **Gateway advertisements and RDM replies** reports each cached gateway port's advertised UIDs, answered UIDs, reads pending, not-read entries, and entries with no response after automatic attempts. See the final entry for implementation, evidence, release and remaining limitations. This supersedes the older statements below that this reporting is not built.
 
@@ -24,7 +36,7 @@ The operator is a lighting professional, not a programmer. These are working ins
 
 ## Current repository state
 
-- Repository: `RDM App\\Benny512`; latest committed HEAD is **`1752b7c`**, “Ballyhoo gets its own rate bounds, 0.005-2.5 Hz.” The worktree is clean. Commits since `6dad245`: `46b9cb9` fixture-type scope, `a15c3b5`/`bfbd2c6` the sACN encoder and its wire-format correction, `f391de6` gitignore, `a81bdcb`/`cf52265` the sACN transport, `27e7576` sACN output in Rig Check, `b586361` its browser half, `4dc0f40` the Function check tab, `b1233b2` durable settings, `1752b7c` Ballyhoo bounds.
+- Historical snapshot as of September 16: repository HEAD was `1752b7c`, “Ballyhoo gets its own rate bounds, 0.005-2.5 Hz.” Current branch information is at the top of this handoff.
 - The current build from HEAD is **`dist\\benny512_091626_1115AM.exe`** (14,286,848 bytes), SHA-256 `9D8DDB52F4A6378EE43667EA2B69ECE2C95424165EFC1149146BCC7C42353B0E`. No runtime show/library files were changed by development QA. Older releases were **pruned to the newest four on 2026-09-16 13:31:49 -0400**, at Dom's explicit instruction, per the standing max-4 FIFO convention; nine executables were permanently deleted. Only `.exe` files were removed — every runtime JSON was left untouched and verified afterwards.
 - All source changes from the prior session and the other agent are committed. The current tree passes `go test -buildvcs=false -count=1 ./...` and `go vet -buildvcs=false ./...`. The other agent's commit reports three consecutive Linux-sandbox race passes; Windows-native race testing remains unavailable without MinGW GCC. Hardware/bench verification remains outstanding for universe notation and gateway behavior.
 - The Go run exposed and fixed a Windows-only test cleanup defect: `TestDemoLogArmedBeforeStartCapturesSeedTraffic` left its temporary RDM log open. The test now closes its server exactly as production shutdown does.
@@ -47,7 +59,7 @@ C:\Users\CDT_LD\Claude\Projects\RDM App\Benny512\dist\
     p-<generated-id>.json
     p-<generated-id>.json.bak         # this named show's preceding save
   benny512-patch.json.patches.active  # ID of the show to reopen at launch
-  benny512-library.json               # Fixture Library shared across all saved shows
+  # Fixture Library: %APPDATA%\Benny512\benny512-library.json (new builds)
   benny512-rigwalk.json               # Rig Walk resume state
 ```
 

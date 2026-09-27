@@ -259,7 +259,7 @@ const DeviceDetail = (() => {
   function captureFieldFocus(container) {
     const active = document.activeElement;
     if (active && container.contains(active) && active.dataset && active.dataset.b5Field) {
-      const state = { name: active.dataset.b5Field, value: active.value };
+      const state = { name: active.dataset.b5Field, value: active.value, checked: active.type === 'checkbox' ? active.checked : undefined };
       if (typeof active.selectionStart === 'number') {
         state.selectionStart = active.selectionStart;
         state.selectionEnd = active.selectionEnd;
@@ -291,7 +291,7 @@ const DeviceDetail = (() => {
     const capture = (e) => {
       const t = e.target;
       if (!t || !t.dataset || !t.dataset.b5Field) return;
-      const state = { name: t.dataset.b5Field, value: t.value };
+      const state = { name: t.dataset.b5Field, value: t.value, checked: t.type === 'checkbox' ? t.checked : undefined };
       if (typeof t.selectionStart === 'number') {
         state.selectionStart = t.selectionStart;
         state.selectionEnd = t.selectionEnd;
@@ -307,7 +307,8 @@ const DeviceDetail = (() => {
     let el;
     try { el = container.querySelector(`[data-b5-field="${CSS.escape(state.name)}"]`); } catch (e) { return; }
     if (!el) return;
-    el.value = state.value;
+    if (el.type === 'checkbox' && state.checked !== undefined) el.checked = state.checked;
+    else el.value = state.value;
     el.focus();
     if (typeof state.selectionStart === 'number' && el.setSelectionRange) {
       try { el.setSelectionRange(state.selectionStart, state.selectionEnd); } catch (e) { /* some input types (e.g. number) don't support selection ranges */ }
@@ -934,9 +935,9 @@ const DeviceDetail = (() => {
     // server endpoint behind it are untouched and still directly callable.
     if (NETWORK_CONFIG_UI_ENABLED) ensureNetwork(uid, gen);
 
-    // Cached descriptors (no wire traffic — matches the pre-existing
-    // "Introspect is user-triggered, not automatic" rule, task ask: "never
-    // fired automatically for every device during a walk").
+    // Cached descriptors paint immediately. Introspect runs once per UID
+    // when its Parameters pane is visited, after the core reads, so the
+    // operator does not have to discover a separate button first.
     try {
       const descs = await Api.getDeviceParams(uid);
       if (!stillCurrent(uid, gen)) { st.loading=false; return; }
@@ -944,6 +945,10 @@ const DeviceDetail = (() => {
       await loadParamValues(uid, descs, gen, supported);
     } catch (e) { /* best-effort */ }
     if (stillCurrent(uid, gen)) notify('params');
+	if (stillCurrent(uid, gen) && !st.introspectionRequested) {
+	  st.introspectionRequested = true;
+	  startIntrospect(uid);
+	}
 
     // Labeled-dropdown companions (the new CURVE_DESCRIPTION/OUTPUT_
     // RESPONSE_TIME_DESCRIPTION/MODULATION_FREQUENCY_DESCRIPTION) — fetched
@@ -1047,6 +1052,7 @@ const DeviceDetail = (() => {
     // on-demand fetch (see the rowsEl fallback-text comment below), which
     // must never inflate this count.
     const shown = st.descriptors.filter(d => d.tier !== 'hidden').length;
+    if (st.introspectionError) return `parameter read failed: ${st.introspectionError}`;
     if (shown) return `${shown} parameter(s) known`;
     return 'no manufacturer/unrecognized-PID parameters resolved yet';
   }
@@ -1060,6 +1066,8 @@ const DeviceDetail = (() => {
       await Api.introspectDevice(uid);
     } catch (e) {
       st.introspecting = false;
+      st.introspectionRequested = false;
+      st.introspectionError = e.message;
       notify('params');
     }
     // Completion/progress arrives over WS — see wireLiveUpdates below.
@@ -1223,7 +1231,7 @@ const DeviceDetail = (() => {
     mfrSection.innerHTML = `
       <div class="b5-panel__header">
         <h3 class="b5-panel__title">Manufacturer &amp; unrecognized parameters</h3>
-        <button class="b5-btn b5-btn--sm btn-introspect" ${st.introspecting ? 'disabled' : ''}>${st.introspecting ? UI.spinner() + 'Introspecting…' : 'Introspect'}</button>
+        <button class="b5-btn b5-btn--sm btn-introspect" ${st.introspecting ? 'disabled' : ''}>${st.introspecting ? UI.spinner() + 'Reading…' : 'Refresh parameters'}</button>
       </div>
       <div class="b5-panel__body b5-stack">
         <span class="b5-text-muted b5-text-sm introspect-status">${escapeHtml(introspectStatusText(st))}</span>
@@ -2179,8 +2187,15 @@ const DeviceDetail = (() => {
     const fieldName = 'pid_' + desc.pid;
 
     if (desc.dataType === DS.BOOLEAN || (desc.dataType === DS.BIT_FIELD && desc.pdlSize === 1)) {
-      const checked = desc.dataType === DS.BOOLEAN ? v.int !== 0 : (v.hex && parseInt(v.hex.slice(0, 2), 16) !== 0);
-      field.innerHTML = `<label class="b5-toggle"><input type="checkbox" ${checked ? 'checked' : ''} ${editable ? '' : 'disabled'}><span class="b5-toggle__track"></span></label>`;
+      if ((desc.dataType === DS.BOOLEAN && v.kind !== 'int') ||
+          (desc.dataType === DS.BIT_FIELD && (v.kind !== 'raw' || typeof v.hex !== 'string' || v.hex.length < 2))) {
+        field.innerHTML = '<span class="b5-field__error">Current switch state was not reported</span>';
+        return row;
+      }
+      const checked = desc.dataType === DS.BOOLEAN
+        ? v.kind === 'int' && Number(v.int) !== 0
+        : v.kind === 'raw' && typeof v.hex === 'string' && v.hex.length >= 2 && parseInt(v.hex.slice(0, 2), 16) !== 0;
+      field.innerHTML = `<label class="b5-toggle"><input type="checkbox" ${checked ? 'checked' : ''} ${editable ? '' : 'disabled'}><span class="b5-toggle__track"></span>Reported: ${checked ? 'on' : 'off'}</label>`;
       const cb = field.querySelector('input');
       cb.dataset.b5Field = fieldName;
       if (editable) {
@@ -2326,6 +2341,7 @@ const DeviceDetail = (() => {
       const r = await Api.getDeviceParam(uid, desc.pid);
       const st = paramsCache[uid];
       if (st) st.values[desc.pid] = { ok: true, val: r };
+      if (liveFieldState && liveFieldState.name === 'pid_' + desc.pid) liveFieldState = null;
       if (statusSetter) statusSetter('saved 0x' + desc.pid);
       notify('params');
     } catch (e) {
@@ -2604,7 +2620,13 @@ const DeviceDetail = (() => {
     Live.on('introspect_complete', async (msg) => {
       const st = paramsCache[msg.kind] || (paramsCache[msg.kind] = { descriptors: [], values: {}, introspecting: false, progress: null });
       st.introspecting = false;
-      if (msg.err) { if (msg.kind === selectedUID) notify('params'); return; }
+      if (msg.err) {
+        st.introspectionRequested = false;
+        st.introspectionError = msg.err;
+        if (msg.kind === selectedUID) notify('params');
+        return;
+      }
+      st.introspectionError = '';
       st.descriptors = msg.descriptors || [];
       await loadParamValues(msg.kind, st.descriptors, selectGen);
       if (msg.kind === selectedUID) notify('params');

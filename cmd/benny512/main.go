@@ -498,16 +498,26 @@ func patchStorePath() string {
 	return "benny512-patch.json"
 }
 
-// libraryStorePath resolves the Fixture Library's persisted file to a path
-// next to the running exe — mirrors patchStorePath exactly. Deliberately a
-// SEPARATE file from the patch: one library sits underneath every rig the
-// owner ever patches (see internal/library's package doc comment), so it
-// must not share a lifetime — or a delete — with any one show's patch file.
+// libraryStorePath uses the user's roaming configuration directory, so a
+// replacement executable or a second show installation sees the same library.
+// A legacy file beside the exe is copied once, without removing the original.
+// If the user directory cannot be used, the legacy path remains usable.
 func libraryStorePath() string {
+	legacy := "benny512-library.json"
 	if exe, err := os.Executable(); err == nil {
-		return filepath.Join(filepath.Dir(exe), "benny512-library.json")
+		legacy = filepath.Join(filepath.Dir(exe), legacy)
 	}
-	return "benny512-library.json"
+	config, err := os.UserConfigDir()
+	if err != nil {
+		log.Printf("[warn] fixture library: user configuration directory unavailable: %v", err)
+		return legacy
+	}
+	path, err := sharedLibraryPath(config, legacy)
+	if err != nil {
+		log.Printf("[warn] fixture library: shared storage unavailable (%v); using %s", err, legacy)
+		return legacy
+	}
+	return path
 }
 
 // sacnStorePath resolves the persisted sACN configuration to a path next to

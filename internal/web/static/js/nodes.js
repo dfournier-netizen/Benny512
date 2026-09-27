@@ -434,29 +434,16 @@ const NodesScreen = (() => {
     return 'universe not reported';
   }
 
+  // The sole live status display. Poll replies update this block without
+  // rebuilding editable controls or replacing a staged universe draft.
   function renderInfoStatic(n) {
-    if(keyOf(n)!==selectedKey)return;
+    if (keyOf(n) !== selectedKey) return;
     const target = document.getElementById('nodeInfoStatic');
     if (!target) return;
-    const ports = (n.ports || []).filter(p => p.index === selectedPortIndex);
-    const portRows = ports.map(p => `
-      <tr>
-        <td data-label="Port">${p.index}</td>
-        <td data-label="Direction">${escapeHtml(portDirectionLabel(p))}</td>
-        <td data-label="Universe" class="b5-text-mono">${escapeHtml(portUniverseLabel(p))}</td>
-        <td data-label="RDM">${p.rdmEnabled ? pill('tag', 'ok', '', 'RDM on') : pill('tag', 'open', '', 'Not reported')}</td>
-      </tr>`).join('');
-    target.innerHTML = `
-      <details><summary>Reported state · ${ports.map(p=>escapeHtml(portDirectionLabel(p))+' · '+escapeHtml(portUniverseLabel(p))).join('')}</summary>
-        ${nodeStatusPill(n)}
-        <div class="b5-scrollbox">
-          <table class="b5-table b5-table--responsive">
-            <thead><tr><th>Port</th><th>Direction</th><th>Universe</th><th>RDM</th></tr></thead>
-            <tbody>${portRows || '<tr><td colspan="4">This bind reports no ports.</td></tr>'}</tbody>
-          </table>
-        </div>
-      </details>
-    `;
+    const p = (n.ports || []).find(p => p.index === selectedPortIndex);
+    target.innerHTML = p
+      ? `<div class="b5-inset" role="status"><strong>Reported port ${p.index}</strong> · ${escapeHtml(portDirectionLabel(p))} · ${escapeHtml(portUniverseLabel(p))} · RDM ${p.rdmEnabled ? 'reported enabled' : 'reported disabled'}</div>`
+      : '<div class="b5-note">Port status unavailable</div>';
   }
 
   // --- editable config section (built once per selection) -----------------
@@ -913,7 +900,6 @@ const NodesScreen = (() => {
       ? `<div class="b5-field">
            <p class="b5-field__label">Physical port direction</p>
            <div class="b5-field__row">
-             <span class="b5-field__status">Reported: ${escapeHtml(dirWord)}</span>
              <span class="b5-field__actions">
                <button type="button" class="b5-btn b5-btn--sm btn-set-direction" data-i="${i}" data-direction="output">Set output</button>
                <button type="button" class="b5-btn b5-btn--sm btn-set-direction" data-i="${i}" data-direction="input">Set input</button>
@@ -926,13 +912,12 @@ const NodesScreen = (() => {
       ? `<div class="b5-field">
            <p class="b5-field__label">RDM on this port</p>
            <div class="b5-field__row">
-             <span class="b5-field__status">Reported: ${p.rdmEnabled ? 'enabled' : 'disabled'}</span>
              <span class="b5-field__actions">
                <button type="button" class="b5-btn b5-btn--sm b5-btn--primary btn-set-rdm" data-i="${i}" data-enabled="true">Enable RDM</button>
                <button type="button" class="b5-btn b5-btn--sm b5-btn--danger btn-set-rdm" data-i="${i}" data-enabled="false">Disable RDM</button>
              </span>
            </div>
-           <span class="b5-field__hint"></span>
+           <span class="b5-field__hint">Current reported state is shown above; refreshes do not change these staged controls.</span>
          </div>`
       : '';
     const statePill = p.uniError

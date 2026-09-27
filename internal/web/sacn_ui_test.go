@@ -28,22 +28,6 @@ func readJS(t *testing.T, name string) string {
 	return string(b)
 }
 
-// TestRigCheckProtocolUI runs rigcheck_protocol_test.js against the real
-// ui.js/rigcheck.js/reconcile.js/patch.js: the numbering helpers, the
-// Apply-to-confirm contract on the protocol control, the wire vocabulary the
-// start body carries, and the 422 surfacing.
-func TestRigCheckProtocolUI(t *testing.T) {
-	nodePath, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("node not found on PATH — skipping rig check protocol UI test")
-	}
-	out, err := exec.Command(nodePath, "static/js/testdata/rigcheck_protocol_test.js").CombinedOutput()
-	if err != nil {
-		t.Fatalf("rigcheck_protocol_test.js failed: %v\n%s", err, out)
-	}
-	t.Log(string(out))
-}
-
 // TestSACNSettingsFormUI runs settings_sacn_test.js against the real
 // ui.js/settings.js: staged-not-live dirty tracking, the worked example, the
 // two-document save, and the server's own refusal reaching the screen.

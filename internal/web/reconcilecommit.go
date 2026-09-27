@@ -45,9 +45,11 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
+	"benny512/internal/library"
 	"benny512/internal/params"
 	"benny512/internal/patch"
 	"benny512/internal/rdm"
@@ -703,6 +705,55 @@ func (s *Server) refreshAsFound(ctx context.Context, entryID string, uid rdm.UID
 	if err != nil {
 		return err.Error()
 	}
+	// SLOT_INFO is optional. Read it only for an unprofiled entry whose
+	// observed footprint agrees with the patch; GDTF maps and mismatched
+	// personalities must never be silently replaced by an inference.
+	var inferred map[uint16]patch.ChannelFunction
+	if p, ok := s.PatchStore.Get(); ok {
+		if idx := p.IndexOf(entryID); idx >= 0 {
+			e := p.Entries[idx]
+			if e.ConfirmedUID == uid.String() && len(e.ChannelFunctions) == 0 &&
+				af.Footprint.Known && af.Footprint.Value == e.Footprint && e.Footprint > 0 {
+				if node, ok := s.Registry.FixtureNode(uid); ok {
+					client := params.New(s.RDM, node, uid)
+					c, cancel := context.WithTimeout(ctx, deviceParamTimeout)
+					pids, known := client.SupportedParameters(c)
+					cancel()
+					advertised := !known
+					for _, pid := range pids {
+						if pid == rdm.PIDSlotInfo {
+							advertised = true
+							break
+						}
+					}
+					if advertised {
+						c, cancel = context.WithTimeout(ctx, deviceParamTimeout)
+						slots, slotErr := client.SlotInfo(c)
+						cancel()
+						if slotErr == nil {
+							// Discard an invalid or partial reply as a whole. An
+							// incomplete map can make a selected function test dark.
+							valid := len(slots) > 0
+							seen := make(map[uint16]bool, len(slots))
+							for _, slot := range slots {
+								if slot.Offset >= e.Footprint || seen[slot.Offset] {
+									valid = false
+									break
+								}
+								seen[slot.Offset] = true
+							}
+							if valid {
+								inferred = BuildRDMInferredChannelFunctions(slots, nil)
+								if len(inferred) != len(slots) {
+									inferred = nil
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
 	if _, mErr := s.PatchStore.Mutate(func(pp *patch.Patch) error {
 		idx := pp.IndexOf(entryID)
 		if idx < 0 {
@@ -715,9 +766,36 @@ func (s *Server) refreshAsFound(ctx context.Context, entryID string, uid rdm.UID
 			return nil
 		}
 		pp.Entries[idx].AsFound = af
+		if len(inferred) > 0 && len(pp.Entries[idx].ChannelFunctions) == 0 && pp.Entries[idx].Footprint == af.Footprint.Value {
+			pp.Entries[idx].ChannelFunctions = inferred
+		}
 		return nil
 	}); mErr != nil {
 		return mErr.Error()
+	}
+	// Remember a newly observed profile for other shows. A manufacturer
+	// GDTF mode already in the library wins over this coarse RDM inference.
+	if len(inferred) > 0 {
+		if p, ok := s.PatchStore.Get(); ok {
+			if idx := p.IndexOf(entryID); idx >= 0 {
+				e := p.Entries[idx]
+				if e.ConfirmedUID == uid.String() && len(e.ChannelFunctions) == len(inferred) && e.FixtureType != "" && e.Mode != "" {
+					keepGDTF := false
+					if existing, found := s.LibraryStore.Find("", e.FixtureType); found {
+						for _, mode := range existing.Modes {
+							if strings.EqualFold(mode.Name, e.Mode) && mode.Origin.Source == library.ProvenanceGDTF {
+								keepGDTF = true
+							}
+						}
+					}
+					if !keepGDTF {
+						if _, _, err := s.LibraryStore.UpsertChecked(recordFromEntry(e, time.Now())); err != nil {
+							return "RDM channels were saved to the show, but fixture library save failed: " + err.Error()
+						}
+					}
+				}
+			}
+		}
 	}
 	return ""
 }

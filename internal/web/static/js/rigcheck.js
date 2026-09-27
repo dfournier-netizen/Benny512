@@ -67,7 +67,7 @@ const RigCheckPanel = (() => {
   // renders inside. Kept to the three things this panel genuinely cannot
   // know: the patch's entries, where to put the shared status line, and how
   // to send the user to the Entries tab.
-  let host = { getEntries: () => [], setStatus: () => {}, goToEntries: () => {} };
+  let host = { getEntries: () => [], reloadPatch: async () => {}, setStatus: () => {}, goToEntries: () => {} };
 
   // snap: the last full status snapshot from the server. THE source of truth
   // for selection, parameters, coverage, contention, base state and output
@@ -583,6 +583,7 @@ const RigCheckPanel = (() => {
     el.innerHTML = `
       ${renderErrors()}
       ${renderWarnings()}
+      ${renderRDMRead()}
       ${renderScope()}
       ${renderIsolate()}
       ${renderGrid(sel)}
@@ -591,6 +592,18 @@ const RigCheckPanel = (() => {
       ${renderOutputBar()}
     `;
     wire();
+  }
+
+  function missingRDMEntries() {
+    return (host.getEntries() || []).filter(e => e.confirmedUid &&
+      !Object.keys(e.channelFunctions || {}).length && e.footprint > 0);
+  }
+
+  function renderRDMRead() {
+    const missing = missingRDMEntries();
+    if (!missing.length) return '';
+    return `<div class="b5-row"><button type="button" class="b5-btn" id="rcpReadRDM" ${snap.outputEnabled ? 'disabled' : ''}>Read RDM channels for ${missing.length} committed fixture${missing.length === 1 ? '' : 's'}</button>
+      <span class="b5-note">Uses reported slot labels when no GDTF channel map is present. Stop output before reading.</span></div>`;
   }
 
   function renderErrors() {
@@ -965,7 +978,7 @@ const RigCheckPanel = (() => {
         </h2>
         <div class="b5-segmented" role="group" aria-label="Output protocol">${options}</div>
         ${applyRow}
-        <p class="b5-rcp-scope__note">This is the same armed protocol the Channel check uses &mdash; one wire is live at a time, never both. The sACN start universe, priority and unicast override are set on the Settings screen.</p>
+        <p class="b5-rcp-scope__note">The sACN start universe, priority and unicast override are set on the Settings screen.</p>
       </section>`;
   }
 
@@ -1064,6 +1077,20 @@ const RigCheckPanel = (() => {
   function wire() {
     const el = containerEl;
     if (!el) return;
+
+    const readRDM = el.querySelector('#rcpReadRDM');
+    if (readRDM) readRDM.addEventListener('click', async () => {
+      readRDM.disabled = true;
+      const failures = [];
+      for (const entry of missingRDMEntries()) {
+        try { await Api.readPatchRDMSlots(entry.id); }
+        catch (e) { failures.push(`${entry.name || entry.id}: ${e.message}`); }
+      }
+      await host.reloadPatch();
+      await refreshStatus();
+      errMsg = failures.join('; ');
+      render();
+    });
 
     const fade = el.querySelector('#rcpFade');
     if (fade) fade.addEventListener('change', () => apply(() => Api.patternSetFade(Number(fade.value))));

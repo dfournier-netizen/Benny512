@@ -9,25 +9,133 @@
 //
 //   - Task 3's second half: mapping a decoded RDM SLOT_INFO/SLOT_DESCRIPTION
 //     read onto patch's taxonomy, producing patch.ChannelFunction values
-//     tagged Source==SourceRDMInferred. BuildRDMInferredChannelFunctions is
-//     the whole of this — pure, no network/session — so it's exercised
-//     directly by patchattrs_test.go's synthetic SLOT_INFO data rather than
-//     needing a live device; actually driving a GET SLOT_INFO/
-//     SLOT_DESCRIPTION against a real fixture and calling this with the
-//     result is stage 2's job (this is the foundation those calls plug
-//     into, not the calling code itself — see the task brief's stage
-//     split).
+//     tagged Source==SourceRDMInferred. The live reads are performed by
+//     refreshAsFound when a committed entry has no channel map.
 //   - Task 4: read-only HTTP exposure of internal/patch/resolve.go's
 //     ResolveEntryGroups/SummarizeSelection over the active patch.
 package web
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
+	"benny512/internal/library"
+	"benny512/internal/params"
 	"benny512/internal/patch"
 	"benny512/internal/rdm"
 )
+
+// handleReadPatchRDMSlots reads the currently confirmed root responder. RDM
+// SLOT_INFO is indexed by the active personality's DMX offsets; a mismatched
+// footprint means it cannot safely describe this saved patch entry. GDTF
+// mappings remain authoritative and are never replaced by inference.
+func (s *Server) handleReadPatchRDMSlots(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	p, ok := s.PatchStore.Get()
+	if !ok {
+		writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("no active show"))
+		return
+	}
+	idx := p.IndexOf(id)
+	if idx < 0 {
+		writeError(w, http.StatusNotFound, fmt.Errorf("unknown patch entry %q", id))
+		return
+	}
+	e := p.Entries[idx]
+	uid, valid := rdm.ParseUID(e.ConfirmedUID)
+	if !valid || e.MatchState != patch.MatchStateConfirmed {
+		writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("confirm this fixture's RDM identity in Reconcile first"))
+		return
+	}
+	node, reachable := s.Registry.FixtureNode(uid)
+	if !reachable {
+		writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("confirmed fixture %s is not currently discovered", uid))
+		return
+	}
+	client := params.New(s.RDM, node, uid)
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	info, err := client.DeviceInfo(ctx)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, fmt.Errorf("DEVICE_INFO from %s: %w", uid, err))
+		return
+	}
+	if info.DMXFootprint != e.Footprint || info.CurrentPersonality == 0 {
+		writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("%s reports personality %d with %d slots; patch entry has %d slots. Reconcile the mode and footprint before reading channel slots", uid, info.CurrentPersonality, info.DMXFootprint, e.Footprint))
+		return
+	}
+	slots, err := client.SlotInfo(ctx)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, fmt.Errorf("SLOT_INFO from %s: %w; this fixture may not provide slot labels over RDM", uid, err))
+		return
+	}
+	if len(slots) == 0 {
+		writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("%s returned no channel slots over RDM", uid))
+		return
+	}
+	seen := make(map[uint16]bool, len(slots))
+	for _, slot := range slots {
+		if slot.Offset >= e.Footprint || seen[slot.Offset] {
+			writeError(w, http.StatusBadGateway, fmt.Errorf("%s returned a duplicate or out-of-footprint RDM slot %d", uid, slot.Offset))
+			return
+		}
+		seen[slot.Offset] = true
+	}
+	inferred := BuildRDMInferredChannelFunctions(slots, nil)
+	if len(inferred) == 0 {
+		writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("%s returned no usable primary channel slots", uid))
+		return
+	}
+	updated, err := s.PatchStore.Mutate(func(current *patch.Patch) error {
+		j := current.IndexOf(id)
+		if j < 0 || current.Entries[j].ConfirmedUID != e.ConfirmedUID || current.Entries[j].MatchState != patch.MatchStateConfirmed || current.Entries[j].Footprint != e.Footprint {
+			return fmt.Errorf("patch entry changed while RDM slots were being read; retry")
+		}
+		channels := current.Entries[j].ChannelFunctions
+		if channels == nil {
+			channels = make(map[uint16]patch.ChannelFunction)
+		}
+		for offset, cf := range channels {
+			if cf.Source == patch.SourceRDMInferred {
+				delete(channels, offset)
+			}
+		}
+		for offset, cf := range inferred {
+			if existing, exists := channels[offset]; !exists || existing.Source != patch.SourceGDTF {
+				channels[offset] = cf
+			}
+		}
+		current.Entries[j].ChannelFunctions = channels
+		return nil
+	})
+	if err != nil {
+		writePatchStoreError(w, err)
+		return
+	}
+	if j := updated.IndexOf(id); j >= 0 {
+		e := updated.Entries[j]
+		if len(e.ChannelFunctions) == len(inferred) && e.FixtureType != "" && e.Mode != "" {
+			keepGDTF := false
+			if rec, found := s.LibraryStore.Find("", e.FixtureType); found {
+				for _, mode := range rec.Modes {
+					if strings.EqualFold(mode.Name, e.Mode) && mode.Origin.Source == library.ProvenanceGDTF {
+						keepGDTF = true
+					}
+				}
+			}
+			if !keepGDTF {
+				if _, _, err := s.LibraryStore.UpsertChecked(recordFromEntry(e, time.Now())); err != nil {
+					writeError(w, http.StatusInternalServerError, fmt.Errorf("channels saved to show, library save failed: %w", err))
+					return
+				}
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, toPatchResponse(updated))
+}
 
 // --- Task 3: RDM slot-label -> taxonomy bridge ------------------------------
 
@@ -119,7 +227,7 @@ func BuildRDMInferredChannelFunctions(slots []rdm.SlotInfoEntry, descriptions ma
 	// up the attribute their primary slot resolved to.
 	primaryAttr := make(map[uint16]string, len(slots))
 	for _, s := range slots {
-		if s.Type.IsSecondary() {
+		if s.Type.IsSecondary() || s.Offset >= 512 {
 			continue
 		}
 		labelID, _ := s.LabelID()
@@ -134,7 +242,7 @@ func BuildRDMInferredChannelFunctions(slots []rdm.SlotInfoEntry, descriptions ma
 		if desc, ok := descriptions[s.Offset]; ok && desc != "" {
 			label = desc
 		}
-		out[s.Offset] = patch.ChannelFunction{
+		out[s.Offset+1] = patch.ChannelFunction{
 			Source:       patch.SourceRDMInferred,
 			Attribute:    attr,
 			ChannelSets:  make([]patch.ChannelSet, 0),
@@ -145,7 +253,7 @@ func BuildRDMInferredChannelFunctions(slots []rdm.SlotInfoEntry, descriptions ma
 
 	// Second pass: secondary slots, resolved via their primary's attribute.
 	for _, s := range slots {
-		if !s.Type.IsSecondary() {
+		if !s.Type.IsSecondary() || s.Offset >= 512 {
 			continue
 		}
 		primaryOffset, ok := s.PrimaryOffset()
@@ -159,7 +267,7 @@ func BuildRDMInferredChannelFunctions(slots []rdm.SlotInfoEntry, descriptions ma
 			// attribute with no basis; the offset simply stays absent.
 			continue
 		}
-		out[s.Offset] = patch.ChannelFunction{
+		out[s.Offset+1] = patch.ChannelFunction{
 			Source:      patch.SourceRDMInferred,
 			Attribute:   attr,
 			ChannelSets: make([]patch.ChannelSet, 0),

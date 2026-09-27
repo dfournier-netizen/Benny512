@@ -573,6 +573,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/patch/new", s.handleNewPatch)
 	s.mux.HandleFunc("POST /api/patch/entries", s.handleCreatePatchEntry)
 	s.mux.HandleFunc("PUT /api/patch/entries/{id}", s.handleUpdatePatchEntry)
+	s.mux.HandleFunc("POST /api/patch/entries/{id}/rdm-slots", s.handleReadPatchRDMSlots)
 	s.mux.HandleFunc("DELETE /api/patch/entries/{id}", s.handleDeletePatchEntry)
 	s.mux.HandleFunc("POST /api/patch/reorder", s.handleReorderPatch)
 	s.mux.HandleFunc("GET /api/patch/collisions", s.handlePatchCollisions)
