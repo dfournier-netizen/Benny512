@@ -82,6 +82,9 @@ const MvrImport = (() => {
       universe: fixture.universe,
       startAddress: fixture.startAddress,
       position: fixture.position,
+      // World position (patch schema v7) — from the MVR, never from GDTF,
+      // so a fixture whose GDTF failed still keeps where it hangs.
+      location: fixture.location,
       fixtureNumber: fixture.fixtureId,
       notes: noteParts.join('; '),
       // No GDTF (or no matching mode) resolved for this fixture — an empty
@@ -208,6 +211,7 @@ const MvrImport = (() => {
         universe: fixture.universe,
         startAddress: fixture.startAddress,
         position: fixture.position,
+        location: fixture.location,
         fixtureNumber: fixture.fixtureId,
         notes,
         channelFunctions,

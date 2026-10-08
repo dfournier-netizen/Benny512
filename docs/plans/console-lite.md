@@ -30,10 +30,11 @@ Goal: a console-lite station for testing and flashing a rig (not show playback).
 | C9 | Themes (custom theme) — with the design agent's assets | C6 |
 
 ## Delivery to Dom's desktop
-The desktop clone has no shell for the agent. Each chunk's changed files are staged under `.git/b512-incoming/<chunk>/` (never tracked) with a `b512-<chunk>.bat` that switches to `feat/console-lite`, copies them in, adds by path and commits. The fix branch script (`b512-commit-unresponsive.bat`) must be run first; it also creates `feat/console-lite`.
+The desktop clone has no shell for the agent and remote tools may not write inside `.git`. Each chunk's changed files are staged under `dist\_incoming\<chunk>\` (dist/ is gitignored) with a `b512-<chunk>-console-lite.bat` in the repo root that checks the tree is clean, switches to `feat/console-lite`, copies the files in, adds by path and commits. Run the scripts in order: `b512-commit-unresponsive.bat` first (it also creates `feat/console-lite`), then C1, C2, …
 
 ## Progress
 | Chunk | State | Notes |
 |-------|-------|-------|
 | C1 | done 2026-10-07 00:22:51 -0400 | GDTF importer: all functions/ranges/sets/wheels, schema 6, library re-read. Open owner questions: per-type profile storage (BMFL entry 41→161 KB), Rig Check use of GDTF 1.0 channel defaults, library schema bump, licence of the two Robe test extracts (libMVRgdtf, MVR SDK licence). |
-| C2 | next | |
+| C2 | done 2026-10-07 00:44:55 -0400 | Entry.location from MVR <Matrix> (composed, mm, Z-up), schema 7; POST /api/patch/locations re-import (confirm UPDATE LOCATIONS); per-show layout in Workspace JSON with Z layers; GET/POST /api/patch/layout. Open owner questions: no-Matrix = unknown (not 0,0,0)?; 500 mm cell / 1 m layer gap defaults; re-derive refreshing its own placements; licence of the Capture demo extract. |
+| C3 | next — awaiting owner answers | |

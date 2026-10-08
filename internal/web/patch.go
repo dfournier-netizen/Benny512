@@ -27,6 +27,9 @@
 //	POST   /api/patch/reconcile/fix-all           <- fixAllRequest        -> fixAllResponse (confirm:false = preview only, never applies)
 //	POST   /api/patch/adopt                       <- adoptRequest         -> patchResponse
 //	POST   /api/patch/import                      <- importRequest       -> patchResponse
+//	POST   /api/patch/locations                   <- locationsRequest    -> locationsResponse (patchimport.go: re-imported MVR positions for named entries)
+//	GET    /api/patch/layout                      -> layoutResponse (layout.go: Console-lite grid)
+//	POST   /api/patch/layout/{action}             <- per-action body     -> layoutResponse + result
 //	GET    /api/patch/export?format=json|txt      -> file download
 //	GET    /api/patch/reconcile/export?format=json|txt -> file download
 //	GET    /api/patch/rigcheck                    -> rigCheckStateJSON
@@ -190,6 +193,14 @@ type entryRequest struct {
 	// DisallowUnknownFields still applies to every nested key.
 	Wheels      []patch.Wheel `json:"wheels"`
 	WheelsKnown bool          `json:"wheelsKnown"`
+
+	// Location is the MVR world position (patch schema v7), sent by the MVR
+	// importer (mvrimport.js). A pointer because "absent" is a real state: a
+	// plain field edit sends none, and handleUpdatePatchEntry then keeps the
+	// stored one (same rule as channelFunctions). patch.Location itself is
+	// the wire type, so the shape cannot drift; DisallowUnknownFields applies
+	// to its keys and Validate refuses flags that disagree with the numbers.
+	Location *patch.Location `json:"location"`
 }
 
 // channelFunctionRequest is entryRequest.ChannelFunctions' value shape,
@@ -384,6 +395,10 @@ func (s *Server) handleUpdatePatchEntry(w http.ResponseWriter, r *http.Request) 
 			// Wheels are part of the same profile (schema v6).
 			entry.Wheels, entry.WheelsKnown = pp.Entries[idx].Wheels, pp.Entries[idx].WheelsKnown
 		}
+		// No location in the body = not being edited (schema v7).
+		if req.Location == nil {
+			entry.Location = pp.Entries[idx].Location
+		}
 		pp.Entries[idx] = entry
 		// A plain field edit (fixing a typo, adjusting Notes) must not
 		// silently discard a confirmed RDM pairing — only an explicit
@@ -418,7 +433,15 @@ func entryFromRequest(id string, req entryRequest) (patch.Entry, error) {
 	if !req.WheelsKnown && len(req.Wheels) > 0 {
 		return patch.Entry{}, fmt.Errorf("wheels sent with wheelsKnown false")
 	}
+	var loc patch.Location
+	if req.Location != nil {
+		if err := req.Location.Validate(); err != nil {
+			return patch.Entry{}, err
+		}
+		loc = *req.Location
+	}
 	return patch.Entry{
+		Location:   loc,
 		PhaseCount: phaseCount,
 		ID:         id, Name: req.Name, FixtureType: req.FixtureType, Mode: req.Mode,
 		Footprint: req.Footprint, Universe: req.Universe, StartAddress: req.StartAddress,
@@ -436,6 +459,8 @@ func (s *Server) handleDeletePatchEntry(w http.ResponseWriter, r *http.Request) 
 			return fmt.Errorf("unknown patch entry %q", id)
 		}
 		pp.Entries = append(pp.Entries[:idx], pp.Entries[idx+1:]...)
+		// Its layout placement goes with it, in the same write (layout.go).
+		dropLayoutRefs(pp, "entry", id)
 		return nil
 	})
 	if err != nil {

@@ -1,10 +1,10 @@
 # Benny512 — Session Handoff Brief (current)
 
-**Last updated:** 2026-10-07 00:22:51 -0400
+**Last updated:** 2026-10-07 00:44:55 -0400
 
 ## Current delta — Console-lite (branch `feat/console-lite`)
 
-Started 2026-10-07 00:22:51 -0400. Plan, owner decisions and chunk progress live in `docs/plans/console-lite.md` — read it to resume. UI hand-off for a design agent: `docs/design/console-lite-ui-brief.md`. C1 (full GDTF channel import: every channel function with DMX ranges, channel sets, wheels/slots, mode masters; schema 6; library re-read from stored GDTF) is done; real-file tests use two Robe extracts from the libMVRgdtf test folder. Profiles now carry far more data (a BMFL entry ~161 KB) — storage strategy is an open owner question.
+Started 2026-10-07 00:22:51 -0400. Plan, owner decisions and chunk progress live in `docs/plans/console-lite.md` — read it to resume. UI hand-off for a design agent: `docs/design/console-lite-ui-brief.md`. C1 (full GDTF channel import: every channel function with DMX ranges, channel sets, wheels/slots, mode masters; schema 6; library re-read from stored GDTF) is done; real-file tests use two Robe extracts from the libMVRgdtf test folder. Profiles now carry far more data (a BMFL entry ~161 KB) — storage strategy is an open owner question. C2 (fixture locations from MVR, per-show grid layout with Z layers, `/api/patch/layout`) is done; no Console UI yet.
 
 ## Current delta — one silent fixture no longer starves its port (RDM-LOG36)
 

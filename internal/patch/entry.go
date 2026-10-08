@@ -35,6 +35,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -100,7 +101,14 @@ import (
 // migrate() only normalizes the nil slices to empty ones. Nothing is derived
 // from the first-function fields — a v5 entry's ranges stay unknown until
 // its GDTF is re-imported (see TestMigrate_V5FileLoadsWithChannelDetailNotImported).
-const CurrentSchemaVersion = 6
+//
+// Version 7 (Console-lite C2, positions): Entry gained Location — the
+// fixture's MVR world position and orientation (see Location). A v6 file has
+// no "location" key, which unmarshals to Known == false and RotationKnown ==
+// false: exactly "no position was ever imported". migrate() derives nothing
+// (the free-text Position label is never parsed for coordinates) — see
+// TestMigrate_V6FileLoadsWithLocationUnknown.
+const CurrentSchemaVersion = 7
 
 // MatchState records a patch entry's reconciliation state, persisted so a
 // user-confirmed pairing is never re-litigated across sessions (task ask:
@@ -254,6 +262,61 @@ type Entry struct {
 	// Zero selects automatic profile/RDM detection; a positive count is an
 	// operator-confirmed phase-slot override, unrelated to footprint/counts.
 	PhaseCount uint16 `json:"phaseCount"`
+
+	// Location is the fixture's world position (schema v7). Independent of
+	// the free-text Position label above, which it never reads or changes.
+	Location Location `json:"location"`
+}
+
+// Location is a fixture's position and orientation in MVR world coordinates
+// (MVR 1.6 / DIN SPEC 15801, "Node Definition: Matrix": right-handed, Z up,
+// 1 unit = 1 mm), after composing every ancestor transform of the <Fixture>
+// (Layer, GroupObject, Truss, ... — each child's Matrix is "inside the parent
+// coordinate system"). Produced by the browser's MVR parser (mvrparse.js),
+// which documents the composition.
+//
+// Known false = no position was ever imported (pre-v7 data, hand-entered,
+// RDM-adopted, or an MVR fixture whose Matrix could not be read); X/Y/Z are
+// then 0 and mean nothing. RotationKnown is separate because a readable
+// offset can sit on a basis that is not a rotation (a mirrored or degenerate
+// matrix): position known, orientation refused.
+//
+// RotX/RotY/RotZ are degrees, R = Rz(RotZ)·Ry(RotY)·Rx(RotX) acting on column
+// vectors (equivalently: rotate about world X, then world Y, then world Z),
+// RotY in [-90, 90]; at RotY = ±90 (gimbal lock) RotX is fixed at 0. MVR does
+// not define Euler angles at all — the matrix is the data — so this
+// convention is ours, chosen for display (a glyph's plan rotation is RotZ);
+// the angles are exact for the stated convention, not approximate.
+//
+// No `omitempty` anywhere: a fixture at X = 0 or hung at RotY = 0 is real
+// data, and the two Known flags are half of the signal.
+type Location struct {
+	Known         bool    `json:"known"`
+	X             float64 `json:"x"`
+	Y             float64 `json:"y"`
+	Z             float64 `json:"z"`
+	RotationKnown bool    `json:"rotationKnown"`
+	RotX          float64 `json:"rotX"`
+	RotY          float64 `json:"rotY"`
+	RotZ          float64 `json:"rotZ"`
+}
+
+// Validate refuses a Location whose flags and numbers disagree: values
+// without Known, rotation without RotationKnown, rotation without position,
+// or a non-finite number. It never repairs one.
+func (l Location) Validate() error {
+	for _, v := range []float64{l.X, l.Y, l.Z, l.RotX, l.RotY, l.RotZ} {
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return errors.New("Location values must be finite numbers.")
+		}
+	}
+	if !l.Known && (l.X != 0 || l.Y != 0 || l.Z != 0 || l.RotationKnown) {
+		return errors.New("The location carries coordinates or a rotation but says it is not known.")
+	}
+	if !l.RotationKnown && (l.RotX != 0 || l.RotY != 0 || l.RotZ != 0) {
+		return errors.New("The location carries rotation angles but says the rotation is not known.")
+	}
+	return nil
 }
 
 // ChannelFunctionSource records how a ChannelFunction's attribute mapping
@@ -738,9 +801,12 @@ func migrate(p *Patch) {
 	// false Known flags are already the "full channel detail not imported"
 	// state; normalizeChannelFunctions only turns the nil slices into empty
 	// ones. Like v2 -> v3, nothing is derived from the first-function data.
+	//
+	// v6 -> v7: no "location" key on any entry; the zero Location is already
+	// "not known". Nothing to do, nothing derived from the Position label.
 	normalizeChannelFunctions(p.Entries)
 	normalizeSettingStates(p.Entries)
-	// Future: switch p.SchemaVersion { case 6: ...; p.SchemaVersion = 7 }
+	// Future: switch p.SchemaVersion { case 7: ...; p.SchemaVersion = 8 }
 	p.SchemaVersion = CurrentSchemaVersion
 }
 

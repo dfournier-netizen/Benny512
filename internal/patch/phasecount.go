@@ -9,6 +9,22 @@ func PhaseCountFor(e Entry, rdmCount uint16) (uint16, string) {
 	if e.PhaseCount > 0 {
 		return e.PhaseCount, "override"
 	}
+	count := GeometryCellEstimate(e)
+	if count > 1 && count <= 512 {
+		return uint16(count), "GDTF geometry estimate"
+	}
+	if rdmCount > 0 {
+		return rdmCount, "live RDM sub-devices"
+	}
+	return 1, "single slot (count unknown)"
+}
+
+// GeometryCellEstimate is the GDTF geometry estimate of how many cells
+// (sub-fixtures) an entry has: the largest number of distinct GDTF geometry
+// instances driving any one attribute (four "Dimmer"s on four cell
+// instances = 4; a mover's Pan on its one yoke = 1). 0 = no GDTF channel
+// carries a geometry instance, i.e. unknown — never a guess of 1.
+func GeometryCellEstimate(e Entry) int {
 	groups := map[string]map[string]bool{}
 	for _, cf := range e.ChannelFunctions {
 		if cf.Source != SourceGDTF || cf.GeometryInstance == "" || cf.Attribute == "" {
@@ -25,11 +41,5 @@ func PhaseCountFor(e Entry, rdmCount uint16) (uint16, string) {
 			count = len(instances)
 		}
 	}
-	if count > 1 && count <= 512 {
-		return uint16(count), "GDTF geometry estimate"
-	}
-	if rdmCount > 0 {
-		return rdmCount, "live RDM sub-devices"
-	}
-	return 1, "single slot (count unknown)"
+	return count
 }

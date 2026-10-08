@@ -51,7 +51,7 @@ func TestMigrate_V5FileLoadsWithChannelDetailNotImported(t *testing.T) {
 	}
 	got := string(b)
 	for _, want := range []string{
-		`"schemaVersion":6`,
+		`"schemaVersion":7`,
 		`"functionsKnown":false`,
 		`"functions":[]`,
 		`"byteCount":0`,

@@ -51,6 +51,9 @@ type showWorkspace struct {
 	Groups    []savedGroup      `json:"groups"`
 	Presets   []savedTestPreset `json:"presets"`
 	Baselines []rigBaseline     `json:"baselines"`
+	// Layout is the Console-lite grid (layout.go), stored here so it shares
+	// groups' per-show persistence, backup and recovery.
+	Layout showLayout `json:"layout"`
 }
 
 func workspaceFor(p patch.Patch) showWorkspace {
@@ -65,6 +68,7 @@ func workspaceFor(p patch.Patch) showWorkspace {
 	if w.Baselines == nil {
 		w.Baselines = []rigBaseline{}
 	}
+	normalizeLayout(&w.Layout)
 	return w
 }
 
@@ -242,6 +246,14 @@ func (s *Server) handleWorkspaceAction(w http.ResponseWriter, r *http.Request) {
 					break
 				}
 			}
+			// A deleted group leaves no placement behind on the layout.
+			kept := make([]layoutItem, 0, len(data.Layout.Items))
+			for _, it := range data.Layout.Items {
+				if it.Kind != "group" || it.Ref != req.ID {
+					kept = append(kept, it)
+				}
+			}
+			data.Layout.Items = kept
 		case "delete-preset":
 			for i, item := range data.Presets {
 				if item.ID == req.ID {
