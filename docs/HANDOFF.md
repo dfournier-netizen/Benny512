@@ -1,6 +1,27 @@
 # Benny512 — Session Handoff Brief (current)
 
-**Last updated:** 2026-09-26 22:16:58 -0400
+**Last updated:** 2026-10-06 16:26:22 -0400
+
+## Current delta — one silent fixture no longer starves its port (RDM-LOG36)
+
+Branch `fix/rdm-unresponsive-device` from `main` (`7986abf`). Not yet pushed or released; Dom publishes it.
+
+**Root cause.** RDM-LOG36: three Martin ERA 800s on one port of node 2.11.90.6; `4D50:00115938` is a faulty unit (confirmed by Dom with a second controller) that never answers — 123 requests, zero replies. The controller allows one in-flight command per node port and each silent command held the port for 1.5 s × 3 attempts. The pollers kept asking it, so for the last ~70 s of the log every packet on the port went to the dead fixture and the two healthy ones were starved ("rows stall and spin"). Their replies were all valid — starvation, not corruption.
+
+**What changed (`internal/session`).**
+- `ProfileDirect` response timeout 1500 ms → **500 ms**, retries unchanged (2). Evidence: 6,754 matched replies across LOG2–LOG36, wired and CRMX; slowest first-attempt reply 96 ms; every later reply was a lost packet answered after a retransmit. A silent command now costs 1.5 s instead of 4.5 s. No code calls `SetNodeProfile`, so this applies to every rig.
+- The per-device breaker now also opens for **silence attributable to one device**: a silent command counts against a device only if another command on the same node port was answered since that device's previous strike or answer. Three such strikes → paused (`CauseNoResponse`). A node reboot (RDM-LOG4) silences everyone at once, so nobody can collect a second strike — the old "silence must not blacklist the rig" reasoning holds by construction; `TestTimeoutsDoNotOpenTheBreaker` passes unmodified.
+- **End of the queue:** after a silent command, that fixture's other pending commands move behind every other fixture's pending commands on the port.
+- **Automatic recheck:** a paused fixture gets one GET DEVICE_INFO after the cool-down (15 s, doubling to 2 min while the port is proven alive). It is skipped while the node's ToD no longer lists the fixture, and made immediate when a ToD lists it again (power-cycling the fixture brings it straight back). On recovery the background reader re-reads its identity.
+- **Foreign responses ignored:** a response whose Destination UID is not Benny512's is another controller's and is never matched to our commands (`ForeignResponses` counter). LOG36's second controller produced one that carried the exact TN/UID/class of one of our earlier commands.
+- **Node faults flagged:** an ArtRdm datagram whose RDM message won't decode is recorded against the sending node (`NodeFaults()`, `MalformedRDM` counter). LOG36: 2.11.90.6 sent four 239-byte ArtRdm-framed datagrams carrying ArtPollReply text.
+
+**What the operator sees (`internal/web`, `internal/registry`, JS).** Devices: "Not answering" pill plus "Not answering RDM. Other fixtures on the same port are answering, so the line is working. Benny512 has paused this one…" and the next check time; the CRMX proxy-refusal sentence is unchanged. Nodes: "Node fault · malformed RDM" pill and a sentence at the top of the node editor. RDM log: one NOTE per pause/recovery and per node-fault burst (max one summary per node per 60 s). `/api/diagnostics/rdm` gains `malformedRdm` and `foreignResponses`.
+
+**Verification.** All CLAUDE.md gates pass in the Linux sandbox (gofmt, vet, build, full suite and `-race` across all 16 packages, `node --check`, Windows cross-build). Every new test failed against the unfixed code; proof lines are in the commit message. Render-proved on a disposable `--demo` build at desktop and 390 px (fault/no-response data injected via request interception, since the demo cannot produce them). **Not yet done:** hardware re-test against the faulty ERA on a real node; a Windows-native run.
+
+**Known limits.** A port with only one fixture on it can't prove its link is alive, so a lone silent fixture is never paused — but there is nothing on that port for it to starve. A malformed RDM packet from a non-node sender (e.g. another controller) is still counted against that IP, but only shows on the Nodes screen if the IP is a known node.
+
 
 ## Current delta — RDM channel slots, one Rig Check page, shared library path
 

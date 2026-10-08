@@ -236,6 +236,7 @@ func (c *RDMController) HandleTodData(td artnet.TodData, from netip.AddrPort) {
 	complete := d.haveTotal && len(uids) >= int(d.total)
 	c.tod[key] = &todEntry{uids: uids, complete: complete, updated: c.cfg.Clock.Now()}
 	c.emitLocked(Event{Kind: EventToDUpdate, Node: node, UIDs: uids, Complete: complete, At: c.cfg.Clock.Now()})
+	c.silenceProbeOnToDLocked(key, uids)
 
 	if complete {
 		c.finishDiscoveryLocked(d, nil)
@@ -263,6 +264,7 @@ func (c *RDMController) mergeUnsolicitedTodLocked(key todKey, node NodeRef, td a
 	complete := len(uids) >= int(td.UidTotal)
 	c.tod[key] = &todEntry{uids: uids, complete: complete, updated: c.cfg.Clock.Now()}
 	c.emitLocked(Event{Kind: EventToDUpdate, Node: node, UIDs: uids, Complete: complete, At: c.cfg.Clock.Now()})
+	c.silenceProbeOnToDLocked(key, uids)
 }
 
 // canonicalNodeLocked returns the one NodeRef this controller files a

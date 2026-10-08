@@ -535,7 +535,7 @@ const DevicesScreen = (() => {
   function unreachableNoteHTML(f) {
     if (!f || !f.unreachable) return '';
     const retry = f.retryAt ? ` Next try ${new Date(f.retryAt).toLocaleTimeString()}.` : '';
-    const text = (f.unreachableNote || 'Not answering through its wireless proxy.') + retry;
+    const text = (f.unreachableNote || 'Not answering.') + retry;
     return `<p class="b5-note">${escapeHtml(text)}</p>`;
   }
 

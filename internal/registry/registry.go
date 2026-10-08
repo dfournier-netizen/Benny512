@@ -115,6 +115,13 @@ type Fixture struct {
 	ProxyUnreachableSince time.Time
 	ProxyRetryAt          time.Time
 	ProxyRefusals         int
+	// UnreachableCause is the breaker's own account of why it opened
+	// (session.DeviceUnreachableError.Cause): a proxy refusing, or a device
+	// that went silent while its neighbours on the same port answered
+	// (RDM-LOG36). The Proxy* names above predate the second cause and are
+	// kept as they are; this field is what says which one applies. Reset to
+	// the zero value when the device answers.
+	UnreachableCause session.UnreachableCause
 
 	// ProxiedDeviceCount/ProxiedDeviceCountKnown/ProxiedListChanged cache
 	// this device's own PROXIED_DEVICE_COUNT (0x0011) report — Phase D task
@@ -432,6 +439,7 @@ func (reg *Registry) noteUnreachable(node session.NodeRef, uid rdm.UID, due *ses
 	}
 	f.ProxyRetryAt = due.RetryAt
 	f.ProxyRefusals = due.Refusals
+	f.UnreachableCause = due.Cause
 	// LastSeen is deliberately NOT touched. The device has not been seen;
 	// the node's ToD still lists it, which is what put the row on screen in
 	// the first place.
@@ -447,6 +455,7 @@ func (reg *Registry) noteReachable(node session.NodeRef, uid rdm.UID) {
 	f.ProxyUnreachable = false
 	f.ProxyUnreachableSince = time.Time{}
 	f.ProxyRetryAt = time.Time{}
+	f.UnreachableCause = session.CauseProxyRefusal
 }
 
 // A deferred/partial response is evidence even when the command later fails.

@@ -793,8 +793,8 @@ func TestNodeScopeSerializesAcrossPorts(t *testing.T) {
 // --- profiles ---------------------------------------------------------
 
 func TestShippedTimeoutProfiles(t *testing.T) {
-	if ProfileDirect.ResponseTimeout != 1500*time.Millisecond || ProfileDirect.Retries != 2 {
-		t.Fatalf("ProfileDirect = %+v, want 1.5 s / 2 retries", ProfileDirect)
+	if ProfileDirect.ResponseTimeout != 500*time.Millisecond || ProfileDirect.Retries != 2 {
+		t.Fatalf("ProfileDirect = %+v, want 500 ms / 2 retries", ProfileDirect)
 	}
 	if ProfileWirelessProxy.ResponseTimeout != 5*time.Second || ProfileWirelessProxy.Retries != 3 {
 		t.Fatalf("ProfileWirelessProxy = %+v, want 5 s / 3 retries", ProfileWirelessProxy)
@@ -809,8 +809,8 @@ func TestPerNodeProfileSelection(t *testing.T) {
 	proxy := nodeRef("2.11.90.9", 1, artnet.PortAddress{})
 	h.ctrl.SetNodeProfile(proxy.Key, testProfile)
 
-	// The proxy node's short 100 ms timeout applies; the default 1.5 s does
-	// not.
+	// The proxy node's short 100 ms timeout applies; the default 500 ms
+	// does not.
 	cmd := h.ctrl.Get(proxy, uidA, rdm.PIDDeviceInfo, nil)
 	h.clock.Advance(120 * time.Millisecond)
 	if h.requestCount() != 2 {

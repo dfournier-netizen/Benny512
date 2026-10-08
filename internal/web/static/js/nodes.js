@@ -263,6 +263,11 @@ const NodesScreen = (() => {
     if (g.entries.some(n => n.stale)) {
       return pill('md', 'warn', 'status-warning', 'Stale · stopped answering');
     }
+    // A node-level RDM fault (server.go nodeJSON.fault: malformed ArtRdm
+    // from this IP) is the node's own problem, so it is flagged on the node.
+    if (g.entries.some(n => n.fault)) {
+      return pill('md', 'warn', 'status-warning', 'Node fault · malformed RDM');
+    }
     if (g.entries.every(n => n.rdmCapable)) return pill('md', 'ok', 'status-ok', 'RDM capable');
     return pill('md', 'open', '', 'No RDM reported');
   }
@@ -293,6 +298,7 @@ const NodesScreen = (() => {
   // (never colour alone) instead of two separate badge columns.
   function nodeStatusPill(n) {
     if (n.stale) return pill('md', 'warn', 'status-warning', 'Stale · stopped answering');
+    if (n.fault) return pill('md', 'warn', 'status-warning', 'Node fault · malformed RDM');
     if (n.rdmCapable) return pill('md', 'ok', 'status-ok', 'RDM capable');
     return pill('md', 'open', '', 'No RDM reported');
   }
@@ -324,6 +330,7 @@ const NodesScreen = (() => {
       buildDetailShell(n);
     } else {
       renderInfoStatic(n);
+      renderFaultNote(n);
     }
   }
 
@@ -378,6 +385,7 @@ const NodesScreen = (() => {
         <button class="b5-btn" id="nodeTab-port" role="tab" aria-controls="nodePanel-port">Port settings</button>
       </div>
       <div class="b5-panel__body b5-stack b5-nodes-editor__body">
+        <div id="nodeFaultNote"></div>
         <div id="nodePortPicker" class="b5-field"><label for="nodeDetailPortTarget" class="b5-field__label">Port</label>
           <select class="b5-select" id="nodeDetailPortTarget">${group.ports.map(p=>`<option value="${escapeHtml(p.key+'|'+p.index)}" ${p.key===selectedKey&&p.index===selectedPortIndex?'selected':''}>${escapeHtml(p.nameIsPerPort&&p.nodeShortName?p.nodeShortName:'Port '+p.index)}${group.entries.length>1?' · bind '+p.bindIndex:''} · ${escapeHtml(portUniverseLabel(p.raw))}</option>`).join('')||'<option>No ports reported</option>'}</select>
         </div>
@@ -389,8 +397,22 @@ const NodesScreen = (() => {
     byId('nodeDetailPortTarget').addEventListener('change',e=>{const p=group.ports.find(p=>p.key+'|'+p.index===e.target.value);if(p)selectPort(p.key,p.index,p.ip);});
     for(const kind of ['node','port']) byId('nodeTab-'+kind).addEventListener('click',()=>setEditorTab(kind));
     renderInfoStatic(n);
+    renderFaultNote(n);
     renderConfigSection(n);
     setEditorTab(editorTab);
+  }
+
+  // renderFaultNote places the server's node-fault sentence (nodeJSON.fault
+  // .note) verbatim at the top of the editor, on both tabs. Called from the
+  // shell build and from every refresh, so a fault that arrives while the
+  // editor is open still appears, and one that is gone clears.
+  function renderFaultNote(n) {
+    const target = document.getElementById('nodeFaultNote');
+    if (!target) return;
+    const note = n.fault && n.fault.note;
+    target.innerHTML = note ? `<p class="b5-note">${escapeHtml(note)}</p>` : '';
+    // Hidden when empty so the stack's gap does not leave a blank band.
+    target.hidden = !note;
   }
 
   // portDirectionLabel/portUniverseLabel: a node port is an input OR an

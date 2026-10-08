@@ -14,6 +14,12 @@ type rdmDiagnosticsJSON struct {
 	AckTimerCollectors    uint64 `json:"ackTimerCollectors"`
 	ProxyBufferFull       uint64 `json:"proxyBufferFull"`
 	QueuedMessagesDrained uint64 `json:"queuedMessagesDrained"`
+	// MalformedRDM counts inbound ArtRdm datagrams whose RDM message did not
+	// decode (a node-level fault; see nodeJSON.Fault). ForeignResponses
+	// counts RDM responses addressed to some other controller's UID. Zero is
+	// the healthy answer and stays on the wire.
+	MalformedRDM     uint64 `json:"malformedRdm"`
+	ForeignResponses uint64 `json:"foreignResponses"`
 }
 
 // handleRDMDiagnostics exposes controller counters without exposing mutable
@@ -26,5 +32,6 @@ func (s *Server) handleRDMDiagnostics(w http.ResponseWriter, r *http.Request) {
 		AckTimerReissues: st.AckTimerReissues, AckTimerTimeouts: st.AckTimerCollectTimeouts,
 		AckTimerCollectors: st.AckTimerCollectors, ProxyBufferFull: st.ProxyBufferFull,
 		QueuedMessagesDrained: st.QueuedMessagesDrained,
+		MalformedRDM:          st.MalformedRDM, ForeignResponses: st.ForeignResponses,
 	})
 }

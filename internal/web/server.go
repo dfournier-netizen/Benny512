@@ -177,6 +177,15 @@ type Server struct {
 	// See noteUnreachableToLog.
 	unreachMu     sync.Mutex
 	unreachLogged map[string]time.Time
+	// unreachCause remembers, per UID in unreachLogged, which cause the
+	// open NOTE named, so the recovery NOTE (and the re-read that follows a
+	// no-response recovery) matches it. Guarded by unreachMu.
+	unreachCause map[string]session.UnreachableCause
+
+	// faultLogged deduplicates the node-fault NOTE line: one for the first
+	// malformed ArtRdm from a node, then at most one summary per
+	// nodeFaultNoteInterval. See noteNodeFaultToLog. Guarded by unreachMu.
+	faultLogged map[netip.Addr]*nodeFaultLog
 
 	// walkStore holds Rig Walk mode's session state (see internal/walk and
 	// walk.go in this package). Defaults to an in-memory-only store
@@ -672,6 +681,29 @@ type nodeJSON struct {
 	LastSeen     time.Time      `json:"lastSeen"`
 	Ports        []nodePortJSON `json:"ports"`
 	FixtureCount int            `json:"fixtureCount"`
+	// Fault is present only when this node's IP has sent at least one
+	// malformed ArtRdm datagram this session (session.NodeFault). A pointer
+	// so that "nothing recorded" is absence, never a plausible zero count.
+	Fault *nodeFaultJSON `json:"fault,omitempty"`
+}
+
+// nodeFaultJSON is a node-level RDM fault: ArtRdm framing whose RDM message
+// did not decode (RDM-LOG36: 2.11.90.6 sent ArtPollReply content under the
+// ArtRdm opcode). Note is the finished sentence the UI renders verbatim.
+type nodeFaultJSON struct {
+	Malformed uint64    `json:"malformed"`
+	First     time.Time `json:"first"`
+	Last      time.Time `json:"last"`
+	LastError string    `json:"lastError"`
+	Note      string    `json:"note"`
+}
+
+// nodeFaultNote is the one place the node-fault sentence is written. It
+// names the node as the thing to act on, so a tech does not go looking at
+// fixtures, and carries no universe numbers.
+func nodeFaultNote(f session.NodeFault) string {
+	return fmt.Sprintf("This node has sent %d malformed RDM packets (last at %s). That is the node's firmware or its own RDM handling, not a fixture — power-cycling or updating the node is the next step.",
+		f.Malformed, f.Last.Format("15:04:05"))
 }
 
 func toNodeJSON(n registry.NodeView) nodeJSON {
@@ -699,9 +731,22 @@ func toNodeJSON(n registry.NodeView) nodeJSON {
 
 func (s *Server) handleGetNodes(w http.ResponseWriter, r *http.Request) {
 	nodes := s.Registry.Nodes()
+	// Faults are recorded per sending IP, so every NodeKey (bind index) of
+	// that IP carries the same fault.
+	faults := make(map[netip.Addr]session.NodeFault)
+	if s.RDM != nil {
+		for _, f := range s.RDM.NodeFaults() {
+			faults[f.IP] = f
+		}
+	}
 	out := make([]nodeJSON, 0, len(nodes))
 	for _, n := range nodes {
-		out = append(out, toNodeJSON(n))
+		nj := toNodeJSON(n)
+		if f, ok := faults[n.Key.IP]; ok {
+			nj.Fault = &nodeFaultJSON{Malformed: f.Malformed, First: f.First, Last: f.Last,
+				LastError: f.LastError, Note: nodeFaultNote(f)}
+		}
+		out = append(out, nj)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -800,6 +845,10 @@ type fixtureJSON struct {
 	Unreachable     bool       `json:"unreachable"`
 	UnreachableNote string     `json:"unreachableNote,omitempty"`
 	RetryAt         *time.Time `json:"retryAt,omitempty"`
+	// UnreachableCause is session.UnreachableCause.String() —
+	// "proxy-refusal" or "no-response" — while Unreachable is true, and
+	// absent otherwise (a reachable device has no cause to state).
+	UnreachableCause string `json:"unreachableCause,omitempty"`
 
 	// ProxiedDeviceCount/ProxiedDeviceCountKnown/ProxiedListChanged surface
 	// this device's own PROXIED_DEVICE_COUNT report as structured data
@@ -839,6 +888,11 @@ type fixtureJSON struct {
 func unreachableNote(f registry.Fixture) string {
 	if !f.ProxyUnreachable {
 		return ""
+	}
+	if f.UnreachableCause == session.CauseNoResponse {
+		// RDM-LOG36: one fixture silent while its neighbours on the same
+		// port answer. Saying the line works points the tech at the fixture.
+		return "Not answering RDM. Other fixtures on the same port are answering, so the line is working. Benny512 has paused this one so the rest of the rig keeps running, and will check it again automatically."
 	}
 	return "Not answering through its wireless proxy. Benny512 has paused it so the rest of the rig keeps running, and will try again automatically."
 }
@@ -891,6 +945,9 @@ func toFixtureJSON(f registry.Fixture, read autoread.State, attempts int) fixtur
 	if f.ProxyUnreachable && !f.ProxyRetryAt.IsZero() {
 		at := f.ProxyRetryAt
 		out.RetryAt = &at
+	}
+	if f.ProxyUnreachable {
+		out.UnreachableCause = f.UnreachableCause.String()
 	}
 	return out
 }
@@ -1482,6 +1539,9 @@ func (s *Server) pumpRDMEvents(ctx context.Context) {
 				}
 				s.noteUnreachableToLog(ev)
 			}
+			if ev.Kind == session.EventNodeFault {
+				s.noteNodeFaultToLog(ev)
+			}
 			if ev.Kind == session.EventToDUpdate {
 				uids := make([]string, 0, len(ev.UIDs))
 				for _, u := range ev.UIDs {
@@ -1522,10 +1582,20 @@ func (s *Server) noteUnreachableToLog(ev session.Event) {
 			if s.unreachLogged == nil {
 				s.unreachLogged = make(map[string]time.Time)
 			}
+			if s.unreachCause == nil {
+				s.unreachCause = make(map[string]session.UnreachableCause)
+			}
 			s.unreachLogged[uid] = due.RetryAt
+			s.unreachCause[uid] = due.Cause
 		}
 		s.unreachMu.Unlock()
 		if already {
+			return
+		}
+		if due.Cause == session.CauseNoResponse {
+			s.logNote(ev.At, fmt.Sprintf(
+				"%s not answering — %d requests in a row went unanswered while other devices on the same port answered. Benny512 has paused it so the rest of the port keeps running; next check at %s.",
+				uid, due.Silences, due.RetryAt.Format("15:04:05")))
 			return
 		}
 		s.logNote(ev.At, fmt.Sprintf(
@@ -1535,11 +1605,76 @@ func (s *Server) noteUnreachableToLog(ev session.Event) {
 	case session.ResultAck, session.ResultNack:
 		s.unreachMu.Lock()
 		_, was := s.unreachLogged[uid]
+		cause := s.unreachCause[uid]
 		delete(s.unreachLogged, uid)
+		delete(s.unreachCause, uid)
 		s.unreachMu.Unlock()
-		if was {
-			s.logNote(ev.At, fmt.Sprintf("%s is answering again through its wireless proxy; resuming normally.", uid))
+		if !was {
+			return
 		}
+		if cause != session.CauseNoResponse {
+			s.logNote(ev.At, fmt.Sprintf("%s is answering again through its wireless proxy; resuming normally.", uid))
+			return
+		}
+		s.logNote(ev.At, fmt.Sprintf("%s is answering again; resuming normally.", uid))
+		// While it was paused the background reader's passes failed fast and
+		// may have spent its budget (StateGaveUp), which would leave a
+		// fixture that came back as an empty row for good. Re-read it.
+		if s.AutoRead != nil {
+			s.AutoRead.Forget(ev.UID)
+			s.AutoRead.Note(ev.Node, ev.UID)
+		}
+	}
+}
+
+// nodeFaultNoteInterval bounds the node-fault NOTE to one summary per node
+// per minute after the first.
+const nodeFaultNoteInterval = 60 * time.Second
+
+// nodeFaultLog is noteNodeFaultToLog's per-node dedupe state.
+type nodeFaultLog struct {
+	lastNote time.Time // when the last NOTE for this node was written
+	since    uint64    // malformed packets since that NOTE, not yet reported
+	lastErr  string
+}
+
+// noteNodeFaultToLog writes the RDM log NOTE for a node that sent a
+// malformed ArtRdm datagram (session.EventNodeFault).
+//
+// RDM-LOG36's node sent four inside one millisecond, so one line per packet
+// would bury the packets the log exists for. The first fault from a node is
+// written at once; after that, at most one summary per
+// nodeFaultNoteInterval, carrying the count since the previous NOTE. The
+// running total is on /api/nodes (nodeJSON.Fault) regardless.
+func (s *Server) noteNodeFaultToLog(ev session.Event) {
+	at := ev.At
+	if at.IsZero() {
+		at = time.Now()
+	}
+	s.unreachMu.Lock()
+	st, seen := s.faultLogged[ev.From]
+	var text string
+	switch {
+	case !seen:
+		if s.faultLogged == nil {
+			s.faultLogged = make(map[netip.Addr]*nodeFaultLog)
+		}
+		s.faultLogged[ev.From] = &nodeFaultLog{lastNote: at}
+		text = fmt.Sprintf("Node %s sent a malformed RDM packet (%s). That is the node's own fault, not a fixture.",
+			ev.From, ev.Detail)
+	default:
+		st.since++
+		st.lastErr = ev.Detail
+		if at.Sub(st.lastNote) >= nodeFaultNoteInterval {
+			text = fmt.Sprintf("Node %s sent %d more malformed RDM packets since %s (last: %s). That is the node's own fault, not a fixture.",
+				ev.From, st.since, st.lastNote.Format("15:04:05"), st.lastErr)
+			st.lastNote = at
+			st.since = 0
+		}
+	}
+	s.unreachMu.Unlock()
+	if text != "" {
+		s.logNote(at, text)
 	}
 }
 
