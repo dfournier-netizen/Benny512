@@ -75,7 +75,15 @@ check('BMFL Shutter1 sets with ranges', safe(() => cf[39].functions[0].sets.map(
 // first-function fields Rig Check reads are left exactly as they were.
 check('BMFL Shutter1 functions[0] default from GDTF 1.0 DMXChannel Default="32/1"',
   safe(() => [cf[39].functions[0].hasDefault, cf[39].functions[0].default]), [true, 32]);
-check('BMFL Shutter1 legacy top-level hasDefault unchanged (Rig Check input)', safe(() => cf[39].hasDefault), false);
+// C1b (owner decision 2026-10-07): the first-function fields Rig Check and
+// the programmer read now carry that GDTF 1.0 channel-level Default too, in
+// their own raw "X/Y" units (default X, defaultByteCount Y).
+check('BMFL Shutter1 top-level default from GDTF 1.0 DMXChannel Default="32/1"',
+  safe(() => [cf[39].hasDefault, cf[39].default, cf[39].defaultByteCount]), [true, 32, 1]);
+check('BMFL Gobo1Pos top-level default from DMXChannel Default="32896/2"',
+  safe(() => [cf[24].hasDefault, cf[24].default, cf[24].defaultByteCount]), [true, 32896, 2]);
+check('BMFL 16-bit Dimmer top-level default from DMXChannel Default="0/2" (a known zero)',
+  safe(() => [cf[40].hasDefault, cf[40].default, cf[40].defaultByteCount, cf[41].hasDefault]), [true, 0, 2, true]);
 
 // ---- offsets 7,8 — Color1, 16-bit, 5 functions, wheel slots -------------
 // <DMXChannel ... Default="0/2" Offset="7,8">: Color1WheelIndex 0/2,
@@ -150,6 +158,9 @@ check('LEDBeam red: two mode-mastered functions', safe(() => lcf[7].functions.ma
   [['ColorAdd_R', 'Head_Color1', true, 0, 0], ['NoFeature', 'Head_Color1', true, 1, 255]]);
 check('LEDBeam red: overlapping mode-mastered functions both span the channel', safe(() => lcf[7].functions.map(f => [f.dmxFrom, f.dmxTo])), [[0, 255], [0, 255]]);
 check('LEDBeam red: Highlight from DMXChannel Highlight="255/1"', safe(() => [lcf[7].functions[0].hasHighlight, lcf[7].functions[0].highlight]), [true, 255]);
+// <DMXChannel ... Default="255/1" Geometry="Head" Highlight="255/1" Offset="13"> (Shutter1)
+check('LEDBeam Shutter1 top-level default from GDTF 1.0 DMXChannel Default="255/1"',
+  safe(() => [lcf[13].hasDefault, lcf[13].default, lcf[13].defaultByteCount]), [true, 255, 1]);
 check('LEDBeam LampControl: 12 functions, last ends at 255', safe(() => { const f = lcf[6].functions; return [f.length, f[11].name, f[11].dmxFrom, f[11].dmxTo]; }), [12, 'Reserved 5', 210, 255]);
 // A real vendor defect: <ChannelFunction Name="Shutter1" DMXFrom="0/1"> (it
 // ends at 31, the next function starts at 32/1) lists sets at 0/1, 32/1,
@@ -186,6 +197,10 @@ const SPEC_XML = `<?xml version="1.0" encoding="UTF-8"?>
   <LogicalChannel Attribute="Shutter1Strobe">
     <ChannelFunction Name="Strobe" Attribute="Shutter1Strobe" DMXFrom="192/1" ModeMaster="Nowhere_Nothing" ModeFrom="0/1" ModeTo="10/1"/>
   </LogicalChannel></DMXChannel>
+<DMXChannel Geometry="Body" Offset="4" Default="10/1">
+  <LogicalChannel Attribute="Iris">
+    <ChannelFunction Name="Iris" Attribute="Iris" DMXFrom="0/1" Default="20/1"/>
+  </LogicalChannel></DMXChannel>
 </DMXChannels></DMXMode></DMXModes>
 </FixtureType></GDTF>`;
 const spec = GdtfParse.parseDescriptionXml(SPEC_XML);
@@ -197,6 +212,10 @@ check('SPEC/libMVRgdtf: functions linked across LogicalChannels', safe(() => scf
   [['Shutter1', 'Closed', 0, 127], ['Shutter1', 'Open', 128, 191], ['Shutter1Strobe', 'Strobe', 192, 255]]);
 check('SPEC unresolvable ModeMaster: kept verbatim, no mode range invented', safe(() => [scf[3].functions[2].modeMaster, scf[3].functions[2].hasMode]), ['Nowhere_Nothing', false]);
 check('SPEC unresolvable ModeMaster is warned', spec.warnings.some(w => /Nowhere_Nothing/.test(w)), true);
+check('SPEC 1.1-style: a ChannelFunction Default wins over a DMXChannel Default (top-level)',
+  safe(() => [scf[4].hasDefault, scf[4].default, scf[4].defaultByteCount]), [true, 20, 1]);
+check('SPEC 1.1-style: ChannelFunction Default unchanged on a channel with no DMXChannel Default',
+  safe(() => [scf[1].hasDefault, scf[1].default, scf[1].defaultByteCount]), [true, 255, 1]);
 check('SPEC no <Wheels> gives an empty (not missing) wheels list', safe(() => [spec.wheels, spec.modes[0].wheels]), [[], []]);
 
 if (failures) { console.error(`${failures} check(s) failed`); process.exit(1); }

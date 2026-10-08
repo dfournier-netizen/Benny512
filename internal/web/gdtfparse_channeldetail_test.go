@@ -3,11 +3,13 @@ package web
 import (
 	"bytes"
 	"encoding/json"
+	"encoding/xml"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -211,23 +213,36 @@ func TestGdtfChannelDetail_RejectsInconsistentKnownFlag(t *testing.T) {
 // gdtfparse.js) — the fields Rig Check reads.
 var c1ChannelFunctionKeys = []string{"byteCount", "byteIndex", "functionsKnown", "functions"}
 
-// TestGdtfChannelDetail_LegacyFieldsUnchanged is a NO-CHANGE guard, not a
-// fail-first test: it passes against the pre-C1 parser by construction (the
-// golden file was generated from it) and exists so a later edit to the
-// parser cannot quietly move a field Rig Check depends on.
+// TestGdtfChannelDetail_LegacyFieldsUnchanged pins the first-function
+// fields Rig Check reads against goldens generated from the parser BEFORE
+// this work (robe_extracts_..., pre-C1; paladin_cube_..., pre-C1b) with ONE
+// sanctioned change (C1b, owner decision 2026-10-07): where a GDTF 1.0 file
+// states its Default on the <DMXChannel> rather than the ChannelFunction,
+// hasDefault/default/defaultByteCount now carry it. The expected channel
+// default is read independently, with encoding/xml, from the vendor XML —
+// not from the parser under test. The Paladin Cube (DataVersion 1.2, its
+// defaults on ChannelFunctions) must not move at all.
 func TestGdtfChannelDetail_LegacyFieldsUnchanged(t *testing.T) {
-	goldenBytes, err := os.ReadFile("static/js/testdata/robe_extracts_legacy_channelfunctions.golden.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var golden map[string][]struct {
+	type goldenMode struct {
 		Name             string                    `json:"name"`
 		Footprint        int                       `json:"footprint"`
 		ChannelFunctions map[string]map[string]any `json:"channelFunctions"`
 	}
-	if err := json.Unmarshal(goldenBytes, &golden); err != nil {
-		t.Fatal(err)
+	golden := map[string][]goldenMode{}
+	for _, g := range []string{"robe_extracts_legacy_channelfunctions.golden.json", "paladin_cube_legacy_channelfunctions.golden.json"} {
+		goldenBytes, err := os.ReadFile("static/js/testdata/" + g)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var part map[string][]goldenMode
+		if err := json.Unmarshal(goldenBytes, &part); err != nil {
+			t.Fatal(err)
+		}
+		for k, v := range part {
+			golden[k] = v
+		}
 	}
+	defaultKeys := []string{"hasDefault", "default", "defaultByteCount"}
 	for file, modes := range golden {
 		var body struct {
 			Mode             string                    `json:"mode"`
@@ -238,6 +253,7 @@ func TestGdtfChannelDetail_LegacyFieldsUnchanged(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := modes[0]
+		chDefaults := channelLevelDefaults(t, "static/js/testdata/"+file, want.Name)
 		if body.Mode != want.Name || body.Footprint != want.Footprint {
 			t.Errorf("%s: mode/footprint %q/%d, golden %q/%d", file, body.Mode, body.Footprint, want.Name, want.Footprint)
 		}
@@ -249,13 +265,80 @@ func TestGdtfChannelDetail_LegacyFieldsUnchanged(t *testing.T) {
 			for _, k := range c1ChannelFunctionKeys {
 				delete(gcf, k)
 			}
-			if !reflect.DeepEqual(gcf, wcf) {
+			wantDefault := []any{wcf["hasDefault"], wcf["default"], wcf["defaultByteCount"]}
+			if wcf["hasDefault"] != true {
+				if d, ok := chDefaults[off]; ok {
+					wantDefault = []any{true, float64(d[0]), float64(d[1])}
+				}
+			}
+			gotDefault := []any{gcf["hasDefault"], gcf["default"], gcf["defaultByteCount"]}
+			if !reflect.DeepEqual(gotDefault, wantDefault) {
+				t.Errorf("%s offset %s: hasDefault/default/defaultByteCount = %v, want %v", file, off, gotDefault, wantDefault)
+			}
+			for _, k := range defaultKeys {
+				delete(gcf, k)
+			}
+			w := map[string]any{}
+			for k, v := range wcf {
+				w[k] = v
+			}
+			for _, k := range defaultKeys {
+				delete(w, k)
+			}
+			if !reflect.DeepEqual(gcf, w) {
 				gb, _ := json.Marshal(gcf)
-				wb, _ := json.Marshal(wcf)
+				wb, _ := json.Marshal(w)
 				t.Errorf("%s offset %s: legacy fields moved\n got  %s\n want %s", file, off, gb, wb)
 			}
 		}
 	}
+}
+
+// channelLevelDefaults reads, with encoding/xml and independently of
+// gdtfparse.js, every <DMXChannel Default="X/Y"> of one mode, keyed by each
+// offset the channel occupies (these files place channels at their literal
+// Offset — no GeometryReference). "None"/absent are left out.
+func channelLevelDefaults(t *testing.T, path, mode string) map[string][2]int {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Modes []struct {
+			Name     string `xml:"Name,attr"`
+			Channels []struct {
+				Offset  string `xml:"Offset,attr"`
+				Default string `xml:"Default,attr"`
+			} `xml:"DMXChannels>DMXChannel"`
+		} `xml:"FixtureType>DMXModes>DMXMode"`
+	}
+	if err := xml.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	out := map[string][2]int{}
+	for _, m := range doc.Modes {
+		if m.Name != mode {
+			continue
+		}
+		for _, ch := range m.Channels {
+			parts := strings.Split(ch.Default, "/")
+			if len(parts) != 2 {
+				continue
+			}
+			v, err1 := strconv.Atoi(parts[0])
+			b, err2 := strconv.Atoi(parts[1])
+			if err1 != nil || err2 != nil {
+				continue
+			}
+			for _, off := range strings.Split(ch.Offset, ",") {
+				if off = strings.TrimSpace(off); off != "" {
+					out[off] = [2]int{v, b}
+				}
+			}
+		}
+	}
+	return out
 }
 
 // TestRigCheckAvailability_UnchangedByChannelDetail: Rig Check reads the

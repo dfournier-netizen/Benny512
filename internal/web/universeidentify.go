@@ -2,15 +2,10 @@ package web
 
 import (
 	"crypto/rand"
-	"errors"
 	"fmt"
 	"net/http"
-	"net/netip"
-	"strings"
 	"time"
 
-	"benny512/internal/artnet"
-	"benny512/internal/patch"
 	"benny512/internal/session"
 )
 
@@ -27,41 +22,22 @@ type identifyStatus struct {
 
 // No patch entries or shared output frames are reachable through this state.
 // All fields and callbacks are protected by Server.identifyMu.
+//
+// Since C3 Universe Identify is a source of the unified output engine, not an
+// engine of its own: Start hands the engine one frame per wire stream in the
+// range (session.DMXOutputEngine.SetIdentify), which owns each of those
+// streams exclusively while it runs — every other universe keeps whatever
+// Send, Rig Check or the programmer put there, so Identify no longer refuses
+// to arm while other output runs, and other output no longer gets a 409 while
+// Identify is armed. Nothing reaches the wire unless the master output is
+// armed. The tool keeps its own range arm, token and 5 s lease: that lease
+// belongs to the page that started it, and when it lapses Identify ends and
+// its streams fall back to the composed show (or leave the wire with zeros).
 type universeIdentify struct {
 	identifyStatus
 	token    string
 	deadline time.Time
 	timer    session.Timer
-	dmx      *session.DMXOutputEngine
-	sacn     patch.SACNStream
-	sends    int
-	nextSend time.Time
-}
-
-// Identify owns output exclusively while armed. Serialize the check with
-// commands that could start/write the other engines, including other browsers.
-// Stops remain available and disarm Identify as well.
-func (s *Server) identifyOutputGuard(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p := r.URL.Path
-		shared := r.Method == "POST" && (p == "/api/dmx" || p == "/api/dmx/start" || p == "/api/dmx/stop" ||
-			strings.HasPrefix(p, "/api/patch/rigcheck/") || p == "/api/output/stop" || p == "/api/reset" || p == "/api/patch/workspace/rehearse")
-		if !shared {
-			next.ServeHTTP(w, r)
-			return
-		}
-		s.identifyMu.Lock()
-		defer s.identifyMu.Unlock()
-		if s.identify.Armed {
-			if strings.HasSuffix(p, "/stop") || strings.HasSuffix(p, "/blackout") || p == "/api/reset" || strings.HasSuffix(p, "/rehearse") {
-				s.stopIdentifyLocked()
-			} else {
-				writeError(w, http.StatusConflict, fmt.Errorf("disarm Universe Identify before using manual Send or Rig Check"))
-				return
-			}
-		}
-		next.ServeHTTP(w, r)
-	})
 }
 
 func (s *Server) handleUniverseIdentifyStatus(w http.ResponseWriter, r *http.Request) {
@@ -96,13 +72,8 @@ func (s *Server) handleUniverseIdentifyArm(w http.ResponseWriter, r *http.Reques
 	}
 	s.identifyMu.Lock()
 	defer s.identifyMu.Unlock()
-	st := s.RigCheck.State()
-	if s.identify.Armed || s.DMX.OutputRunning() || st.Running || st.PatternRunning {
-		writeError(w, http.StatusConflict, fmt.Errorf("stop existing output and disarm Universe Identify before arming a new range"))
-		return
-	}
-	if s.Simulation && req.Protocol == "sacn" {
-		writeError(w, http.StatusConflict, fmt.Errorf("sACN Universe Identify is unavailable in rehearsal; no network output is opened"))
+	if s.identify.Armed {
+		writeError(w, http.StatusConflict, fmt.Errorf("turn Universe Identify off before setting a new range"))
 		return
 	}
 	s.identify = universeIdentify{
@@ -154,32 +125,23 @@ func (s *Server) handleUniverseIdentifyStart(w http.ResponseWriter, r *http.Requ
 	}
 	i := &s.identify
 	if !i.Running {
-		if i.Protocol == "artnet" {
-			i.dmx = s.DMX.NewIsolatedOutput()
-			for n := i.From; n <= i.To; n++ {
-				pa, _ := artnet.PortAddressFromRaw(uint16(n)) // validated 0..512
-				i.dmx.StartUniverse(pa, netip.AddrPort{}, 512)
-				_ = i.dmx.SetFrame(pa, identifyFrame(n))
-			}
-		} else {
-			// Only reuse the NIC/priority/destination binding. Universe numbers
-			// are raw sACN here: never apply the show's Art-Net/sACN offsets.
-			stream, err := s.sacnBinding().Open()
-			if err != nil {
-				s.stopIdentifyLocked()
-				i.Error = err.Error()
-				writeError(w, http.StatusInternalServerError, err)
-				return
-			}
-			i.sacn = stream
+		// Raw protocol universe numbers: never the show's Art-Net/sACN
+		// offsets. Validated at arm: Art-Net 0..512, sACN 1..512.
+		proto := session.WireArtNet
+		if i.Protocol == "sacn" {
+			proto = session.WireSACN
 		}
-		i.Running = true
-		if err := s.sendIdentifyLocked(); err != nil {
+		frames := make(map[session.Stream][]byte, i.To-i.From+1)
+		for n := i.From; n <= i.To; n++ {
+			frames[session.Stream{Protocol: proto, Universe: uint16(n)}] = identifyFrame(n)
+		}
+		if err := s.DMX.SetIdentify(frames); err != nil {
 			s.stopIdentifyLocked()
 			i.Error = err.Error()
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
+		i.Running = true
 	}
 	i.deadline = s.DMX.Clock().Now().Add(identifyLease)
 	writeJSON(w, http.StatusOK, i.identifyStatus)
@@ -209,74 +171,36 @@ func (s *Server) stopUniverseIdentify() {
 
 func (s *Server) stopIdentifyLocked() {
 	i := &s.identify
+	wasRunning := i.Running
 	i.Armed, i.Running, i.token = false, false, ""
 	if i.timer != nil {
 		i.timer.Stop()
 		i.timer = nil
 	}
-	var err error
-	if i.dmx != nil {
-		// This engine contains only the operator's explicit range. Never call
-		// the shared DMX engine's Blackout/SendNow/Start from this tool.
-		for k := 0; k < 3; k++ {
-			i.dmx.Blackout()
-		}
-		err = i.dmx.LastSendError()
-		i.dmx = nil
-	}
-	if i.sacn != nil {
-		for n := i.From; n <= i.To; n++ {
-			err = errors.Join(err, i.sacn.Stop(uint16(n)))
-		}
-		err = errors.Join(err, i.sacn.Close())
-		i.sacn = nil
-	}
-	if err != nil {
-		i.Error = err.Error()
+	if wasRunning {
+		// The engine retires each identified stream: back to the composed
+		// show universe if a source drives it, otherwise three zero frames
+		// (Art-Net) or zero frames and Stream_Terminated (sACN).
+		s.DMX.ClearIdentify()
 	}
 }
 
-func (s *Server) sendIdentifyLocked() error {
-	i := &s.identify
-	if i.dmx != nil {
-		i.dmx.SendNow()
-		return i.dmx.LastSendError()
-	}
-	for n := i.From; n <= i.To; n++ {
-		if err := i.sacn.Send(uint16(n), identifyFrame(n)); err != nil {
-			return err
-		}
-	}
-	i.sends++
-	interval := patch.SACNBurstInterval
-	if i.sends >= patch.SACNSuppressionBurst {
-		interval = patch.SACNKeepAliveInterval
-	}
-	i.nextSend = s.DMX.Clock().Now().Add(interval)
-	return nil
-}
+// identifyLeaseCheck is how often an armed Identify checks its own lease.
+const identifyLeaseCheck = 100 * time.Millisecond
 
 func (s *Server) scheduleIdentifyLocked() {
 	token := s.identify.token
-	s.identify.timer = s.DMX.Clock().AfterFunc(s.DMX.Interval(), func() {
+	s.identify.timer = s.DMX.Clock().AfterFunc(identifyLeaseCheck, func() {
 		s.identifyMu.Lock()
 		defer s.identifyMu.Unlock()
 		i := &s.identify
 		if !i.Armed || i.token != token {
 			return
 		}
-		now := s.DMX.Clock().Now()
-		if !now.Before(i.deadline) {
+		if !s.DMX.Clock().Now().Before(i.deadline) {
 			s.stopIdentifyLocked()
-			i.Error = "Browser heartbeat lost; Universe Identify disarmed."
+			i.Error = "Browser heartbeat lost; Universe Identify turned off."
 			return
-		}
-		if i.Running && (i.Protocol == "artnet" || !now.Before(i.nextSend)) {
-			if err := s.sendIdentifyLocked(); err != nil {
-				s.stopIdentifyLocked()
-				i.Error = err.Error()
-				return
-			}
 		}
 		s.scheduleIdentifyLocked()
 	})

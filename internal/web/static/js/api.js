@@ -127,7 +127,20 @@ const Api = (() => {
 
   return {
     getContext: () => req('GET', '/api/context'),
+    // The master output (C3, internal/web/output.go). Every page heartbeats
+    // with its own client id; Arm is the confirm step for ALL DMX output;
+    // Disarm and Stop all output black out. The goodbye goes as a keepalive
+    // fetch from pagehide, so it can outlive the page.
     stopAllOutput: () => req('POST', '/api/output/stop'),
+    getOutput: () => req('GET', '/api/output'),
+    outputArm: (client) => req('POST', '/api/output/arm', { client }),
+    outputDisarm: (client) => req('POST', '/api/output/disarm', { client }),
+    outputHeartbeat: (client) => req('POST', '/api/output/heartbeat', { client }),
+    outputGoodbyeBeacon: (client) => {
+      try {
+        fetch('/api/output/goodbye', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client }) });
+      } catch (e) { /* the 5 s lease is the backstop */ }
+    },
     getWorkspace: () => req('GET', '/api/workspace'),
     workspaceAction: (action, body) => req('POST', '/api/patch/workspace/' + action, body),
     resetActiveShow: () => req('POST', '/api/patch/reset-active', {confirm:'RESET SHOW'}),
@@ -154,8 +167,9 @@ const Api = (() => {
     // btoa/String.fromCharCode is a browser built-in, not a dependency —
     // consistent with the "vanilla JS, stdlib only" rule.
     sendDmx: (universe, channelBytes) => req('POST', '/api/dmx', { universe, channels: bytesToBase64(channelBytes) }),
-    dmxStart: () => req('POST', '/api/dmx/start'),
-    dmxStop: () => req('POST', '/api/dmx/stop'),
+    // dmxRelease drops every frame Send holds (POST /api/dmx/stop): those
+    // universes fall back to whatever else drives them. It does not disarm.
+    dmxRelease: () => req('POST', '/api/dmx/stop'),
     universeIdentifyStatus: () => req('GET', '/api/dmx/identify'),
     universeIdentifyArm: (range) => req('POST', '/api/dmx/identify/arm', range),
     universeIdentifyStart: (token) => req('POST', '/api/dmx/identify/start', { token }),
@@ -360,19 +374,12 @@ const Api = (() => {
     patternSetScope: (body) => req('POST', '/api/patch/rigcheck/pattern/scope', body),
     patternSetIsolate: (isolate) => req('POST', '/api/patch/rigcheck/pattern/isolate', { isolate: !!isolate }),
     patternSetFade: (fadeMs) => req('POST', '/api/patch/rigcheck/pattern/fade', { fadeMs }),
-    // patternSetOutput(true) = the start button, (false) = the stop button.
-    //
-    // `protocol` is OPTIONAL and, when not given, the key is left off the
-    // body entirely — absent means "keep whatever protocol is armed", which
-    // is byte for byte what this endpoint did before the field existed. It
-    // is never sent on the stop direction: stopping is protocol-agnostic
-    // (the server terminates whatever stream is actually running) and a stop
-    // must not re-arm anything.
-    patternSetOutput: (enabled, protocol) => {
-      const body = { enabled: !!enabled };
-      if (enabled && protocol) body.protocol = protocol;
-      return req('POST', '/api/patch/rigcheck/pattern/output', body);
-    },
+    // patternSetOutput(true) resumes rendering the selected tests after a
+    // Channel check run or Blackout took over; (false) stops rendering,
+    // selection kept. Since C3 rendering otherwise follows the selection,
+    // and nothing reaches the wire unless the master output is armed. No
+    // protocol: each universe's protocol is a Setting.
+    patternSetOutput: (enabled) => req('POST', '/api/patch/rigcheck/pattern/output', { enabled: !!enabled }),
 
     getRigCheckState: () => req('GET', '/api/patch/rigcheck'),
     rigCheckStart: (body) => req('POST', '/api/patch/rigcheck/start', body),
@@ -384,14 +391,6 @@ const Api = (() => {
     rigCheckMode: (mode) => req('POST', '/api/patch/rigcheck/mode', { mode }),
     rigCheckLevel: (level) => req('POST', '/api/patch/rigcheck/level', { level }),
     rigCheckChannel: (delta) => req('POST', '/api/patch/rigcheck/channel', { delta }),
-    // rigCheckStopBeacon fires the "stop and blackout" call via
-    // fetch(keepalive:true), bypassing req()'s JSON-response parsing — used
-    // from pagehide/visibilitychange handlers where the page may already be
-    // gone before a normal response arrives (mirrors walkIdentifyOffBeacon's
-    // "never leave the rig lit" safety net, task ask item 4).
-    rigCheckStopBeacon: () => {
-      try { fetch('/api/patch/rigcheck/stop', { method: 'POST', keepalive: true }); } catch (e) { /* best-effort */ }
-    },
 
     // --- Devices screen: clear discovered devices (internal/web/devicesclear.go) ---
     // Deliberately narrow (server-side doc comment): clears only the

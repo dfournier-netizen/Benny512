@@ -52,7 +52,7 @@ func makeRehearsalLauncher(parent context.Context) func(patch.Patch, string) (in
 			<-ctx.Done()
 			server.Close()
 			srv.Close()
-			srv.DMX.Stop()
+			srv.DMX.Disarm()
 			srv.Nodes.Stop()
 			srv.RDM.Stop()
 		}()
@@ -84,7 +84,7 @@ func buildRehearsal(ctx context.Context, original patch.Patch, fault string) (*w
 	clock := session.RealClock{}
 	nodes := session.NewArtNetSession(session.ArtNetConfig{Transport: tport, Clock: clock})
 	rdmc := session.NewRDMController(session.RDMConfig{Transport: tport, Clock: clock})
-	dmx := session.NewDMXOutputEngine(session.DMXConfig{Transport: tport, Clock: clock})
+	dmx := session.NewDMXOutputEngine(session.DMXConfig{Transport: tport, Clock: clock, Simulated: true})
 	reg := registry.New(nodes, rdmc)
 	ring := capture.New(capture.DefaultCapacity)
 	rdmRing := capture.New(capture.DefaultRDMCapacity)

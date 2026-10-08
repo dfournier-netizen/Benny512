@@ -80,6 +80,7 @@ const Api = {
   getSettings: async () => { calls.push({ name: 'getSettings' }); return { nic: '', pollIntervalMs: 3000, captureLimit: 10000, logRdmPath: '', artnetStartUniverse: 0, timeoutProfiles: {} }; },
   getNICs: async () => { calls.push({ name: 'getNICs' }); return []; },
   getSACNConfig: async () => { calls.push({ name: 'getSACNConfig' }); return JSON.parse(JSON.stringify(sacnStored)); },
+  getOutput: async () => ({ state: 'disarmed', universes: [] }),
   postSettings: async (body) => { calls.push({ name: 'postSettings', body }); return body; },
   postSACNConfig: async (body) => {
     calls.push({ name: 'postSACNConfig', body: JSON.parse(JSON.stringify(body)) });

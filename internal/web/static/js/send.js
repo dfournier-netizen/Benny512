@@ -1,5 +1,12 @@
 // send.js — Send screen: universe picker, 512-channel grid with numeric
-// entry + trim fader, per-channel park toggle, start/stop, all-off.
+// entry + trim fader, per-channel park toggle, all-off, release.
+//
+// OUTPUT FOLLOWS THE MASTER ARM (C3). This screen no longer has its own
+// START/STOP: every frame it sends is the raw source of the one output
+// engine, live as soon as it is sent and on the wire only while the master
+// output in the top strip is Armed. A Send frame owns its whole universe
+// (zeros included), above Rig Check's tests and the programmer; Release
+// hands the universe back to them.
 //
 // Live-scrubbing rule (bench feedback, replacing the old commit-on-change
 // rule): every DMX slot is transmitted on every send, zeros included — a
@@ -137,6 +144,7 @@ const SendScreen = (() => {
           <div>
             <p class="b5-alert__title">Manual send overrides live console output</p>
             <p class="b5-alert__body">Every channel transmits live while you drag, zeros included &mdash; a channel pulled down to 0 goes dark immediately, it does not hold its last value. Park a channel to freeze it against a stray drag; a parked channel still transmits at its frozen value, park does not hand it back to a console. Confirm no board is patched to this universe before sending.</p>
+            <p class="b5-alert__body">Output follows the master Arm in the top strip: nothing here reaches the rig unless output is Armed, and Disarm blacks out. Once you send on a universe, Send owns all of it &mdash; above any Rig Check test there &mdash; until you press Release.</p>
           </div>
         </div>
       </section>
@@ -162,33 +170,28 @@ const SendScreen = (() => {
         </div>
         <div class="b5-actionbar__buttons">
           <button id="btnDmxAllOff" class="b5-btn b5-btn--danger">${UI.icon('revert')}All off</button>
-          <button id="btnDmxStart" class="b5-bigbtn b5-bigbtn--go">${UI.icon('status-ok')}START</button>
-          <button id="btnDmxStop" class="b5-bigbtn b5-bigbtn--stop">${UI.icon('status-error')}STOP</button>
+          <button id="btnDmxRelease" class="b5-btn">${UI.icon('status-pending')}Release</button>
         </div>
       </section>
       </div>
     `;
   }
 
-  // outputState: what this PAGE last told the server to do. The server
-  // exposes no "am I transmitting?" endpoint and broadcasts no DMX state
-  // (POST /api/dmx/start and /stop both answer with a bare status string —
-  // see server.go handleDMXStart/handleDMXStop), so a pill claiming "LIVE"
-  // as though it had been read back would be inventing a fact. Rule 3:
-  // name the unknown. Before either button is pressed this says so in
-  // words rather than guessing "stopped".
-  let outputState = 'unknown'; // 'unknown' | 'started' | 'stopped'
-
+  // renderOutputPill: what Send is doing, in words. Since C3 the wire is the
+  // master Arm's business (the strip says Armed / Disarmed); this only says
+  // whether Send holds frames.
+  // released: null until this page has sent or released (the server does
+  // not report Send's claims, so a fresh page names the unknown rather than
+  // guessing), then true/false.
+  let released = null;
   function renderOutputPill() {
     const el = document.getElementById('sendOutputPill');
     if (!el) return;
-    if (outputState === 'started') {
-      el.innerHTML = `<span class="b5-pill b5-pill--lg b5-pill--ok b5-pill--solid">${UI.icon('status-ok')}SENDING</span>`;
-    } else if (outputState === 'stopped') {
-      el.innerHTML = `<span class="b5-pill b5-pill--lg b5-pill--open">${UI.icon('status-pending')}STOPPED</span>`;
-    } else {
-      el.innerHTML = `<span class="b5-pill b5-pill--lg b5-pill--unread">${UI.icon('status-pending')}Not started from this page</span>`;
-    }
+    el.innerHTML = released === null
+      ? `<span class="b5-pill b5-pill--lg b5-pill--unread">${UI.icon('status-pending')}Nothing sent from this page</span>`
+      : released
+        ? `<span class="b5-pill b5-pill--lg b5-pill--open">${UI.icon('status-pending')}Released</span>`
+        : `<span class="b5-pill b5-pill--lg b5-pill--ok">${UI.icon('status-ok')}Send owns its universe</span>`;
   }
 
   // tally: how many channels are above zero and how many are frozen, in
@@ -333,6 +336,7 @@ const SendScreen = (() => {
     const bytes = new Uint8Array(512);
     for (let ch = 1; ch <= 512; ch++) bytes[ch - 1] = channels[ch];
     await Api.sendDmx(sendUniverseCanonical, bytes);
+    if (released !== false) { released = false; renderOutputPill(); }
   }
 
   function allOff() {
@@ -356,13 +360,11 @@ const SendScreen = (() => {
     if (screen) screen.innerHTML = screenHtml();
     UniverseIdentify.init();
     buildGrid();
-    document.getElementById('btnDmxStart').addEventListener('click', async () => {
-      try { await Api.dmxStart(); outputState = 'started'; } catch (e) { console.error('DMX start failed', e); }
-      renderOutputPill();
-    });
-    document.getElementById('btnDmxStop').addEventListener('click', async () => {
-      void UniverseIdentify.disarm();
-      try { await Api.dmxStop(); outputState = 'stopped'; } catch (e) { console.error('DMX stop failed', e); }
+    // Release: Send lets go of every universe it holds (POST /api/dmx/stop);
+    // they fall back to Rig Check or the programmer, or leave the wire with
+    // zero frames. It does not disarm and does not touch Universe Identify.
+    document.getElementById('btnDmxRelease').addEventListener('click', async () => {
+      try { await Api.dmxRelease(); released = true; } catch (e) { console.error('Send release failed', e); }
       renderOutputPill();
     });
     document.getElementById('btnDmxAllOff').addEventListener('click', allOff);
@@ -380,5 +382,8 @@ const SendScreen = (() => {
     renderTally();
   }
 
-  return { init, onLeaveScreen: () => UniverseIdentify.leave(), onEnterScreen: () => UniverseIdentify.refresh() };
+  // Leaving Send no longer stops anything (C3): Send's frames and Universe
+  // Identify keep running under the master Arm. Identify still ends when
+  // this page unloads or stops heartbeating it (universeidentify.js).
+  return { init, onLeaveScreen: () => {}, onEnterScreen: () => UniverseIdentify.refresh() };
 })();

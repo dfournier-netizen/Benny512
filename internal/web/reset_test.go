@@ -218,9 +218,13 @@ func TestReset_BlacksOutAndStopsDirectDMXOutsideAnyRigCheck(t *testing.T) {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
 
-	frame, ok = h.srv.DMX.Frame(pa)
-	if !ok || frame[0] != 0 {
-		t.Fatalf("frame[0] after reset = %v ok=%v, want 0/true", frame, ok)
+	// C3: reset disarms (zero frames on the wire) and releases every
+	// source, so nothing comes back on the next Arm.
+	if frame, ok = h.srv.DMX.Frame(pa); ok {
+		t.Fatalf("after reset the raw frame is still held (%v); reset must release it", frame[:2])
+	}
+	if st := h.srv.DMX.State(); st != session.StateDisarmed {
+		t.Fatalf("after reset the output is %q, want disarmed", st)
 	}
 }
 

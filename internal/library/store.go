@@ -137,7 +137,10 @@ func migrate(lib *Library) {
 		lib.Records[i] = normalizeRecord(lib.Records[i])
 	}
 	sortRecords(lib.Records)
-	// Future: switch lib.SchemaVersion { case 1: ...; lib.SchemaVersion = 2 }
+	// v1 -> v2: nothing to convert. The C1 keys are absent from a v1 file,
+	// which reads as FunctionsKnown/WheelsKnown false ("not imported"), and
+	// normalizeRecord has already made the new slices non-nil.
+	// Future: switch lib.SchemaVersion { case 2: ...; lib.SchemaVersion = 3 }
 	lib.SchemaVersion = CurrentSchemaVersion
 }
 
@@ -422,7 +425,8 @@ func mergeModes(dst, src []Mode) []Mode {
 // lessDetailedSameProfile reports whether incoming carries no schema-v6
 // channel detail while stored does, and the two are otherwise the same
 // profile: same footprint, same first-function channel map (compared in
-// the pre-v6 shape both share).
+// the pre-v6 shape both share), where a default only the stored mode states
+// does not count as a difference.
 func lessDetailedSameProfile(incoming, stored Mode) bool {
 	if incoming.WheelsKnown || len(incoming.Wheels) > 0 || incoming.Footprint != stored.Footprint {
 		return false
@@ -434,7 +438,18 @@ func lessDetailedSameProfile(incoming, stored Mode) bool {
 	if _, storedPlain := patch.PreV6ChannelFunctionsJSON(stored.ChannelFunctions); storedPlain && !stored.WheelsKnown {
 		return false // stored has no detail either: the ordinary merge rules apply
 	}
-	storedJSON, _ := patch.PreV6ChannelFunctionsJSON(patch.WithoutChannelDetail(stored.ChannelFunctions))
+	storedPlainCF := patch.WithoutChannelDetail(stored.ChannelFunctions)
+	for off, cf := range storedPlainCF {
+		// A resting value the stored (re-read) mode knows and the incoming
+		// one does not state is MORE knowledge, not a difference: C1b
+		// carries GDTF 1.0's DMXChannel Default into these fields, which
+		// pre-C1b imports of the same file never had.
+		if in, ok := incoming.ChannelFunctions[off]; ok && !in.HasDefault && cf.HasDefault {
+			cf.HasDefault, cf.Default, cf.DefaultByteCount = false, 0, 0
+			storedPlainCF[off] = cf
+		}
+	}
+	storedJSON, _ := patch.PreV6ChannelFunctionsJSON(storedPlainCF)
 	return len(incoming.ChannelFunctions) > 0 && bytes.Equal(inJSON, storedJSON)
 }
 

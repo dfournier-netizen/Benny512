@@ -1,16 +1,13 @@
 package web
 
 import (
-	"net"
 	"net/http"
 
-	"benny512/internal/patch"
 	"benny512/internal/sacn"
 )
 
-// This file is the server half of selectable sACN output: the persisted sACN
-// configuration's HTTP surface, and the binding that hands internal/patch's
-// Rig Check everything it needs to actually transmit E1.31.
+// This file is the persisted sACN configuration's HTTP surface. The binding
+// that lets the unified output engine transmit E1.31 lives in output.go.
 //
 // The CID is deliberately absent from both directions of the API. It is
 // generated once with crypto/rand and persisted (see internal/sacn's
@@ -26,38 +23,13 @@ import (
 // CID-less one is repaired and re-saved. The returned error reports a failed
 // SAVE only: the Server is left with a usable in-memory configuration either
 // way, because an unwritable directory is not a reason to refuse to run.
+//
+// The output engine's sACN binding (output.go) reads s.SACNSettings each time
+// it opens the socket, so nothing needs re-binding here.
 func (s *Server) SetSACNStorePath(path string) error {
 	st, err := sacn.NewStore(path)
 	s.SACNSettings = st
-	s.RigCheck.SetSACNBinding(s.sacnBinding())
 	return err
-}
-
-// sacnBinding builds the patch.SACNBinding this Server hands Rig Check. Both
-// closures read the CURRENT settings every time they are called, so a POST to
-// /api/sacn takes effect on the next run without re-binding anything.
-func (s *Server) sacnBinding() patch.SACNBinding {
-	return patch.SACNBinding{
-		Open: func() (patch.SACNStream, error) {
-			cfg := s.SACNSettings.Get()
-			var unicast net.IP
-			if cfg.UnicastTo != "" {
-				unicast = net.ParseIP(cfg.UnicastTo)
-			}
-			return sacn.NewSender(sacn.Config{
-				CID:       cfg.CID,
-				Priority:  byte(cfg.Priority),
-				Interface: s.OutputInterface,
-				LocalIP:   s.OutputBindIP,
-				UnicastTo: unicast,
-				Port:      s.sacnPort,
-			})
-		},
-		Universe: func(raw uint16) (uint16, error) {
-			cfg := s.SACNSettings.Get()
-			return sacn.ArtnetPortAddressToSACNUniverse(raw, s.SettingsSnapshot().ArtnetStartUniverse, cfg.StartUniverse)
-		},
-	}
 }
 
 // sacnConfigJSON is the wire shape of GET/POST /api/sacn. No cid field, in

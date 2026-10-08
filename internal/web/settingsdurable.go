@@ -152,6 +152,13 @@ func loadSettingsFile(path string) (Settings, error) {
 	if loaded.TimeoutProfiles == nil {
 		loaded.TimeoutProfiles = map[string]string{}
 	}
+	// The C3 Output fields: an older file has none of them and gets the
+	// defaults (Blackout, every universe Art-Net, sACN on the Art-Net
+	// adapter). A value the engine does not know is damage, reported like
+	// any other, with defaults in memory and the file left untouched.
+	if err := normalizeOutputSettings(&loaded); err != nil {
+		return out, fmt.Errorf("settings file %s is damaged (running on defaults; the file is left untouched): %w", path, err)
+	}
 	return loaded, nil
 }
 

@@ -20,7 +20,7 @@ func TestRehearsalCopiesPatchAndSimulatesMissing(t *testing.T) {
 	defer srv.Close()
 	defer srv.RDM.Stop()
 	defer srv.Nodes.Stop()
-	defer srv.DMX.Stop()
+	defer srv.DMX.Disarm()
 	start()
 	if !srv.Simulation {
 		t.Fatal("rehearsal must be labelled")

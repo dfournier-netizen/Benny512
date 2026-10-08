@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"sync"
 	"syscall"
 )
@@ -137,6 +138,26 @@ func NewSender(cfg Config) (*Sender, error) {
 		}
 	}
 
+	conn, err := openConn(cfg, unicast != nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Sender{
+		cid:      cfg.CID,
+		priority: priority,
+		port:     port,
+		unicast:  unicast,
+		conn:     conn,
+		next:     make(map[uint16]byte),
+	}, nil
+}
+
+// openConn opens the UDP sending socket for cfg: bound to the adapter's
+// IPv4 address when one is named, with IP_MULTICAST_IF pinned to it when the
+// traffic will be multicast. Shared by NewSender and OpenLink so the two can
+// never disagree about which adapter a socket leaves by.
+func openConn(cfg Config, unicast bool) (*net.UDPConn, error) {
 	localIP, err := resolveLocalIP(cfg)
 	if err != nil {
 		return nil, err
@@ -146,7 +167,7 @@ func NewSender(cfg Config) (*Sender, error) {
 	// Multicast egress is chosen by the routing table unless IP_MULTICAST_IF
 	// says otherwise, so pin it whenever the caller named a NIC and we are
 	// actually going to multicast.
-	if localIP != nil && unicast == nil {
+	if localIP != nil && !unicast {
 		var ip4 [4]byte
 		copy(ip4[:], localIP)
 		lc.Control = func(network, address string, c syscall.RawConn) error {
@@ -171,15 +192,8 @@ func NewSender(cfg Config) (*Sender, error) {
 		pc.Close()
 		return nil, fmt.Errorf("sacn: expected a *net.UDPConn, got %T", pc)
 	}
+	return conn, nil
 
-	return &Sender{
-		cid:      cfg.CID,
-		priority: priority,
-		port:     port,
-		unicast:  unicast,
-		conn:     conn,
-		next:     make(map[uint16]byte),
-	}, nil
 }
 
 // resolveLocalIP picks the source address for the sending socket: LocalIP if
@@ -327,3 +341,38 @@ func (s *Sender) nextSequence(universe uint16) (byte, error) {
 	s.next[universe] = seq + 1
 	return seq, nil
 }
+
+// Link is a bare sACN sending socket bound to the configured adapter. Unlike
+// Sender it does no encoding and keeps no sequence numbers: the caller
+// (internal/session's unified output engine) encodes each E1.31 Data Packet
+// with EncodeDataPacketWithOptions and chooses its destination. It exists so
+// the engine can own the whole sACN cadence, sequence and stop sequence for
+// every universe in one place, while the adapter binding stays here.
+type Link struct {
+	conn *net.UDPConn
+}
+
+// OpenLink opens a Link with cfg's adapter binding. CID, Priority and Port
+// are not used by a Link (the caller stamps them); UnicastTo only decides
+// whether IP_MULTICAST_IF is pinned.
+func OpenLink(cfg Config) (*Link, error) {
+	conn, err := openConn(cfg, cfg.UnicastTo != nil)
+	if err != nil {
+		return nil, err
+	}
+	return &Link{conn: conn}, nil
+}
+
+// Send transmits one already-encoded datagram to dst.
+func (l *Link) Send(data []byte, dst netip.AddrPort) error {
+	if _, err := l.conn.WriteToUDPAddrPort(data, dst); err != nil {
+		return fmt.Errorf("sacn: send to %v: %w", dst, err)
+	}
+	return nil
+}
+
+// LocalAddr reports the address the socket is bound to.
+func (l *Link) LocalAddr() net.Addr { return l.conn.LocalAddr() }
+
+// Close shuts the socket.
+func (l *Link) Close() error { return l.conn.Close() }

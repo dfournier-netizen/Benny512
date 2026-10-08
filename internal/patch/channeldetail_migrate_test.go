@@ -2,6 +2,7 @@ package patch
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,7 +52,7 @@ func TestMigrate_V5FileLoadsWithChannelDetailNotImported(t *testing.T) {
 	}
 	got := string(b)
 	for _, want := range []string{
-		`"schemaVersion":7`,
+		fmt.Sprintf(`"schemaVersion":%d`, CurrentSchemaVersion),
 		`"functionsKnown":false`,
 		`"functions":[]`,
 		`"byteCount":0`,

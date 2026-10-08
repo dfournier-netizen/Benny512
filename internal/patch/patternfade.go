@@ -20,7 +20,6 @@ func (r *RigCheck) SetPatternFade(d time.Duration) (PatternStatus, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.patternFadeTime = d
-	r.lastTouch = r.clock.Now()
 	return r.patternStatusLocked(), nil
 }
 
@@ -224,9 +223,6 @@ func (r *RigCheck) preparePatternScopeLocked(entries []Entry) error {
 		return nil
 	}
 	raws := scopeUniverses(entries)
-	if err := r.out.validate(r.out.proto, raws); err != nil {
-		return err
-	}
 	for _, raw := range raws {
 		if r.started[raw] {
 			continue

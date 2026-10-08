@@ -170,7 +170,7 @@ func TestPatternFadeDoesNotRestartOtherWaveforms(t *testing.T) {
 	}
 }
 
-func TestPatternFadeWatchdogAndSettingChanges(t *testing.T) {
+func TestPatternFadeSettingChanges(t *testing.T) {
 	rc, tr, clock := harness(t)
 	rc.SetPatternFade(10 * time.Second)
 	rc.StartPattern([]Entry{dimmerEntry("a", 0)}, PatternSpec{Kind: PatternDimmerToggle, Params: PatternParams{On: true}})
@@ -185,13 +185,6 @@ func TestPatternFadeWatchdogAndSettingChanges(t *testing.T) {
 	clock.Advance(time.Second)
 	if got := fadeFrame(t, tr, 0)[9]; got != 51 {
 		t.Fatalf("duration change restarted current transition: %d", got)
-	}
-	clock.Advance(5 * time.Second)
-	if got := fadeFrame(t, tr, 0)[9]; got != 0 {
-		t.Fatalf("watchdog faded instead of blacking out: %d", got)
-	}
-	if st := rc.PatternStatus(); st.OutputEnabled || st.LastEndReason != "watchdog" {
-		t.Fatalf("%+v", st)
 	}
 }
 

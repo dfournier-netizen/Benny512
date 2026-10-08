@@ -95,23 +95,12 @@ var (
 	ErrRigCheckAmbiguousTest = errors.New("patch: more than one test is selected — adjust a specific test instead")
 )
 
-// PatternWatchdogTimeout is the test-pattern engine's client-liveness
-// watchdog window — see testpattern.go's package-section doc comment ("what
-// happens if the HTTP client disappears mid-pattern") for the full reasoning.
-// A ballyhoo or spin pattern is driven entirely by this RigCheck's own
-// internal clock/ticker, NOT by incoming HTTP requests, so a browser tab
-// that crashes or a laptop that loses network mid-pattern would otherwise
-// leave a moving head sweeping (or a strobe/frost/dimmer pattern flashing)
-// forever with no client left to send the Stop that every other safety path
-// in this file relies on. Every pattern-surface call that proves a client is
-// still there and paying attention — StartPattern, AdjustPattern, AND a
-// plain PatternStatus read (GET .../rigcheck/pattern, which the UI must poll
-// regularly to render live state anyway) — refreshes r.lastTouch; if the
-// pattern ticker ever finds more than this window has elapsed since the
-// last touch, it blackout-and-stops itself, exactly as if a human had
-// pressed Stop. See internal/web/patch.go's endpoint doc comment for the
-// poll-interval contract this implies for callers.
-const PatternWatchdogTimeout = 5 * time.Second
+// There is no Rig Check watchdog any more (C3). Before the unified output
+// engine, a pattern blacked itself out when no Rig Check page had polled it
+// for 5 s. The master Arm's lease now does that job for every source at once,
+// with the owner's multi-browser rule (any connected browser keeps it alive)
+// and the owner's lease-loss choice (Blackout or Hold last look) — a second,
+// per-screen watchdog would contradict both.
 
 // State is a snapshot of RigCheck's current status, safe to serialize
 // directly to JSON.
@@ -133,13 +122,6 @@ type State struct {
 	// running, the overwhelmingly common case) is real, meaningful data a
 	// client must be able to tell apart from a key that's merely missing.
 	PatternRunning bool `json:"patternRunning"`
-	// Protocol is the wire protocol this rig check drives (see
-	// rigcheckout.go). It is the protocol the LAST Start selected and
-	// survives a Stop, so a reconnecting client reads back the choice that
-	// is actually armed rather than guessing. Deliberately no `omitempty`:
-	// "artnet" is real, meaningful data and must not be mistaken for a
-	// missing key.
-	Protocol Protocol `json:"protocol"`
 }
 
 // RigCheck steps through an ordered, scoped list of patch entries, driving
@@ -150,10 +132,9 @@ type State struct {
 type RigCheck struct {
 	dmx   *session.DMXOutputEngine
 	clock session.Clock // same Clock dmx was built with — see Clock's doc comment (session/dmxout.go) and testpattern.go's package doc comment
-	// out is the protocol-aware output boundary (rigcheckout.go). Every
-	// frame this file pushes and every universe it starts or stops goes
-	// through it, so Art-Net and sACN can never both be driving the same
-	// universe. Always non-nil: NewRigCheck builds it.
+	// out is the output boundary (rigcheckout.go): Rig Check's source in the
+	// unified output engine. Every frame this file pushes and every universe
+	// it claims or releases goes through it. Always non-nil.
 	out *rigOutput
 
 	mu      sync.Mutex
@@ -170,12 +151,14 @@ type RigCheck struct {
 	// selection and patternOutput are the two independent halves of that
 	// engine's state model (see testpattern.go's doc comment): selection
 	// survives every stop, patternOutput is what stop clears.
-	selection       *patternSelection
-	patternOutput   bool
-	patternEpoch    time.Time     // stamped when output was last enabled — the shared time base every active test's waveform is sampled against
-	patternTimer    session.Timer // self-rescheduling AfterFunc chain driving patternTick, mirrors DMXOutputEngine's own tick()/scheduleLocked()
-	lastTouch       time.Time     // last pattern-surface call (including a PatternStatus read) — see PatternWatchdogTimeout
-	lastPatternEnd  string        // "" (never run) | "manual" | "restarted" | "watchdog" — see PatternStatus.LastEndReason
+	selection      *patternSelection
+	patternOutput  bool
+	patternEpoch   time.Time     // stamped when output was last enabled — the shared time base every active test's waveform is sampled against
+	patternTimer   session.Timer // self-rescheduling AfterFunc chain driving patternTick, mirrors DMXOutputEngine's own tick()/scheduleLocked()
+	lastPatternEnd string        // "" (never run) | "manual" | "restarted" | "show changed" — see PatternStatus.LastEndReason
+	// followSelection: pattern output is on exactly while the selection
+	// has a test and a scope (SetOutputFollowsSelection).
+	followSelection bool
 	patternFadeTime time.Duration
 	patternFrames   map[uint16][]byte
 	patternUnits    map[patternUnitKey]patternUnit
@@ -193,51 +176,23 @@ type RigCheck struct {
 // pattern's own value recomputation.
 func NewRigCheck(dmx *session.DMXOutputEngine) *RigCheck {
 	r := &RigCheck{dmx: dmx, clock: dmx.Clock(), started: map[uint16]bool{}, level: DefaultLevel, selection: newPatternSelection(), patternFadeTime: time.Second}
-	r.out = newRigOutput(dmx, r.clock)
-	r.out.onTick = r.sacnRefreshTick
+	r.out = newRigOutput(dmx)
 	return r
 }
 
-// SetSACNBinding wires the sACN half of the output boundary. Called once at
-// server construction; until it is called, a Start that asks for sACN fails
-// with ErrSACNNotConfigured rather than quietly falling back to Art-Net.
-func (r *RigCheck) SetSACNBinding(b SACNBinding) {
+// SetOutputFollowsSelection makes the Function check's output follow its
+// selection: rendering is on whenever at least one test is selected over a
+// non-empty scope, and off when the last test is deselected. This is the
+// server half of the owner's C3 rule "all controls are live as selected; Arm
+// is the confirm step" — the screen no longer has its own START/STOP, and
+// nothing reaches the wire unless the master output is armed. The web layer
+// turns it on for the live server; a RigCheck built bare (unit tests) keeps
+// the explicit StartPatternOutput/StopPatternOutput model.
+func (r *RigCheck) SetOutputFollowsSelection(on bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.out.binding = b
-}
-
-// Protocol reports the wire protocol the last Start selected.
-func (r *RigCheck) Protocol() Protocol {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.out.proto
-}
-
-// LiveProtocolFor reports which protocol a raw Art-Net Port-Address is
-// currently being driven on, and whether it is driven at all. Exposed so the
-// "a universe is never driven by both protocols at once" guarantee is
-// directly assertable rather than inferred from wire captures alone.
-func (r *RigCheck) LiveProtocolFor(universe uint16) (Protocol, bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.out.liveProtocolFor(universe)
-}
-
-// SACNSendError reports the most recent sACN transmit error, if any.
-func (r *RigCheck) SACNSendError() error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.out.sendErr
-}
-
-// sacnRefreshTick is the sACN refresh timer's callback — the E1.31 cadence
-// counterpart to DMXOutputEngine.tick, which only ever drives Art-Net. See
-// rigcheckout.go's cadence constants for the Section 6.6.2 reasoning.
-func (r *RigCheck) sacnRefreshTick() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.out.refresh(r.clock.Now())
+	r.followSelection = on
+	r.followSelectionLocked()
 }
 
 // scopeUniversesLocked returns the distinct, valid raw Port-Addresses an
@@ -267,19 +222,6 @@ func scopeUniverses(entries []Entry) []uint16 {
 // Previous can still walk past them for reference) but never light any
 // channel, matching DetectCollisions' zero-footprint tolerance.
 func (r *RigCheck) Start(entries []Entry, mode Mode, level byte) error {
-	return r.StartWithProtocol(entries, mode, level, ProtocolArtNet)
-}
-
-// StartWithProtocol is Start with an explicit wire protocol. Start is exactly
-// StartWithProtocol(..., ProtocolArtNet), so every existing caller keeps its
-// pre-sACN behaviour to the byte.
-//
-// The scope's universes are ALL mapped before anything is stopped or started
-// (rigOutput.validate). A scope containing one universe that cannot be
-// expressed on the chosen protocol — Art-Net Port-Address 0 with an sACN
-// start universe of 0, say — fails here, names the universe, and leaves
-// whatever was running before untouched. It never clamps into range.
-func (r *RigCheck) StartWithProtocol(entries []Entry, mode Mode, level byte, proto Protocol) error {
 	if len(entries) == 0 {
 		return ErrRigCheckEmptyScope
 	}
@@ -287,12 +229,8 @@ func (r *RigCheck) StartWithProtocol(entries []Entry, mode Mode, level byte, pro
 	defer r.mu.Unlock()
 
 	raws := scopeUniverses(entries)
-	if err := r.out.validate(proto, raws); err != nil {
-		return err
-	}
 
 	r.stopLocked("restarted") // always start clean — no stale universes left driving from a previous scope, and this supersedes any running pattern too
-	r.out.proto = proto
 
 	r.entries = append([]Entry(nil), entries...)
 	r.mode = normalizeMode(mode)
@@ -306,20 +244,13 @@ func (r *RigCheck) StartWithProtocol(entries []Entry, mode Mode, level byte, pro
 
 	for _, u := range raws {
 		if err := r.out.startUniverse(u); err != nil {
-			// Validation above already cleared the mapping, so reaching here
-			// means the socket itself would not open. Nothing is left lit.
+			// scopeUniverses only yields valid Port-Addresses, so this is
+			// unreachable today; nothing is left lit if it ever happens.
 			r.stopLocked("restarted")
 			r.running = false
 			return err
 		}
 		r.started[u] = true
-	}
-	if proto == ProtocolArtNet {
-		// Only the Art-Net path needs the shared engine's tick loop; an sACN
-		// run registers nothing with the engine, which is exactly what takes
-		// the universe OFF Art-Net. Idempotent if the loop is already
-		// running (e.g. the Send screen is also using it).
-		r.dmx.Start()
 	}
 	r.recomputeLocked()
 	return nil
@@ -369,12 +300,11 @@ func (r *RigCheck) ResetSelection() {
 // the selection gone replaces it via SetPatternTests.
 func (r *RigCheck) stopLocked(reason string) {
 	r.blackoutLocked()
-	// One call takes every live universe off whichever protocol is driving
-	// it: Art-Net universes are removed from the shared DMX engine, sACN
-	// universes get three zero frames and three Stream_Terminated packets
-	// and the socket is closed. Without the sACN half, handleStopAllOutput
-	// and the pattern watchdog would leave receivers holding a zeroed stream
-	// until E131_NETWORK_DATA_LOSS_TIMEOUT (2.5s, ANSI E1.31-2025 §6.7.1).
+	// Release every universe Rig Check claims. The engine retires each
+	// stream nobody else drives on whichever protocols it was routed to —
+	// sACN gets three zero frames and three Stream_Terminated packets
+	// (ANSI E1.31 Section 6.2.6) — and a universe another source still drives
+	// falls back to that source.
 	r.out.stopAll()
 	r.started = map[uint16]bool{}
 	r.running = false
@@ -544,7 +474,7 @@ func (r *RigCheck) State() State {
 	defer r.mu.Unlock()
 	st := State{
 		Running: r.running, Mode: r.mode, Level: r.level, EntryIndex: r.idx, ChannelOffset: r.chOff,
-		PatternRunning: r.patternOutput, Protocol: r.out.proto,
+		PatternRunning: r.patternOutput,
 	}
 	for _, e := range r.entries {
 		st.EntryIDs = append(st.EntryIDs, e.ID)

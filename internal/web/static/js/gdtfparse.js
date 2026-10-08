@@ -1077,6 +1077,27 @@ const GdtfParse = (() => {
       const resolved = resolveChannelFunction(p.ch.logicalChannels);
       if (!resolved || !resolved.attribute) return;
       const detail = detailFor(p.ch);
+      // GDTF 1.0 channel-level Default (C1b, owner decision 2026-10-07).
+      // GDTF 1.0 states Default on <DMXChannel>; 1.1 moved it to
+      // <ChannelFunction> (DIN SPEC 15800 revision history, Version 1.1:
+      // "Moved Default from DMX Channel to Channel Function"). A 1.0 file
+      // therefore has no ChannelFunction Default at all, and Rig Check /
+      // the programmer — which read these first-function fields — knew no
+      // resting value for any of its channels. Where the first function
+      // states none but its DMXChannel does, carry the channel's, in the
+      // same raw "X/Y" units as ever (default X, defaultByteCount Y). A
+      // ChannelFunction Default, when present, still wins (1.1+ files are
+      // unchanged), and "None"/absent stays unknown.
+      let { hasDefault, defaultValue, defaultByteCount } = resolved;
+      if (!hasDefault) {
+        const chEl = channelElements.get(p.ch);
+        const chDef = parseDmxValueParts(chEl ? chEl.getAttribute('Default') : null);
+        if (chDef.present) {
+          hasDefault = true;
+          defaultValue = chDef.value;
+          defaultByteCount = chDef.byteCount;
+        }
+      }
       channelFunctions[p.offset] = {
         geometryInstance: p.geometryInstance || '',
         source: 'gdtf',
@@ -1107,9 +1128,9 @@ const GdtfParse = (() => {
         // names here made every GDTF apply and every MVR import that
         // resolved even one channel function fail outright with
         // `json: unknown field "defaultValue"`.
-        hasDefault: resolved.hasDefault,
-        default: resolved.defaultValue,
-        defaultByteCount: resolved.defaultByteCount,
+        hasDefault,
+        default: defaultValue,
+        defaultByteCount,
         hasHighlight: resolved.hasHighlight,
         highlight: resolved.highlightValue,
         highlightByteCount: resolved.highlightByteCount,

@@ -372,9 +372,11 @@ func buildReal(ifaceName string, legacyRdmStartCode bool, logNodes bool, logf fu
 
 	// start is deferred to the caller — see this function's doc comment.
 	// demux.Start (begins dispatching whatever the OS socket already has
-	// buffered), the engines' Run loops, nodes.Start's initial ArtPoll, and
-	// dmx.Start's periodic output are the only things in this function that
-	// can put a packet in front of the tap, so they all live here.
+	// buffered), the engines' Run loops and nodes.Start's initial ArtPoll
+	// are the only things in this function that can put a packet in front
+	// of the tap, so they all live here. DMX output is not started here: the
+	// unified output engine (C3) comes up DISARMED and sends nothing until an
+	// operator presses ARM in a browser.
 	start = func() {
 		demux.Start()
 		go reg.Run()
@@ -383,7 +385,6 @@ func buildReal(ifaceName string, legacyRdmStartCode bool, logNodes bool, logf fu
 		if err := nodes.Start(); err != nil {
 			logf("warn", "initial ArtPoll failed: %v", err)
 		}
-		dmx.Start()
 	}
 
 	return srv, start, func() { udp.Close() }, nil

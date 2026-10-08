@@ -100,7 +100,7 @@ function setRange(from, to, protocol = 'artnet') {
   assert.deepEqual(writes()[0], { url: '/api/dmx/identify/arm', method: 'POST', body: { protocol: 'artnet', from: 0, to: 2 }, keepalive: undefined });
   assert.equal(server.running, false, 'Arm sends no Identify start');
   assert.equal(nodes.get('identifyStart').disabled, false);
-  assert.match(nodes.get('identifyStatus').textContent, /Armed.*Art-Net 0–2/);
+  assert.match(nodes.get('identifyStatus').textContent, /Range set.*Art-Net 0–2/);
   await click('identifyStart');
   assert.equal(server.running, true);
   assert.match(nodes.get('identifyStatus').textContent, /Identifying/);
@@ -121,7 +121,9 @@ function setRange(from, to, protocol = 'artnet') {
   assert.deepEqual(writes().at(-1).body, { protocol: 'sacn', from: 10, to: 12 });
   await click('identifyStart');
   screen.onLeaveScreen(); await flush();
-  assert.equal(server.running, false, 'leaving Send must disarm');
+  assert.equal(server.running, true, 'leaving Send no longer turns Identify off (C3: output follows the master Arm)');
+  await click('identifyStop'); await flush();
+  assert.equal(server.running, false);
 
   // A delayed Arm response after range edit must never authorize Start.
   let release;

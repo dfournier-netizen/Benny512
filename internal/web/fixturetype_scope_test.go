@@ -52,8 +52,10 @@ func TestFixtureTypeScopeWireContract(t *testing.T) {
 	}
 	var st patternStatusJSON
 	mustUnmarshal(t, rr, &st)
-	if st.TotalScope != 2 || st.SelectedCount != 1 || st.OutputEnabled {
-		t.Fatalf("type selection must select only the two exact matches without starting output: %+v", st)
+	// C3: the selection is live (it renders) but nothing reaches the wire
+	// while the master output is disarmed.
+	if st.TotalScope != 2 || st.SelectedCount != 1 || c3AllArtDmx(h.tport.TakeSent()) != 0 {
+		t.Fatalf("type selection must select only the two exact matches and put nothing on the wire while disarmed: %+v", st)
 	}
 	obj = decode(rr.Body.Bytes())
 	if string(obj["scopeFixtureType"]) != `"Martin ERA 800 Performance"` || string(obj["scopeKind"]) != `"fixtureType"` {

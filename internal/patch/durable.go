@@ -1,7 +1,6 @@
 package patch
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -33,13 +32,14 @@ func savePatch(path string, p Patch) error {
 	if path == "" {
 		return nil
 	}
-	data, err := json.MarshalIndent(p, "", "  ")
+	data, err := encodeShowFile(p)
 	if err != nil {
 		return fmt.Errorf("show not saved: %w", err)
 	}
 	if previous, readErr := os.ReadFile(path); readErr == nil {
-		var old Patch
-		if json.Unmarshal(previous, &old) != nil {
+		// A file this build cannot read (damaged, a dangling profile
+		// reference, or written by a newer build) is never overwritten.
+		if _, decErr := decodeShowFile(previous); decErr != nil {
 			return fmt.Errorf("show not saved: existing file is damaged; recover it or create a new show")
 		}
 		if err = atomicWrite(path+".bak", previous); err != nil {
@@ -72,7 +72,7 @@ func (st *Store) RecoverActive() (Patch, error) {
 	if !ok {
 		return Patch{}, fmt.Errorf("no readable recovery copy for this show")
 	}
-	data, err := json.MarshalIndent(p, "", "  ")
+	data, err := encodeShowFile(p)
 	if err == nil {
 		err = atomicWrite(st.activePath, data)
 	}

@@ -137,8 +137,10 @@ func TestLayoutDerive_RealCaptureExtract(t *testing.T) {
 		{"Height 5565–5857 mm", 5565.0166, 5856.77441},
 		{"Height 7660–7813 mm", 7660.03125, 7812.87549},
 	}
-	if len(layers) != len(wantLayers) {
-		t.Fatalf("derived %d layers, want %d: %v", len(layers), len(wantLayers), layers)
+	// C2b: the system Unplaced layer is always present; derived layers are
+	// inserted before it.
+	if len(layers) != len(wantLayers)+1 || asMap(layers[len(wantLayers)])["id"] != "unplaced" {
+		t.Fatalf("derived %d layers, want %d + Unplaced: %v", len(layers), len(wantLayers), layers)
 	}
 	for i, w := range wantLayers {
 		l := asMap(layers[i])
@@ -208,8 +210,8 @@ func TestLayoutDerive_PreservesManualPlacements(t *testing.T) {
 			t.Errorf("fixture %s at %q, want %q", num, got[num], want)
 		}
 	}
-	if n := len(asList(asMap(layoutGet(t, h)["layout"])["layers"])); n != 4 {
-		t.Errorf("layers = %d, want Manual + 3 derived (4565 mm has nothing left to place)", n)
+	if n := len(asList(asMap(layoutGet(t, h)["layout"])["layers"])); n != 5 {
+		t.Errorf("layers = %d, want Manual + 3 derived (4565 mm has nothing left to place) + Unplaced", n)
 	}
 
 	// A second derive with everything placed changes nothing.
@@ -252,10 +254,12 @@ func TestLayout_UnplacedDeletionCleanupAndStaleRefs(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("an entry with no location must be listed as unplaced, not given a spot: %v", body["unplaced"])
+		t.Errorf("an entry with no location must be listed as unplaced: %v", body["unplaced"])
 	}
-	if _, ok := placementsByNumber(t, body)["99"]; ok {
-		t.Error("an entry with no location was placed")
+	// C2b: it is not given a derived spot, but sits on the system Unplaced
+	// layer so it stays selectable.
+	if got := placementsByNumber(t, body)["99"]; got != "Unplaced 0,0" {
+		t.Errorf("an entry with no location is at %q, want Unplaced 0,0", got)
 	}
 
 	// A group placed as one item; deleting the group removes the item.
@@ -344,7 +348,7 @@ func TestLayout_ShowSwitchIsolatesLayouts(t *testing.T) {
 		t.Fatal(rr.Body.String())
 	}
 	b := asMap(layoutGet(t, h)["layout"])
-	if len(asList(b["layers"])) != 0 || len(asList(b["items"])) != 0 || b["derived"] != false {
+	if len(asList(b["layers"])) != 1 || len(asList(b["items"])) != 0 || b["derived"] != false {
 		t.Errorf("Show B inherited Show A's layout: %v", b)
 	}
 	mustLayoutPost(t, h, "layer-create", `{"name":"B only"}`)
@@ -394,7 +398,7 @@ func TestLayout_ValidationAndLimits(t *testing.T) {
 		{"layer-rename", `{"id":"nope","name":"x"}`, 404},
 		{"layer-rename", `{"id":"` + floor + `","name":" "}`, 400},
 		{"layer-reorder", `{"order":["` + floor + `"]}`, 400},
-		{"layer-reorder", `{"order":["` + floor + `","` + floor + `"]}`, 400},
+		{"layer-reorder", `{"order":["` + floor + `","` + floor + `","unplaced"]}`, 400},
 		{"layer-delete", `{"id":"` + floor + `"}`, 409},
 		{"layer-delete", `{"id":"nope"}`, 404},
 		{"place", `{"kind":"fixture","ref":"` + e12 + `","layer":"` + floor + `","col":5,"row":5}`, 400},
@@ -443,15 +447,16 @@ func TestLayout_ValidationAndLimits(t *testing.T) {
 		t.Errorf("move between layers: 11 at %q", got["11"])
 	}
 	// Reorder, rename, delete with explicit removal of its items.
-	mustLayoutPost(t, h, "layer-reorder", `{"order":["`+upper+`","`+floor+`"]}`)
+	mustLayoutPost(t, h, "layer-reorder", `{"order":["`+upper+`","`+floor+`","unplaced"]}`)
 	mustLayoutPost(t, h, "layer-rename", `{"id":"`+upper+`","name":"Top"}`)
 	layers := asList(asMap(layoutGet(t, h)["layout"])["layers"])
 	if asMap(layers[0])["name"] != "Top" || asMap(layers[0])["order"] != 0.0 || asMap(layers[1])["order"] != 1.0 {
 		t.Errorf("reorder/rename: %v", layers)
 	}
 	mustLayoutPost(t, h, "layer-delete", `{"id":"`+floor+`","removeItems":true}`)
-	if got := placementsByNumber(t, layoutGet(t, h)); got["12"] != "" {
-		t.Errorf("layer delete with removeItems left 12 at %q", got["12"])
+	// C2b: 12 falls back to the Unplaced layer (first in patch order there).
+	if got := placementsByNumber(t, layoutGet(t, h)); got["12"] != "Unplaced 0,0" {
+		t.Errorf("layer delete with removeItems left 12 at %q, want Unplaced 0,0", got["12"])
 	}
 
 	// Layer limit: 32.

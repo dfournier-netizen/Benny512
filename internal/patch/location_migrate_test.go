@@ -2,6 +2,7 @@ package patch
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,7 +39,7 @@ func TestMigrate_V6FileLoadsWithLocationUnknown(t *testing.T) {
 	}
 	got := string(b)
 	for _, want := range []string{
-		`"schemaVersion":7`,
+		fmt.Sprintf(`"schemaVersion":%d`, CurrentSchemaVersion),
 		`"position":"LX 1"`,
 		`"location":{"known":false,"x":0,"y":0,"z":0,"rotationKnown":false,"rotX":0,"rotY":0,"rotZ":0}`,
 	} {

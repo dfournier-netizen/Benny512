@@ -108,7 +108,16 @@ import (
 // false: exactly "no position was ever imported". migrate() derives nothing
 // (the free-text Position label is never parsed for coordinates) — see
 // TestMigrate_V6FileLoadsWithLocationUnknown.
-const CurrentSchemaVersion = 7
+//
+// Version 8 (Console-lite C1b, profile cache): a FILE-encoding change only.
+// Each distinct profile (fixture type + mode + channel map + wheels) is
+// stored once in a top-level "profiles" table keyed by content hash, and
+// each entry stores "profile": <key> instead of its channel map and wheels
+// — see showfile.go. Entry, Patch and every API shape are unchanged. A v7
+// or older file (maps inline) is read as before by decodeShowFile; the next
+// save writes v8. From v8 on, a file NEWER than this build is refused, not
+// opened: an older build reading a v8 file would see no channel maps at all.
+const CurrentSchemaVersion = 8
 
 // MatchState records a patch entry's reconciliation state, persisted so a
 // user-confirmed pairing is never re-litigated across sessions (task ask:
@@ -804,9 +813,13 @@ func migrate(p *Patch) {
 	//
 	// v6 -> v7: no "location" key on any entry; the zero Location is already
 	// "not known". Nothing to do, nothing derived from the Position label.
+	//
+	// v7 -> v8: nothing here — the profile table is resolved by
+	// decodeShowFile before migrate runs, and a v7 file's inline maps are
+	// already in place.
 	normalizeChannelFunctions(p.Entries)
 	normalizeSettingStates(p.Entries)
-	// Future: switch p.SchemaVersion { case 7: ...; p.SchemaVersion = 8 }
+	// Future: switch p.SchemaVersion { case 8: ...; p.SchemaVersion = 9 }
 	p.SchemaVersion = CurrentSchemaVersion
 }
 
@@ -910,8 +923,8 @@ func NewStore(path string) *Store {
 			// call here (unlike decodeJSON's request-body path in
 			// internal/web, which deliberately wants strictness for typos
 			// in a live API call, not for a file that must always open).
-			if json.Unmarshal(data, &p) == nil {
-				migrate(&p)
+			if decoded, err := decodeShowFile(data); err == nil {
+				p = decoded
 				st.patch = &p
 			}
 		}

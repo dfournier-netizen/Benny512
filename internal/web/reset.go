@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"benny512/internal/params"
+	"benny512/internal/session"
 )
 
 // ErrResetConfirmationRequired is returned (as a 400) when POST /api/reset
@@ -55,16 +56,18 @@ func (s *Server) handleReset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 1. Stop the rig check with its existing blackout-and-stop discipline
-	// (internal/patch/rigcheck.go), then blackout and stop DMX output
-	// outright — RigCheck.Stop only zeroes the universes IT started, so a
-	// universe lit via a direct /api/dmx send outside any rig check would
-	// otherwise survive untouched. Safety rule, not a nicety: never leave
-	// the rig lit through a reset.
+	// (internal/patch/rigcheck.go), then Disarm the master output — zero
+	// frames on every stream, E1.31 Stream_Terminated on sACN — and drop
+	// every other source (Send's frames, the programmer, Universe Identify)
+	// so a reset leaves nothing to come back on the next Arm. Safety rule,
+	// not a nicety: never leave the rig lit through a reset.
 	if s.RigCheck != nil {
 		s.RigCheck.Stop()
 	}
-	s.DMX.Blackout()
-	s.DMX.Stop()
+	s.DMX.Disarm()
+	s.DMX.ReleaseAll(session.SourceRaw)
+	s.DMX.ReleaseAll(session.SourceProgrammer)
+	s.stopUniverseIdentify()
 
 	// 2. End the Rig Walk session: identify-off for whichever device is
 	// currently under the walk spotlight, mirroring handleWalkEnd's own
@@ -169,6 +172,7 @@ func (s *Server) handleReset(w http.ResponseWriter, r *http.Request) {
 	s.settings = defaultSettings()
 	settingsErr := s.settingsStore.Save(s.settings)
 	s.settingsMu.Unlock()
+	s.applyOutputSettings(defaultSettings())
 	if settingsErr != nil {
 		resetErrs = append(resetErrs, settingsErr.Error())
 	}

@@ -26,14 +26,14 @@ func errorText(t *testing.T, body []byte) string {
 	return m["error"]
 }
 
-// TestRigCheckStartWithoutAProtocolFieldIsUnchanged is the backwards
-// compatibility contract, asserted against a raw JSON body with no protocol
-// key at all -- not against a struct with a zero value, which would not prove
-// the same thing about a browser's request.
-func TestRigCheckStartWithoutAProtocolFieldIsUnchanged(t *testing.T) {
+// TestRigCheckStartWithoutAProtocolFieldStillWorks: a start with no protocol
+// key behaves as before and, once the master output is armed, reaches the
+// Art-Net wire (a universe with no protocol row is Art-Net).
+func TestRigCheckStartWithoutAProtocolFieldStillWorks(t *testing.T) {
 	h := newHarness(t)
 	t.Cleanup(h.srv.RigCheck.Stop)
 	seedOneFixture(t, h, 0)
+	h.srv.DMX.Arm("test")
 
 	rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/start", map[string]any{
 		"scopeKind": "all", "mode": "all_channels", "level": 255,
@@ -42,104 +42,38 @@ func TestRigCheckStartWithoutAProtocolFieldIsUnchanged(t *testing.T) {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
 	st := decodeState(t, rr.Body.Bytes())
-	if st.Protocol != "artnet" {
-		t.Fatalf("protocol = %q for a request with no protocol field, want \"artnet\"", st.Protocol)
-	}
 	if !st.Running || st.Mode != "all_channels" || st.Level != 255 {
 		t.Fatalf("a protocol-less start behaved differently: %+v", st)
 	}
-
 	h.tport.TakeSent()
 	h.clock.Advance(250 * time.Millisecond)
 	if n := countArtDmx(t, h.tport.TakeSent(), 0); n == 0 {
 		t.Fatal("a protocol-less start put nothing on the Art-Net wire")
 	}
-
-	// And GET reports the same thing.
-	rr = doJSON(t, h.srv.Handler(), "GET", "/api/patch/rigcheck", nil)
-	if got := decodeState(t, rr.Body.Bytes()).Protocol; got != "artnet" {
-		t.Fatalf("GET /api/patch/rigcheck reports protocol %q, want \"artnet\"", got)
-	}
 }
 
-func TestRigCheckStartRejectsAnUnknownProtocol(t *testing.T) {
+// TestRigCheckRefusesAProtocolField: since C3 Rig Check does not choose a
+// wire protocol (each universe's routing is a Setting). A request that still
+// names one — any value — is refused with a sentence that says where the
+// choice went, never silently run on Art-Net, on both endpoints.
+func TestRigCheckRefusesAProtocolField(t *testing.T) {
 	h := newHarness(t)
 	t.Cleanup(h.srv.RigCheck.Stop)
 	seedOneFixture(t, h, 0)
-
-	for _, bad := range []string{"sACN", "e131", "ArtNet", "art-net", "udp"} {
+	for _, p := range []string{"sacn", "artnet"} {
 		rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/start", map[string]any{
-			"scopeKind": "all", "mode": "all_channels", "level": 255, "protocol": bad,
+			"scopeKind": "all", "mode": "all_channels", "level": 255, "protocol": p,
 		})
-		if rr.Code != http.StatusBadRequest {
-			t.Fatalf("protocol %q: status=%d, want 400; body=%s", bad, rr.Code, rr.Body.String())
+		if rr.Code != http.StatusBadRequest || !strings.Contains(errorText(t, rr.Body.Bytes()), "Settings") {
+			t.Fatalf("rigcheck/start protocol %q: status=%d body=%s; want 400 pointing to Settings", p, rr.Code, rr.Body.String())
 		}
-		if got := errorText(t, rr.Body.Bytes()); !strings.Contains(got, bad) {
-			t.Fatalf("protocol %q: error %q does not name the value that was rejected", bad, got)
-		}
-		if h.srv.RigCheck.State().Running {
-			t.Fatalf("protocol %q was rejected but the rig check started anyway", bad)
+		rr = doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/output", map[string]any{"enabled": true, "protocol": p})
+		if rr.Code != http.StatusBadRequest || !strings.Contains(errorText(t, rr.Body.Bytes()), "Settings") {
+			t.Fatalf("pattern/output protocol %q: status=%d body=%s; want 400 pointing to Settings", p, rr.Code, rr.Body.String())
 		}
 	}
-}
-
-// TestRigCheckRefusesAnUnmappableUniverseOverSACN is the API half of "refuse
-// rather than clamp": the response must be a refusal that names the universe,
-// not a run on a universe nobody asked for.
-func TestRigCheckRefusesAnUnmappableUniverseOverSACN(t *testing.T) {
-	for _, tc := range []struct {
-		name          string
-		artnetStart   int
-		sacnStart     int
-		entryUniverse uint16
-		mustMention   []string
-	}{
-		{
-			name: "show universe falls below 1", artnetStart: 100, sacnStart: 1, entryUniverse: 0,
-			mustMention: []string{"Art-Net Port-Address 0", "show universe -99"},
-		},
-		{
-			name: "sACN universe runs past 63999", artnetStart: 0, sacnStart: 63999, entryUniverse: 1,
-			mustMention: []string{"Art-Net Port-Address 1", "sACN universe 64000"},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			h := newHarness(t)
-			t.Cleanup(h.srv.RigCheck.Stop)
-			seedOneFixture(t, h, tc.entryUniverse)
-
-			rr := doJSON(t, h.srv.Handler(), "POST", "/api/settings", Settings{
-				PollIntervalMS: 1000, CaptureLimit: 100, ArtnetStartUniverse: tc.artnetStart,
-			})
-			if rr.Code != http.StatusOK {
-				t.Fatalf("POST /api/settings: status=%d body=%s", rr.Code, rr.Body.String())
-			}
-			rr = doJSON(t, h.srv.Handler(), "POST", "/api/sacn", sacnConfigJSON{
-				StartUniverse: tc.sacnStart, Priority: 100,
-			})
-			if rr.Code != http.StatusOK {
-				t.Fatalf("POST /api/sacn: status=%d body=%s", rr.Code, rr.Body.String())
-			}
-
-			rr = doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/start", map[string]any{
-				"scopeKind": "all", "mode": "all_channels", "level": 255, "protocol": "sacn",
-			})
-			if rr.Code != http.StatusUnprocessableEntity {
-				t.Fatalf("status=%d, want 422; body=%s", rr.Code, rr.Body.String())
-			}
-			msg := errorText(t, rr.Body.Bytes())
-			for _, want := range tc.mustMention {
-				if !strings.Contains(msg, want) {
-					t.Fatalf("error %q does not name %q", msg, want)
-				}
-			}
-			if h.srv.RigCheck.State().Running {
-				t.Fatal("the start was refused but the rig check is running")
-			}
-			if _, live := h.srv.RigCheck.LiveProtocolFor(tc.entryUniverse); live {
-				t.Fatalf("universe %d was started anyway", tc.entryUniverse)
-			}
-		})
+	if h.srv.RigCheck.State().Running {
+		t.Fatal("a refused start left the rig check running")
 	}
 }
 

@@ -873,8 +873,9 @@ func jdcLikeEntryRequest(name string, universe uint16, addr uint16) entryRequest
 }
 
 // TestRigCheckPattern_SelectionAndOutputAreIndependent is the owner's
-// workflow over REST: select tests with output off (nothing moves), start
-// output, toggle a second test live, stop — and the selection is still there.
+// workflow over REST: select tests (since C3 they render at once, but nothing
+// moves while the master output is disarmed), toggle a second test live,
+// stop — and the selection is still there.
 func TestRigCheckPattern_SelectionAndOutputAreIndependent(t *testing.T) {
 	h := newHarness(t)
 	pa := mustPort(t)
@@ -892,8 +893,8 @@ func TestRigCheckPattern_SelectionAndOutputAreIndependent(t *testing.T) {
 	}
 	var st patternStatusJSON
 	mustUnmarshal(t, rr, &st)
-	if st.OutputEnabled || st.Running || st.SelectedCount != 1 {
-		t.Fatalf("after select-only: outputEnabled=%v running=%v selectedCount=%d, want false,false,1", st.OutputEnabled, st.Running, st.SelectedCount)
+	if !st.OutputEnabled || st.SelectedCount != 1 || c3AllArtDmx(h.tport.TakeSent()) != 0 {
+		t.Fatalf("after select: outputEnabled=%v selectedCount=%d; want the selection live (true, 1) and nothing on the wire while disarmed", st.OutputEnabled, st.SelectedCount)
 	}
 
 	// 2. Start output via the adjust endpoint's outputEnabled flag.
@@ -1048,7 +1049,7 @@ func TestRigCheckPatternEndpoints_SelectionOutlivesOutput(t *testing.T) {
 	pa := mustPort(t)
 	doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", jdcLikeEntryRequest("JDC 1", pa.RawValue(), 1))
 
-	// Scope + one test, output still off.
+	// Scope + one test: live at once since C3, silent while disarmed.
 	rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/tests", patternTestsRequest{
 		patternScopeFields: patternScopeFields{ScopeKind: "all"},
 		Tests:              []patternTestRequest{{Kind: "dimmer_sine", RateHz: 1, Max: 255}},
@@ -1058,8 +1059,8 @@ func TestRigCheckPatternEndpoints_SelectionOutlivesOutput(t *testing.T) {
 	}
 	var st patternStatusJSON
 	mustUnmarshal(t, rr, &st)
-	if st.OutputEnabled || st.SelectedCount != 1 || st.TotalScope != 1 {
-		t.Fatalf("after pattern/tests: outputEnabled=%v selectedCount=%d totalScope=%d, want false,1,1",
+	if !st.OutputEnabled || st.SelectedCount != 1 || st.TotalScope != 1 || c3AllArtDmx(h.tport.TakeSent()) != 0 {
+		t.Fatalf("after pattern/tests: outputEnabled=%v selectedCount=%d totalScope=%d, want true,1,1 and nothing on the wire while disarmed",
 			st.OutputEnabled, st.SelectedCount, st.TotalScope)
 	}
 

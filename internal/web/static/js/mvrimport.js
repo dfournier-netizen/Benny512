@@ -321,7 +321,9 @@ const MvrImport = (() => {
       }
       record.sourceFiles = [{ name: fileName, data: btoa(binary) }];
     }
-    return { format: 'benny512-fixture-library', schemaVersion: 1, records: [record] };
+    // schemaVersion 2: records carry full channel detail and wheels
+    // (internal/library CurrentSchemaVersion).
+    return { format: 'benny512-fixture-library', schemaVersion: 2, records: [record] };
   }
 
   // rememberGdtfInLibrary: merge a parsed GDTF's full mode list into the

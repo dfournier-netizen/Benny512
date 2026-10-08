@@ -53,7 +53,16 @@ import (
 // library file is a thing the owner HANDS TO A COWORKER (see Export), so a
 // file written by an older or newer build is an ordinary, expected event,
 // not a corruption.
-const CurrentSchemaVersion = 1
+//
+// Version 2 (Console-lite C1b, owner decision 2026-10-07): a mode may carry
+// full GDTF channel detail (patch.ChannelFunction's FunctionsKnown/
+// Functions/ByteCount/ByteIndex) and Wheels/WheelsKnown (C1). The fields are
+// additive and a v1 document needs no conversion, but a build that knows
+// only v1 would import a v2 document and silently drop the detail; the
+// number says so up front. validate() refuses any version newer than this
+// one — including on the build that shipped before C1, whose validate()
+// already refused anything above 1 (checked on master 6b2a9d9).
+const CurrentSchemaVersion = 2
 
 // FileFormat is the self-identifying "format" string every exported library
 // document carries and every import is checked against. A JSON document

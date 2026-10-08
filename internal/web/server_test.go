@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
@@ -474,11 +475,16 @@ func TestDMXStartStopAndSend(t *testing.T) {
 		t.Errorf("frame[0:2] = %v, %v", frame[0], frame[1])
 	}
 
-	if rr := doJSON(t, h.srv.Handler(), "POST", "/api/dmx/start", nil); rr.Code != http.StatusOK {
-		t.Fatalf("dmx start status=%d", rr.Code)
+	// C3: Send no longer starts output on its own (410 with a sentence);
+	// /api/dmx/stop releases Send's frames.
+	if rr := doJSON(t, h.srv.Handler(), "POST", "/api/dmx/start", nil); rr.Code != http.StatusGone || !strings.Contains(rr.Body.String(), "master Arm") {
+		t.Fatalf("dmx start status=%d body=%s, want 410 naming the master Arm", rr.Code, rr.Body.String())
 	}
 	if rr := doJSON(t, h.srv.Handler(), "POST", "/api/dmx/stop", nil); rr.Code != http.StatusOK {
 		t.Fatalf("dmx stop status=%d", rr.Code)
+	}
+	if _, ok := h.srv.DMX.Frame(mustPortAddr(t, 0)); ok {
+		t.Fatal("/api/dmx/stop did not release Send's frame")
 	}
 }
 

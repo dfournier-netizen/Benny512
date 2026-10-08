@@ -13,7 +13,10 @@
 // snapshot. Both halves verified themselves and both were internally
 // correct; these two defects lived in the gap between them:
 //
-//  1. SAFETY. Leaving the Rig Check view (to Entries/Reconcile) or the
+//  1. (Superseded by C3, 2026-10-07: output now follows the master Arm in
+//     the strip and its multi-browser lease, so leaving a view no longer
+//     stops output at all — section 1 below now pins THAT. The history:)
+//     SAFETY. Leaving the Rig Check view (to Entries/Reconcile) or the
 //     Function sub-view (to Channel check) stopped RigCheckPanel's
 //     client-liveness heartbeat but NOT the pattern output. That heartbeat
 //     is what feeds the server's watchdog, so output kept driving real
@@ -308,8 +311,11 @@ async function goToRigCheckFunction() {
   await settle();
 }
 
-async function startOutput() {
-  doc.getElementById('rcpStart').fire('click'); // confirm() is stubbed to accept
+// liveTests stands in for the server's C3 rule "rendering follows the
+// selection": a test is selected and rendering, with no START pressed.
+async function liveTests() {
+  outputEnabled = true;
+  vm.runInContext('RigCheckPanel.refreshStatus()', ctx, { filename: 'drive' });
   await settle();
   return outputEnabled === true;
 }
@@ -318,23 +324,23 @@ async function main() {
   vm.runInContext('PatchScreen.init(); PatchScreen.onEnterScreen();', ctx, { filename: 'drive' });
   await settle();
 
-  console.log('1. leaving the Rig Check VIEW with pattern output flowing stops the output');
+  console.log('1. leaving the Rig Check VIEW with tests live does NOT stop them (C3: output follows the master Arm)');
   await goToRigCheckFunction();
-  check(await startOutput(), 'output is flowing before the sub-tab switch', 'outputEnabled=' + outputEnabled);
+  check(await liveTests(), 'tests are live before the sub-tab switch', 'outputEnabled=' + outputEnabled);
   calls.length = 0;
   clickTab('entries');
   await settle();
-  const stop1 = calls.filter(c => c.name === 'patternSetOutput' && c.args === false);
-  check(stop1.length === 1, 'Rig Check -> Entries sends exactly one patternSetOutput(false)',
+  const stops = calls.filter(c => (c.name === 'patternSetOutput' && c.args === false) || c.name === 'rigCheckStop' || c.name === 'rigCheckStopBeacon');
+  check(stops.length === 0, 'Rig Check -> Entries sends no stop of any kind',
     'calls after the switch: ' + JSON.stringify(callNames()));
-  check(outputEnabled === false, 'pattern output is off after the sub-tab switch', 'outputEnabled=' + outputEnabled);
+  check(outputEnabled === true, 'tests are still live after the sub-tab switch', 'outputEnabled=' + outputEnabled);
 
-  console.log('2. Rig Check opens Function check directly');
+  console.log('2. Rig Check opens Function check directly, with no START of its own');
   await goToRigCheckFunction();
-  check(!/Channel check/.test(doc.getElementById('rcSubBody').innerHTML),
-    'removed Channel check is absent from Rig Check');
-  check(!!doc.getElementById('rcpStart').handlers.click,
-    'Function check Start is available directly');
+  const body = doc.getElementById('rcSubBody').innerHTML;
+  check(!/Channel check/.test(body), 'removed Channel check is absent from Rig Check');
+  check(!/id="rcpStart"/.test(body), 'the Function check has no START button');
+  check(/Output follows the master Arm/.test(body), 'the Function check says output follows the master Arm');
 
   console.log('3. a Reconcile commit reaches the screen\'s own patch copy without a manual refresh');
   clickTab('reconcile');

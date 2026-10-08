@@ -90,6 +90,20 @@ type Settings struct {
 	// input and never written back: the field is gone from the UI, and
 	// keeping it live would leave two settings meaning overlapping things.
 	LegacyUniverseBase *int `json:"universeBase,omitempty"`
+	// SACNNIC is the network adapter sACN goes out on (C3: each protocol
+	// has its own). "" means the same adapter as Art-Net — what sACN used
+	// before it had a setting of its own. NIC above is the Art-Net adapter.
+	// Unlike NIC this one applies without a restart: the sACN socket is
+	// opened at Arm, so it takes effect at the next Arm.
+	SACNNIC string `json:"sacnNic"`
+	// LeaseLossAction is what the master output does when every browser
+	// has been silent for 5 s: "blackout" (= Disarm; the default) or
+	// "hold" (keep transmitting the last look until someone re-arms).
+	LeaseLossAction string `json:"leaseLossAction"`
+	// UniverseProtocols lists the show universes that go out on something
+	// other than the default Art-Net: "sacn", or "both". A universe with no
+	// row is Art-Net only. See output.go.
+	UniverseProtocols []UniverseProtocol `json:"universeProtocols"`
 }
 
 // Server bundles the engines and serves REST + WS + the embedded UI.
@@ -154,6 +168,10 @@ type Server struct {
 	// it is never nil; cmd/benny512 upgrades it to a file beside the exe via
 	// SetSACNStorePath, mirroring SetPatchStorePath/SetLibraryStorePath.
 	SACNSettings *sacn.Store
+
+	// simSACN is the in-memory sACN link a Simulation server's engine
+	// transmits to (output.go): rehearsal and --demo never open a socket.
+	simSACN *simSACNLink
 
 	// sacnPort overrides the E1.31 destination port (0 = ACN_SDT_MULTICAST_
 	// PORT, 5568). Only the protocol-isolation test sets it, so a real-socket
@@ -280,6 +298,9 @@ func defaultSettings() Settings {
 		// previous default (universeBase 1) produced, so an existing rig
 		// reads identically after the upgrade.
 		ArtnetStartUniverse: 0,
+		// Blackout is the owner-confirmed default lease-loss action (C3).
+		LeaseLossAction:   "blackout",
+		UniverseProtocols: make([]UniverseProtocol, 0),
 	}
 }
 
@@ -305,6 +326,7 @@ func New(nodes *session.ArtNetSession, rdmc *session.RDMController, dmx *session
 		LibraryStore: library.NewStore(""),
 		RigCheck:     patch.NewRigCheck(dmx),
 		hub:          newHub(),
+		simSACN:      &simSACNLink{},
 	}
 	// The automatic identity read. Constructed here so s.AutoRead is never
 	// nil, and hooked to the registry immediately — but it sends nothing
@@ -321,7 +343,12 @@ func New(nodes *session.ArtNetSession, rdmc *session.RDMController, dmx *session
 	// only ever returns an error for a failed SAVE, which cannot happen with
 	// an empty path.
 	s.SACNSettings, _ = sacn.NewStore("")
-	s.RigCheck.SetSACNBinding(s.sacnBinding())
+	// The unified output engine (C3): sACN through this server's settings,
+	// the Function check's output following its selection (Rig Check has no
+	// START/STOP of its own any more), and the Output settings applied.
+	s.DMX.SetSACNBinding(s.engineSACNBinding())
+	s.RigCheck.SetOutputFollowsSelection(true)
+	s.applyOutputSettings(s.settings)
 	s.mux = http.NewServeMux()
 	s.routes()
 	return s
@@ -332,12 +359,13 @@ func New(nodes *session.ArtNetSession, rdmc *session.RDMController, dmx *session
 // Settings). Safe to call even if nothing was ever opened.
 func (s *Server) Close() {
 	s.stopUniverseIdentify()
-	// Blackout-and-stop the rig check on server shutdown, same discipline
-	// as leaving the Patch screen or a page unload — never leave the rig
-	// lit (task ask, item 4's safety rule) even across a process restart.
+	// Never leave the rig lit across a process exit: Disarm blacks out
+	// every stream on the wire (zero frames, and E1.31 Stream_Terminated
+	// for sACN) before the transports close.
 	if s.RigCheck != nil {
 		s.RigCheck.Stop()
 	}
+	s.DMX.Disarm()
 	s.settingsMu.Lock()
 	defer s.settingsMu.Unlock()
 	if s.rdmLogger != nil {
@@ -412,6 +440,7 @@ func (s *Server) SetSettingsStorePath(path string) error {
 	s.settingsStore = st
 	s.settings = loaded
 	s.settingsMu.Unlock()
+	s.applyOutputSettings(loaded)
 	return err
 }
 
@@ -452,7 +481,7 @@ func (s *Server) applyLogRDMPathLocked(path string) error {
 }
 
 // Handler returns the http.Handler to serve (routes + static UI).
-func (s *Server) Handler() http.Handler { return s.showGuard(s.identifyOutputGuard(s.mux)) }
+func (s *Server) Handler() http.Handler { return s.showGuard(s.mux) }
 
 // Run starts the WS hub's broadcast pumps (capture batches, node/RDM
 // events) and the capture ring's throttle ticker. Call once at startup;
@@ -577,6 +606,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/workspace", s.handleWorkspace)
 	s.mux.HandleFunc("GET /api/context", s.handleContext)
 	s.mux.HandleFunc("POST /api/output/stop", s.handleStopAllOutput)
+	s.mux.HandleFunc("GET /api/output", s.handleGetOutput)
+	s.mux.HandleFunc("POST /api/output/arm", s.handleOutputArm)
+	s.mux.HandleFunc("POST /api/output/disarm", s.handleOutputDisarm)
+	s.mux.HandleFunc("POST /api/output/heartbeat", s.handleOutputHeartbeat)
+	s.mux.HandleFunc("POST /api/output/goodbye", s.handleOutputGoodbye)
 	s.mux.HandleFunc("POST /api/patch/workspace/{action}", s.handleWorkspaceAction)
 	s.mux.HandleFunc("GET /api/patch/workspace/report/{id}", s.handleBaselineReport)
 	s.mux.HandleFunc("POST /api/patch/new", s.handleNewPatch)
@@ -1343,26 +1377,30 @@ func (s *Server) handleDMX(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("channels: want %d bytes (a full-frame snapshot), got %d", session.DMXUniverseSize, len(req.Channels)))
 		return
 	}
-	s.DMX.StartUniverse(pa, netip.AddrPort{}, 512)
-	// SetFrame, not SetChannels: this is always a complete 512-slot frame
-	// now, so a single whole-buffer replace is both simpler and correct by
-	// construction — no per-channel loop that could (as the old map-based
-	// code did) simply never visit a channel the client didn't mention.
-	if err := s.DMX.SetFrame(pa, req.Channels); err != nil {
+	// The raw source (C3): a complete 512-slot frame, zeros included, so it
+	// claims the whole universe and outranks Rig Check's tests and the
+	// programmer there. It reaches the wire on the next tick while the
+	// master output is armed, and never while it is disarmed.
+	if err := s.DMX.SetFrame(session.SourceRaw, pa.RawValue(), req.Channels); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// handleDMXStart is retired (C3): the Send screen no longer starts output
+// on its own. It answers 410 with a sentence rather than 404, so a stale page
+// or script says why its START does nothing.
 func (s *Server) handleDMXStart(w http.ResponseWriter, r *http.Request) {
-	s.DMX.Start()
-	writeJSON(w, http.StatusOK, map[string]string{"status": "started"})
+	writeError(w, http.StatusGone, fmt.Errorf("manual Send no longer starts output on its own: output follows the master Arm in the top strip."))
 }
 
+// handleDMXStop releases every frame the raw source (Send, /api/dmx) holds:
+// those universes fall back to whatever Rig Check or the programmer drives
+// there, or leave the wire with zero frames. It does not disarm.
 func (s *Server) handleDMXStop(w http.ResponseWriter, r *http.Request) {
-	s.DMX.Stop()
-	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
+	s.DMX.ReleaseAll(session.SourceRaw)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "released"})
 }
 
 // --- Settings ------------------------------------------------------------
@@ -1380,6 +1418,10 @@ func (s *Server) handlePostSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	migrateUniverseSetting(&req)
+	if err := normalizeOutputSettings(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	if req.ArtnetStartUniverse < 0 || req.ArtnetStartUniverse > 32767 {
 		writeError(w, http.StatusBadRequest, fmt.Errorf(
 			"artnetStartUniverse must be an Art-Net Port-Address in 0-32767, got %d", req.ArtnetStartUniverse))
@@ -1405,6 +1447,7 @@ func (s *Server) handlePostSettings(w http.ResponseWriter, r *http.Request) {
 		logErr = s.applyLogRDMPathLocked(req.LogRDMPath)
 	}
 	s.settingsMu.Unlock()
+	s.applyOutputSettings(req)
 	if logErr != nil {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("logRdmPath: %w", logErr))
 		return

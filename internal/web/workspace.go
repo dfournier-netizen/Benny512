@@ -165,10 +165,13 @@ func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
 	s.identifyMu.Unlock()
 	writeJSON(w, 200, map[string]any{"active": ok, "name": name, "nic": s.NIC, "output": s.DMX.OutputRunning() || identifyRunning, "simulation": s.Simulation})
 }
+
+// handleStopAllOutput is the strip's Stop all output: since C3 it is the
+// master Disarm — zero frames on every stream, E1.31 Stream_Terminated on
+// sACN, then silence until someone arms again. Every source keeps its state
+// (selected tests, Send levels), so Arm brings the same look back.
 func (s *Server) handleStopAllOutput(w http.ResponseWriter, r *http.Request) {
-	s.RigCheck.Stop()
-	s.DMX.Blackout()
-	s.DMX.Stop()
+	s.DMX.Disarm()
 	writeJSON(w, 200, map[string]bool{"stopped": true})
 }
 func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request) {
@@ -297,8 +300,7 @@ func (s *Server) handleWorkspaceAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.RigCheck.Stop()
-		s.DMX.Blackout()
-		s.DMX.Stop()
+		s.DMX.Disarm()
 		port, err := s.OnRehearse(p, req.Fault)
 		if err != nil {
 			writeError(w, 400, err)

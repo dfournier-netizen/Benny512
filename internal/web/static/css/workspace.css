@@ -11,6 +11,20 @@
   background: var(--b5-color-bg-surface); border-bottom: 1px solid var(--b5-color-border-strong);
 }
 .b5-show-context__name { overflow: hidden; text-overflow: ellipsis; max-width: 35vw; white-space: nowrap; }
+/* Master output control (C3). The state is a WORD and an icon; the border
+   style (solid for Armed, dashed for Disarmed/holding) is a second, non-hue
+   signal. ARM / DISARM are full touch targets on every pointer. */
+.b5-out { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2); }
+.b5-out-state { display: inline-flex; align-items: center; gap: var(--b5-space-1); font-weight: 700; padding: 2px var(--b5-space-2);
+  border: 2px dashed var(--b5-color-border-strong); border-radius: var(--b5-radius-sm, 4px); }
+.b5-out-state .b5-icon, .b5-out-state svg { width: 1em; height: 1em; }
+.b5-out-state--ok { border-style: solid; border-color: var(--b5-color-success-500); color: var(--b5-color-text-success); }
+.b5-out-state--warn { border-color: var(--b5-color-warning-700); color: var(--b5-color-text-warning); }
+.b5-out-state--error { border-style: solid; border-color: var(--b5-color-danger-500); color: var(--b5-color-text-danger); }
+.b5-out-arm { min-height: var(--b5-size-touch-min, 44px); min-width: 6.5em; font-weight: 700; letter-spacing: 0.04em; }
+.b5-out-arm--go { border: 2px solid var(--b5-color-success-500); color: var(--b5-color-text-success); }
+.b5-out-arm--stop { border: 2px solid var(--b5-color-danger-500); color: var(--b5-color-text-danger); }
+.b5-show-context [data-stop] { min-height: var(--b5-size-touch-min, 44px); }
 .b5-workspace-dialog {
   color: var(--b5-color-text-primary); background: var(--b5-color-bg-surface); border: 1px solid var(--b5-color-border-strong);
   width: min(960px, 94vw); max-width: 94vw; max-height: 88dvh;

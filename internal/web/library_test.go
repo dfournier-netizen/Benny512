@@ -50,7 +50,7 @@ func TestLibraryList_ShapeAndZeroValues(t *testing.T) {
 	// Marshalled-bytes assertions, not field assertions: an empty library
 	// must say "count":0 and "records":[] on the wire, and `len(recs)==0`
 	// would be just as true if the key were omitted or null.
-	for _, want := range []string{`"count":0`, `"records":[]`, `"format":"` + library.FileFormat + `"`, `"schemaVersion":1`} {
+	for _, want := range []string{`"count":0`, `"records":[]`, `"format":"` + library.FileFormat + `"`, fmt.Sprintf(`"schemaVersion":%d`, library.CurrentSchemaVersion)} {
 		if !strings.Contains(body, want) {
 			t.Errorf("empty-library response is missing %s\ngot: %s", want, body)
 		}

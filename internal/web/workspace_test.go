@@ -39,8 +39,10 @@ func TestWorkspaceGroupsPresetsAndBaselinesPersist(t *testing.T) {
 	if rr.Code != 200 {
 		t.Fatal(rr.Body.String())
 	}
-	if h.srv.RigCheck.PatternStatus().OutputEnabled || h.srv.DMX.OutputRunning() {
-		t.Fatal("preset load must stop output")
+	// C3: a loaded preset's tests are live as selected; nothing reaches the
+	// wire unless the master output is armed.
+	if h.srv.DMX.OutputRunning() || c3AllArtDmx(h.tport.TakeSent()) != 0 {
+		t.Fatal("preset load put output on the wire while disarmed")
 	}
 	h.srv.PatchStore.Mutate(func(p *patch.Patch) error { p.Entries[0].StartAddress = 42; return nil })
 	rr = doJSON(t, h.srv.Handler(), "GET", "/api/patch/workspace/report/"+data.Baselines[0].ID, nil)

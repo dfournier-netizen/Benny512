@@ -77,3 +77,34 @@ func TestHarvestWithoutDetailDoesNotEraseRereadDetail(t *testing.T) {
 		t.Errorf("a genuinely different profile did not replace the stored one: %+v", got)
 	}
 }
+
+// TestHarvestWithoutDetailKeepsRereadGDTF10Default: C1b carries a GDTF 1.0
+// DMXChannel Default into the first-function fields, so a mode re-read from
+// a 1.0 file now knows a resting value its pre-C1b patch entries do not.
+// Harvesting those entries is still "the same profile, known less" — it
+// must not replace the re-read mode.
+func TestHarvestWithoutDetailKeepsRereadGDTF10Default(t *testing.T) {
+	st := NewStore("")
+	old := patch.ChannelFunction{Source: patch.SourceGDTF, Attribute: "Shutter1", FunctionName: "Shutter1", DMXTo: 63, ChannelSets: []patch.ChannelSet{}}
+	reread := old
+	reread.HasDefault, reread.Default, reread.DefaultByteCount = true, 32, 1
+	reread.ByteCount, reread.FunctionsKnown = 1, true
+	reread.Functions = []patch.FunctionRange{{Attribute: "Shutter1", Name: "Shutter1", DMXTo: 255, HasDefault: true, Default: 32, Sets: []patch.SetRange{}}}
+	mode := func(cf patch.ChannelFunction) Mode {
+		return Mode{Name: "Std", Footprint: 1, ChannelFunctions: map[uint16]patch.ChannelFunction{1: cf}, Origin: Origin{Source: ProvenanceGDTF}}
+	}
+	st.Upsert(Record{Manufacturer: "Robe", Model: "BMFL", Modes: []Mode{mode(reread)}})
+	if _, outcome := st.Upsert(Record{Manufacturer: "Robe", Model: "BMFL", Modes: []Mode{mode(old)}}); outcome != OutcomeUnchanged {
+		t.Errorf("harvesting a pre-C1b entry over its re-read GDTF 1.0 mode: outcome %s, want %s", outcome, OutcomeUnchanged)
+	}
+	rec, _ := st.Find("Robe", "BMFL")
+	if got := rec.Modes[0].ChannelFunctions[1]; !got.FunctionsKnown || !got.HasDefault || got.Default != 32 {
+		t.Errorf("the re-read mode's detail/default was replaced: %+v", got)
+	}
+	// A harvested entry that states a DIFFERENT default is a real change.
+	conflicting := old
+	conflicting.HasDefault, conflicting.Default, conflicting.DefaultByteCount = true, 0, 1
+	if _, outcome := st.Upsert(Record{Manufacturer: "Robe", Model: "BMFL", Modes: []Mode{mode(conflicting)}}); outcome != OutcomeUpdated {
+		t.Errorf("a harvested entry with a different stated default: outcome %s, want %s", outcome, OutcomeUpdated)
+	}
+}
