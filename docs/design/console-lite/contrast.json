@@ -1,0 +1,6493 @@
+{
+  "method": "WCAG relative sRGB luminance, unrounded pass/fail. Every permitted surface, opaque role values.",
+  "surfaces": [
+    "bg-canvas",
+    "bg-surface",
+    "bg-surface-raised",
+    "bg-surface-overlay",
+    "bg-inset",
+    "bg-hover",
+    "bg-selected",
+    "grid-bg",
+    "xypad-bg",
+    "ok-fill",
+    "warn-fill",
+    "danger-fill",
+    "accent-fill",
+    "armed-fill"
+  ],
+  "report": [
+    {
+      "theme": "dark",
+      "role": "bg-canvas",
+      "hex": "#100e0b",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 8.297389054407756,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 16.933064094649534
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 11.22792365982924
+        },
+        {
+          "against": "text-muted",
+          "ratio": 8.297389054407756
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "dark",
+      "role": "bg-surface",
+      "hex": "#1c1815",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 7.592423354369096,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 15.494391121138333
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 10.273972843382063
+        },
+        {
+          "against": "text-muted",
+          "ratio": 7.592423354369096
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "dark",
+      "role": "bg-surface-raised",
+      "hex": "#241f1a",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 7.031123692387116,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 14.348907512942695
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 9.514429122616825
+        },
+        {
+          "against": "text-muted",
+          "ratio": 7.031123692387116
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "dark",
+      "role": "bg-surface-overlay",
+      "hex": "#2c261f",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 6.439234285289119,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 13.140997265319642
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 8.713491739256748
+        },
+        {
+          "against": "text-muted",
+          "ratio": 6.439234285289119
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "dark",
+      "role": "bg-inset",
+      "hex": "#0b0a08",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 8.520448721521204,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 17.38827761005734
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 11.529765226798583
+        },
+        {
+          "against": "text-muted",
+          "ratio": 8.520448721521204
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "dark",
+      "role": "bg-hover",
+      "hex": "#2c261f",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 6.439234285289119,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 13.140997265319642
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 8.713491739256748
+        },
+        {
+          "against": "text-muted",
+          "ratio": 6.439234285289119
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "dark",
+      "role": "bg-selected",
+      "hex": "#23332f",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 5.700662172226576,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 11.633741326493297
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 7.714065142725181
+        },
+        {
+          "against": "text-muted",
+          "ratio": 5.700662172226576
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "dark",
+      "role": "text-primary",
+      "hex": "#f3f0e9",
+      "minimum": 7,
+      "worst": "bg-selected",
+      "ratio": 11.633741326493297,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 16.933064094649534
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 15.494391121138333
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 14.348907512942695
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 13.140997265319642
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 17.38827761005734
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 13.140997265319642
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 11.633741326493297
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 16.300978114622872
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 16.300978114622872
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 13.431515532216231
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 13.673205745090225
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 13.913648722958083
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 13.435662082435897
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 13.311848336802507
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "text-secondary",
+      "hex": "#cbc5ba",
+      "minimum": 4.5,
+      "worst": "bg-selected",
+      "ratio": 7.714065142725181,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 11.22792365982924
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 10.273972843382063
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 9.514429122616825
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.713491739256748
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 11.529765226798583
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 8.713491739256748
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 7.714065142725181
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 10.808802047195043
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 10.808802047195043
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 8.906127691277474
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 9.06638688856797
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 9.225819073136112
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 8.908877172945871
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 8.826779138222879
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "text-muted",
+      "hex": "#b2a99b",
+      "minimum": 4.5,
+      "worst": "bg-selected",
+      "ratio": 5.700662172226576,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 8.297389054407756
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 7.592423354369096
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 7.031123692387116
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 6.439234285289119
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 8.520448721521204
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 6.439234285289119
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 5.700662172226576
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 7.987659919574147
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 7.987659919574147
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 6.581591455520049
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 6.700022338179486
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 6.817842061864366
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 6.583623311078729
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 6.522953203645054
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "text-disabled",
+      "hex": "#80786b",
+      "minimum": 0,
+      "worst": "bg-selected",
+      "ratio": 3.036951283437298,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 4.420322688253607
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 4.0447616704577625
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 3.7457368067929693
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 3.4304156668564985
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 4.539154732998102
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 3.4304156668564985
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 3.036951283437298
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 4.255318647471541
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 4.255318647471541
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 3.5062545392151567
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 3.5693470029018286
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 3.63211387984505
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 3.507336983001557
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 3.4750157973093665
+        }
+      ],
+      "note": "Disabled: reason word required; exempt"
+    },
+    {
+      "theme": "dark",
+      "role": "text-accent",
+      "hex": "#7fd0c9",
+      "minimum": 4.5,
+      "worst": "bg-selected",
+      "ratio": 7.419828084986148,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 10.79965773763876
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 9.882093401765172
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 9.151520905054591
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.381133621382915
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 11.089986182418286
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 8.381133621382915
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 7.419828084986148
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 10.396522651933575
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 10.396522651933575
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 8.566421873495923
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 8.720568315214107
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 8.873919288899492
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 8.569066481873591
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 8.490099906859081
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "text-info",
+      "hex": "#aac3ec",
+      "minimum": 4.5,
+      "worst": "bg-selected",
+      "ratio": 7.39354474162796,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 10.76140198437628
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 9.847087947325893
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 9.11910336607092
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.351445034237965
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 11.050701995327772
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 8.351445034237965
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 7.39354474162796
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 10.359694928775829
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 10.359694928775829
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 8.53607693761961
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 8.689677344603739
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 8.842485101350736
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 8.53871217797025
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 8.460025327173222
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "text-danger",
+      "hex": "#ff9a93",
+      "minimum": 4.5,
+      "worst": "bg-selected",
+      "ratio": 6.491349190866968,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 9.448244449048099
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 8.645499366410172
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 8.006346931734763
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 7.33236192652481
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 9.702242694495151
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 7.33236192652481
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 6.491349190866968
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 9.095555602025126
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 9.095555602025126
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 7.494464165505887
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 7.629321519107798
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 7.763482945430539
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 7.496777841275178
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 7.427692734861027
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "text-success",
+      "hex": "#a2dba8",
+      "minimum": 4.5,
+      "worst": "bg-selected",
+      "ratio": 8.34423554662611,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 12.145145002503018
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 11.11326490231508
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 10.291673225713426
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 9.42530639302502
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 12.47164433663557
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 9.42530639302502
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 8.34423554662611
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 11.691784887726227
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 11.691784887726227
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 9.633678986290631
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 9.807029932382425
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 9.97948630617962
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 9.636653076118467
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 9.547848363302451
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "text-warning",
+      "hex": "#f0c163",
+      "minimum": 4.5,
+      "worst": "bg-selected",
+      "ratio": 7.889578781823791,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 11.48338607874807
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 10.507730574018137
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 9.73090539658647
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.911744750621951
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 11.792095271394645
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 8.911744750621951
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 7.889578781823791
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 11.054728435746322
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 11.054728435746322
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 9.10876363645706
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 9.272669118085977
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 9.435728770452908
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 9.11157567548326
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 9.027609711909463
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "text-on-accent",
+      "hex": "#100e0b",
+      "minimum": 4.5,
+      "worst": "thumb",
+      "ratio": 11.22792365982924,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "thumb",
+          "ratio": 11.22792365982924
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "text-on-danger",
+      "hex": "#ffffff",
+      "minimum": 4.5,
+      "worst": "disarm-slab-bg",
+      "ratio": 8.711626850151898,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "disarm-slab-bg",
+          "ratio": 8.711626850151898
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "border-control",
+      "hex": "#a29a8c",
+      "minimum": 3,
+      "worst": "bg-selected",
+      "ratio": 4.7522091506320745,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 6.916903159569259
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 6.329226789808698
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 5.861313886126561
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 5.367900634894613
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 7.102851065122735
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 5.367900634894613
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 4.7522091506320745
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 6.658705500366672
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 6.658705500366672
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 5.486572997260769
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 5.585299830615952
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 5.683517187144824
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 5.488266800943045
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 5.437690739600414
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "border-focus",
+      "hex": "#b1dfdf",
+      "minimum": 3,
+      "worst": "bg-selected",
+      "ratio": 9.135967789891202,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 13.297521735384144
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 12.167732996119888
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 11.26818563172287
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 10.319614677146724
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 13.655000546161727
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 10.319614677146724
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 9.135967789891202
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 12.801145119134755
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 12.801145119134755
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 10.5477584405548
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 10.737557572062078
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 10.926377250913268
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 10.551014723136893
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 10.45378388738877
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "border-subtle",
+      "hex": "#3a332b",
+      "minimum": 0,
+      "worst": "bg-surface",
+      "ratio": 1.4177367140894335,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "grid-bg",
+          "ratio": 1.4915394201673753
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 1.4177367140894335
+        }
+      ],
+      "note": "Decoration only; never an essential boundary"
+    },
+    {
+      "theme": "dark",
+      "role": "border-default",
+      "hex": "#3a332b",
+      "minimum": 0,
+      "worst": "bg-surface",
+      "ratio": 1.4177367140894335,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "grid-bg",
+          "ratio": 1.4915394201673753
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 1.4177367140894335
+        }
+      ],
+      "note": "Decoration only; never an essential boundary"
+    },
+    {
+      "theme": "dark",
+      "role": "border-strong",
+      "hex": "#a29a8c",
+      "minimum": 3,
+      "worst": "bg-selected",
+      "ratio": 4.7522091506320745,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 6.916903159569259
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 6.329226789808698
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 5.861313886126561
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 5.367900634894613
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 7.102851065122735
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 5.367900634894613
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 4.7522091506320745
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 6.658705500366672
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 6.658705500366672
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 5.486572997260769
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 5.585299830615952
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 5.683517187144824
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 5.488266800943045
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 5.437690739600414
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "ok-border",
+      "hex": "#a2dba8",
+      "minimum": 3,
+      "worst": "bg-selected",
+      "ratio": 8.34423554662611,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 12.145145002503018
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 11.11326490231508
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 10.291673225713426
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 9.42530639302502
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 12.47164433663557
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 9.42530639302502
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 8.34423554662611
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 11.691784887726227
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 11.691784887726227
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 9.633678986290631
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 9.807029932382425
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 9.97948630617962
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 9.636653076118467
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 9.547848363302451
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "ok-fill",
+      "hex": "#18291d",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 6.581591455520049,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 13.431515532216231
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 8.906127691277474
+        },
+        {
+          "against": "text-muted",
+          "ratio": 6.581591455520049
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "dark",
+      "role": "warn-border",
+      "hex": "#f0c163",
+      "minimum": 3,
+      "worst": "bg-selected",
+      "ratio": 7.889578781823791,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 11.48338607874807
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 10.507730574018137
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 9.73090539658647
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.911744750621951
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 11.792095271394645
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 8.911744750621951
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 7.889578781823791
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 11.054728435746322
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 11.054728435746322
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 9.10876363645706
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 9.272669118085977
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 9.435728770452908
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 9.11157567548326
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 9.027609711909463
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "warn-fill",
+      "hex": "#2b230e",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 6.700022338179486,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 13.673205745090225
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 9.06638688856797
+        },
+        {
+          "against": "text-muted",
+          "ratio": 6.700022338179486
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "dark",
+      "role": "danger-border",
+      "hex": "#ff9a93",
+      "minimum": 3,
+      "worst": "bg-selected",
+      "ratio": 6.491349190866968,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 9.448244449048099
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 8.645499366410172
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 8.006346931734763
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 7.33236192652481
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 9.702242694495151
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 7.33236192652481
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 6.491349190866968
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 9.095555602025126
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 9.095555602025126
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 7.494464165505887
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 7.629321519107798
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 7.763482945430539
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 7.496777841275178
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 7.427692734861027
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "danger-fill",
+      "hex": "#341c19",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 6.817842061864366,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 13.913648722958083
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 9.225819073136112
+        },
+        {
+          "against": "text-muted",
+          "ratio": 6.817842061864366
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "dark",
+      "role": "accent-border",
+      "hex": "#7fd0c9",
+      "minimum": 3,
+      "worst": "bg-selected",
+      "ratio": 7.419828084986148,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 10.79965773763876
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 9.882093401765172
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 9.151520905054591
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.381133621382915
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 11.089986182418286
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 8.381133621382915
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 7.419828084986148
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 10.396522651933575
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 10.396522651933575
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 8.566421873495923
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 8.720568315214107
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 8.873919288899492
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 8.569066481873591
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 8.490099906859081
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "accent-fill",
+      "hex": "#152923",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 6.583623311078729,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 13.435662082435897
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 8.908877172945871
+        },
+        {
+          "against": "text-muted",
+          "ratio": 6.583623311078729
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "dark",
+      "role": "armed-border",
+      "hex": "#c2aff0",
+      "minimum": 3,
+      "worst": "bg-selected",
+      "ratio": 6.736331547745156,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 9.804819503852679
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 8.971778965442061
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 8.308505032254212
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 7.609083953552912
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 10.068403597631553
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 7.609083953552912
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 6.736331547745156
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 9.438820242854456
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 9.438820242854456
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 7.7773039020259835
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 7.917250748020975
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 8.056475402565814
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 7.779704895504791
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 7.708012529536903
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "armed-fill",
+      "hex": "#292335",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 6.522953203645054,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 13.311848336802507
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 8.826779138222879
+        },
+        {
+          "against": "text-muted",
+          "ratio": 6.522953203645054
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "dark",
+      "role": "armed-text",
+      "hex": "#ded2ff",
+      "minimum": 4.5,
+      "worst": "bg-selected",
+      "ratio": 9.3115753000544,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 13.553120784876812
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 12.401615748874717
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 11.484777685061003
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 10.517973721418148
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 13.917470894387103
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 10.517973721418148
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 9.3115753000544
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 13.047203038044712
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 13.047203038044712
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 10.75050276279269
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 10.943950128803598
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 11.136399215555016
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 10.753821636190532
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 10.654721872555458
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "disarm-slab-bg",
+      "hex": "#931b18",
+      "minimum": 4.5,
+      "worst": "disarm-slab-text",
+      "ratio": 8.711626850151898,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "disarm-slab-text",
+          "ratio": 8.711626850151898
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "disarm-slab-text",
+      "hex": "#ffffff",
+      "minimum": 4.5,
+      "worst": "disarm-slab-bg",
+      "ratio": 8.711626850151898,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "disarm-slab-bg",
+          "ratio": 8.711626850151898
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "arm-pill-border",
+      "hex": "#7fd0c9",
+      "minimum": 3,
+      "worst": "bg-selected",
+      "ratio": 7.419828084986148,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 10.79965773763876
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 9.882093401765172
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 9.151520905054591
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.381133621382915
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 11.089986182418286
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 8.381133621382915
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 7.419828084986148
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 10.396522651933575
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 10.396522651933575
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 8.566421873495923
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 8.720568315214107
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 8.873919288899492
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 8.569066481873591
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 8.490099906859081
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "arm-pill-text",
+      "hex": "#7fd0c9",
+      "minimum": 4.5,
+      "worst": "bg-selected",
+      "ratio": 7.419828084986148,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 10.79965773763876
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 9.882093401765172
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 9.151520905054591
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.381133621382915
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 11.089986182418286
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 8.381133621382915
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 7.419828084986148
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 10.396522651933575
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 10.396522651933575
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 8.566421873495923
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 8.720568315214107
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 8.873919288899492
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 8.569066481873591
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 8.490099906859081
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "simulated-text",
+      "hex": "#cbc5ba",
+      "minimum": 4.5,
+      "worst": "bg-selected",
+      "ratio": 7.714065142725181,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 11.22792365982924
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 10.273972843382063
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 9.514429122616825
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.713491739256748
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 11.529765226798583
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 8.713491739256748
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 7.714065142725181
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 10.808802047195043
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 10.808802047195043
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 8.906127691277474
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 9.06638688856797
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 9.225819073136112
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 8.908877172945871
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 8.826779138222879
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "lease-lost-border",
+      "hex": "#f0c163",
+      "minimum": 3,
+      "worst": "bg-selected",
+      "ratio": 7.889578781823791,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 11.48338607874807
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 10.507730574018137
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 9.73090539658647
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.911744750621951
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 11.792095271394645
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 8.911744750621951
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 7.889578781823791
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 11.054728435746322
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 11.054728435746322
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 9.10876363645706
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 9.272669118085977
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 9.435728770452908
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 9.11157567548326
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 9.027609711909463
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "fixture-idle",
+      "hex": "#b2a99b",
+      "minimum": 3,
+      "worst": "bg-selected",
+      "ratio": 5.700662172226576,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 8.297389054407756
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 7.592423354369096
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 7.031123692387116
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 6.439234285289119
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 8.520448721521204
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 6.439234285289119
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 5.700662172226576
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 7.987659919574147
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 7.987659919574147
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 6.581591455520049
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 6.700022338179486
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 6.817842061864366
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 6.583623311078729
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 6.522953203645054
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "fixture-selected",
+      "hex": "#7fd0c9",
+      "minimum": 3,
+      "worst": "bg-selected",
+      "ratio": 7.419828084986148,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 10.79965773763876
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 9.882093401765172
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 9.151520905054591
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.381133621382915
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 11.089986182418286
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 8.381133621382915
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 7.419828084986148
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 10.396522651933575
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 10.396522651933575
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 8.566421873495923
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 8.720568315214107
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 8.873919288899492
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 8.569066481873591
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 8.490099906859081
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "fixture-cell-selected",
+      "hex": "#b1dfdf",
+      "minimum": 3,
+      "worst": "bg-selected",
+      "ratio": 9.135967789891202,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 13.297521735384144
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 12.167732996119888
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 11.26818563172287
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 10.319614677146724
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 13.655000546161727
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 10.319614677146724
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 9.135967789891202
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 12.801145119134755
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 12.801145119134755
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 10.5477584405548
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 10.737557572062078
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 10.926377250913268
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 10.551014723136893
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 10.45378388738877
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "fixture-touched",
+      "hex": "#cbc5ba",
+      "minimum": 3,
+      "worst": "bg-selected",
+      "ratio": 7.714065142725181,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 11.22792365982924
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 10.273972843382063
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 9.514429122616825
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.713491739256748
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 11.529765226798583
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 8.713491739256748
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 7.714065142725181
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 10.808802047195043
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 10.808802047195043
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 8.906127691277474
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 9.06638688856797
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 9.225819073136112
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 8.908877172945871
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 8.826779138222879
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "fixture-test",
+      "hex": "#aac3ec",
+      "minimum": 3,
+      "worst": "bg-selected",
+      "ratio": 7.39354474162796,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 10.76140198437628
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 9.847087947325893
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 9.11910336607092
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.351445034237965
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 11.050701995327772
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 8.351445034237965
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 7.39354474162796
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 10.359694928775829
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 10.359694928775829
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 8.53607693761961
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 8.689677344603739
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 8.842485101350736
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 8.53871217797025
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 8.460025327173222
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "fixture-highlight",
+      "hex": "#f0c163",
+      "minimum": 3,
+      "worst": "bg-selected",
+      "ratio": 7.889578781823791,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 11.48338607874807
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 10.507730574018137
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 9.73090539658647
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.911744750621951
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 11.792095271394645
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 8.911744750621951
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 7.889578781823791
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 11.054728435746322
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 11.054728435746322
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 9.10876363645706
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 9.272669118085977
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 9.435728770452908
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 9.11157567548326
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 9.027609711909463
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "fixture-ghost",
+      "hex": "#a29a8c",
+      "minimum": 3,
+      "worst": "bg-selected",
+      "ratio": 4.7522091506320745,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 6.916903159569259
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 6.329226789808698
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 5.861313886126561
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 5.367900634894613
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 7.102851065122735
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 5.367900634894613
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 4.7522091506320745
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 6.658705500366672
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 6.658705500366672
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 5.486572997260769
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 5.585299830615952
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 5.683517187144824
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 5.488266800943045
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 5.437690739600414
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "fixture-unprofiled",
+      "hex": "#b2a99b",
+      "minimum": 3,
+      "worst": "bg-selected",
+      "ratio": 5.700662172226576,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 8.297389054407756
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 7.592423354369096
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 7.031123692387116
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 6.439234285289119
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 8.520448721521204
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 6.439234285289119
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 5.700662172226576
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 7.987659919574147
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 7.987659919574147
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 6.581591455520049
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 6.700022338179486
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 6.817842061864366
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 6.583623311078729
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 6.522953203645054
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "fixture-offline",
+      "hex": "#f0c163",
+      "minimum": 3,
+      "worst": "bg-selected",
+      "ratio": 7.889578781823791,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 11.48338607874807
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 10.507730574018137
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 9.73090539658647
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.911744750621951
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 11.792095271394645
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 8.911744750621951
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 7.889578781823791
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 11.054728435746322
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 11.054728435746322
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 9.10876363645706
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 9.272669118085977
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 9.435728770452908
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 9.11157567548326
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 9.027609711909463
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "value-set",
+      "hex": "#7fd0c9",
+      "minimum": 4.5,
+      "worst": "bg-selected",
+      "ratio": 7.419828084986148,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 10.79965773763876
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 9.882093401765172
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 9.151520905054591
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.381133621382915
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 11.089986182418286
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 8.381133621382915
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 7.419828084986148
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 10.396522651933575
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 10.396522651933575
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 8.566421873495923
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 8.720568315214107
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 8.873919288899492
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 8.569066481873591
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 8.490099906859081
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "value-default",
+      "hex": "#b2a99b",
+      "minimum": 4.5,
+      "worst": "bg-selected",
+      "ratio": 5.700662172226576,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 8.297389054407756
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 7.592423354369096
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 7.031123692387116
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 6.439234285289119
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 8.520448721521204
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 6.439234285289119
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 5.700662172226576
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 7.987659919574147
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 7.987659919574147
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 6.581591455520049
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 6.700022338179486
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 6.817842061864366
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 6.583623311078729
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 6.522953203645054
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "value-test",
+      "hex": "#aac3ec",
+      "minimum": 4.5,
+      "worst": "bg-selected",
+      "ratio": 7.39354474162796,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 10.76140198437628
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 9.847087947325893
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 9.11910336607092
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.351445034237965
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 11.050701995327772
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 8.351445034237965
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 7.39354474162796
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 10.359694928775829
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 10.359694928775829
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 8.53607693761961
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 8.689677344603739
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 8.842485101350736
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 8.53871217797025
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 8.460025327173222
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "value-mixed-band",
+      "hex": "#a29a8c",
+      "minimum": 3,
+      "worst": "bg-selected",
+      "ratio": 4.7522091506320745,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 6.916903159569259
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 6.329226789808698
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 5.861313886126561
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 5.367900634894613
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 7.102851065122735
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 5.367900634894613
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 4.7522091506320745
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 6.658705500366672
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 6.658705500366672
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 5.486572997260769
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 5.585299830615952
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 5.683517187144824
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 5.488266800943045
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 5.437690739600414
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "grid-bg",
+      "hex": "#15130f",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 7.987659919574147,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 16.300978114622872
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 10.808802047195043
+        },
+        {
+          "against": "text-muted",
+          "ratio": 7.987659919574147
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "dark",
+      "role": "grid-line",
+      "hex": "#29251e",
+      "minimum": 0,
+      "worst": "bg-surface",
+      "ratio": 1.1568622356765343,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "grid-bg",
+          "ratio": 1.2170846752196498
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 1.1568622356765343
+        }
+      ],
+      "note": "Decoration only; never an essential boundary"
+    },
+    {
+      "theme": "dark",
+      "role": "grid-line-major",
+      "hex": "#40392f",
+      "minimum": 0,
+      "worst": "bg-surface",
+      "ratio": 1.548712587891904,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "grid-bg",
+          "ratio": 1.6293334667811168
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 1.548712587891904
+        }
+      ],
+      "note": "Decoration only; never an essential boundary"
+    },
+    {
+      "theme": "dark",
+      "role": "grid-layer-label",
+      "hex": "#cbc5ba",
+      "minimum": 4.5,
+      "worst": "bg-selected",
+      "ratio": 7.714065142725181,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 11.22792365982924
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 10.273972843382063
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 9.514429122616825
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.713491739256748
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 11.529765226798583
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 8.713491739256748
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 7.714065142725181
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 10.808802047195043
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 10.808802047195043
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 8.906127691277474
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 9.06638688856797
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 9.225819073136112
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 8.908877172945871
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 8.826779138222879
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "track",
+      "hex": "#0b0a08",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 8.520448721521204,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 17.38827761005734
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 11.529765226798583
+        },
+        {
+          "against": "text-muted",
+          "ratio": 8.520448721521204
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "dark",
+      "role": "track-border",
+      "hex": "#a29a8c",
+      "minimum": 3,
+      "worst": "bg-selected",
+      "ratio": 4.7522091506320745,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "track",
+          "ratio": 7.102851065122735
+        },
+        {
+          "against": "bg-canvas",
+          "ratio": 6.916903159569259
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 6.329226789808698
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 5.861313886126561
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 5.367900634894613
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 7.102851065122735
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 5.367900634894613
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 4.7522091506320745
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 6.658705500366672
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 6.658705500366672
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 5.486572997260769
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 5.585299830615952
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 5.683517187144824
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 5.488266800943045
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 5.437690739600414
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "thumb",
+      "hex": "#cbc5ba",
+      "minimum": 3,
+      "worst": "bg-selected",
+      "ratio": 7.714065142725181,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "track",
+          "ratio": 11.529765226798583
+        },
+        {
+          "against": "bg-canvas",
+          "ratio": 11.22792365982924
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 10.273972843382063
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 9.514429122616825
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.713491739256748
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 11.529765226798583
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 8.713491739256748
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 7.714065142725181
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 10.808802047195043
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 10.808802047195043
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 8.906127691277474
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 9.06638688856797
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 9.225819073136112
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 8.908877172945871
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 8.826779138222879
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "thumb-border",
+      "hex": "#f3f0e9",
+      "minimum": 3,
+      "worst": "bg-selected",
+      "ratio": 11.633741326493297,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "track",
+          "ratio": 17.38827761005734
+        },
+        {
+          "against": "bg-canvas",
+          "ratio": 16.933064094649534
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 15.494391121138333
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 14.348907512942695
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 13.140997265319642
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 17.38827761005734
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 13.140997265319642
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 11.633741326493297
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 16.300978114622872
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 16.300978114622872
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 13.431515532216231
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 13.673205745090225
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 13.913648722958083
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 13.435662082435897
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 13.311848336802507
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "dark",
+      "role": "xypad-bg",
+      "hex": "#15130f",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 7.987659919574147,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 16.300978114622872
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 10.808802047195043
+        },
+        {
+          "against": "text-muted",
+          "ratio": 7.987659919574147
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "dark",
+      "role": "xypad-crosshair",
+      "hex": "#a29a8c",
+      "minimum": 3,
+      "worst": "bg-selected",
+      "ratio": 4.7522091506320745,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 6.916903159569259
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 6.329226789808698
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 5.861313886126561
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 5.367900634894613
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 7.102851065122735
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 5.367900634894613
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 4.7522091506320745
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 6.658705500366672
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 6.658705500366672
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 5.486572997260769
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 5.585299830615952
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 5.683517187144824
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 5.488266800943045
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 5.437690739600414
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "bg-canvas",
+      "hex": "#eeece6",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 6.287720143793776,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 14.927264335753769
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 9.230591237179693
+        },
+        {
+          "against": "text-muted",
+          "ratio": 6.287720143793776
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "light",
+      "role": "bg-surface",
+      "hex": "#fefefe",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 7.365063935327699,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 17.484915628899092
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 10.812169286797342
+        },
+        {
+          "against": "text-muted",
+          "ratio": 7.365063935327699
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "light",
+      "role": "bg-surface-raised",
+      "hex": "#f7f5f0",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 6.81751581633332,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 16.185017522454057
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 10.008349658452017
+        },
+        {
+          "against": "text-muted",
+          "ratio": 6.81751581633332
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "light",
+      "role": "bg-surface-overlay",
+      "hex": "#ffffff",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 7.428010330142054,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 17.634352539717085
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 10.904576777445435
+        },
+        {
+          "against": "text-muted",
+          "ratio": 7.428010330142054
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "light",
+      "role": "bg-inset",
+      "hex": "#e7e4dc",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 5.846412644116813,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 13.879585121288295
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 8.582736522551437
+        },
+        {
+          "against": "text-muted",
+          "ratio": 5.846412644116813
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "light",
+      "role": "bg-hover",
+      "hex": "#e7e4dc",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 5.846412644116813,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 13.879585121288295
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 8.582736522551437
+        },
+        {
+          "against": "text-muted",
+          "ratio": 5.846412644116813
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "light",
+      "role": "bg-selected",
+      "hex": "#d6e8e3",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 5.840214282933377,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 13.8648699982043
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 8.573637113367143
+        },
+        {
+          "against": "text-muted",
+          "ratio": 5.840214282933377
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "light",
+      "role": "text-primary",
+      "hex": "#1c1815",
+      "minimum": 7,
+      "worst": "accent-fill",
+      "ratio": 13.8648699982043,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 14.927264335753769
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 17.484915628899092
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 16.185017522454057
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 17.634352539717085
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 13.879585121288295
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 13.879585121288295
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 13.8648699982043
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 16.185017522454057
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 16.185017522454057
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 14.25070042327487
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 14.252816190204289
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 14.203149098367138
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 13.8648699982043
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 14.158317792387049
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "text-secondary",
+      "hex": "#423c33",
+      "minimum": 4.5,
+      "worst": "accent-fill",
+      "ratio": 8.573637113367143,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 9.230591237179693
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 10.812169286797342
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 10.008349658452017
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 10.904576777445435
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 8.582736522551437
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 8.582736522551437
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 8.573637113367143
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 10.008349658452017
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 10.008349658452017
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 8.812223558986878
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 8.81353188844627
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 8.782819186347862
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 8.573637113367143
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 8.75509679523699
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "text-muted",
+      "hex": "#5d5448",
+      "minimum": 4.5,
+      "worst": "accent-fill",
+      "ratio": 5.840214282933377,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 6.287720143793776
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 7.365063935327699
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 6.81751581633332
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 7.428010330142054
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 5.846412644116813
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 5.846412644116813
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 5.840214282933377
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 6.81751581633332
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 6.81751581633332
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 6.002735270117478
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 6.003626481664514
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 5.982705516723865
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 5.840214282933377
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 5.963821500246149
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "text-disabled",
+      "hex": "#80786b",
+      "minimum": 0,
+      "worst": "accent-fill",
+      "ratio": 3.427858333278548,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 3.6905176502190273
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 4.322854361631709
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 4.001476190962404
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 4.359800150529347
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 3.4314964025352537
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 3.4314964025352537
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 3.427858333278548
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 4.001476190962404
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 4.001476190962404
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 3.5232484839241613
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 3.5237715720815856
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 3.5114922103085764
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 3.427858333278548
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 3.500408416099506
+        }
+      ],
+      "note": "Disabled: reason word required; exempt"
+    },
+    {
+      "theme": "light",
+      "role": "text-accent",
+      "hex": "#075e58",
+      "minimum": 4.5,
+      "worst": "accent-fill",
+      "ratio": 6.001778652158863,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 6.461664367358837
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 7.568811923221548
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 7.006116369187938
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 7.633499674445191
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 6.008148485529161
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 6.008148485529161
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 6.001778652158863
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 7.006116369187938
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 7.006116369187938
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 6.168795638891651
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 6.16971150501889
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 6.148211780063544
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 6.001778652158863
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 6.1288053539510345
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "text-info",
+      "hex": "#2a4d85",
+      "minimum": 4.5,
+      "worst": "accent-fill",
+      "ratio": 6.60789590447303,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 7.1142252961613535
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 8.333183245801994
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 7.713661290318612
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.404403787437017
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 6.614909024796058
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 6.614909024796058
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 6.60789590447303
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 7.713661290318612
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 7.713661290318612
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 6.791779870638966
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 6.792788229724161
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 6.769117256048943
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 6.60789590447303
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 6.74775098263878
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "text-danger",
+      "hex": "#a10500",
+      "minimum": 4.5,
+      "worst": "accent-fill",
+      "ratio": 6.507801299394947,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 7.006460951542403
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 8.206954458591948
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 7.5968168527363105
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.27709617088531
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 6.514708186883915
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 6.514708186883915
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 6.507801299394947
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 7.5968168527363105
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 7.5968168527363105
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 6.688899841389611
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 6.689892926126379
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 6.666580513904926
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 6.507801299394947
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 6.645537890977443
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "text-success",
+      "hex": "#23522b",
+      "minimum": 4.5,
+      "worst": "accent-fill",
+      "ratio": 7.137564065482947,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 7.68447922935017
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 9.001145015928364
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 8.331964128220577
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 9.078074372269203
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 7.145139335482384
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 7.145139335482384
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 7.137564065482947
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 8.331964128220577
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 8.331964128220577
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 7.336187592260362
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 7.337276778239626
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 7.311708413734239
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 7.137564065482947
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 7.2886294870213595
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "text-warning",
+      "hex": "#684400",
+      "minimum": 4.5,
+      "worst": "accent-fill",
+      "ratio": 6.835585340369426,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 7.359361413306654
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 8.620321212242049
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 7.979452279353354
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.693995812655169
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 6.842840113017688
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 6.842840113017688
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 6.835585340369426
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 7.979452279353354
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 7.979452279353354
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 7.025805428824815
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 7.026848533117048
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 7.002361924522464
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 6.835585340369426
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 6.980259429656893
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "text-on-accent",
+      "hex": "#ffffff",
+      "minimum": 4.5,
+      "worst": "thumb",
+      "ratio": 10.904576777445435,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "thumb",
+          "ratio": 10.904576777445435
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "text-on-danger",
+      "hex": "#ffffff",
+      "minimum": 4.5,
+      "worst": "disarm-slab-bg",
+      "ratio": 8.711626850151898,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "disarm-slab-bg",
+          "ratio": 8.711626850151898
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "border-control",
+      "hex": "#6b6255",
+      "minimum": 3,
+      "worst": "accent-fill",
+      "ratio": 4.712862997537875,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 5.073985673976898
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 5.943367077598472
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 5.501513552305569
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 5.994162771142782
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 4.717864873436874
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 4.717864873436874
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 4.712862997537875
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 5.501513552305569
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 5.501513552305569
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 4.8440121488732215
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 4.844731327608714
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 4.8278487892693756
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 4.712862997537875
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 4.812610002096309
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "border-focus",
+      "hex": "#075e58",
+      "minimum": 3,
+      "worst": "accent-fill",
+      "ratio": 6.001778652158863,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 6.461664367358837
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 7.568811923221548
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 7.006116369187938
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 7.633499674445191
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 6.008148485529161
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 6.008148485529161
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 6.001778652158863
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 7.006116369187938
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 7.006116369187938
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 6.168795638891651
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 6.16971150501889
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 6.148211780063544
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 6.001778652158863
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 6.1288053539510345
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "border-subtle",
+      "hex": "#c7c0b0",
+      "minimum": 0,
+      "worst": "grid-bg",
+      "ratio": 1.6622444010232984,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "grid-bg",
+          "ratio": 1.6622444010232984
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 1.7957473982453505
+        }
+      ],
+      "note": "Decoration only; never an essential boundary"
+    },
+    {
+      "theme": "light",
+      "role": "border-default",
+      "hex": "#c7c0b0",
+      "minimum": 0,
+      "worst": "grid-bg",
+      "ratio": 1.6622444010232984,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "grid-bg",
+          "ratio": 1.6622444010232984
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 1.7957473982453505
+        }
+      ],
+      "note": "Decoration only; never an essential boundary"
+    },
+    {
+      "theme": "light",
+      "role": "border-strong",
+      "hex": "#6b6255",
+      "minimum": 3,
+      "worst": "accent-fill",
+      "ratio": 4.712862997537875,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 5.073985673976898
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 5.943367077598472
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 5.501513552305569
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 5.994162771142782
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 4.717864873436874
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 4.717864873436874
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 4.712862997537875
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 5.501513552305569
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 5.501513552305569
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 4.8440121488732215
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 4.844731327608714
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 4.8278487892693756
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 4.712862997537875
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 4.812610002096309
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "ok-border",
+      "hex": "#23522b",
+      "minimum": 3,
+      "worst": "accent-fill",
+      "ratio": 7.137564065482947,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 7.68447922935017
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 9.001145015928364
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 8.331964128220577
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 9.078074372269203
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 7.145139335482384
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 7.145139335482384
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 7.137564065482947
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 8.331964128220577
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 8.331964128220577
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 7.336187592260362
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 7.337276778239626
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 7.311708413734239
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 7.137564065482947
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 7.2886294870213595
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "ok-fill",
+      "hex": "#dcebdd",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 6.002735270117478,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 14.25070042327487
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 8.812223558986878
+        },
+        {
+          "against": "text-muted",
+          "ratio": 6.002735270117478
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "light",
+      "role": "warn-border",
+      "hex": "#684400",
+      "minimum": 3,
+      "worst": "accent-fill",
+      "ratio": 6.835585340369426,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 7.359361413306654
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 8.620321212242049
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 7.979452279353354
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.693995812655169
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 6.842840113017688
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 6.842840113017688
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 6.835585340369426
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 7.979452279353354
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 7.979452279353354
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 7.025805428824815
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 7.026848533117048
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 7.002361924522464
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 6.835585340369426
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 6.980259429656893
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "warn-fill",
+      "hex": "#f3e6c9",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 6.003626481664514,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 14.252816190204289
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 8.81353188844627
+        },
+        {
+          "against": "text-muted",
+          "ratio": 6.003626481664514
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "light",
+      "role": "danger-border",
+      "hex": "#a10500",
+      "minimum": 3,
+      "worst": "accent-fill",
+      "ratio": 6.507801299394947,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 7.006460951542403
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 8.206954458591948
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 7.5968168527363105
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.27709617088531
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 6.514708186883915
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 6.514708186883915
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 6.507801299394947
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 7.5968168527363105
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 7.5968168527363105
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 6.688899841389611
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 6.689892926126379
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 6.666580513904926
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 6.507801299394947
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 6.645537890977443
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "danger-fill",
+      "hex": "#f8e2dd",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 5.982705516723865,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 14.203149098367138
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 8.782819186347862
+        },
+        {
+          "against": "text-muted",
+          "ratio": 5.982705516723865
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "light",
+      "role": "accent-border",
+      "hex": "#075e58",
+      "minimum": 3,
+      "worst": "accent-fill",
+      "ratio": 6.001778652158863,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 6.461664367358837
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 7.568811923221548
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 7.006116369187938
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 7.633499674445191
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 6.008148485529161
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 6.008148485529161
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 6.001778652158863
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 7.006116369187938
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 7.006116369187938
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 6.168795638891651
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 6.16971150501889
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 6.148211780063544
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 6.001778652158863
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 6.1288053539510345
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "accent-fill",
+      "hex": "#d6e8e3",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 5.840214282933377,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 13.8648699982043
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 8.573637113367143
+        },
+        {
+          "against": "text-muted",
+          "ratio": 5.840214282933377
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "light",
+      "role": "armed-border",
+      "hex": "#674283",
+      "minimum": 3,
+      "worst": "accent-fill",
+      "ratio": 6.152272184607379,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 6.623689452337729
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 7.758598536287383
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 7.181793491296599
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 7.824908321369987
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 6.158801740416735
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 6.158801740416735
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 6.152272184607379
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 7.181793491296599
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 7.181793491296599
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 6.323477092583028
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 6.3244159238905455
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 6.30237709715509
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 6.152272184607379
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 6.282484058358718
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "armed-fill",
+      "hex": "#ece3f4",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 5.963821500246149,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 14.158317792387049
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 8.75509679523699
+        },
+        {
+          "against": "text-muted",
+          "ratio": 5.963821500246149
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "light",
+      "role": "armed-text",
+      "hex": "#573474",
+      "minimum": 4.5,
+      "worst": "accent-fill",
+      "ratio": 7.684453257313883,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 8.273273753199613
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 9.690824138686757
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 8.970369764463166
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 9.77364791967042
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 7.69260895408776
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 7.69260895408776
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 7.684453257313883
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 8.970369764463166
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 8.970369764463166
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 7.898295570086258
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 7.899468210873702
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 7.87194076592119
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 7.684453257313883
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 7.847093502635421
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "disarm-slab-bg",
+      "hex": "#931b18",
+      "minimum": 4.5,
+      "worst": "disarm-slab-text",
+      "ratio": 8.711626850151898,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "disarm-slab-text",
+          "ratio": 8.711626850151898
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "disarm-slab-text",
+      "hex": "#ffffff",
+      "minimum": 4.5,
+      "worst": "disarm-slab-bg",
+      "ratio": 8.711626850151898,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "disarm-slab-bg",
+          "ratio": 8.711626850151898
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "arm-pill-border",
+      "hex": "#075e58",
+      "minimum": 3,
+      "worst": "accent-fill",
+      "ratio": 6.001778652158863,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 6.461664367358837
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 7.568811923221548
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 7.006116369187938
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 7.633499674445191
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 6.008148485529161
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 6.008148485529161
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 6.001778652158863
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 7.006116369187938
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 7.006116369187938
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 6.168795638891651
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 6.16971150501889
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 6.148211780063544
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 6.001778652158863
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 6.1288053539510345
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "arm-pill-text",
+      "hex": "#075e58",
+      "minimum": 4.5,
+      "worst": "accent-fill",
+      "ratio": 6.001778652158863,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 6.461664367358837
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 7.568811923221548
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 7.006116369187938
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 7.633499674445191
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 6.008148485529161
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 6.008148485529161
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 6.001778652158863
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 7.006116369187938
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 7.006116369187938
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 6.168795638891651
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 6.16971150501889
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 6.148211780063544
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 6.001778652158863
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 6.1288053539510345
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "simulated-text",
+      "hex": "#423c33",
+      "minimum": 4.5,
+      "worst": "accent-fill",
+      "ratio": 8.573637113367143,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 9.230591237179693
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 10.812169286797342
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 10.008349658452017
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 10.904576777445435
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 8.582736522551437
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 8.582736522551437
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 8.573637113367143
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 10.008349658452017
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 10.008349658452017
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 8.812223558986878
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 8.81353188844627
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 8.782819186347862
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 8.573637113367143
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 8.75509679523699
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "lease-lost-border",
+      "hex": "#684400",
+      "minimum": 3,
+      "worst": "accent-fill",
+      "ratio": 6.835585340369426,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 7.359361413306654
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 8.620321212242049
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 7.979452279353354
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.693995812655169
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 6.842840113017688
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 6.842840113017688
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 6.835585340369426
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 7.979452279353354
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 7.979452279353354
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 7.025805428824815
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 7.026848533117048
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 7.002361924522464
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 6.835585340369426
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 6.980259429656893
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "fixture-idle",
+      "hex": "#5d5448",
+      "minimum": 3,
+      "worst": "accent-fill",
+      "ratio": 5.840214282933377,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 6.287720143793776
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 7.365063935327699
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 6.81751581633332
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 7.428010330142054
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 5.846412644116813
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 5.846412644116813
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 5.840214282933377
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 6.81751581633332
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 6.81751581633332
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 6.002735270117478
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 6.003626481664514
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 5.982705516723865
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 5.840214282933377
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 5.963821500246149
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "fixture-selected",
+      "hex": "#075e58",
+      "minimum": 3,
+      "worst": "accent-fill",
+      "ratio": 6.001778652158863,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 6.461664367358837
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 7.568811923221548
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 7.006116369187938
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 7.633499674445191
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 6.008148485529161
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 6.008148485529161
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 6.001778652158863
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 7.006116369187938
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 7.006116369187938
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 6.168795638891651
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 6.16971150501889
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 6.148211780063544
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 6.001778652158863
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 6.1288053539510345
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "fixture-cell-selected",
+      "hex": "#2a4d85",
+      "minimum": 3,
+      "worst": "accent-fill",
+      "ratio": 6.60789590447303,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 7.1142252961613535
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 8.333183245801994
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 7.713661290318612
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.404403787437017
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 6.614909024796058
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 6.614909024796058
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 6.60789590447303
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 7.713661290318612
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 7.713661290318612
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 6.791779870638966
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 6.792788229724161
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 6.769117256048943
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 6.60789590447303
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 6.74775098263878
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "fixture-touched",
+      "hex": "#423c33",
+      "minimum": 3,
+      "worst": "accent-fill",
+      "ratio": 8.573637113367143,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 9.230591237179693
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 10.812169286797342
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 10.008349658452017
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 10.904576777445435
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 8.582736522551437
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 8.582736522551437
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 8.573637113367143
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 10.008349658452017
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 10.008349658452017
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 8.812223558986878
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 8.81353188844627
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 8.782819186347862
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 8.573637113367143
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 8.75509679523699
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "fixture-test",
+      "hex": "#2a4d85",
+      "minimum": 3,
+      "worst": "accent-fill",
+      "ratio": 6.60789590447303,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 7.1142252961613535
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 8.333183245801994
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 7.713661290318612
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.404403787437017
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 6.614909024796058
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 6.614909024796058
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 6.60789590447303
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 7.713661290318612
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 7.713661290318612
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 6.791779870638966
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 6.792788229724161
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 6.769117256048943
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 6.60789590447303
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 6.74775098263878
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "fixture-highlight",
+      "hex": "#684400",
+      "minimum": 3,
+      "worst": "accent-fill",
+      "ratio": 6.835585340369426,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 7.359361413306654
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 8.620321212242049
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 7.979452279353354
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.693995812655169
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 6.842840113017688
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 6.842840113017688
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 6.835585340369426
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 7.979452279353354
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 7.979452279353354
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 7.025805428824815
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 7.026848533117048
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 7.002361924522464
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 6.835585340369426
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 6.980259429656893
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "fixture-ghost",
+      "hex": "#6b6255",
+      "minimum": 3,
+      "worst": "accent-fill",
+      "ratio": 4.712862997537875,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 5.073985673976898
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 5.943367077598472
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 5.501513552305569
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 5.994162771142782
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 4.717864873436874
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 4.717864873436874
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 4.712862997537875
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 5.501513552305569
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 5.501513552305569
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 4.8440121488732215
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 4.844731327608714
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 4.8278487892693756
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 4.712862997537875
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 4.812610002096309
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "fixture-unprofiled",
+      "hex": "#5d5448",
+      "minimum": 3,
+      "worst": "accent-fill",
+      "ratio": 5.840214282933377,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 6.287720143793776
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 7.365063935327699
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 6.81751581633332
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 7.428010330142054
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 5.846412644116813
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 5.846412644116813
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 5.840214282933377
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 6.81751581633332
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 6.81751581633332
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 6.002735270117478
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 6.003626481664514
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 5.982705516723865
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 5.840214282933377
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 5.963821500246149
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "fixture-offline",
+      "hex": "#684400",
+      "minimum": 3,
+      "worst": "accent-fill",
+      "ratio": 6.835585340369426,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 7.359361413306654
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 8.620321212242049
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 7.979452279353354
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.693995812655169
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 6.842840113017688
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 6.842840113017688
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 6.835585340369426
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 7.979452279353354
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 7.979452279353354
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 7.025805428824815
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 7.026848533117048
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 7.002361924522464
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 6.835585340369426
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 6.980259429656893
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "value-set",
+      "hex": "#075e58",
+      "minimum": 4.5,
+      "worst": "accent-fill",
+      "ratio": 6.001778652158863,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 6.461664367358837
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 7.568811923221548
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 7.006116369187938
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 7.633499674445191
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 6.008148485529161
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 6.008148485529161
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 6.001778652158863
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 7.006116369187938
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 7.006116369187938
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 6.168795638891651
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 6.16971150501889
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 6.148211780063544
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 6.001778652158863
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 6.1288053539510345
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "value-default",
+      "hex": "#5d5448",
+      "minimum": 4.5,
+      "worst": "accent-fill",
+      "ratio": 5.840214282933377,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 6.287720143793776
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 7.365063935327699
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 6.81751581633332
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 7.428010330142054
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 5.846412644116813
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 5.846412644116813
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 5.840214282933377
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 6.81751581633332
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 6.81751581633332
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 6.002735270117478
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 6.003626481664514
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 5.982705516723865
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 5.840214282933377
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 5.963821500246149
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "value-test",
+      "hex": "#2a4d85",
+      "minimum": 4.5,
+      "worst": "accent-fill",
+      "ratio": 6.60789590447303,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 7.1142252961613535
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 8.333183245801994
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 7.713661290318612
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 8.404403787437017
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 6.614909024796058
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 6.614909024796058
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 6.60789590447303
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 7.713661290318612
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 7.713661290318612
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 6.791779870638966
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 6.792788229724161
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 6.769117256048943
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 6.60789590447303
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 6.74775098263878
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "value-mixed-band",
+      "hex": "#6b6255",
+      "minimum": 3,
+      "worst": "accent-fill",
+      "ratio": 4.712862997537875,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 5.073985673976898
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 5.943367077598472
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 5.501513552305569
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 5.994162771142782
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 4.717864873436874
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 4.717864873436874
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 4.712862997537875
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 5.501513552305569
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 5.501513552305569
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 4.8440121488732215
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 4.844731327608714
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 4.8278487892693756
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 4.712862997537875
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 4.812610002096309
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "grid-bg",
+      "hex": "#f7f5f0",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 6.81751581633332,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 16.185017522454057
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 10.008349658452017
+        },
+        {
+          "against": "text-muted",
+          "ratio": 6.81751581633332
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "light",
+      "role": "grid-line",
+      "hex": "#ded9ce",
+      "minimum": 0,
+      "worst": "grid-bg",
+      "ratio": 1.2916265952611974,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "grid-bg",
+          "ratio": 1.2916265952611974
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 1.3953634594990498
+        }
+      ],
+      "note": "Decoration only; never an essential boundary"
+    },
+    {
+      "theme": "light",
+      "role": "grid-line-major",
+      "hex": "#c7c0b0",
+      "minimum": 0,
+      "worst": "grid-bg",
+      "ratio": 1.6622444010232984,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "grid-bg",
+          "ratio": 1.6622444010232984
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 1.7957473982453505
+        }
+      ],
+      "note": "Decoration only; never an essential boundary"
+    },
+    {
+      "theme": "light",
+      "role": "grid-layer-label",
+      "hex": "#423c33",
+      "minimum": 4.5,
+      "worst": "accent-fill",
+      "ratio": 8.573637113367143,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 9.230591237179693
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 10.812169286797342
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 10.008349658452017
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 10.904576777445435
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 8.582736522551437
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 8.582736522551437
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 8.573637113367143
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 10.008349658452017
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 10.008349658452017
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 8.812223558986878
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 8.81353188844627
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 8.782819186347862
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 8.573637113367143
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 8.75509679523699
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "track",
+      "hex": "#e7e4dc",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 5.846412644116813,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 13.879585121288295
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 8.582736522551437
+        },
+        {
+          "against": "text-muted",
+          "ratio": 5.846412644116813
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "light",
+      "role": "track-border",
+      "hex": "#6b6255",
+      "minimum": 3,
+      "worst": "accent-fill",
+      "ratio": 4.712862997537875,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "track",
+          "ratio": 4.717864873436874
+        },
+        {
+          "against": "bg-canvas",
+          "ratio": 5.073985673976898
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 5.943367077598472
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 5.501513552305569
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 5.994162771142782
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 4.717864873436874
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 4.717864873436874
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 4.712862997537875
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 5.501513552305569
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 5.501513552305569
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 4.8440121488732215
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 4.844731327608714
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 4.8278487892693756
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 4.712862997537875
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 4.812610002096309
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "thumb",
+      "hex": "#423c33",
+      "minimum": 3,
+      "worst": "accent-fill",
+      "ratio": 8.573637113367143,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "track",
+          "ratio": 8.582736522551437
+        },
+        {
+          "against": "bg-canvas",
+          "ratio": 9.230591237179693
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 10.812169286797342
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 10.008349658452017
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 10.904576777445435
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 8.582736522551437
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 8.582736522551437
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 8.573637113367143
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 10.008349658452017
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 10.008349658452017
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 8.812223558986878
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 8.81353188844627
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 8.782819186347862
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 8.573637113367143
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 8.75509679523699
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "thumb-border",
+      "hex": "#1c1815",
+      "minimum": 3,
+      "worst": "accent-fill",
+      "ratio": 13.8648699982043,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "track",
+          "ratio": 13.879585121288295
+        },
+        {
+          "against": "bg-canvas",
+          "ratio": 14.927264335753769
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 17.484915628899092
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 16.185017522454057
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 17.634352539717085
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 13.879585121288295
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 13.879585121288295
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 13.8648699982043
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 16.185017522454057
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 16.185017522454057
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 14.25070042327487
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 14.252816190204289
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 14.203149098367138
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 13.8648699982043
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 14.158317792387049
+        }
+      ],
+      "note": ""
+    },
+    {
+      "theme": "light",
+      "role": "xypad-bg",
+      "hex": "#f7f5f0",
+      "minimum": 4.5,
+      "worst": "text-muted",
+      "ratio": 6.81751581633332,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "text-primary",
+          "ratio": 16.185017522454057
+        },
+        {
+          "against": "text-secondary",
+          "ratio": 10.008349658452017
+        },
+        {
+          "against": "text-muted",
+          "ratio": 6.81751581633332
+        }
+      ],
+      "note": "Background: measured against text; tone borders checked separately"
+    },
+    {
+      "theme": "light",
+      "role": "xypad-crosshair",
+      "hex": "#6b6255",
+      "minimum": 3,
+      "worst": "accent-fill",
+      "ratio": 4.712862997537875,
+      "pass": true,
+      "pairs": [
+        {
+          "against": "bg-canvas",
+          "ratio": 5.073985673976898
+        },
+        {
+          "against": "bg-surface",
+          "ratio": 5.943367077598472
+        },
+        {
+          "against": "bg-surface-raised",
+          "ratio": 5.501513552305569
+        },
+        {
+          "against": "bg-surface-overlay",
+          "ratio": 5.994162771142782
+        },
+        {
+          "against": "bg-inset",
+          "ratio": 4.717864873436874
+        },
+        {
+          "against": "bg-hover",
+          "ratio": 4.717864873436874
+        },
+        {
+          "against": "bg-selected",
+          "ratio": 4.712862997537875
+        },
+        {
+          "against": "grid-bg",
+          "ratio": 5.501513552305569
+        },
+        {
+          "against": "xypad-bg",
+          "ratio": 5.501513552305569
+        },
+        {
+          "against": "ok-fill",
+          "ratio": 4.8440121488732215
+        },
+        {
+          "against": "warn-fill",
+          "ratio": 4.844731327608714
+        },
+        {
+          "against": "danger-fill",
+          "ratio": 4.8278487892693756
+        },
+        {
+          "against": "accent-fill",
+          "ratio": 4.712862997537875
+        },
+        {
+          "against": "armed-fill",
+          "ratio": 4.812610002096309
+        }
+      ],
+      "note": ""
+    }
+  ]
+}

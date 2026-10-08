@@ -9,3 +9,5 @@ dist/
 Logs/
 benny512-*.json
 benny512-*.json.bak
+/b512-*.bat
+/b512-*.txt

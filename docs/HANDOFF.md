@@ -1,6 +1,12 @@
 # Benny512 — Session Handoff Brief (current)
 
-**Last updated:** 2026-10-08 15:35:44 -0400
+**Last updated:** 2026-10-08 16:32:39 -0400
+
+## Current delta — Console-lite design package (`codex/console-lite-design`)
+
+Design artifacts are in `docs/design/console-lite/`; start with `README.md` and the local `index.html` review. Delivered 72 new icons, eight fixture glyphs, component/keyboard/ARIA specifications, semantic dark/light tokens, 44 responsive mockups (11 scenes × 4 sizes), computed contrast and browser evidence. The package follows the newer shared-browser lease, hold-last-look and group-fader decisions over the stale brief. Owner answers in this session: touch lasso toggle, highlight stepping, 10× fine mode, family/all clear, Beam/Gobo and Control names, absolute mixed-value movement, and **confirmation dialogs for Lamp off and Reset** (supersedes 0.75 s hold for these two commands when integrated).
+
+Validation: 1,240 contrast pairs pass; all new JS syntax checks pass; 132 browser layout checks across dark/light/greyscale-dim pass. The design is not wired into production. Go gates and a disposable demo build were unavailable because Go/gofmt are absent; physical device minimum-brightness and screen-reader validation remain outstanding. `verification.md` records the limits and a brighter current-sequence-row exception. C9 integration remains a separate change.
 
 ## Current delta — Console-lite (branch `feat/console-lite`)
 
