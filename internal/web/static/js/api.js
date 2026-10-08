@@ -433,6 +433,18 @@ const Api = (() => {
     // patch/capture exports. This is the file the owner hands to a
     // coworker; POST it back through importLibrary to load it.
     libraryExportUrl: () => '/api/library/export',
+    // getLibrarySourceBytes fetches one original .gdtf archive the library
+    // kept (sourceFiles[].sha256 from getLibrary) as an ArrayBuffer — what
+    // the "re-read channel detail" action hands to MvrImport.
+    getLibrarySourceBytes: async (key, hash) => {
+      const res = await fetch('/api/library/source?key=' + encodeURIComponent(key) + '&hash=' + encodeURIComponent(hash));
+      if (!res.ok) {
+        let msg = 'HTTP ' + res.status;
+        try { const d = await res.json(); if (d && d.error) msg = d.error; } catch (e) { /* keep status */ }
+        throw new Error(msg);
+      }
+      return res.arrayBuffer();
+    },
     // importLibrary takes an already-parsed library document (the JSON of
     // an exported file) and a mode. 'merge' folds it into what is already
     // there and can only add; 'replace' discards the entire existing

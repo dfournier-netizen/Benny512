@@ -42,7 +42,7 @@ func TestChannelFunction_MarshalJSON_ZeroDMXFromPresent(t *testing.T) {
 // exactly the kind of thing this project's JSON rule exists to catch (a JS
 // caller doing `.map()`/`.length` on `null` throws).
 func TestChannelFunction_MarshalJSON_EmptyChannelSetsIsArrayNotNull(t *testing.T) {
-	cf := ChannelFunction{Source: SourceRDMInferred, Attribute: "Pan", ChannelSets: make([]ChannelSet, 0)}
+	cf := ChannelFunction{Source: SourceRDMInferred, Attribute: "Pan", ChannelSets: make([]ChannelSet, 0), Functions: make([]FunctionRange, 0)}
 	data, err := json.Marshal(cf)
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)

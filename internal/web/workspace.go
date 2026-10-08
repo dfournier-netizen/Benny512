@@ -367,6 +367,7 @@ func (s *Server) handleWorkspaceAction(w http.ResponseWriter, r *http.Request) {
 		for i, e := range entries {
 			digests[e.ID] = profileDigest(e)
 			entries[i].ChannelFunctions = nil
+			entries[i].Wheels = nil
 		}
 		data.Baselines = append(data.Baselines, rigBaseline{ID: id, Name: name, At: time.Now(), Entries: entries, ProfileDigests: digests, Devices: devices, Issues: workspaceIssues(p, devices)})
 	default:
@@ -388,8 +389,21 @@ func (s *Server) handleWorkspaceAction(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"id": id})
 }
 
+// profileDigest hashes the entry's profile for Rig Baselines. A profile
+// with no schema-v6 channel detail is hashed in its exact pre-v6 bytes
+// (patch.PreV6ChannelFunctionsJSON), so baselines taken before full GDTF
+// detail existed do not report every fixture's profile as changed after the
+// upgrade; one WITH detail (re-imported GDTF) includes it and its wheels —
+// that is a real profile change.
 func profileDigest(e patch.Entry) string {
-	data, _ := json.Marshal(e.ChannelFunctions)
+	data, ok := patch.PreV6ChannelFunctionsJSON(e.ChannelFunctions)
+	if !ok || e.WheelsKnown || len(e.Wheels) > 0 {
+		data, _ = json.Marshal(struct {
+			ChannelFunctions map[uint16]patch.ChannelFunction `json:"channelFunctions"`
+			Wheels           []patch.Wheel                    `json:"wheels"`
+			WheelsKnown      bool                             `json:"wheelsKnown"`
+		}{e.ChannelFunctions, e.Wheels, e.WheelsKnown})
+	}
 	return fmt.Sprintf("%x", sha256.Sum256(data))
 }
 

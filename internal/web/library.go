@@ -398,8 +398,7 @@ func recordFromEntry(e patch.Entry, now time.Time) library.Record {
 	}
 	cfs := make(map[uint16]patch.ChannelFunction, len(e.ChannelFunctions))
 	for off, cf := range e.ChannelFunctions {
-		cf.ChannelSets = append(make([]patch.ChannelSet, 0, len(cf.ChannelSets)), cf.ChannelSets...)
-		cfs[off] = cf
+		cfs[off] = patch.CloneChannelFunction(cf)
 	}
 	return library.Record{
 		Model:          strings.TrimSpace(e.FixtureType),
@@ -410,6 +409,8 @@ func recordFromEntry(e patch.Entry, now time.Time) library.Record {
 			Footprint:        e.Footprint,
 			ChannelFunctions: cfs,
 			Origin:           origin,
+			Wheels:           patch.CloneWheels(e.Wheels),
+			WheelsKnown:      e.WheelsKnown,
 		}},
 	}
 }
@@ -724,7 +725,8 @@ func (s *Server) handleLibraryReprofile(w http.ResponseWriter, r *http.Request) 
 			}
 			line.FootprintChanged = line.OldFootprint != line.NewFootprint
 			changed := line.FootprintChanged || e.Mode != mode.Name ||
-				!sameChannelFunctions(e.ChannelFunctions, mode.ChannelFunctions)
+				!sameChannelFunctions(e.ChannelFunctions, mode.ChannelFunctions) ||
+				e.WheelsKnown != mode.WheelsKnown || !reflect.DeepEqual(patch.CloneWheels(e.Wheels), patch.CloneWheels(mode.Wheels))
 
 			// Each entry gets its OWN copy of the mode's channel map. A
 			// shared map would alias every re-profiled entry (and the
@@ -734,11 +736,13 @@ func (s *Server) handleLibraryReprofile(w http.ResponseWriter, r *http.Request) 
 			// reason and that guarantee must not be thrown away here.
 			cfs := make(map[uint16]patch.ChannelFunction, len(mode.ChannelFunctions))
 			for off, cf := range mode.ChannelFunctions {
-				cf.ChannelSets = append(make([]patch.ChannelSet, 0, len(cf.ChannelSets)), cf.ChannelSets...)
-				cfs[off] = cf
+				cfs[off] = patch.CloneChannelFunction(cf)
 			}
 			e.Footprint = mode.Footprint
 			e.ChannelFunctions = cfs
+			// Full channel detail travels with the profile: the mode's
+			// wheels replace the entry's (schema v6).
+			e.Wheels, e.WheelsKnown = patch.CloneWheels(mode.Wheels), mode.WheelsKnown
 			// The mode NAME is overwritten alongside the footprint and the
 			// channel map it names. Leaving a stale "DMX Mode" label on an
 			// entry now carrying "Mode 2 Normal (23ch)" data would be a
@@ -788,13 +792,7 @@ func sameChannelFunctions(a, b map[uint16]patch.ChannelFunction) bool {
 		if !ok {
 			return false
 		}
-		if len(av.ChannelSets) == 0 {
-			av.ChannelSets = make([]patch.ChannelSet, 0)
-		}
-		if len(bv.ChannelSets) == 0 {
-			bv.ChannelSets = make([]patch.ChannelSet, 0)
-		}
-		if !reflect.DeepEqual(av, bv) {
+		if !reflect.DeepEqual(patch.CloneChannelFunction(av), patch.CloneChannelFunction(bv)) {
 			return false
 		}
 	}

@@ -135,6 +135,13 @@ type Mode struct {
 	ChannelFunctions map[uint16]patch.ChannelFunction `json:"channelFunctions"`
 	// Origin is where this mode's data came from.
 	Origin Origin `json:"origin"`
+	// Wheels/WheelsKnown are the fixture type's GDTF wheels, carried per
+	// mode so a mode applied to a patch entry brings them along — the same
+	// pair, with the same meaning, as patch.Entry.Wheels/WheelsKnown
+	// (WheelsKnown false = never imported, not "no wheels"). Wheels is
+	// never nil once it has been through this package (see normalizeMode).
+	Wheels      []patch.Wheel `json:"wheels"`
+	WheelsKnown bool          `json:"wheelsKnown"`
 }
 
 // Record is one fixture TYPE: the library's unit of storage. See the
@@ -244,18 +251,17 @@ func KeyFor(manufacturer, model string) string {
 }
 
 // normalizeMode makes m safe to marshal and to hand out: non-nil channel
-// map, non-nil ChannelSets on every channel function in it (patch's own
-// invariant — a nil slice there marshals to `null`).
+// map, non-nil ChannelSets/Functions on every channel function in it and
+// non-nil Wheels (patch's own invariant — a nil slice there marshals to
+// `null`).
 func normalizeMode(m Mode) Mode {
 	if m.ChannelFunctions == nil {
 		m.ChannelFunctions = make(map[uint16]patch.ChannelFunction)
 	}
 	for off, cf := range m.ChannelFunctions {
-		if cf.ChannelSets == nil {
-			cf.ChannelSets = make([]patch.ChannelSet, 0)
-			m.ChannelFunctions[off] = cf
-		}
+		m.ChannelFunctions[off] = patch.CloneChannelFunction(cf)
 	}
+	m.Wheels = patch.CloneWheels(m.Wheels)
 	if m.VerifiedHash == "" || m.VerifiedHash != modeHash(m) {
 		m.VerifiedHash = ""
 		m.VerifiedAt = time.Time{}
@@ -337,10 +343,9 @@ func cloneRecord(r Record) Record {
 		cm := m
 		cm.ChannelFunctions = make(map[uint16]patch.ChannelFunction, len(m.ChannelFunctions))
 		for off, cf := range m.ChannelFunctions {
-			ccf := cf
-			ccf.ChannelSets = append(make([]patch.ChannelSet, 0, len(cf.ChannelSets)), cf.ChannelSets...)
-			cm.ChannelFunctions[off] = ccf
+			cm.ChannelFunctions[off] = patch.CloneChannelFunction(cf)
 		}
+		cm.Wheels = patch.CloneWheels(m.Wheels)
 		out.Modes[i] = cm
 	}
 	return out

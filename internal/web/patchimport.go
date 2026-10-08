@@ -99,6 +99,7 @@ func (s *Server) handlePatchImport(w http.ResponseWriter, r *http.Request) {
 				pp.Entries[found].FixtureNumber = ne.FixtureNumber
 				pp.Entries[found].Notes = ne.Notes
 				pp.Entries[found].ChannelFunctions = ne.ChannelFunctions
+				pp.Entries[found].Wheels, pp.Entries[found].WheelsKnown = ne.Wheels, ne.WheelsKnown
 				continue
 			}
 			pp.Entries = append(pp.Entries, ne)

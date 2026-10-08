@@ -91,6 +91,9 @@ const MvrImport = (() => {
       // field" versus "genuinely nothing resolved" (task 1's "absent"
       // provenance case, made explicit rather than implied by omission).
       channelFunctions: {},
+      // No GDTF resolved: wheels unknown, said explicitly (patch schema v6).
+      wheels: [],
+      wheelsKnown: false,
     };
   }
 
@@ -180,12 +183,14 @@ const MvrImport = (() => {
       warnings.push(...(fixture.warnings || []));
 
       const mode = (gdtf.modes || []).find(m => m.name === fixture.gdtfMode);
-      let footprint, notes, channelFunctions;
+      let footprint, notes, channelFunctions, wheels = [], wheelsKnown = false;
       const ownNotes = (fixture.warnings || []).slice();
       if (mode) {
         footprint = mode.footprint;
         notes = ownNotes.join('; ');
         channelFunctions = mode.channelFunctions || {};
+        wheelsKnown = Array.isArray(mode.wheels);
+        wheels = wheelsKnown ? mode.wheels : [];
       } else {
         footprint = 0;
         const reason = `Fixture "${label}": DMX mode "${fixture.gdtfMode}" not found in GDTF file`;
@@ -206,6 +211,8 @@ const MvrImport = (() => {
         fixtureNumber: fixture.fixtureId,
         notes,
         channelFunctions,
+        wheels,
+        wheelsKnown,
       });
     }
 
@@ -295,6 +302,10 @@ const MvrImport = (() => {
         name: m.name,
         footprint: m.footprint,
         channelFunctions: m.channelFunctions,
+        // Full channel detail (patch schema v6): the mode's wheels travel
+        // with it, so "Use in patch" / re-profile carry them to entries.
+        wheels: Array.isArray(m.wheels) ? m.wheels : [],
+        wheelsKnown: Array.isArray(m.wheels),
         origin,
       })),
     };
@@ -327,5 +338,19 @@ const MvrImport = (() => {
     }
   }
 
-  return { parseMvrFile, parseGdtfFile, libraryDocFromGdtf, rememberGdtfInLibrary };
+  // rereadGdtfIntoLibrary: re-parse an original .gdtf archive the Fixture
+  // Library kept (bytes from Api.getLibrarySourceBytes) with THIS parser and
+  // merge the result back — how a record imported before full channel
+  // detail existed gets every function, set and wheel without the operator
+  // hunting down the file again. Same builder, same merge as any GDTF
+  // import; unlike rememberGdtfInLibrary this is the action the operator
+  // asked for, so a failure throws. Resolves to { parsed, result } where
+  // result is the server's import report.
+  async function rereadGdtfIntoLibrary(arrayBuffer, fileName) {
+    const parsed = await parseGdtfFile(arrayBuffer);
+    const result = await Api.importLibrary(libraryDocFromGdtf(parsed, fileName, arrayBuffer), 'merge');
+    return { parsed, result };
+  }
+
+  return { parseMvrFile, parseGdtfFile, libraryDocFromGdtf, rememberGdtfInLibrary, rereadGdtfIntoLibrary };
 })();

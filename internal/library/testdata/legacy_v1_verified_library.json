@@ -1,0 +1,95 @@
+{
+  "format": "benny512-fixture-library",
+  "schemaVersion": 1,
+  "generatedAt": "0001-01-01T00:00:00Z",
+  "createdAt": "2026-10-07T00:06:44.778686334-04:00",
+  "modifiedAt": "2026-10-07T00:06:44.779487842-04:00",
+  "records": [
+    {
+      "sourceFiles": [],
+      "manufacturer": "Robe lighting s.r.o.",
+      "model": "BMFL Spot",
+      "key": "robe lighting s.r.o.|bmfl spot",
+      "rdmManufacturerId": 0,
+      "rdmManufacturerIdKnown": false,
+      "rdmDeviceModelId": 0,
+      "rdmDeviceModelIdKnown": false,
+      "rdmIdentityOrigin": {
+        "source": "",
+        "at": "0001-01-01T00:00:00Z"
+      },
+      "supportedPids": [],
+      "pidOrigin": {
+        "source": "",
+        "at": "0001-01-01T00:00:00Z"
+      },
+      "modes": [
+        {
+          "verifiedAt": "2026-10-07T00:06:44.779474274-04:00",
+          "verificationNote": "Operator confirmed hardware test",
+          "verifiedHash": "56b9254a0bf8aff4c22a348fcf3b2dcb2c76a4d51a24904652f56cb7a299c4bc",
+          "name": "Mode 1 - Standard 16 bit",
+          "footprint": 41,
+          "channelFunctions": {
+            "39": {
+              "source": "gdtf",
+              "attribute": "Shutter1",
+              "functionName": "Shutter1",
+              "dmxFrom": 0,
+              "dmxTo": 63,
+              "physicalFrom": 0,
+              "physicalTo": 1,
+              "channelSets": [
+                {
+                  "name": "Shutter closed",
+                  "dmxFrom": 0,
+                  "physicalFrom": 0,
+                  "physicalTo": 0
+                },
+                {
+                  "name": "Shutter open",
+                  "dmxFrom": 32,
+                  "physicalFrom": 0,
+                  "physicalTo": 0
+                }
+              ],
+              "hasDefault": false,
+              "default": 0,
+              "defaultByteCount": 0,
+              "hasHighlight": false,
+              "highlight": 0,
+              "highlightByteCount": 0
+            },
+            "40": {
+              "source": "gdtf",
+              "attribute": "Dimmer",
+              "functionName": "Dimmer intensity",
+              "dmxFrom": 0,
+              "dmxTo": 255,
+              "physicalFrom": 0,
+              "physicalTo": 1,
+              "channelSets": [],
+              "hasDefault": true,
+              "default": 0,
+              "defaultByteCount": 2,
+              "hasHighlight": false,
+              "highlight": 0,
+              "highlightByteCount": 0
+            }
+          },
+          "origin": {
+            "source": "gdtf",
+            "detail": "Robe_BMFL.gdtf",
+            "at": "0001-01-01T00:00:00Z"
+          }
+        }
+      ],
+      "identityOrigin": {
+        "source": "",
+        "at": "0001-01-01T00:00:00Z"
+      },
+      "createdAt": "2026-10-07T00:06:44.778699509-04:00",
+      "updatedAt": "2026-10-07T00:06:44.779487765-04:00"
+    }
+  ]
+}

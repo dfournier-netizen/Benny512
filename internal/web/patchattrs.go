@@ -248,6 +248,9 @@ func BuildRDMInferredChannelFunctions(slots []rdm.SlotInfoEntry, descriptions ma
 			ChannelSets:  make([]patch.ChannelSet, 0),
 			RDMSlotType:  s.Type.String(),
 			RDMSlotLabel: label,
+			// RDM reports one slot label, never a GDTF function list:
+			// FunctionsKnown stays false, the list stays empty.
+			Functions: make([]patch.FunctionRange, 0),
 		}
 	}
 
@@ -271,6 +274,7 @@ func BuildRDMInferredChannelFunctions(slots []rdm.SlotInfoEntry, descriptions ma
 			Source:      patch.SourceRDMInferred,
 			Attribute:   attr,
 			ChannelSets: make([]patch.ChannelSet, 0),
+			Functions:   make([]patch.FunctionRange, 0),
 			RDMSlotType: s.Type.String(),
 			// Secondary slots carry no Slot Label ID at all (see
 			// slotinfo.go) — only a SLOT_DESCRIPTION text, if fetched.

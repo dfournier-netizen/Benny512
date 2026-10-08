@@ -181,6 +181,15 @@ type entryRequest struct {
 	Notes         string  `json:"notes"`
 
 	ChannelFunctions map[string]channelFunctionRequest `json:"channelFunctions"`
+
+	// Wheels/WheelsKnown travel with ChannelFunctions as one profile (schema
+	// v6): the GDTF importers send both, a plain field edit sends neither,
+	// and handleUpdatePatchEntry preserves both together. The value types
+	// are patch.Wheel/patch.WheelSlot themselves rather than mirrored
+	// request structs, so the wire shape cannot drift from the stored one;
+	// DisallowUnknownFields still applies to every nested key.
+	Wheels      []patch.Wheel `json:"wheels"`
+	WheelsKnown bool          `json:"wheelsKnown"`
 }
 
 // channelFunctionRequest is entryRequest.ChannelFunctions' value shape,
@@ -225,6 +234,15 @@ type channelFunctionRequest struct {
 
 	RDMSlotType  string `json:"rdmSlotType"`
 	RDMSlotLabel string `json:"rdmSlotLabel"`
+
+	// --- full channel detail (patch schema v6) ---------------------------
+	// Mirrors patch.ChannelFunction's ByteCount/ByteIndex/FunctionsKnown/
+	// Functions; see that struct for meaning and units. Functions uses
+	// patch.FunctionRange directly (see entryRequest.Wheels for why).
+	ByteCount      int                   `json:"byteCount"`
+	ByteIndex      int                   `json:"byteIndex"`
+	FunctionsKnown bool                  `json:"functionsKnown"`
+	Functions      []patch.FunctionRange `json:"functions"`
 }
 
 type channelSetRequest struct {
@@ -264,6 +282,15 @@ func channelFunctionsFromRequest(in map[string]channelFunctionRequest) (map[uint
 		if source != patch.SourceGDTF && source != patch.SourceRDMInferred {
 			return nil, errBadChannelFunctionSource
 		}
+		// functionsKnown is the only thing separating "these are all of
+		// this channel's functions" from "nobody imported them"; a body
+		// whose flag and list disagree is refused, not stored.
+		if cfr.FunctionsKnown && cfr.Functions == nil {
+			return nil, fmt.Errorf("channelFunctions %s: functionsKnown is true but functions is absent", offsetStr)
+		}
+		if !cfr.FunctionsKnown && len(cfr.Functions) > 0 {
+			return nil, fmt.Errorf("channelFunctions %s: functions sent with functionsKnown false", offsetStr)
+		}
 		sets := make([]patch.ChannelSet, 0, len(cfr.ChannelSets))
 		for _, cs := range cfr.ChannelSets {
 			sets = append(sets, patch.ChannelSet{
@@ -283,7 +310,10 @@ func channelFunctionsFromRequest(in map[string]channelFunctionRequest) (map[uint
 			HasDefault: cfr.HasDefault, Default: cfr.Default, DefaultByteCount: cfr.DefaultByteCount,
 			HasHighlight: cfr.HasHighlight, Highlight: cfr.Highlight, HighlightByteCount: cfr.HighlightByteCount,
 			RDMSlotType: cfr.RDMSlotType, RDMSlotLabel: cfr.RDMSlotLabel,
+			ByteCount: cfr.ByteCount, ByteIndex: cfr.ByteIndex,
+			FunctionsKnown: cfr.FunctionsKnown, Functions: cfr.Functions,
 		}
+		out[uint16(offset)] = patch.CloneChannelFunction(out[uint16(offset)])
 	}
 	return out, nil
 }
@@ -351,6 +381,8 @@ func (s *Server) handleUpdatePatchEntry(w http.ResponseWriter, r *http.Request) 
 		// below.
 		if len(req.ChannelFunctions) == 0 {
 			entry.ChannelFunctions = pp.Entries[idx].ChannelFunctions
+			// Wheels are part of the same profile (schema v6).
+			entry.Wheels, entry.WheelsKnown = pp.Entries[idx].Wheels, pp.Entries[idx].WheelsKnown
 		}
 		pp.Entries[idx] = entry
 		// A plain field edit (fixing a typo, adjusting Notes) must not
@@ -383,12 +415,16 @@ func entryFromRequest(id string, req entryRequest) (patch.Entry, error) {
 	if err != nil {
 		return patch.Entry{}, err
 	}
+	if !req.WheelsKnown && len(req.Wheels) > 0 {
+		return patch.Entry{}, fmt.Errorf("wheels sent with wheelsKnown false")
+	}
 	return patch.Entry{
 		PhaseCount: phaseCount,
 		ID:         id, Name: req.Name, FixtureType: req.FixtureType, Mode: req.Mode,
 		Footprint: req.Footprint, Universe: req.Universe, StartAddress: req.StartAddress,
 		Position: req.Position, FixtureNumber: req.FixtureNumber, Notes: req.Notes,
 		ChannelFunctions: cf,
+		Wheels:           patch.CloneWheels(req.Wheels), WheelsKnown: req.WheelsKnown,
 	}, nil
 }
 

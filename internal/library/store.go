@@ -1,6 +1,7 @@
 package library
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"benny512/internal/patch"
 )
 
 // Store guards one Library plus its on-disk persistence. It follows
@@ -368,7 +371,14 @@ func mergeModes(dst, src []Mode) []Mode {
 			continue
 		}
 		merged := sm
-		if len(sm.ChannelFunctions) == 0 && len(out[found].ChannelFunctions) > 0 {
+		if lessDetailedSameProfile(sm, out[found]) {
+			// The same profile known in LESS detail — typically "Save
+			// profiles from this patch" over entries imported before full
+			// GDTF channel detail existed, after this mode was re-read from
+			// its GDTF. Nothing new was learned; keep the stored mode whole
+			// (detail, wheels, origin, verification).
+			merged = out[found]
+		} else if len(sm.ChannelFunctions) == 0 && len(out[found].ChannelFunctions) > 0 {
 			merged.ChannelFunctions = out[found].ChannelFunctions
 			// The mode's origin describes its channel map, so keep the
 			// origin of the map that survived.
@@ -407,6 +417,25 @@ func mergeModes(dst, src []Mode) []Mode {
 	}
 	sort.SliceStable(out, func(i, j int) bool { return foldKeyPart(out[i].Name) < foldKeyPart(out[j].Name) })
 	return out
+}
+
+// lessDetailedSameProfile reports whether incoming carries no schema-v6
+// channel detail while stored does, and the two are otherwise the same
+// profile: same footprint, same first-function channel map (compared in
+// the pre-v6 shape both share).
+func lessDetailedSameProfile(incoming, stored Mode) bool {
+	if incoming.WheelsKnown || len(incoming.Wheels) > 0 || incoming.Footprint != stored.Footprint {
+		return false
+	}
+	inJSON, ok := patch.PreV6ChannelFunctionsJSON(incoming.ChannelFunctions)
+	if !ok {
+		return false
+	}
+	if _, storedPlain := patch.PreV6ChannelFunctionsJSON(stored.ChannelFunctions); storedPlain && !stored.WheelsKnown {
+		return false // stored has no detail either: the ordinary merge rules apply
+	}
+	storedJSON, _ := patch.PreV6ChannelFunctionsJSON(patch.WithoutChannelDetail(stored.ChannelFunctions))
+	return len(incoming.ChannelFunctions) > 0 && bytes.Equal(inJSON, storedJSON)
 }
 
 // sameModePayload compares the two halves of a Mode that describe the

@@ -46,8 +46,8 @@ func TestMigrate_V4FileLoadsWithSettingStatesUnknown(t *testing.T) {
 	if p.SchemaVersion != CurrentSchemaVersion {
 		t.Errorf("SchemaVersion = %d after migrate, want %d", p.SchemaVersion, CurrentSchemaVersion)
 	}
-	if CurrentSchemaVersion != 5 {
-		t.Errorf("CurrentSchemaVersion = %d, want 5 — the as-found not-fitted state's bump", CurrentSchemaVersion)
+	if CurrentSchemaVersion < 5 {
+		t.Errorf("CurrentSchemaVersion = %d, want at least 5 — the as-found not-fitted state's bump", CurrentSchemaVersion)
 	}
 	e := p.Entries[0]
 

@@ -1019,6 +1019,10 @@ const PatchScreen = (() => {
         // exactly the case that SHOULD replace whatever channel-function
         // data (if any) the entry had before, same as it replaces footprint.
         channelFunctions: mode.channelFunctions || {},
+        // ...and the fixture's wheels, which those functions point into
+        // (patch schema v6).
+        wheels: Array.isArray(mode.wheels) ? mode.wheels : [],
+        wheelsKnown: Array.isArray(mode.wheels),
       };
       try {
         patchData = await Api.updatePatchEntry(e.id, draft);
