@@ -16,6 +16,10 @@ Goal: a console-lite station for testing and flashing a rig (not show playback).
 - **MIDI encoders:** last chunk. **Colour themes incl. custom:** later; noted in the UI brief.
 - **UI:** functional, not polished; a separate design agent builds the assets from `docs/design/console-lite-ui-brief.md`.
 
+## Owner decisions (Dom, 2026-10-08)
+- **Arm is a functional gate only**, not a stage that primes values. Empty programmer → fixtures at profile defaults. Priority (high → low): cues (future; selectable priority) > programmer > profile defaults. Tests stay under the programmer; raw universe and Identify stay above it. Disarm keeps all state; Arm resumes it. (2026-10-08 08:25:29 -0400)
+- **Raw universe faders** keep their whole-universe claim. Owner prefers **group faders first** (e.g. one fader per fixture type driving dimmer for all fixtures of that type) — design questions open before building.
+
 ## Chunks (each is one or more commits, gates green, docs updated)
 | # | Chunk | Depends on |
 |---|-------|-----------|

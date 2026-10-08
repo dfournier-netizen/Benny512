@@ -240,7 +240,7 @@ const settled = async () => { await sleep(120); await until('writes to settle', 
   await tab('other');
   check(qa('[data-panel="other"] input[type="range"]').length === 0, 'the Control tab has no faders at all');
   const lamp = q('[data-set="Control1#12#Lamp On"]');
-  check(!!lamp && /HOLD 1\.5 s/.test(lamp.textContent), 'Lamp On is a HOLD 1.5 s button', lamp && lamp.textContent);
+  check(!!lamp && /HOLD 0\.75 s/.test(lamp.textContent), 'Lamp On is a HOLD 0.75 s button', lamp && lamp.textContent);
   const lb = posts(SET).length;
   lamp.dispatchEvent(new Event('pointerdown', { bubbles: true, pointerId: 9 }));
   await sleep(400);
@@ -249,10 +249,10 @@ const settled = async () => { await sleep(120); await until('writes to settle', 
   await sleep(1400);
   check(posts(SET).length === lb, 'a 0.4 s press (and a plain click) sends nothing');
   lamp.dispatchEvent(new Event('pointerdown', { bubbles: true, pointerId: 9 }));
-  await sleep(1650);
+  await sleep(900);
   lamp.dispatchEvent(new Event('pointerup', { bubbles: true, pointerId: 9 }));
   await settled();
-  check(posts(SET).length === lb + 1 && same(last(SET).body, { targets: [T('B1')], attribute: 'Control1', functionIndex: 12, set: 'Lamp On' }), 'held 1.5 s: posts {attribute:Control1, functionIndex:12, set:"Lamp On"}', last(SET).body);
+  check(posts(SET).length === lb + 1 && same(last(SET).body, { targets: [T('B1')], attribute: 'Control1', functionIndex: 12, set: 'Lamp On' }), 'held 0.9 s (past the 0.75 s hold): posts {attribute:Control1, functionIndex:12, set:"Lamp On"}', last(SET).body);
   await until('Control1 at Lamp On', () => attr('Control1').value >= 130 && attr('Control1').value <= 139);
   check(attr('Control1').value >= 130 && attr('Control1').value <= 139, 'the server holds Control1 inside Lamp On (130-139)', attr('Control1').value);
 

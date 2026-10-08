@@ -33,7 +33,7 @@
 // in its own words.
 const ConsoleControls = (() => {
   const LANE_MS = 34;          // >= 33 ms between writes of one lane (< 30/s)
-  const HOLD_MS = 1500;        // press-and-hold for Control buttons
+  const HOLD_MS = 750;         // press-and-hold for Control buttons (owner, 2026-10-08: 0.75 s)
   const ACTIVE_MS = 600;       // a control just touched keeps its local value
   const GROUP_LABEL = { dimmer: 'Dimmer', position: 'Position', colour: 'Colour', beam: 'Beam', focus: 'Focus', shaper: 'Shaper', other: 'Control / Other' };
   const HIDDEN_FN = /^(NoFeature|Dummy)$/;
@@ -288,8 +288,8 @@ const ConsoleControls = (() => {
   // continuous press, by pointer or by Space/Enter held down.
   function holdButton(label, attrs, fire) {
     const fill = h('span', { class: 'b5-cc-hold__fill', 'aria-hidden': 'true' });
-    const b = h('button', Object.assign({ type: 'button', class: 'b5-btn b5-btn--sm b5-cc-hold', 'aria-description': 'Hold for 1.5 seconds to send' }, attrs || {}),
-      fill, h('span', { class: 'b5-cc-hold__word', text: 'HOLD 1.5 s · ' }), label);
+    const b = h('button', Object.assign({ type: 'button', class: 'b5-btn b5-btn--sm b5-cc-hold', 'aria-description': 'Hold for 0.75 seconds to send' }, attrs || {}),
+      fill, h('span', { class: 'b5-cc-hold__word', text: 'HOLD 0.75 s · ' }), label);
     let timer = null;
     const start = ev => {
       if (ev && ev.preventDefault) ev.preventDefault();
@@ -328,7 +328,7 @@ const ConsoleControls = (() => {
       if (into !== body) body.appendChild(into);
       functionControls(av, vi, control, into);
     });
-    if (control) body.appendChild(h('p', { class: 'b5-note', text: 'Control channels have no faders: a sweep would pass through reset and lamp ranges. Hold a button for 1.5 s to send it.' }));
+    if (control) body.appendChild(h('p', { class: 'b5-note', text: 'Control channels have no faders: a sweep would pass through reset and lamp ranges. Hold a button for 0.75 s to send it.' }));
     const card = h('details', { class: 'b5-cc-attr', 'data-attr': a.attribute }, head, body);
     card.open = st.open[a.attribute] !== false;
     card.addEventListener('toggle', () => { st.open[a.attribute] = card.open; });
