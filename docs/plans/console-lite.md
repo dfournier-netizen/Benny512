@@ -18,7 +18,9 @@ Goal: a console-lite station for testing and flashing a rig (not show playback).
 
 ## Owner decisions (Dom, 2026-10-08)
 - **Arm is a functional gate only**, not a stage that primes values. Empty programmer → fixtures at profile defaults. Priority (high → low): cues (future; selectable priority) > programmer > profile defaults. Tests stay under the programmer; raw universe and Identify stay above it. Disarm keeps all state; Arm resumes it. (2026-10-08 08:25:29 -0400)
-- **Raw universe faders** keep their whole-universe claim. Owner prefers **group faders first** (e.g. one fader per fixture type driving dimmer for all fixtures of that type) — design questions open before building.
+- **Raw universe faders** keep their whole-universe claim.
+- **Group faders** (owner answers 2026-10-08 14:55:16 -0400): each fader SETS dimmer level 0–100% for its fixtures (not a scaling master); sits below the programmer; one fader per fixture type+mode automatically (two modes = two faders) plus one per stored group; always visible at the bottom of the screen. Orchestrator fill-ins: order base < tests < group faders < programmer; an untouched fader claims nothing, a moved fader claims its fixtures' dimmer until Released; a fixture in two moved faders follows the most recently moved; bar visible on every screen, collapsible.
+- **Virtual dimmer** (owner): fixtures with RGB mixing but no dimmer channel get a virtual dimmer that drives the RGB LEDs directly. Orchestrator fill-in: it scales the composed colour everywhere (Console dimmer, group faders, highlight, lowlight); with no colour set it means white.
 
 ## Chunks (each is one or more commits, gates green, docs updated)
 | # | Chunk | Depends on |
@@ -33,6 +35,9 @@ Goal: a console-lite station for testing and flashing a rig (not show playback).
 | C6b | Attribute controls (XY pad + faders, colour picker, wheel/gobo slots, sub-function faders, focus/zoom/shapers, control), programmer toolbar, raw DMX panel | C6a |
 | C7 | Retire Send / Rig Check screens at parity | C5, C6 |
 | C8 | MIDI encoders (Web MIDI, zero deps) | C6 |
+| G1 | Virtual dimmer for RGB fixtures without a dimmer channel | done 2026-10-08 15:35:44 -0400 (2ea6c65) |
+| G2 | Group faders server side (source, API, WS) | done 2026-10-08 15:35:44 -0400 (6587121) |
+| G3 | Bottom fader bar UI | done 2026-10-08 15:35:44 -0400 (48308c3, aa94085) |
 | C9 | Themes (custom theme) — with the design agent's assets | C6 |
 
 ## Delivery to Dom's desktop

@@ -38,6 +38,24 @@
 //     never assumed to be coarse+fine.
 //   - Offsets with no channel function at all are RAW offsets: 8-bit, no
 //     attribute, offered for raw DMX testing only.
+//   - VIRTUAL DIMMER (G1, owner decision 2026-10-08: "for all fixtures
+//     without a dimmer, but with RGB mixing [there] should [be] a 'virtual
+//     dimmer'"). A SCOPE is the fixture's own (non-cell) channels, or one
+//     cell's. A scope gets one virtual Dimmer parameter when it has red,
+//     green and blue additive emitters (ColorAdd_R/G/B, or
+//     ColorRGB_Red/Green/Blue — the GDTF attribute names the taxonomy
+//     groups as colour) and no "Dimmer" channel, and the fixture has no
+//     Dimmer of its own (a fixture-level dimmer already dims its cells).
+//     It scales EVERY additive channel of the scope: every ColorAdd_*
+//     (W, WW/CW, amber, lime, UV, ...) and ColorRGB_* channel.
+//     UNVERIFIED: GDTF describes ColorRGB_* as "emitter or subtractive
+//     filter"; none of the vendor files here uses it. The parameter is
+//     8-bit (0-255, Detail "virtual", Virtual true), default 255 (untouched
+//     = full = the profile look unchanged). It has no DMX bytes (Offsets
+//     empty); its synthetic Offset is VirtualDimmerOffset + the cell index
+//     (0 for the fixture's own scope), above any 512-slot footprint, so it
+//     is keyed, set, cleared, stored in presets and faned like any other
+//     channel. The engine applies it (session.VirtualDimmer).
 package patch
 
 import (
@@ -55,7 +73,12 @@ const (
 	DetailFull          = "full"
 	DetailFirstFunction = "first-function"
 	DetailAttributeOnly = "attribute-only"
+	DetailVirtual       = "virtual"
 )
+
+// VirtualDimmerOffset is the synthetic offset of a fixture's own virtual
+// dimmer; a cell's is this plus the cell's index. See the file comment.
+const VirtualDimmerOffset uint16 = 0xFF00
 
 // ProgSet is one channel set of a function, with the wheel slot it names
 // resolved against the entry's wheels.
@@ -125,6 +148,11 @@ type ProgParameter struct {
 	Highlight    uint32         `json:"highlight"`
 	RDMSlotLabel string         `json:"rdmSlotLabel"`
 	Functions    []ProgFunction `json:"functions"`
+	// Virtual marks a virtual dimmer (G1, see the file comment): no DMX
+	// bytes of its own; it scales the additive colour channels whose
+	// coarse offsets are virtualOf.
+	Virtual   bool `json:"virtual"`
+	virtualOf []uint16
 	// channelName is the GDTF DMXChannel name a ModeMaster link starts
 	// with: geometry name + "_" + first logical channel attribute (DIN SPEC
 	// 15800, DMX Channel: the name is derived, not stored).
@@ -312,6 +340,7 @@ func BuildFixtureModel(e Entry) FixtureModel {
 		m.Notes = append(m.Notes, "This fixture has no channel map, so only raw DMX per offset is offered.")
 	}
 	assignCells(&m)
+	addVirtualDimmers(&m)
 	firstOnly := 0
 	for i := range m.Parameters {
 		p := &m.Parameters[i]
@@ -510,6 +539,68 @@ func assignCells(m *FixtureModel) {
 		if isCell[m.Parameters[i].Instance] {
 			m.Parameters[i].Cell = m.Parameters[i].Instance
 		}
+	}
+}
+
+// isAdditiveColour: an additive emitter a virtual dimmer scales.
+func isAdditiveColour(attr string) bool {
+	return strings.HasPrefix(attr, "ColorAdd_") || strings.HasPrefix(attr, "ColorRGB_")
+}
+
+// addVirtualDimmers appends the virtual Dimmer parameters — see the file
+// comment's VIRTUAL DIMMER rule.
+func addVirtualDimmers(m *FixtureModel) {
+	type scope struct {
+		dimmer           bool
+		r, g, b          bool
+		additive         []uint16
+		source           ChannelFunctionSource
+		instance, cellID string
+	}
+	scopes := map[string]*scope{"": {}}
+	for _, c := range m.Cells {
+		scopes[c.ID] = &scope{instance: c.ID, cellID: c.ID}
+	}
+	for _, p := range m.Parameters {
+		sc := scopes[p.Cell]
+		if sc == nil {
+			continue
+		}
+		switch p.Attribute {
+		case "Dimmer":
+			sc.dimmer = true
+		case "ColorAdd_R", "ColorRGB_Red":
+			sc.r = true
+		case "ColorAdd_G", "ColorRGB_Green":
+			sc.g = true
+		case "ColorAdd_B", "ColorRGB_Blue":
+			sc.b = true
+		}
+		if isAdditiveColour(p.Attribute) {
+			if len(sc.additive) == 0 {
+				sc.source = p.Source
+			}
+			sc.additive = append(sc.additive, p.Offset)
+		}
+	}
+	if scopes[""].dimmer {
+		return
+	}
+	add := func(sc *scope, off uint16) {
+		if sc.dimmer || !sc.r || !sc.g || !sc.b {
+			return
+		}
+		m.Parameters = append(m.Parameters, ProgParameter{
+			Offset: off, Offsets: make([]uint16, 0), ByteCount: 1, Max: 255, Attribute: "Dimmer", Group: GroupDimmer,
+			Instance: sc.instance, Cell: sc.cellID, Source: sc.source, Detail: DetailVirtual, HasDefault: true, Default: 255,
+			Functions: []ProgFunction{{Index: 0, Name: "Virtual dimmer", Attribute: "Dimmer", LogicalAttribute: "Dimmer",
+				DMXFrom: 0, DMXTo: 255, HasDefault: true, Default: 255, Sets: make([]ProgSet, 0)}},
+			Virtual: true, virtualOf: sc.additive,
+		})
+	}
+	add(scopes[""], VirtualDimmerOffset)
+	for _, c := range m.Cells {
+		add(scopes[c.ID], VirtualDimmerOffset+uint16(c.Index))
 	}
 }
 

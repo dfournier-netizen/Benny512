@@ -76,6 +76,12 @@ type Programmer struct {
 	lowlight  bool
 	lowPct    int
 	wsDigest  string
+	// G2 group faders (faders.go).
+	faderRev    uint64
+	faderSeq    uint64
+	faderClaims map[string]faderClaim
+	faderGroups []FaderGroup
+	faderDigest string
 }
 
 // NewProgrammer builds an empty programmer over dmx. seed is the first
@@ -83,7 +89,8 @@ type Programmer struct {
 // revision before a restart cannot match a new one by accident).
 func NewProgrammer(dmx *session.DMXOutputEngine, seed uint64) *Programmer {
 	return &Programmer{dmx: dmx, revision: seed, entries: map[string]Entry{}, models: map[string]*FixtureModel{},
-		values: map[progKey]uint32{}, base: map[uint16]session.LayerFrame{}, lowPct: DefaultLowlightPercent}
+		values: map[progKey]uint32{}, base: map[uint16]session.LayerFrame{}, lowPct: DefaultLowlightPercent,
+		faderRev: seed, faderClaims: map[string]faderClaim{}}
 }
 
 // Revision is the current revision.
@@ -162,7 +169,9 @@ func (pg *Programmer) Sync(token any, entries []Entry, clear bool) bool {
 	pg.token, pg.synced = token, true
 	pg.base = pg.baseFramesLocked()
 	_ = pg.dmx.ReplaceSource(session.SourceBase, pg.base)
+	_ = pg.dmx.SetVirtualDimmers(pg.virtualDefsLocked())
 	pg.applyLocked()
+	pg.refreshFadersLocked(clear)
 	if changed {
 		pg.revision++
 	}
@@ -209,9 +218,60 @@ func (pg *Programmer) baseFramesLocked() map[uint16]session.LayerFrame {
 	return frames
 }
 
-// applyLocked writes the touched values as the programmer source.
+// VirtualDimmerKey is the engine key (session.VirtualDimmer.Key) of the
+// virtual dimmer at synthetic offset off of entryID. Any source that drives
+// "Dimmer" (the programmer now, group faders in G2) claims a virtual
+// dimmer's level under this key with SetVirtualDimmerLevels.
+func VirtualDimmerKey(entryID string, off uint16) string {
+	return fmt.Sprintf("%s#%d", entryID, off)
+}
+
+// virtualDefsLocked: every virtual dimmer of every patched entry, with the
+// slots of the additive channels it scales (a channel with a byte that
+// cannot be written is left out).
+func (pg *Programmer) virtualDefsLocked() map[uint16][]session.VirtualDimmer {
+	defs := map[uint16][]session.VirtualDimmer{}
+	for _, id := range pg.order {
+		e, m := pg.entries[id], pg.models[id]
+		for _, p := range m.Parameters {
+			if !p.Virtual {
+				continue
+			}
+			vd := session.VirtualDimmer{Key: VirtualDimmerKey(id, p.Offset)}
+			for _, off := range p.virtualOf {
+				if g, ok := scaleGroupOf(e, m.paramAt(off)); ok {
+					vd.Channels = append(vd.Channels, g)
+				}
+			}
+			if len(vd.Channels) > 0 {
+				defs[e.Universe] = append(defs[e.Universe], vd)
+			}
+		}
+	}
+	return defs
+}
+
+// scaleGroupOf is p's slots on e's universe, MSB first; ok false when a
+// byte cannot be written.
+func scaleGroupOf(e Entry, p *ProgParameter) (session.ScaleGroup, bool) {
+	g := session.ScaleGroup{}
+	if p == nil || len(p.Offsets) == 0 {
+		return g, false
+	}
+	for _, off := range p.Offsets {
+		if !e.addressable(off) {
+			return g, false
+		}
+		g.Slots = append(g.Slots, int(e.StartAddress)+int(off)-2)
+	}
+	return g, true
+}
+
+// applyLocked writes the touched values as the programmer source, and the
+// touched virtual dimmers as its virtual dimmer levels.
 func (pg *Programmer) applyLocked() {
 	frames := map[uint16]session.LayerFrame{}
+	levels := map[string]byte{}
 	keys := make([]progKey, 0, len(pg.values))
 	for k := range pg.values {
 		keys = append(keys, k)
@@ -234,6 +294,10 @@ func (pg *Programmer) applyLocked() {
 		v := pg.values[k]
 		offs, b := []uint16{k.offset}, []byte{byte(v)}
 		if p := m.paramAt(k.offset); p != nil {
+			if p.Virtual {
+				levels[VirtualDimmerKey(k.entry, p.Offset)] = byte(v)
+				continue
+			}
 			offs, b = p.Offsets, p.bytesOf(v)
 		}
 		for i, off := range offs {
@@ -247,6 +311,7 @@ func (pg *Programmer) applyLocked() {
 		}
 	}
 	_ = pg.dmx.ReplaceSource(session.SourceProgrammer, frames)
+	_ = pg.dmx.SetVirtualDimmerLevels(session.SourceProgrammer, levels)
 	pg.applyOverlayLocked()
 }
 
@@ -867,6 +932,9 @@ func (pg *Programmer) placeLocked(res *ProgSetResult, entry string, m *FixtureMo
 	pending[progKey{entry, p.Offset}] = v
 	a := ProgApplied{EntryID: entry, Cell: p.Cell, Offset: p.Offset, Attribute: p.Attribute, FunctionIndex: fi, Value: v, Bytes: make([]ProgByte, 0, p.ByteCount)}
 	for bi, b := range p.bytesOf(v) {
+		if bi >= len(p.Offsets) {
+			break // a virtual dimmer has no DMX bytes of its own
+		}
 		a.Bytes = append(a.Bytes, ProgByte{Offset: p.Offsets[bi], Value: b})
 	}
 	if fi >= 0 {

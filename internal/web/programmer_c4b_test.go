@@ -108,9 +108,11 @@ func TestHighlightLowlightOnTheWireAndOffRestoresExactly(t *testing.T) {
 			t.Errorf("B1 offset %d should be reported unresolved: %+v", off, v.Highlight.Unresolved)
 		}
 	}
+	// G1: the Paladin has no dimmer but RGB cells, so its virtual dimmers
+	// make it lowlit (its additive channels are scaled); G1 has nothing.
 	noDim := strings.Join(v.Highlight.NoDimmer, ",")
-	if !strings.Contains(noDim, r.ids["P1"]) || !strings.Contains(noDim, r.ids["G1"]) || v.Highlight.Lowlit != 1 {
-		t.Errorf("lowlight: lowlit %d (want 1: B2), noDimmer %v (want P1, G1)", v.Highlight.Lowlit, v.Highlight.NoDimmer)
+	if strings.Contains(noDim, r.ids["P1"]) || !strings.Contains(noDim, r.ids["G1"]) || v.Highlight.Lowlit != 2 {
+		t.Errorf("lowlight: lowlit %d (want 2: B2, P1), noDimmer %v (want G1 only)", v.Highlight.Lowlit, v.Highlight.NoDimmer)
 	}
 	r.post(t, "/api/programmer/highlight", map[string]any{"lowlightPercent": 50}, nil)
 	wantSlots(t, "B2 dimmer at 50%", r.wire(t, 0), 81, 1, 244)

@@ -48,10 +48,21 @@ func (s *Server) syncProgrammer(clear bool) {
 		return
 	}
 	p, _, tok := s.PatchStore.GetWithToken()
+	// Group faders (G2) follow the show's stored groups; Sync re-derives
+	// them with the patch.
+	ws := workspaceFor(p)
+	fgs := make([]patch.FaderGroup, 0, len(ws.Groups))
+	for _, g := range ws.Groups {
+		fgs = append(fgs, patch.FaderGroup{ID: g.ID, Name: g.Name, Members: g.Members})
+	}
+	s.Programmer.SetFaderGroups(fgs)
+	fadersBefore := s.Programmer.FadersRevision()
 	changed := s.Programmer.Sync(tok, p.Entries, clear)
+	if s.Programmer.FadersRevision() != fadersBefore {
+		s.broadcastFaders()
+	}
 	// Stored groups and presets are shown with the programmer (C4b): a
 	// change to them, from any route, makes every browser re-read it.
-	ws := workspaceFor(p)
 	b, _ := json.Marshal(struct {
 		G []savedGroup
 		P []programmerPreset

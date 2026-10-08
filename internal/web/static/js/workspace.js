@@ -59,6 +59,8 @@ const Workspace = (() => {
     return { word: sim + 'Disarmed' + (o.lastDisarm === 'lease' ? ' · browser heartbeat lost' : ''), icon: 'status-pending', tone: 'off', arm: true };
   }
   function renderOutput() {
+    // G3: the fader bar's disarmed hint follows this heartbeat (no second poll).
+    window.dispatchEvent(new CustomEvent('b5-output', { detail: out }));
     const root = document.getElementById('showContext');
     const box = root && root.querySelector('[data-outbox]');
     if (!box) return;

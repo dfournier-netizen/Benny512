@@ -12,7 +12,7 @@ import (
 func (s *Server) showGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		bound := strings.HasPrefix(path, "/api/patch") || path == "/api/reset" || path == "/api/library/reprofile" || path == "/api/library/from-patch" || path == "/api/workspace" || strings.HasPrefix(path, "/api/programmer") || strings.HasPrefix(path, "/api/tests")
+		bound := strings.HasPrefix(path, "/api/patch") || path == "/api/reset" || path == "/api/library/reprofile" || path == "/api/library/from-patch" || path == "/api/workspace" || strings.HasPrefix(path, "/api/programmer") || strings.HasPrefix(path, "/api/tests") || strings.HasPrefix(path, "/api/faders")
 		stop := strings.HasSuffix(path, "/stop") || strings.HasSuffix(path, "/blackout")
 		// A loaded test preset (or a rehearsal) taking the tests layer back
 		// ends the Tests API's hold on it (C5, tests.go).

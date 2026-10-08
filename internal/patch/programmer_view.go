@@ -22,6 +22,9 @@ type ProgVariant struct {
 	Max       uint32         `json:"max"`
 	Detail    string         `json:"detail"`
 	Functions []ProgFunction `json:"functions"`
+	// Virtual: a virtual dimmer (G1) — no channel of its own; it scales
+	// the fixture's additive colour.
+	Virtual bool `json:"virtual"`
 }
 
 // ProgChannelView is one target channel of an attribute.
@@ -37,6 +40,8 @@ type ProgChannelView struct {
 	DefaultKnown bool   `json:"defaultKnown"`
 	Default      uint32 `json:"default"`
 	Variant      int    `json:"variant"`
+	// Virtual: this channel is a virtual dimmer (G1).
+	Virtual bool `json:"virtual"`
 	// Function is the index (in its variant) of the function Value lies in,
 	// -1 when that is not one function.
 	Function int `json:"function"`
@@ -100,7 +105,7 @@ func (pg *Programmer) View() ProgView {
 	defer pg.mu.Unlock()
 	v := ProgView{Revision: pg.revision, Output: pg.outputLocked(), Selection: make([]ProgSelected, 0, len(pg.selection)),
 		Groups: make([]ProgGroupView, 0), Raw: make([]ProgRawView, 0), Touched: len(pg.values)}
-	_, _, v.Highlight = pg.overlayLocked()
+	_, _, _, v.Highlight = pg.overlayLocked()
 	type attrAcc struct {
 		view     *ProgAttrView
 		variants map[string]int
@@ -143,10 +148,10 @@ func (pg *Programmer) View() ProgView {
 			if !ok {
 				vi = len(acc.view.Variants)
 				acc.variants[p.variantKey] = vi
-				acc.view.Variants = append(acc.view.Variants, ProgVariant{ByteCount: p.ByteCount, Max: p.Max, Detail: p.Detail, Functions: p.Functions})
+				acc.view.Variants = append(acc.view.Variants, ProgVariant{ByteCount: p.ByteCount, Max: p.Max, Detail: p.Detail, Functions: p.Functions, Virtual: p.Virtual})
 			}
 			cv := ProgChannelView{EntryID: t.EntryID, Cell: p.Cell, Offset: p.Offset, ByteCount: p.ByteCount,
-				DefaultKnown: p.HasDefault, Default: p.Default, Variant: vi}
+				DefaultKnown: p.HasDefault, Default: p.Default, Variant: vi, Virtual: p.Virtual}
 			if val, ok := pg.values[k]; ok {
 				cv.Value, cv.Touched = val, true
 			} else {

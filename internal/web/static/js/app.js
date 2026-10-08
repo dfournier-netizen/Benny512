@@ -134,5 +134,6 @@
     SettingsScreen.init();
     Workspace.init();
     ConsoleScreen.init();
+    Faders.init();
   });
 })();

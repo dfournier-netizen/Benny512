@@ -688,6 +688,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/programmer/groups/{action}", s.handleProgrammerGroups)
 	s.mux.HandleFunc("POST /api/programmer/presets/{action}", s.handleProgrammerPresets)
 
+	s.mux.HandleFunc("GET /api/faders", s.handleGetFaders)
+	s.mux.HandleFunc("POST /api/faders/{action}", s.handleFadersAction)
+
 	s.mux.HandleFunc("GET /ws", s.handleWS)
 }
 
@@ -1813,7 +1816,8 @@ type wsMessage struct {
 	// "cleared":0 on every node/rdm/capture/... push.
 	Scope   string `json:"scope,omitempty"`
 	Cleared *int   `json:"cleared,omitempty"`
-	// Revision is set only for Type "programmer", "tests" and "layout" (a
+	// Revision is set only for Type "programmer", "tests", "layout" and
+	// "faders" (a
 	// pointer for the same reason as Cleared).
 	Revision *uint64 `json:"revision,omitempty"`
 	Err      string  `json:"err,omitempty"`

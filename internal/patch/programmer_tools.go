@@ -21,6 +21,14 @@
 //     colour channel that rules 1-4 cannot resolve is REPORTED and left at
 //     its current value — never given an invented one.
 //
+// VIRTUAL DIMMERS (G1, programmer_model.go): a selected virtual dimmer is
+// highlighted by claiming it at full on the highlight source — with no
+// colour composed that is white at full, otherwise the composed mix at
+// full — and the additive channels it scales are left out of the
+// highlight frames (their profile highlight, e.g. the Paladin's 65535,
+// would otherwise replace the mix with white). Lowlight scales an
+// unselected fixture's virtual dimmers by scaling the additive channels.
+//
 // LOWLIGHT, only while Highlight is on: every patched fixture with no
 // target in the selection has each of its Dimmer-group channels scaled to
 // LowlightPercent of what it would otherwise show (default 20%). The engine
@@ -137,10 +145,11 @@ type ProgHighlightView struct {
 // overlayLocked builds the highlight frames, the lowlight groups and the
 // report for the current selection. It is computed whether or not
 // Highlight is on, so the report can be read before switching it on.
-func (pg *Programmer) overlayLocked() (map[uint16]session.LayerFrame, map[uint16][]session.ScaleGroup, ProgHighlightView) {
+func (pg *Programmer) overlayLocked() (map[uint16]session.LayerFrame, map[string]byte, map[uint16][]session.ScaleGroup, ProgHighlightView) {
 	view := ProgHighlightView{On: pg.highlight, Lowlight: pg.lowlight, LowlightPercent: pg.lowPct,
 		Unresolved: make([]ProgSkipped, 0), NoDimmer: make([]string, 0)}
 	frames := map[uint16]session.LayerFrame{}
+	levels := map[string]byte{}
 	selected := map[string]bool{}
 	done := map[progKey]bool{}
 	for _, t := range pg.selection {
@@ -149,13 +158,24 @@ func (pg *Programmer) overlayLocked() (map[uint16]session.LayerFrame, map[uint16
 		if m == nil {
 			continue
 		}
+		scaled := map[uint16]bool{}
+		for _, p := range m.Parameters {
+			for _, off := range p.virtualOf {
+				scaled[off] = true
+			}
+		}
 		for i := range m.Parameters {
 			p := &m.Parameters[i]
 			k := progKey{t.EntryID, p.Offset}
-			if (t.Cell != "" && p.Cell != t.Cell) || done[k] {
+			if (t.Cell != "" && p.Cell != t.Cell) || done[k] || scaled[p.Offset] {
 				continue
 			}
 			done[k] = true
+			if p.Virtual {
+				levels[VirtualDimmerKey(t.EntryID, p.Offset)] = 255
+				view.Channels++
+				continue
+			}
 			v, _, ok, part := highlightFor(p)
 			if !part {
 				continue
@@ -186,6 +206,19 @@ func (pg *Programmer) overlayLocked() (map[uint16]session.LayerFrame, map[uint16
 		e, m := pg.entries[id], pg.models[id]
 		dims := 0
 		for _, p := range m.Parameters {
+			if p.Virtual {
+				n := 0
+				for _, off := range p.virtualOf {
+					if g, ok := scaleGroupOf(e, m.paramAt(off)); ok {
+						scale[e.Universe] = append(scale[e.Universe], g)
+						n++
+					}
+				}
+				if n > 0 {
+					dims++
+				}
+				continue
+			}
 			if p.Group != GroupDimmer {
 				continue
 			}
@@ -209,19 +242,20 @@ func (pg *Programmer) overlayLocked() (map[uint16]session.LayerFrame, map[uint16
 	if !pg.highlight || !pg.lowlight {
 		view.Lowlit = 0
 	}
-	return frames, scale, view
+	return frames, levels, scale, view
 }
 
 // applyOverlayLocked puts the overlay on (or takes it off) the engine.
 func (pg *Programmer) applyOverlayLocked() {
-	frames, scale, _ := pg.overlayLocked()
+	frames, levels, scale, _ := pg.overlayLocked()
 	if !pg.highlight {
-		frames = nil
+		frames, levels = nil, nil
 	}
 	if !pg.highlight || !pg.lowlight {
 		scale = nil
 	}
 	_ = pg.dmx.ReplaceSource(session.SourceHighlight, frames)
+	_ = pg.dmx.SetVirtualDimmerLevels(session.SourceHighlight, levels)
 	_ = pg.dmx.SetLowlight(scale, pg.lowPct)
 }
 

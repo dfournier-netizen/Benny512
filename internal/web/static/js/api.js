@@ -26,7 +26,9 @@ const Api = (() => {
     }
     const res = await fetch(path, opts);
 	const token = res.headers && res.headers.get('X-Benny-Show');
-	if (token !== null && token !== undefined && (path === '/api/patch' || method !== 'GET')) {
+	// GET /api/faders also adopts it: the fader bar (G3) is on every screen and
+	// may write before any screen has read the patch.
+	if (token !== null && token !== undefined && (path === '/api/patch' || path === '/api/faders' || method !== 'GET')) {
 	  if (showToken && showToken !== token) window.dispatchEvent(new CustomEvent('b5-show-changed'));
 	  showToken = token;
 	}
@@ -37,7 +39,9 @@ const Api = (() => {
     }
     if (!res.ok) {
       const msg = (data && data.error) ? data.error : ('HTTP ' + res.status);
-      throw new Error(msg);
+      const err = new Error(msg);
+      err.status = res.status; // G3: faders.js retries a 409 once
+      throw err;
     }
     return data;
   }
@@ -147,6 +151,12 @@ const Api = (() => {
     // based on a view another browser has since changed is refused (409).
     // programmer.js (ProgrammerSync) keeps that revision current.
     getProgrammer: () => req('GET', '/api/programmer'),
+    // Group faders (G2 server, internal/web/faders.go; G3 bar, faders.js):
+    // fadersAction sends the fader revision this browser last saw
+    // (X-Benny-Faders), so a write on a stale view is refused (409).
+    getFaders: () => req('GET', '/api/faders'),
+    fadersAction: (action, body, revision) => req('POST', '/api/faders/' + action, body,
+      (revision === null || revision === undefined) ? undefined : { 'X-Benny-Faders': String(revision) }),
     getProgrammerFixtures: () => req('GET', '/api/programmer/fixtures'),
     programmerAction: (action, body, revision) => req('POST', '/api/programmer/' + action, body,
       (revision === null || revision === undefined) ? undefined : { 'X-Benny-Programmer': String(revision) }),

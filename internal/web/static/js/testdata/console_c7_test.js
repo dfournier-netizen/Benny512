@@ -322,7 +322,7 @@ const FILES = ['api.js', 'ws.js', 'programmer.js', 'ui.js', 'universeidentify.js
     const stub = name => { const s = { calls: [] }; ['init', 'onEnterScreen', 'onLeaveScreen'].forEach(m => { s[m] = () => s.calls.push(m); }); screens[name] = s; return s; };
     const fakeApi = new Proxy({}, { get: (t, k) => () => (k === 'getSettings' ? Promise.resolve({ artnetStartUniverse: 0 }) : Promise.resolve({})) });
     const extra = { Api: fakeApi, UI: { setArtnetStart() {} } };
-    ['NodesScreen', 'DevicesScreen', 'PatchScreen', 'AnalyzerScreen', 'WalkScreen', 'SettingsScreen', 'Workspace', 'ConsoleScreen'].forEach(n => { extra[n] = stub(n); });
+    ['NodesScreen', 'DevicesScreen', 'PatchScreen', 'AnalyzerScreen', 'WalkScreen', 'SettingsScreen', 'Workspace', 'ConsoleScreen', 'Faders'].forEach(n => { extra[n] = stub(n); });
     const P = browser([], extra);
     P.get('localStorage').setItem('benny512.tab', 'send');
     let appError = null;

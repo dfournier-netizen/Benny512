@@ -22,10 +22,15 @@ import (
 //   - COMPOSITION. Sources hold per-channel ownership on SHOW universes (the
 //     raw Art-Net Port-Address every stored universe already is). The
 //     transmitted frame starts all-zero and each source, in fixed priority
-//     order low→high — base, tests, programmer, highlight, raw — overwrites
+//     order low→high — base, tests, group faders, programmer, highlight,
+//     raw — overwrites
 //     the channels it owns. A higher source wins on every channel it owns
 //     and nowhere else. Lowlight (C4b) is not a source: it scales listed
 //     channels of what base..programmer composed, just below highlight.
+//     Virtual dimmers (G1) are not sources either: just before Lowlight they
+//     scale a dimmerless fixture's additive colour channels by the level
+//     the highest-priority source claiming that virtual dimmer set
+//     (SetVirtualDimmers, SetVirtualDimmerLevels).
 //     Base (C4a) is every patched channel at its profile default, so a
 //     universe with patched fixtures is on the wire whenever the engine is
 //     armed.
@@ -135,6 +140,12 @@ const (
 	// of a tested universe; within its claim its output is identical to the
 	// pre-C3 whole-frame writes.
 	SourceTests
+	// SourceGroupFaders is the Console-lite group faders (chunk G2, owner
+	// decision 2026-10-08): a moved fader claims its fixtures' dimmer
+	// channels (and virtual dimmers) at its level. Above tests, below the
+	// programmer, so a programmed dimmer wins and releasing it shows the
+	// fader again.
+	SourceGroupFaders
 	// SourceProgrammer is the Console-lite programmer (chunk C4). It claims
 	// exactly the channels the user has touched (ReplaceSource).
 	SourceProgrammer
@@ -158,6 +169,8 @@ func (s Source) String() string {
 		return "base"
 	case SourceTests:
 		return "tests"
+	case SourceGroupFaders:
+		return "group-faders"
 	case SourceProgrammer:
 		return "programmer"
 	case SourceHighlight:
@@ -299,12 +312,14 @@ func (u *showUniverse) empty() bool {
 	return true
 }
 
-// compose builds the frame. scale (Lowlight) is applied to the composition
-// of every source below SourceHighlight, before highlight and raw write.
-func (u *showUniverse) compose(scale []ScaleGroup, percent int) [DMXUniverseSize]byte {
+// compose builds the frame. The virtual dimmers (vd), then scale
+// (Lowlight), are applied to the composition of every source below
+// SourceHighlight, before highlight and raw write.
+func (u *showUniverse) compose(vd []resolvedVirtual, scale []ScaleGroup, percent int) [DMXUniverseSize]byte {
 	var out [DMXUniverseSize]byte
 	for s, l := range u.layers {
 		if Source(s) == SourceHighlight {
+			applyVirtual(&out, vd)
 			applyScale(&out, scale, percent)
 		}
 		if l == nil {
@@ -365,6 +380,11 @@ type DMXOutputEngine struct {
 
 	lowlight   map[uint16][]ScaleGroup
 	lowPercent int
+
+	// G1 virtual dimmers: definitions per show universe, and each source's
+	// claimed levels by VirtualDimmer.Key.
+	virtuals map[uint16][]VirtualDimmer
+	vdLevels [numSources]map[string]byte
 }
 
 // NewDMXOutputEngine builds a disarmed engine. Transport is required.
@@ -528,6 +548,141 @@ func applyScale(out *[DMXUniverseSize]byte, groups []ScaleGroup, percent int) {
 			v >>= 8
 		}
 	}
+}
+
+// VirtualDimmer (Console-lite G1) is the virtual dimmer of one fixture or
+// cell that has additive colour emitters but no Dimmer channel: Channels
+// are its additive colour channels, each MSB first like a ScaleGroup. Key
+// identifies it to every source that sets its level.
+//
+// RESOLUTION (so any source can drive it — the programmer now, group
+// faders next): the level is the one set by the HIGHEST-priority source
+// that has set one for Key (SetVirtualDimmerLevels). No source claiming it
+// = untouched = full and the colour exactly as composed (profile defaults
+// unchanged). A claimed level L (0-255) makes every channel
+// floor(v x L / 255) — never brighter — after one fill rule: when every
+// channel of the group composed to zero, each is first driven to full
+// (no colour set means white).
+type VirtualDimmer struct {
+	Key      string
+	Channels []ScaleGroup
+}
+
+type resolvedVirtual struct {
+	channels []ScaleGroup
+	level    byte
+}
+
+// applyVirtual applies the claimed virtual dimmers — see VirtualDimmer.
+func applyVirtual(out *[DMXUniverseSize]byte, vds []resolvedVirtual) {
+	for _, vd := range vds {
+		dark := true
+		for _, g := range vd.channels {
+			for _, s := range g.Slots {
+				dark = dark && out[s] == 0
+			}
+		}
+		for _, g := range vd.channels {
+			var v uint64
+			for _, s := range g.Slots {
+				b := out[s]
+				if dark {
+					b = 0xFF
+				}
+				v = v<<8 | uint64(b)
+			}
+			v = v * uint64(vd.level) / 255
+			for i := len(g.Slots) - 1; i >= 0; i-- {
+				out[g.Slots[i]] = byte(v)
+				v >>= 8
+			}
+		}
+	}
+}
+
+// virtualLocked resolves raw's virtual dimmers against the sources' claims;
+// untouched ones are left out (they change nothing).
+func (e *DMXOutputEngine) virtualLocked(raw uint16) []resolvedVirtual {
+	defs := e.virtuals[raw]
+	if len(defs) == 0 {
+		return nil
+	}
+	out := make([]resolvedVirtual, 0, len(defs))
+	for _, d := range defs {
+		for s := numSources - 1; s >= 0; s-- {
+			if lv, ok := e.vdLevels[s][d.Key]; ok {
+				out = append(out, resolvedVirtual{channels: d.Channels, level: lv})
+				break
+			}
+		}
+	}
+	return out
+}
+
+// SetVirtualDimmers replaces every virtual dimmer definition (per show
+// universe). Definitions whose Key no source claims change nothing.
+func (e *DMXOutputEngine) SetVirtualDimmers(defs map[uint16][]VirtualDimmer) error {
+	for raw, ds := range defs {
+		if raw > 0x7FFF {
+			return fmt.Errorf("%w: %d", ErrUniverseOutOfRange, raw)
+		}
+		for _, d := range ds {
+			for _, g := range d.Channels {
+				if len(g.Slots) == 0 || len(g.Slots) > 4 {
+					return fmt.Errorf("session: a virtual dimmer channel must cover 1-4 slots")
+				}
+				for _, sl := range g.Slots {
+					if sl < 0 || sl >= DMXUniverseSize {
+						return fmt.Errorf("%w: slot %d", ErrChannelOutOfRange, sl+1)
+					}
+				}
+			}
+		}
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	scope := map[uint16]bool{}
+	for raw := range e.virtuals {
+		scope[raw] = true
+	}
+	next := make(map[uint16][]VirtualDimmer, len(defs))
+	for raw, ds := range defs {
+		if len(ds) > 0 {
+			next[raw] = ds
+			scope[raw] = true
+		}
+	}
+	e.virtuals = next
+	if len(scope) > 0 {
+		e.passLocked(passMode{shows: scope})
+	}
+	return nil
+}
+
+// SetVirtualDimmerLevels replaces every virtual dimmer level src claims
+// (Key -> 0-255). nil or empty releases all of src's claims.
+func (e *DMXOutputEngine) SetVirtualDimmerLevels(src Source, levels map[string]byte) error {
+	if !src.valid() {
+		return fmt.Errorf("session: unknown output source %d", int(src))
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	next := make(map[string]byte, len(levels))
+	for k, v := range levels {
+		next[k] = v
+	}
+	if len(next) == 0 && len(e.vdLevels[src]) == 0 {
+		return nil
+	}
+	e.vdLevels[src] = next
+	scope := map[uint16]bool{}
+	for raw := range e.virtuals {
+		scope[raw] = true
+	}
+	if len(scope) > 0 {
+		e.passLocked(passMode{shows: scope})
+	}
+	return nil
 }
 
 // SetLowlight replaces the Lowlight scale: groups per show universe and
@@ -1034,7 +1189,7 @@ func (e *DMXOutputEngine) desiredLocked() map[Stream]desiredStream {
 	}
 	e.unmapped = map[uint16]bool{}
 	for raw, u := range e.shows {
-		frame := u.compose(e.lowlight[raw], e.lowPercent)
+		frame := u.compose(e.virtualLocked(raw), e.lowlight[raw], e.lowPercent)
 		protos, ok := e.routing[raw]
 		if !ok {
 			protos = OutputArtNet
@@ -1383,7 +1538,7 @@ func (e *DMXOutputEngine) Frame(addr artnet.PortAddress) ([]byte, bool) {
 	if !ok {
 		return nil, false
 	}
-	f := u.compose(e.lowlight[addr.RawValue()], e.lowPercent)
+	f := u.compose(e.virtualLocked(addr.RawValue()), e.lowlight[addr.RawValue()], e.lowPercent)
 	return append([]byte(nil), f[:]...), true
 }
 
