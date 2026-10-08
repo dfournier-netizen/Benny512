@@ -22,6 +22,10 @@ Goal: a console-lite station for testing and flashing a rig (not show playback).
 - **Group faders** (owner answers 2026-10-08 14:55:16 -0400): each fader SETS dimmer level 0–100% for its fixtures (not a scaling master); sits below the programmer; one fader per fixture type+mode automatically (two modes = two faders) plus one per stored group; always visible at the bottom of the screen. Orchestrator fill-ins: order base < tests < group faders < programmer; an untouched fader claims nothing, a moved fader claims its fixtures' dimmer until Released; a fixture in two moved faders follows the most recently moved; bar visible on every screen, collapsible.
 - **Virtual dimmer** (owner): fixtures with RGB mixing but no dimmer channel get a virtual dimmer that drives the RGB LEDs directly. Orchestrator fill-in: it scales the composed colour everywhere (Console dimmer, group faders, highlight, lowlight); with no colour set it means white.
 
+## Design owner clarifications (2026-10-08 16:32:39 -0400)
+
+For the design package, Dom chose touch lasso mode toggle; Previous/Next highlight stepping; 10× fine mode; separate Clear family and Clear all (preserve the existing selection-only scope as well); Beam/Gobo and Control labels; mixed faders set a single absolute value. **Lamp off and Reset use confirmation dialogs**, superseding the earlier 0.75 s pointer-hold interaction for these commands when the design is integrated. Other profile-timed commands retain their actual DMX dwell requirements. These are design decisions, not changes already shipped to the functional UI.
+
 ## Chunks (each is one or more commits, gates green, docs updated)
 | # | Chunk | Depends on |
 |---|-------|-----------|
@@ -46,6 +50,7 @@ The desktop clone has no shell for the agent and remote tools may not write insi
 ## Progress
 | Chunk | State | Notes |
 |-------|-------|-------|
+| Design assets | delivered 2026-10-08 16:32:39 -0400 | `docs/design/console-lite/`: 72 icons, 8 fixture glyphs, specs, dark/light semantic tokens, 44 responsive mockups, 1,240 contrast pairs pass, 132 browser geometry checks pass. C9 production integration still pending; physical minimum-brightness and Go gates unavailable here. |
 | C1 | done 2026-10-07 00:22:51 -0400 | GDTF importer: all functions/ranges/sets/wheels, schema 6, library re-read. Open owner questions: per-type profile storage (BMFL entry 41→161 KB), Rig Check use of GDTF 1.0 channel defaults, library schema bump, licence of the two Robe test extracts (libMVRgdtf, MVR SDK licence). |
 | C2 | done 2026-10-07 00:44:55 -0400 | Entry.location from MVR <Matrix> (composed, mm, Z-up), schema 7; POST /api/patch/locations re-import (confirm UPDATE LOCATIONS); per-show layout in Workspace JSON with Z layers; GET/POST /api/patch/layout. Open owner questions: no-Matrix = unknown (not 0,0,0)?; 500 mm cell / 1 m layer gap defaults; re-derive refreshing its own placements; licence of the Capture demo extract. |
 | C1b | done 2026-10-07 15:25:44 -0400 | Profile cache per fixture type/mode (entries reference it); GDTF 1.0 channel-level defaults used by Rig Check/programmer; library schema bump |

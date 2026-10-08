@@ -1,0 +1,156 @@
+{
+  "toneDistances": [
+    {
+      "theme": "dark",
+      "a": "armed-border",
+      "b": "danger-border",
+      "delta": 0.149296033554126,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "a": "armed-border",
+      "b": "warn-border",
+      "delta": 0.21143539472841616,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "a": "armed-border",
+      "b": "ok-border",
+      "delta": 0.18416916820213222,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "a": "armed-border",
+      "b": "accent-border",
+      "delta": 0.1415795452765816,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "a": "danger-border",
+      "b": "warn-border",
+      "delta": 0.12861646967616686,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "a": "danger-border",
+      "b": "ok-border",
+      "delta": 0.19503986704398912,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "a": "danger-border",
+      "b": "accent-border",
+      "delta": 0.20121384215153496,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "a": "warn-border",
+      "b": "ok-border",
+      "delta": 0.11860710945350462,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "a": "warn-border",
+      "b": "accent-border",
+      "delta": 0.16804761434762083,
+      "pass": true
+    },
+    {
+      "theme": "dark",
+      "a": "ok-border",
+      "b": "accent-border",
+      "delta": 0.07081188102570023,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "a": "armed-border",
+      "b": "danger-border",
+      "delta": 0.19604870640303984,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "a": "armed-border",
+      "b": "warn-border",
+      "delta": 0.17942349091445076,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "a": "armed-border",
+      "b": "ok-border",
+      "delta": 0.19785046537968207,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "a": "armed-border",
+      "b": "accent-border",
+      "delta": 0.16193062382481213,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "a": "danger-border",
+      "b": "warn-border",
+      "delta": 0.1375130688755136,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "a": "danger-border",
+      "b": "ok-border",
+      "delta": 0.2372815783267164,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "a": "danger-border",
+      "b": "accent-border",
+      "delta": 0.2511424332079295,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "a": "warn-border",
+      "b": "ok-border",
+      "delta": 0.10377418028964128,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "a": "warn-border",
+      "b": "accent-border",
+      "delta": 0.1359193971435101,
+      "pass": true
+    },
+    {
+      "theme": "light",
+      "a": "ok-border",
+      "b": "accent-border",
+      "delta": 0.06728159916305487,
+      "pass": true
+    }
+  ],
+  "darkLuminance": {
+    "bg-canvas": 0.004483969678226503,
+    "bg-surface": 0.009542872222562787,
+    "bg-surface-raised": 0.014296222542391103,
+    "bg-surface-overlay": 0.020206281309191824,
+    "bg-selected": 0.02930213718878003,
+    "ok-fill": 0.018687747743692123,
+    "warn-fill": 0.01747360991211819,
+    "danger-fill": 0.01630759257059983,
+    "accent-fill": 0.018666549145979015,
+    "armed-fill": 0.019305217979515683
+  }
+}
