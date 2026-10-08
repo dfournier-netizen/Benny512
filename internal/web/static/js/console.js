@@ -261,6 +261,10 @@ const ConsoleScreen = (() => {
               h('span', { class: 'b5-empty__body', text: 'This area is reserved for the attribute controls (chunk C6b). The selection you make on the grid is already live in the programmer.' }))))),
       els.summary,
     ]);
+    // C6c: the Tests panel (console-tests.js) sits under the Controls region.
+    els.tests = h('section', { class: 'b5-con-tests', 'data-tests-region': '', 'aria-label': 'Tests' });
+    root.querySelector('.b5-con-pane--side').appendChild(els.tests);
+    if (typeof ConsoleTests !== 'undefined') ConsoleTests.mount(els.tests, { layers: () => layers() });
     els.grid.addEventListener('click', onGridClick);
     els.grid.addEventListener('pointerdown', onPointerDown);
     els.grid.addEventListener('pointermove', onPointerMove);
@@ -268,6 +272,9 @@ const ConsoleScreen = (() => {
     els.grid.addEventListener('pointercancel', onPointerCancel);
     els.grid.addEventListener('keydown', onGridKey);
     els.picker.addEventListener('click', onGridClick);
+    // C6b: the attribute controls live in console-controls.js and take
+    // over the reserved region.
+    if (typeof ConsoleControls !== 'undefined') ConsoleControls.mount(root.querySelector('[data-controls-region]'));
     renderTools();
   }
 
@@ -293,7 +300,27 @@ const ConsoleScreen = (() => {
       status('the layout could not be read (' + e.message + ').', 'error');
     } finally {
       st.loading = false;
+      layoutCatchUp();
     }
+  }
+
+  // --- live layout sync (C6c) ---------------------------------------------------
+  // Every layout edit, from any browser, is broadcast as
+  // {"type":"layout","revision":N}. This page re-reads the layout unless it
+  // already holds N: its own edit's answer carries the revision, and an
+  // announcement that arrives while that edit is still in flight is checked
+  // only once the answer lands. A screen not shown just goes stale and
+  // reloads on entry.
+  let layoutWanted = 0;
+  function onLayoutMessage(msg) {
+    if (!msg || typeof msg.revision !== 'number') return;
+    layoutWanted = Math.max(layoutWanted, msg.revision);
+    if (!st.active) { st.stale = true; return; }
+    layoutCatchUp();
+  }
+  function layoutCatchUp() {
+    if (!st.active || st.loading || st.editsInFlight) return;
+    if (layoutWanted > ((st.layout && st.layout.revision) || 0)) load();
   }
 
   // --- rendering ----------------------------------------------------------------
@@ -707,6 +734,7 @@ const ConsoleScreen = (() => {
 
   // edit posts one layout action; the answer is the whole new layout.
   async function edit(action, body, done) {
+    st.editsInFlight = (st.editsInFlight || 0) + 1; // C6c live sync
     try {
       const resp = await Api.layoutAction(action, body);
       st.layout = resp;
@@ -718,6 +746,9 @@ const ConsoleScreen = (() => {
     } catch (e) {
       status(e.message, 'error');
       return null;
+    } finally {
+      st.editsInFlight--;
+      layoutCatchUp();
     }
   }
 
@@ -955,6 +986,7 @@ const ConsoleScreen = (() => {
     const label = x => (x.name || 'Unnamed fixture') + (x.cell ? ' cell ' + (x.cellIndex || '?') + (x.cellName ? ' (' + x.cellName + ')' : '') : '');
     const shown = s.slice(0, 8).map((x, i) => (i + 1) + ' ' + label(x));
     const names = s.length ? shown.join(' · ') + (s.length > 8 ? ' · +' + (s.length - 8) + ' more' : '') : 'Tap a fixture, a cell, a group or a layer to select it.';
+    const more = summaryTools(s, hl);
     append(els.summary, [
       h('div', { class: 'b5-actionbar__status b5-con-summary__status' },
         h('span', { class: 'b5-actionbar__title', text: 'Selection' }),
@@ -963,7 +995,18 @@ const ConsoleScreen = (() => {
           s.length ? s.length + ' selected' + (cells ? ' · ' + cells + (cells === 1 ? ' cell' : ' cells') : '') : 'Nothing selected'),
         h('span', { class: 'b5-con-summary__names', 'data-sel-names': '', title: s.map((x, i) => (i + 1) + ' ' + label(x)).join(', ') }, names)),
       h('div', { class: 'b5-actionbar__buttons b5-con-summary__buttons' },
-        btn('Clear selection', { attrs: { 'data-clear-selection': '' }, disabled: !s.length }, () => sel({ action: 'none' })),
+        btn(h('span', {}, 'Clear', h('span', { class: 'b5-con-summary__long', text: ' selection' })), { attrs: { 'data-clear-selection': '' }, disabled: !s.length }, () => sel({ action: 'none' })),
+        // C6c: on a phone the bar is one line — count, Clear and this More
+        // button; Store group, Highlight and Locate sit in its menu. Wider
+        // screens hide the button and show the three inline (CSS).
+        btn(hl ? 'More · Highlight ON' : 'More', { cls: 'b5-con-summary__morebtn', attrs: { 'data-summary-more-toggle': '', 'aria-expanded': st.moreOpen ? 'true' : 'false', 'aria-controls': 'conSummaryMore' } },
+          () => { st.moreOpen = !st.moreOpen; renderSummary(); }),
+        more),
+    ]);
+  }
+  // summaryTools: the three tools behind More on a phone.
+  function summaryTools(s, hl) {
+    const more = h('div', { class: 'b5-con-summary__more' + (st.moreOpen ? ' is-open' : ''), id: 'conSummaryMore', 'data-summary-more': '' },
         btn('Store group…', { attrs: { 'data-store-group': '' }, disabled: !s.length }, async () => {
           const name = await ask({ title: 'Store the selection as a group', body: 'The group keeps the fixtures and cells in this selection order.', field: { label: 'Group name', value: '', maxLength: 80 }, ok: 'Store group' });
           if (name === null) return;
@@ -977,8 +1020,17 @@ const ConsoleScreen = (() => {
         btn('Locate', { attrs: { 'data-locate': '' }, disabled: !s.length, icon: 'identify' }, async () => {
           try { await ProgrammerSync.act('locate', {}); status('Located the selection: open white, centred (reaches the rig only while output is armed).'); }
           catch (e) { status(e.message, 'error'); }
-        })),
-    ]);
+        }));
+    // Picking a tool closes the menu.
+    more.addEventListener('click', () => { st.moreOpen = false; more.classList.remove('is-open'); });
+    more.addEventListener('keydown', ev => {
+      if (ev.key !== 'Escape' || !st.moreOpen) return;
+      st.moreOpen = false;
+      renderSummary();
+      const t = els.summary.querySelector('[data-summary-more-toggle]');
+      if (t) t.focus();
+    });
+    return more;
   }
 
   // --- phone layout: keep the sticky summary above the fixed bottom nav ------
@@ -1012,12 +1064,14 @@ const ConsoleScreen = (() => {
         renderPicker();
         renderSummary();
         if (st.edit) renderEdit();
+        if (typeof ConsoleControls !== 'undefined') ConsoleControls.refresh();
       });
     }
     window.addEventListener('b5-show-changed', () => {
       st.stale = true; st.editId = null; st.picker = null;
       if (st.active) load();
     });
+    if (typeof Live !== 'undefined') Live.on('layout', onLayoutMessage); // C6c
   }
   function onEnterScreen() {
     init();

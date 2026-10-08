@@ -156,6 +156,18 @@ const Api = (() => {
     // first, which is what sets it).
     getLayout: () => req('GET', '/api/patch/layout'),
     layoutAction: (action, body) => req('POST', '/api/patch/layout/' + action, body),
+    // The Console's Tests panel (C5 server, internal/web/tests.go; C6c UI,
+    // console-tests.js). getTests(query) reads the whole tests view; query
+    // {kind, group, layer} asks for the catalog of another scope without
+    // changing anything. testsAction sends the tests revision this browser
+    // last saw (X-Benny-Tests) when it has one, so a write based on a view
+    // another browser has since changed is refused (409).
+    getTests: (query) => {
+      const q = query && query.kind ? '?' + new URLSearchParams(stripEmpty({ kind: query.kind, group: query.group, layer: query.layer })).toString() : '';
+      return req('GET', '/api/tests' + q);
+    },
+    testsAction: (action, body, revision) => req('POST', '/api/tests/' + action, body === undefined ? {} : body,
+      (revision === null || revision === undefined) ? undefined : { 'X-Benny-Tests': String(revision) }),
     getWorkspace: () => req('GET', '/api/workspace'),
     workspaceAction: (action, body) => req('POST', '/api/patch/workspace/' + action, body),
     resetActiveShow: () => req('POST', '/api/patch/reset-active', {confirm:'RESET SHOW'}),

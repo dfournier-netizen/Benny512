@@ -258,6 +258,9 @@ type Server struct {
 	// tests is the Console-lite Tests layer and test sequences (C5,
 	// tests.go): it drives RigCheck on the Console's scopes.
 	tests *testsState
+	// layoutRev is the layout revision (C6c, layout.go): bumped by every
+	// successful layout action and broadcast as {"type":"layout"}.
+	layoutRev *layoutRevision
 
 	// patternScope is the semantic expression that resolved the RigCheck
 	// pattern's current entry list. The engine deliberately stores resolved
@@ -339,6 +342,7 @@ func New(nodes *session.ArtNetSession, rdmc *session.RDMController, dmx *session
 		Programmer: patch.NewProgrammer(dmx, uint64(time.Now().UnixMilli())),
 		hub:        newHub(),
 		tests:      newTestsState(),
+		layoutRev:  newLayoutRevision(),
 		simSACN:    &simSACNLink{},
 	}
 	// The automatic identity read. Constructed here so s.AutoRead is never
@@ -1802,6 +1806,10 @@ func (s *Server) pumpCapture(ctx context.Context) {
 //	                         broadcast so every other open browser refreshes
 //	"programmer"           — Revision: the programmer changed (C4a); every
 //	                         browser re-reads GET /api/programmer
+//	"tests"                — Revision: the tests layer changed (C5); every
+//	                         browser re-reads GET /api/tests
+//	"layout"               — Revision: the show's layout changed (C6c); every
+//	                         browser re-reads GET /api/patch/layout
 type wsMessage struct {
 	Type        string                  `json:"type"`
 	Kind        string                  `json:"kind,omitempty"`
@@ -1820,8 +1828,8 @@ type wsMessage struct {
 	// "cleared":0 on every node/rdm/capture/... push.
 	Scope   string `json:"scope,omitempty"`
 	Cleared *int   `json:"cleared,omitempty"`
-	// Revision is set only for Type=="programmer" (a pointer for the same
-	// reason as Cleared).
+	// Revision is set only for Type "programmer", "tests" and "layout" (a
+	// pointer for the same reason as Cleared).
 	Revision *uint64 `json:"revision,omitempty"`
 	Err      string  `json:"err,omitempty"`
 }

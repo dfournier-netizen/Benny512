@@ -175,12 +175,30 @@
 .b5-con-summary__names { flex: 1 1 100%; min-width: 0; color: var(--b5-color-text-secondary); font-size: var(--b5-font-size-sm);
   overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
 .b5-con-summary__buttons { flex-wrap: wrap; }
+/* C6c: Store group, Highlight and Locate are inline on wide screens; on a
+   phone they sit behind "More" so the bar is ONE line (count, Clear, More)
+   and the grid keeps the screen. */
+.b5-con-summary__morebtn { display: none; }
+.b5-con-summary__more { display: contents; }
 @media (max-width: 767px) {
   .b5-con-summary .b5-actionbar__title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-  .b5-con-summary__status { flex-wrap: nowrap; gap: var(--b5-space-2); }
-  .b5-con-summary__names { flex: 1 1 0; -webkit-line-clamp: 2; font-size: var(--b5-font-size-xs); }
-  .b5-con-summary { bottom: var(--b5-con-nav-reserve, calc(var(--b5-size-touch-min) + var(--b5-space-6))); padding: var(--b5-space-2); gap: var(--b5-space-2); }
-  .b5-con-summary__buttons .b5-btn, .b5-con-summary__buttons .b5-seg { flex: 1 1 40%; }
+  .b5-con-summary { bottom: var(--b5-con-nav-reserve, calc(var(--b5-size-touch-min) + var(--b5-space-6)));
+    flex-wrap: nowrap; padding: var(--b5-space-1) var(--b5-space-2); gap: var(--b5-space-2); margin-top: var(--b5-space-3); }
+  .b5-con-summary__status { flex: 1 1 auto; flex-wrap: nowrap; gap: var(--b5-space-2); min-width: 0; }
+  .b5-con-summary__status .b5-pill { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .b5-con-summary__names, .b5-con-summary__long { display: none; }
+  .b5-con-summary__buttons { flex: 0 0 auto; flex-basis: auto; flex-wrap: nowrap; gap: var(--b5-space-2); }
+  .b5-con-summary__buttons > .b5-btn { min-height: var(--b5-size-touch-min); padding-inline: var(--b5-space-3); }
+  .b5-con-summary__morebtn { display: inline-flex; }
+  .b5-con-summary__more { display: none; }
+  .b5-con-summary__more.is-open {
+    display: flex; flex-direction: column; gap: var(--b5-space-2);
+    position: absolute; right: var(--b5-space-2); bottom: calc(100% + var(--b5-space-1)); z-index: var(--b5-z-dropdown);
+    min-width: 12rem; padding: var(--b5-space-2);
+    background: var(--b5-color-bg-surface-raised); border: var(--b5-border-width-thick) solid var(--b5-color-border-strong);
+    border-radius: var(--b5-radius-md); box-shadow: var(--b5-shadow-lg);
+  }
+  .b5-con-summary__more .b5-btn, .b5-con-summary__more .b5-seg { min-height: var(--b5-size-touch-min); width: 100%; justify-content: flex-start; }
 }
 
 .b5-con-dialog__actions { justify-content: flex-end; margin-top: var(--b5-space-3); }

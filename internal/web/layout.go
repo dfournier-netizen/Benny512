@@ -457,6 +457,11 @@ type layoutLimits struct {
 }
 
 type layoutResponse struct {
+	// Revision is the layout revision this body reflects (C6c): every
+	// successful layout action bumps it and broadcasts it on the WebSocket
+	// as {"type":"layout","revision":N}, so a browser that already holds N
+	// (its own edit's answer) skips the re-read.
+	Revision uint64            `json:"revision"`
 	Active   bool              `json:"active"`
 	Name     string            `json:"name"`
 	Layout   showLayout        `json:"layout"`
@@ -540,14 +545,40 @@ func buildLayoutResponse(p patch.Patch, active bool, ws showWorkspace) layoutRes
 	return resp
 }
 
+// --- live sync (C6c) ---------------------------------------------------------
+
+const layoutRevisionHeader = "X-Benny-Layout"
+
+// layoutRevision counts successful layout actions. Seeded from the clock in
+// milliseconds (exact in a JS number) so a browser holding a revision from
+// before a restart cannot match.
+type layoutRevision struct{ n atomic.Uint64 }
+
+func newLayoutRevision() *layoutRevision {
+	r := &layoutRevision{}
+	r.n.Store(uint64(time.Now().UnixMilli()))
+	return r
+}
+
+func (s *Server) writeLayoutJSON(w http.ResponseWriter, resp layoutResponse) {
+	w.Header().Set(layoutRevisionHeader, fmt.Sprint(resp.Revision))
+	writeJSON(w, http.StatusOK, resp)
+}
+
 func (s *Server) handleGetLayout(w http.ResponseWriter, r *http.Request) {
+	// The revision is read BEFORE the show: a mutation landing in between
+	// makes the body newer than its revision, never older, so the
+	// broadcast that follows still triggers a re-read.
+	rev := s.layoutRev.n.Load()
 	p, ok := s.PatchStore.Get()
 	ws, err := strictWorkspace(p)
 	if err != nil {
 		writeError(w, http.StatusConflict, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, buildLayoutResponse(p, ok, ws))
+	resp := buildLayoutResponse(p, ok, ws)
+	resp.Revision = rev
+	s.writeLayoutJSON(w, resp)
 }
 
 // --- POST -------------------------------------------------------------------
@@ -700,6 +731,7 @@ func (s *Server) handleLayoutAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var result any
+	var rev uint64
 	updated, err := s.PatchStore.Mutate(func(p *patch.Patch) error {
 		ws, err := strictWorkspace(*p)
 		if err != nil {
@@ -717,6 +749,10 @@ func (s *Server) handleLayoutAction(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		p.Workspace = encoded
+		// Bumped inside the store's write, so revisions follow the order
+		// the mutations were applied in (a store write that then fails
+		// leaves a gap, which only costs a browser one spare re-read).
+		rev = s.layoutRev.n.Add(1)
 		return nil
 	})
 	var le layoutError
@@ -731,7 +767,9 @@ func (s *Server) handleLayoutAction(w http.ResponseWriter, r *http.Request) {
 	ws, _ := strictWorkspace(updated)
 	resp := buildLayoutResponse(updated, true, ws)
 	resp.Result = result
-	writeJSON(w, http.StatusOK, resp)
+	resp.Revision = rev
+	s.hub.broadcast(wsMessage{Type: "layout", At: time.Now(), Revision: &rev})
+	s.writeLayoutJSON(w, resp)
 }
 
 func renumberLayers(l *showLayout) {

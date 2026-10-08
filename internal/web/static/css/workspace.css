@@ -43,3 +43,38 @@
   .b5-show-context__nic { display: none; }
   .b5-show-context__name { max-width: 42vw; }
 }
+
+/* ---- C6c: the chrome never overlaps ------------------------------------
+   The header and this strip were BOTH sticky at top:0, so as soon as the
+   page scrolled the strip slid over "Benny512 / Connected" (at 390 px it
+   covered it at rest too, being three rows tall). Wide screens: the strip
+   sticks just below the header, at its measured height (--b5-header-height,
+   app.js; the fallback is the header's own minimum). Phones: the header
+   scrolls away with the page and only the strip sticks, compact, so ARM and
+   Stop all output are always on screen. */
+.b5-show-context { top: var(--b5-header-height, calc(var(--b5-size-touch-min) + 2 * var(--b5-space-3) + 1px)); }
+@media (max-width: 767px) {
+  .b5-header { position: relative; top: auto; }
+  .b5-show-context {
+    top: 0;
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--b5-space-1) var(--b5-space-2);
+    padding: var(--b5-space-1) var(--b5-space-2);
+  }
+  .b5-show-context__nic { display: none; }
+  .b5-show-context__name { grid-column: 1 / 3; grid-row: 1; max-width: none; align-self: center; }
+  .b5-show-context .b5-out { display: contents; }
+  .b5-show-context .b5-out-state { grid-column: 3 / 5; grid-row: 1; justify-self: end; max-width: 100%; font-size: var(--b5-font-size-xs); }
+  .b5-show-context .b5-out-arm { grid-column: 1; grid-row: 2; }
+  .b5-show-context [data-stop] { grid-column: 2; grid-row: 2; }
+  .b5-show-context [data-tools] { grid-column: 3; grid-row: 2; }
+  .b5-show-context [data-library] { grid-column: 4; grid-row: 2; }
+  .b5-show-context > .b5-btn, .b5-show-context .b5-out-arm {
+    min-width: 0; min-height: var(--b5-size-touch-min); padding-inline: var(--b5-space-1);
+    white-space: normal; line-height: 1.15; font-size: var(--b5-font-size-xs); justify-content: center; text-align: center;
+  }
+
+  /* Every sticky bottom bar (Send's and Rig Check's output bars, the
+     Console's selection summary) sits ABOVE the fixed bottom nav, at its
+     measured height (--b5-nav-height, app.js), instead of under it. */
+  .b5-actionbar { bottom: var(--b5-nav-height, calc(var(--b5-size-touch-min) + var(--b5-space-6))); }
+}

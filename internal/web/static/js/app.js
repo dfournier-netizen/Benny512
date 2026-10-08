@@ -94,9 +94,15 @@
   function publishChromeHeight() {
     const header = document.querySelector('.b5-header');
     const context = document.querySelector('.b5-show-context');
+    const nav = document.getElementById('tabsMobile');
     const measure = () => {
       let h = 0;
       if (header) h += header.getBoundingClientRect().height;
+      // C6c: the strip sticks just below the sticky header (workspace.css),
+      // and on a phone every sticky bottom bar sits just above the fixed
+      // bottom nav (0 when the nav is hidden: wide screens, Walk mode).
+      document.documentElement.style.setProperty('--b5-header-height', h + 'px');
+      document.documentElement.style.setProperty('--b5-nav-height', (nav ? nav.getBoundingClientRect().height : 0) + 'px');
       // The strip is emptied (not removed) when there is no show context, so
       // measure it rather than assuming it is always a row tall.
       if (context) h += context.getBoundingClientRect().height;
@@ -107,6 +113,7 @@
       const ro = new ResizeObserver(measure);
       if (header) ro.observe(header);
       if (context) ro.observe(context);
+      if (nav) ro.observe(nav);
     }
     window.addEventListener('resize', measure);
   }

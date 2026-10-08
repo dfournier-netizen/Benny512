@@ -1038,5 +1038,10 @@ const RigCheckPanel = (() => {
 
   }
 
-  return { init, attach, enter, leave, render, refreshStatus, outputEnabled, selectedCount, stopOutput, stopPolling };
+  // labels: the presentation tables, shared with the Console's Tests panel
+  // (console-tests.js, C6c) so one test reads the same on both screens.
+  // When this screen retires (C7) they move there with it.
+  const labels = { GROUPS, KIND_HINT, testLabel, paramsFor, isStatic, rateBoundsFor };
+
+  return { init, attach, enter, leave, render, refreshStatus, outputEnabled, selectedCount, stopOutput, stopPolling, labels };
 })();

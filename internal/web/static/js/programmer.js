@@ -34,10 +34,18 @@ const ProgrammerSync = (() => {
     }
     running = (async () => {
       try {
+        let reads = 0;
         do {
           again = false;
-          state = await Api.getProgrammer();
-          known = state.revision;
+          const s = await Api.getProgrammer();
+          reads++;
+          // A read that left before one of this browser's own writes landed
+          // carries an older revision than that write's answer: adopting it
+          // would make the next write stale (409). Read again instead (the
+          // server's revision only grows); give up waiting after 3 reads.
+          if (known !== null && s.revision < known && reads < 3) { again = true; continue; }
+          state = s;
+          known = s.revision;
         } while (again);
         notify();
         return state;
