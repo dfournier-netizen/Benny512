@@ -68,6 +68,8 @@ func (s *Server) syncProgrammer(clear bool) {
 func (s *Server) broadcastProgrammer() {
 	rev := s.Programmer.Revision()
 	s.hub.broadcast(wsMessage{Type: "programmer", At: time.Now(), Revision: &rev})
+	// Tests on the programmer selection follow it (C5, tests.go).
+	s.refreshTests()
 }
 
 // programmerExpected reads the optional X-Benny-Programmer request header.

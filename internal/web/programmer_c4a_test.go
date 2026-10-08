@@ -536,10 +536,12 @@ func TestProgrammerLayersOverRigCheckAndClearsBack(t *testing.T) {
 	wantSlots(t, "pan still the programmer's (home, 32768)", after, 1, 128, 0)
 	r.post(t, "/api/programmer/clear", map[string]any{"scope": "selection", "group": "colour"}, nil)
 	wantSlots(t, "LEDBeam red back to its default 255", r.wire(t, 1), 7, 255)
-	// Rig Check's tests claim the whole universe they test (C3): B2 sits on
-	// universe 0 outside the test scope and shows the test's 0, not its
-	// default — a C5 (Tests panel) decision, pinned here so it is visible.
-	wantSlots(t, "B2 pan under a universe-wide test", after, 42, 0, 0)
+	// C5 changed this deliberately (owner-approved Tests layer): Rig Check's
+	// tests claim only the channels of the fixtures they test, no longer the
+	// whole universe. B2 sits on universe 0 outside the test scope, so it
+	// shows its profile default (Pan 32768 = 128,0) where C3/C4a forced the
+	// test's 0. The tested B1's slots are unchanged (rigcheck_golden_test.go).
+	wantSlots(t, "untested B2 pan at its default beside a running test", after, 42, 128, 0)
 }
 
 // TestProgrammerRawDMXOnUnprofiledFixture: raw 8-bit writes on offsets no

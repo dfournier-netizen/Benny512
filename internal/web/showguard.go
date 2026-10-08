@@ -12,8 +12,14 @@ import (
 func (s *Server) showGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		bound := strings.HasPrefix(path, "/api/patch") || path == "/api/reset" || path == "/api/library/reprofile" || path == "/api/library/from-patch" || path == "/api/workspace" || strings.HasPrefix(path, "/api/programmer")
+		bound := strings.HasPrefix(path, "/api/patch") || path == "/api/reset" || path == "/api/library/reprofile" || path == "/api/library/from-patch" || path == "/api/workspace" || strings.HasPrefix(path, "/api/programmer") || strings.HasPrefix(path, "/api/tests")
 		stop := strings.HasSuffix(path, "/stop") || strings.HasSuffix(path, "/blackout")
+		// The old Rig Check screen taking the tests layer back ends the
+		// Tests API's hold on it (C5, tests.go).
+		legacy := isLegacyRigCheckWrite(r)
+		if legacy {
+			s.testsLegacyTakeover()
+		}
 		if !bound || stop {
 			next.ServeHTTP(w, r)
 			return
@@ -28,13 +34,17 @@ func (s *Server) showGuard(next http.Handler) http.Handler {
 			}
 			boundary = path == "/api/patches" || strings.HasSuffix(path, "/load") || path == "/api/patch/new" || path == "/api/patch/reset-active" || path == "/api/patch/recover" || path == "/api/reset"
 			structure := strings.HasPrefix(path, "/api/patch/entries") || strings.HasPrefix(path, "/api/patch/reconcile/") || path == "/api/patch/reorder" || path == "/api/patch/import" || path == "/api/patch/adopt" || path == "/api/library/reprofile"
-			if boundary || structure {
+			// A structural edit while the Tests API drives the layer keeps its
+			// tests: they are re-resolved on the edited show after the
+			// handler (refreshTests) and swapped in atomically.
+			if boundary || (structure && !s.testsOwnLayer()) {
 				s.RigCheck.ResetSelection()
 				s.patternScopeMu.Lock()
 				s.patternScope = patternScopeStatus{}
 				s.patternScopeMu.Unlock()
 			}
 			if boundary {
+				s.testsShowBoundary()
 				s.stopUniverseIdentify()
 				s.showRevision++
 			}
@@ -46,6 +56,7 @@ func (s *Server) showGuard(next http.Handler) http.Handler {
 		// change (programmer.go, syncProgrammer).
 		if r.Method != "GET" {
 			s.syncProgrammer(boundary)
+			s.refreshTests()
 		}
 	})
 }

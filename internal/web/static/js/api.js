@@ -150,6 +150,12 @@ const Api = (() => {
     getProgrammerFixtures: () => req('GET', '/api/programmer/fixtures'),
     programmerAction: (action, body, revision) => req('POST', '/api/programmer/' + action, body,
       (revision === null || revision === undefined) ? undefined : { 'X-Benny-Programmer': String(revision) }),
+    // The per-show Console-lite layout (C2/C2b, internal/web/layout.go).
+    // Every action answers with the whole new layout. Writes carry the show
+    // token like every /api/patch mutation (console.js reads GET /api/patch
+    // first, which is what sets it).
+    getLayout: () => req('GET', '/api/patch/layout'),
+    layoutAction: (action, body) => req('POST', '/api/patch/layout/' + action, body),
     getWorkspace: () => req('GET', '/api/workspace'),
     workspaceAction: (action, body) => req('POST', '/api/patch/workspace/' + action, body),
     resetActiveShow: () => req('POST', '/api/patch/reset-active', {confirm:'RESET SHOW'}),

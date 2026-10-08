@@ -13,6 +13,7 @@
 <link rel="stylesheet" href="/css/app.css">
 <link rel="stylesheet" href="/css/workspace.css">
 <link rel="stylesheet" href="/css/screens-nodes.css">
+<link rel="stylesheet" href="/css/screens-console.css">
 </head>
 <body>
 <div class="b5-app">
@@ -28,6 +29,7 @@
     <button class="b5-nav__item" data-tab="devices"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-devices"/></svg>Devices</button>
     <button class="b5-nav__item" data-tab="patch"><svg><use href="/icons/benny512-icons.svg#b5-icon-network-node"/></svg>Patch</button>
     <button class="b5-nav__item" data-tab="analyzer"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-analyzer"/></svg>Analyzer</button>
+    <button class="b5-nav__item" data-tab="console"><svg><use href="/icons/benny512-icons.svg#b5-icon-filter"/></svg>Console</button>
     <button class="b5-nav__item" data-tab="send"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-send"/></svg>Send</button>
     <button class="b5-nav__item" data-tab="walk"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-rig-walk"/></svg>Rig Walk</button>
     <button class="b5-nav__item" data-tab="settings"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-settings"/></svg>Settings</button>
@@ -36,6 +38,7 @@
     <button class="b5-nav__item" data-tab="nodes"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-nodes"/></svg>Nodes</button>
     <button class="b5-nav__item" data-tab="devices"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-devices"/></svg>Devices</button>
     <button class="b5-nav__item" data-tab="patch"><svg><use href="/icons/benny512-icons.svg#b5-icon-network-node"/></svg>Patch</button>
+    <button class="b5-nav__item" data-tab="console"><svg><use href="/icons/benny512-icons.svg#b5-icon-filter"/></svg>Console</button>
     <button class="b5-nav__item" data-tab="walk"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-rig-walk"/></svg>Walk</button>
     <button class="b5-nav__item" data-tab="analyzer"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-analyzer"/></svg>Analyzer</button>
     <button class="b5-nav__item" data-tab="send"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-send"/></svg>Send</button>
@@ -255,6 +258,10 @@
       </div>
     </section>
 
+    <section id="screen-console" class="screen">
+      <div id="consoleRoot"></div>
+    </section>
+
     <section id="screen-walk" class="screen">
       <div id="walkRoot"></div>
     </section>
@@ -338,6 +345,7 @@
 <script src="/js/settings.js"></script>
 <script src="/js/walk.js"></script>
 <script src="/js/workspace.js"></script>
+<script src="/js/console.js"></script>
 <script src="/js/library.js"></script>
 <script src="/js/app.js"></script>
 </body>

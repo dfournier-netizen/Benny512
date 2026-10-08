@@ -128,11 +128,12 @@ const (
 	// whose default the profile does not state is claimed at 0 and reported
 	// as unknown by the programmer, never given an invented value.
 	SourceBase Source = iota
-	// SourceTests is Rig Check: the Function check's test patterns and the
-	// classic channel walk. It claims every slot of every universe in its
-	// scope, which keeps its output identical to the pre-C3 whole-frame
-	// writes when it is the only source — and, because it claims whole
-	// universes, hides the base state on every universe it tests.
+	// SourceTests is Rig Check: the Function check's test patterns, the
+	// classic channel walk and the Console-lite tests and test sequences.
+	// Since C5 it claims only the channels of the fixtures (or cells) in its
+	// scope (PublishSource), so the base state shows on every other channel
+	// of a tested universe; within its claim its output is identical to the
+	// pre-C3 whole-frame writes.
 	SourceTests
 	// SourceProgrammer is the Console-lite programmer (chunk C4). It claims
 	// exactly the channels the user has touched (ReplaceSource).
@@ -633,6 +634,56 @@ func (e *DMXOutputEngine) ReplaceSource(src Source, frames map[uint16]LayerFrame
 	if len(scope) > 0 {
 		e.passLocked(passMode{shows: scope})
 	}
+	return nil
+}
+
+// PublishSource is ReplaceSource with Rig Check's push discipline (chunk
+// C5): it atomically replaces every claim src holds with frames and then
+// transmits every universe src claimed before OR claims now — changed or not
+// — at once, exactly as Push does, with force restarting the sACN burst. It
+// exists so the Tests layer can claim just its fixtures' channels (a
+// LayerFrame mask) while keeping the immediate push on every recompute the
+// whole-frame SetFrame+Push pair gave it, and so a step change can never
+// open a release-then-claim gap.
+func (e *DMXOutputEngine) PublishSource(src Source, frames map[uint16]LayerFrame, force bool) error {
+	if !src.valid() {
+		return fmt.Errorf("session: unknown output source %d", int(src))
+	}
+	for raw := range frames {
+		if raw > 0x7FFF {
+			return fmt.Errorf("%w: %d", ErrUniverseOutOfRange, raw)
+		}
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	scope := map[uint16]bool{}
+	for raw, u := range e.shows {
+		if u.layers[src] == nil {
+			continue
+		}
+		scope[raw] = true
+		if f, ok := frames[raw]; ok && ownsAny(&f) {
+			continue
+		}
+		u.layers[src] = nil
+		if u.empty() {
+			delete(e.shows, raw)
+		}
+	}
+	for raw, f := range frames {
+		if !ownsAny(&f) {
+			continue
+		}
+		next := layer{owned: f.Owned}
+		for i, o := range f.Owned {
+			if o {
+				next.values[i] = f.Values[i]
+			}
+		}
+		*e.layerLocked(src, raw) = next
+		scope[raw] = true
+	}
+	e.passLocked(passMode{shows: scope, force: force})
 	return nil
 }
 

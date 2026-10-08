@@ -255,6 +255,10 @@ type Server struct {
 	// output engine's base source (every patched channel at its default).
 	Programmer *patch.Programmer
 
+	// tests is the Console-lite Tests layer and test sequences (C5,
+	// tests.go): it drives RigCheck on the Console's scopes.
+	tests *testsState
+
 	// patternScope is the semantic expression that resolved the RigCheck
 	// pattern's current entry list. The engine deliberately stores resolved
 	// entries only; this HTTP-layer companion lets a reconnecting client read
@@ -334,6 +338,7 @@ func New(nodes *session.ArtNetSession, rdmc *session.RDMController, dmx *session
 		// browser holding a revision from before a restart cannot match.
 		Programmer: patch.NewProgrammer(dmx, uint64(time.Now().UnixMilli())),
 		hub:        newHub(),
+		tests:      newTestsState(),
 		simSACN:    &simSACNLink{},
 	}
 	// The automatic identity read. Constructed here so s.AutoRead is never
@@ -674,6 +679,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/output", s.handleRigCheckPatternOutput)
 	s.mux.HandleFunc("GET /api/patch/rigcheck/pattern", s.handleRigCheckPatternStatus)
 
+	s.mux.HandleFunc("GET /api/tests", s.handleGetTests)
+	s.mux.HandleFunc("POST /api/tests/{action}", s.handleTestsAction)
 	s.mux.HandleFunc("GET /api/programmer", s.handleGetProgrammer)
 	s.mux.HandleFunc("GET /api/programmer/fixtures", s.handleGetProgrammerFixtures)
 	s.mux.HandleFunc("POST /api/programmer/select", s.handleProgrammerSelect)

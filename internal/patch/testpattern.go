@@ -1176,7 +1176,12 @@ func isShutterAttr(attr string) bool {
 // buildEntryBaseState precomputes e's base state. Pure and cheap enough to
 // redo on any selection change; nothing here depends on which tests are
 // active (that is decided at frame time, by offset ownership).
-func buildEntryBaseState(e Entry) entryBaseState {
+func buildEntryBaseState(e Entry) entryBaseState { return buildOwnedBaseState(e, nil) }
+
+// buildOwnedBaseState is buildEntryBaseState for a target that owns only
+// some offsets (a cell, C5): only those count towards the unknown-default
+// tally.
+func buildOwnedBaseState(e Entry, owned []uint16) entryBaseState {
 	bs := entryBaseState{entryID: e.ID, universe: e.Universe, startAddr: e.StartAddress, shutterKnown: true}
 	covered := map[uint16]bool{}
 
@@ -1228,6 +1233,14 @@ func buildEntryBaseState(e Entry) entryBaseState {
 	// Footprint slots with no ChannelFunction at all are equally unknown —
 	// counting only the resolved ones would understate how much of the rig
 	// this engine is flying blind over.
+	if owned != nil {
+		for _, off := range owned {
+			if !covered[off] {
+				bs.unknownCount++
+			}
+		}
+		return bs
+	}
 	for off := uint16(1); off <= e.Footprint; off++ {
 		if !covered[off] {
 			bs.unknownCount++
@@ -1533,6 +1546,12 @@ type patternSelection struct {
 	scope   []Entry
 	tests   map[TestID]PatternSpec
 	isolate bool
+	// owned (C5, SetTests) narrows a scope entry to some of its offsets —
+	// a cell — keyed by the entry's ID; an entry absent here owns its whole
+	// footprint. scopeOrder makes the phase spread follow the scope's own
+	// order (the programmer selection's) instead of universe/address.
+	owned      map[string][]uint16
+	scopeOrder bool
 
 	// resolved is rebuilt from scope+tests on every mutation, in canonical
 	// order.
@@ -1588,21 +1607,23 @@ func (sel *patternSelection) rebuild() {
 				pt.missingDetailCount++
 			}
 		}
-		assignPhases(pt)
+		assignPhases(pt, sel.scopeOrder)
 		sel.built[id] = pt
 	}
 
 	sel.base = make([]entryBaseState, 0, len(sel.scope))
 	for _, e := range sel.scope {
-		sel.base = append(sel.base, buildEntryBaseState(e))
+		sel.base = append(sel.base, buildOwnedBaseState(e, sel.owned[e.ID]))
 	}
 }
 
 // assignPhases spreads pt's OffsetMin..OffsetMax across the fixtures the test
-// actually drives, ordered by universe then start address. A target's
-// runtime-only PhaseWeight consumes that many positions in the calculation,
-// while it remains one normal fixture everywhere else.
-func assignPhases(pt *patternTest) {
+// actually drives, ordered by universe then start address — or, with
+// scopeOrder (the Tests API, C5), in the scope's own order, which for the
+// programmer selection is the order the fixtures were selected in. A
+// target's runtime-only PhaseWeight consumes that many positions in the
+// calculation, while it remains one normal fixture everywhere else.
+func assignPhases(pt *patternTest, scopeOrder bool) {
 	if len(pt.targets) == 0 {
 		return
 	}
@@ -1611,6 +1632,9 @@ func assignPhases(pt *patternTest) {
 		ordered[i] = i
 	}
 	sort.SliceStable(ordered, func(a, b int) bool {
+		if scopeOrder {
+			return false // rebuild resolved the targets in scope order
+		}
 		ta, tb := pt.targets[ordered[a]], pt.targets[ordered[b]]
 		if ta.universe != tb.universe {
 			return ta.universe < tb.universe
@@ -1658,6 +1682,7 @@ func (r *RigCheck) SetPatternScope(entries []Entry) (PatternStatus, error) {
 		return PatternStatus{}, err
 	}
 	r.selection.scope = append([]Entry(nil), entries...)
+	r.selection.owned, r.selection.scopeOrder, r.testsLayer = nil, false, false
 	r.selection.rebuild()
 	r.afterSelectionChangeLocked()
 	return r.patternStatusLocked(), nil
@@ -1675,6 +1700,7 @@ func (r *RigCheck) SelectPatternTest(spec PatternSpec, enabled bool) (PatternSta
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.testsLayer = false
 	if enabled {
 		r.selection.tests[spec.TestID()] = spec
 	} else {
@@ -1707,6 +1733,7 @@ func (r *RigCheck) SetPatternTests(entries []Entry, specs []PatternSpec, isolate
 		return PatternStatus{}, err
 	}
 	r.selection.scope = append([]Entry(nil), entries...)
+	r.selection.owned, r.selection.scopeOrder, r.testsLayer = nil, false, false
 	r.selection.tests = make(map[TestID]PatternSpec, len(normalized))
 	for _, spec := range normalized {
 		r.selection.tests[spec.TestID()] = spec
@@ -1886,6 +1913,7 @@ func (r *RigCheck) AdjustPattern(params PatternParams) (PatternStatus, error) {
 		return PatternStatus{}, err
 	}
 	r.selection.tests = map[TestID]PatternSpec{spec.TestID(): spec}
+	r.testsLayer = false
 	r.selection.rebuild()
 	r.afterSelectionChangeLocked()
 	st := r.patternStatusLocked()
@@ -2131,7 +2159,11 @@ func (r *RigCheck) recomputePatternLocked(elapsed float64) {
 	}
 	comp := r.composePatternLocked(elapsed)
 	r.fadePatternLocked(comp, r.clock.Now())
-	r.out.setFrames(comp.frames, false)
+	claim := map[uint16]*slotClaim{}
+	for _, e := range r.selection.scope {
+		claimEntry(claim, e, r.selection.owned[e.ID])
+	}
+	r.out.setFrames(comp.frames, claim, false)
 }
 
 // armPatternTickLocked (re)schedules the next patternTick, ticking at the

@@ -94,6 +94,10 @@ type showWorkspace struct {
 	Layout showLayout `json:"layout"`
 	// ProgrammerPresets are the Console-lite per-family presets (C4b).
 	ProgrammerPresets []programmerPreset `json:"programmerPresets"`
+	// TestSequences are the Console-lite test sequences (C5), here so they
+	// share groups' per-show isolation, preceding-save .bak, Recover and
+	// Reset this show.
+	TestSequences []testSequenceJSON `json:"testSequences"`
 }
 
 func workspaceFor(p patch.Patch) showWorkspace {
@@ -115,6 +119,19 @@ func workspaceFor(p patch.Patch) showWorkspace {
 	}
 	if w.Presets == nil {
 		w.Presets = []savedTestPreset{}
+	}
+	if w.TestSequences == nil {
+		w.TestSequences = []testSequenceJSON{}
+	}
+	for i := range w.TestSequences {
+		if w.TestSequences[i].Steps == nil {
+			w.TestSequences[i].Steps = []testStepJSON{}
+		}
+		for j := range w.TestSequences[i].Steps {
+			if w.TestSequences[i].Steps[j].Tests == nil {
+				w.TestSequences[i].Steps[j].Tests = []patternTestRequest{}
+			}
+		}
 	}
 	if w.Baselines == nil {
 		w.Baselines = []rigBaseline{}

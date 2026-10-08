@@ -46,6 +46,12 @@
     if (currentTab === 'send' && name !== 'send') {
       SendScreen.onLeaveScreen();
     }
+    // Console (C6a): leaving changes nothing on the wire (C3 rule) — output,
+    // the programmer and the selection carry on; only an unfinished layout
+    // drag is dropped.
+    if (currentTab === 'console' && name !== 'console') {
+      ConsoleScreen.onLeaveScreen();
+    }
     tabs.forEach(t => t.classList.toggle('is-active', t.dataset.tab === name));
     screens.forEach(s => s.classList.toggle('active', s.id === 'screen-' + name));
     // Rig Walk's own fixed b5-walk-bar and the phone bottom tab bar both
@@ -63,6 +69,9 @@
     }
     if (name === 'send') {
       SendScreen.onEnterScreen();
+    }
+    if (name === 'console') {
+      ConsoleScreen.onEnterScreen();
     }
   }
 
@@ -124,5 +133,6 @@
     WalkScreen.init();
     SettingsScreen.init();
     Workspace.init();
+    ConsoleScreen.init();
   });
 })();

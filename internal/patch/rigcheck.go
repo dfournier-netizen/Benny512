@@ -159,6 +159,11 @@ type RigCheck struct {
 	// followSelection: pattern output is on exactly while the selection
 	// has a test and a scope (SetOutputFollowsSelection).
 	followSelection bool
+	// testsLayer is set while the Console-lite Tests API (SetTests) drives
+	// this engine: ending its output RELEASES the tests layer so the base and
+	// programmer show at once, instead of first blacking out the claimed
+	// channels the way Rig Check's own Stop always has.
+	testsLayer      bool
 	patternFadeTime time.Duration
 	patternFrames   map[uint16][]byte
 	patternUnits    map[patternUnitKey]patternUnit
@@ -231,6 +236,7 @@ func (r *RigCheck) Start(entries []Entry, mode Mode, level byte) error {
 	raws := scopeUniverses(entries)
 
 	r.stopLocked("restarted") // always start clean — no stale universes left driving from a previous scope, and this supersedes any running pattern too
+	r.testsLayer = false
 
 	r.entries = append([]Entry(nil), entries...)
 	r.mode = normalizeMode(mode)
@@ -299,7 +305,9 @@ func (r *RigCheck) ResetSelection() {
 // "stop should stop output, but not deselect any tests". A caller that wants
 // the selection gone replaces it via SetPatternTests.
 func (r *RigCheck) stopLocked(reason string) {
-	r.blackoutLocked()
+	if !r.testsLayer {
+		r.blackoutLocked()
+	}
 	// Release every universe Rig Check claims. The engine retires each
 	// stream nobody else drives on whichever protocols it was routed to —
 	// sACN gets three zero frames and three Stream_Terminated packets
@@ -331,7 +339,11 @@ func (r *RigCheck) Blackout() {
 		// deliberate, documented divergence from the classic-mode
 		// behaviour above: report this as "manual" (same as a direct
 		// Stop), not a distinct reason, since from the caller's point of
-		// view it IS a deliberate stop.
+		// view it IS a deliberate stop. The Tests layer would otherwise just
+		// release (stopLocked); the panic button zeroes its channels first.
+		if r.testsLayer {
+			r.blackoutLocked()
+		}
 		r.stopLocked("manual")
 		return
 	}
@@ -339,14 +351,11 @@ func (r *RigCheck) Blackout() {
 }
 
 func (r *RigCheck) blackoutLocked() {
-	frames := make(map[uint16][]byte, len(r.started))
-	for u := range r.started {
-		frames[u] = make([]byte, session.DMXUniverseSize)
-	}
-	// force=true: a blackout must put a packet on the wire even when the
-	// frame it replaces was already zero, so E1.31's change-only
-	// transmission rule (§6.6.2) does not quietly swallow the panic button.
-	r.out.setFrames(frames, true)
+	// Zeroes exactly what Rig Check claims (its scope's channels). force:
+	// a blackout must put a packet on the wire even when the frame it
+	// replaces was already zero, so E1.31's change-only transmission rule
+	// (§6.6.2) does not quietly swallow the panic button.
+	r.out.blackout()
 }
 
 // SetMode changes the drive mode and re-applies output immediately,
@@ -516,7 +525,11 @@ func (r *RigCheck) recomputeLocked() {
 			fillChannel(frames, cur, r.chOff, r.level)
 		}
 	}
-	r.out.setFrames(frames, false)
+	claim := map[uint16]*slotClaim{}
+	for _, e := range r.entries {
+		claimEntry(claim, e, nil)
+	}
+	r.out.setFrames(frames, claim, false)
 }
 
 // fillEntry sets every channel e occupies, in its universe's frame, to
