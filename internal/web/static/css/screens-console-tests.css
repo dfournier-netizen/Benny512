@@ -1,0 +1,75 @@
+/* Console-lite chunk C6c: the Tests panel (console-tests.js). Functional,
+   not polished. It reuses the Rig Check kit (.b5-tile toggle tiles,
+   .b5-segmented, .b5-param, .b5-range-touch); this file only lays it out.
+   Every state is a WORD first (ON/OFF, NOW, RUNNING, testing/skipped), then
+   an icon and a border weight/style, and a hue last. */
+
+.b5-con-tests {
+  min-width: 0; margin-top: var(--b5-space-4);
+  border: var(--b5-border-width-thick) solid var(--b5-color-border-strong);
+  border-radius: var(--b5-radius-md); padding: var(--b5-space-3);
+}
+.b5-ct-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2); margin: 0; }
+.b5-ct-toggle { min-height: var(--b5-size-touch-min); font-weight: var(--b5-font-weight-bold); }
+.b5-ct-headword { display: inline-flex; min-width: 0; }
+.b5-ct-body { display: flex; flex-direction: column; gap: var(--b5-space-3); min-width: 0; }
+.b5-ct-body[hidden] { display: none; }
+.b5-ct-rule { margin: 0; }
+.b5-ct-body .b5-con-inline > span { white-space: nowrap; }
+.b5-ct-body p { margin-block: 0; }
+.b5-ct-warn { display: flex; gap: var(--b5-space-2); align-items: flex-start; border-left: var(--b5-border-width-thick) solid var(--b5-color-text-warning); padding-left: var(--b5-space-2); }
+.b5-ct-section { min-width: 0; display: flex; flex-direction: column; gap: var(--b5-space-2); }
+.b5-ct-section .b5-group__head { margin: 0; }
+.b5-ct-cathead { justify-content: space-between; align-items: center; flex-wrap: wrap; }
+.b5-ct-scoperow { flex-wrap: wrap; align-items: center; }
+.b5-ct-scope { flex: 1 1 100%; }
+.b5-ct-scope > .b5-seg { min-width: 0; flex: 1 1 8em; min-height: var(--b5-size-touch-min); }
+.b5-ct-scoperow .b5-select, .b5-ct-fade .b5-select, .b5-ct-editor .b5-select { min-height: var(--b5-size-touch-min); max-width: 100%; }
+.b5-ct-group .b5-group__head { font-size: var(--b5-font-size-sm); }
+/* Tiles: keep the kit's >= 88 px toggle; let them shrink to the pane. */
+.b5-ct-tiles { grid-template-columns: repeat(auto-fill, minmax(min(12rem, 100%), 1fr)); }
+.b5-ct-tile .b5-tile__toggle:disabled { cursor: not-allowed; opacity: 0.75; }
+.b5-ct-tile .b5-tile__more { min-height: var(--b5-size-touch-min); }
+.b5-ct-params { display: flex; flex-direction: column; gap: var(--b5-space-2); min-width: 0; }
+.b5-ct-params .b5-segmented--sm > .b5-seg { min-width: 0; }
+.b5-ct-fixtures { margin-top: var(--b5-space-2); }
+.b5-ct-fixlist { list-style: none; margin: var(--b5-space-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--b5-space-1); overflow-wrap: anywhere; }
+.b5-ct-fixlist li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-1); }
+.b5-ct-warnings { border-left: var(--b5-border-width-thick) dashed var(--b5-color-text-warning); padding-left: var(--b5-space-2); }
+
+/* The running sequence: a solid thick frame (paused: dashed), the step
+   counter and the time left in words, the current step marked NOW. */
+.b5-ct-run {
+  border: 4px solid var(--b5-color-text-accent); border-radius: var(--b5-radius-md);
+  padding: var(--b5-space-3); display: flex; flex-direction: column; gap: var(--b5-space-2); min-width: 0;
+  background: var(--b5-color-bg-surface-raised);
+}
+.b5-ct-run.is-paused { border-style: dashed; }
+.b5-ct-run p { margin: 0; }
+.b5-ct-run__title { display: flex; align-items: center; gap: var(--b5-space-2); font-size: var(--b5-font-size-lg); overflow-wrap: anywhere; }
+.b5-ct-run__step { font-weight: var(--b5-font-weight-bold); overflow-wrap: anywhere; }
+.b5-ct-run__left { font-family: var(--b5-font-mono); }
+.b5-ct-run__buttons { flex-wrap: wrap; }
+.b5-ct-run__buttons > .b5-btn { min-height: var(--b5-size-touch-min); flex: 1 1 6em; }
+.b5-ct-steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--b5-space-1); max-height: 14rem; overflow: auto; }
+.b5-ct-step { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2); padding: var(--b5-space-1) var(--b5-space-2);
+  border: var(--b5-border-width-thin) solid var(--b5-color-border-subtle); border-radius: var(--b5-radius-sm); overflow-wrap: anywhere; }
+.b5-ct-step.is-now { border: 3px solid var(--b5-color-text-accent); font-weight: var(--b5-font-weight-bold); }
+.b5-ct-step__word { font-family: var(--b5-font-mono); font-size: var(--b5-font-size-xs); min-width: 3.5em; }
+
+/* Sequences list and editor */
+.b5-ct-seqlist, .b5-ct-edsteps, .b5-ct-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--b5-space-2); }
+.b5-ct-seq { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--b5-space-2);
+  border: var(--b5-border-width-thin) solid var(--b5-color-border-strong); border-radius: var(--b5-radius-sm); padding: var(--b5-space-2); }
+.b5-ct-seq.is-now { border-width: 3px; border-color: var(--b5-color-text-accent); }
+.b5-ct-seq__name { overflow-wrap: anywhere; min-width: 0; }
+.b5-ct-seq .b5-row, .b5-ct-editor .b5-row { flex-wrap: wrap; }
+.b5-ct-edstep { border: var(--b5-border-width-thin) dashed var(--b5-color-border-strong); border-radius: var(--b5-radius-sm); padding: var(--b5-space-2);
+  display: flex; flex-direction: column; gap: var(--b5-space-2); min-width: 0; }
+.b5-ct-edstep__head { align-items: center; }
+.b5-ct-chips { flex-direction: row; flex-wrap: wrap; }
+.b5-ct-chip { display: inline-flex; align-items: center; gap: var(--b5-space-2); padding: 2px var(--b5-space-2);
+  border: var(--b5-border-width-thin) solid var(--b5-color-border-strong); border-radius: var(--b5-radius-full); overflow-wrap: anywhere; }
+.b5-ct-editor .b5-input { min-height: var(--b5-size-touch-min); max-width: 100%; }
+.b5-ct-editor .b5-numinput { width: 6em; }
+.b5-ct-editor .b5-btn, .b5-ct-seq .b5-btn, .b5-ct-cathead .b5-btn { min-height: var(--b5-size-touch-min); }

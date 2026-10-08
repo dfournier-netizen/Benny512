@@ -17,8 +17,8 @@ const Api = (() => {
     return btoa(binary);
   }
 
-  async function req(method, path, body) {
-    const opts = { method, headers: {} };
+  async function req(method, path, body, headers) {
+    const opts = { method, headers: Object.assign({}, headers || {}) };
 	if (showToken && method !== 'GET') opts.headers['X-Benny-Show'] = showToken;
     if (body !== undefined) {
       opts.headers['Content-Type'] = 'application/json';
@@ -26,7 +26,9 @@ const Api = (() => {
     }
     const res = await fetch(path, opts);
 	const token = res.headers && res.headers.get('X-Benny-Show');
-	if (token !== null && token !== undefined && (path === '/api/patch' || method !== 'GET')) {
+	// GET /api/faders also adopts it: the fader bar (G3) is on every screen and
+	// may write before any screen has read the patch.
+	if (token !== null && token !== undefined && (path === '/api/patch' || path === '/api/faders' || method !== 'GET')) {
 	  if (showToken && showToken !== token) window.dispatchEvent(new CustomEvent('b5-show-changed'));
 	  showToken = token;
 	}
@@ -37,7 +39,9 @@ const Api = (() => {
     }
     if (!res.ok) {
       const msg = (data && data.error) ? data.error : ('HTTP ' + res.status);
-      throw new Error(msg);
+      const err = new Error(msg);
+      err.status = res.status; // G3: faders.js retries a 409 once
+      throw err;
     }
     return data;
   }
@@ -127,7 +131,53 @@ const Api = (() => {
 
   return {
     getContext: () => req('GET', '/api/context'),
+    // The master output (C3, internal/web/output.go). Every page heartbeats
+    // with its own client id; Arm is the confirm step for ALL DMX output;
+    // Disarm and Stop all output black out. The goodbye goes as a keepalive
+    // fetch from pagehide, so it can outlive the page.
     stopAllOutput: () => req('POST', '/api/output/stop'),
+    getOutput: () => req('GET', '/api/output'),
+    outputArm: (client) => req('POST', '/api/output/arm', { client }),
+    outputDisarm: (client) => req('POST', '/api/output/disarm', { client }),
+    outputHeartbeat: (client) => req('POST', '/api/output/heartbeat', { client }),
+    outputGoodbyeBeacon: (client) => {
+      try {
+        fetch('/api/output/goodbye', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client }) });
+      } catch (e) { /* the 5 s lease is the backstop */ }
+    },
+    // The Console-lite programmer (C4a, internal/web/programmer.go): one per
+    // station, shared by every browser. programmerAction sends the revision
+    // this browser last saw (X-Benny-Programmer) when it has one, so a write
+    // based on a view another browser has since changed is refused (409).
+    // programmer.js (ProgrammerSync) keeps that revision current.
+    getProgrammer: () => req('GET', '/api/programmer'),
+    // Group faders (G2 server, internal/web/faders.go; G3 bar, faders.js):
+    // fadersAction sends the fader revision this browser last saw
+    // (X-Benny-Faders), so a write on a stale view is refused (409).
+    getFaders: () => req('GET', '/api/faders'),
+    fadersAction: (action, body, revision) => req('POST', '/api/faders/' + action, body,
+      (revision === null || revision === undefined) ? undefined : { 'X-Benny-Faders': String(revision) }),
+    getProgrammerFixtures: () => req('GET', '/api/programmer/fixtures'),
+    programmerAction: (action, body, revision) => req('POST', '/api/programmer/' + action, body,
+      (revision === null || revision === undefined) ? undefined : { 'X-Benny-Programmer': String(revision) }),
+    // The per-show Console-lite layout (C2/C2b, internal/web/layout.go).
+    // Every action answers with the whole new layout. Writes carry the show
+    // token like every /api/patch mutation (console.js reads GET /api/patch
+    // first, which is what sets it).
+    getLayout: () => req('GET', '/api/patch/layout'),
+    layoutAction: (action, body) => req('POST', '/api/patch/layout/' + action, body),
+    // The Console's Tests panel (C5 server, internal/web/tests.go; C6c UI,
+    // console-tests.js). getTests(query) reads the whole tests view; query
+    // {kind, group, layer} asks for the catalog of another scope without
+    // changing anything. testsAction sends the tests revision this browser
+    // last saw (X-Benny-Tests) when it has one, so a write based on a view
+    // another browser has since changed is refused (409).
+    getTests: (query) => {
+      const q = query && query.kind ? '?' + new URLSearchParams(stripEmpty({ kind: query.kind, group: query.group, layer: query.layer })).toString() : '';
+      return req('GET', '/api/tests' + q);
+    },
+    testsAction: (action, body, revision) => req('POST', '/api/tests/' + action, body === undefined ? {} : body,
+      (revision === null || revision === undefined) ? undefined : { 'X-Benny-Tests': String(revision) }),
     getWorkspace: () => req('GET', '/api/workspace'),
     workspaceAction: (action, body) => req('POST', '/api/patch/workspace/' + action, body),
     resetActiveShow: () => req('POST', '/api/patch/reset-active', {confirm:'RESET SHOW'}),
@@ -154,8 +204,9 @@ const Api = (() => {
     // btoa/String.fromCharCode is a browser built-in, not a dependency —
     // consistent with the "vanilla JS, stdlib only" rule.
     sendDmx: (universe, channelBytes) => req('POST', '/api/dmx', { universe, channels: bytesToBase64(channelBytes) }),
-    dmxStart: () => req('POST', '/api/dmx/start'),
-    dmxStop: () => req('POST', '/api/dmx/stop'),
+    // dmxRelease drops every frame Send holds (POST /api/dmx/stop): those
+    // universes fall back to whatever else drives them. It does not disarm.
+    dmxRelease: () => req('POST', '/api/dmx/stop'),
     universeIdentifyStatus: () => req('GET', '/api/dmx/identify'),
     universeIdentifyArm: (range) => req('POST', '/api/dmx/identify/arm', range),
     universeIdentifyStart: (token) => req('POST', '/api/dmx/identify/start', { token }),
@@ -319,79 +370,8 @@ const Api = (() => {
     // entry ids to scope the summary to (e.g. the current scope's
     // entries) — omit/empty for every entry in the patch.
     getPatchAttributes: (ids) => req('GET', '/api/patch/attributes' + (ids && ids.length ? '?ids=' + ids.map(encodeURIComponent).join(',') : '')),
-    // patternStart/patternAdjust/getPattern: the attribute-group pattern
-    // engine (a running pattern is exclusive with the classic per-entry
-    // rig check above and with a second pattern — see server 409s).
-    // patternAdjust is a whole-value replace of the tunable fields (rateHz/
-    // min/max/target/direction/value/on) — kind cannot change; the caller
-    // must stop+start to switch kind. getPattern is also this pattern's
-    // watchdog heartbeat: the engine blacks out and stops a running
-    // pattern after ~5s without a start/adjust/GET-pattern touch, so
-    // patch.js polls this well inside that window for as long as a
-    // pattern is running (see ensurePatternHeartbeat in patch.js).
-    patternStart: (body) => req('POST', '/api/patch/rigcheck/pattern/start', body),
-    patternAdjust: (body) => req('POST', '/api/patch/rigcheck/pattern/adjust', body),
-    getPattern: () => req('GET', '/api/patch/rigcheck/pattern'),
-
-    // --- stackable tests: one wrapper per engine mutator -----------------
-    // These five are the current surface; patternStart/patternAdjust above
-    // are the legacy multiplexed pair, still routed and still working.
-    // EVERY one of them (and getPattern) answers with the SAME full status
-    // snapshot — outputEnabled, selectedCount, tests[], available[],
-    // contested[], baseState, lastEndReason. Always re-render from the
-    // returned snapshot; never mutate a local copy of the selection, which
-    // is what made a newly picked test fail to appear until something else
-    // forced a refresh.
-    //
-    // Selection and output are independent: patternSetTests/patternSelect/
-    // patternSetScope/patternSetIsolate are all legal while output is
-    // flowing and none of them ever requires a stop first, and
-    // patternSetOutput(false) blacks out without deselecting anything.
-    //
-    // patternSetTests({scopeKind, universe, position, entryIds, tests, isolate})
-    // is the whole-state apply; tests: [] legitimately means "deselect all".
-    patternSetTests: (body) => req('POST', '/api/patch/rigcheck/pattern/tests', body),
-    // patternSelect({test, enabled}) toggles ONE test — a toggle-button
-    // press. `test` is {kind, target, rateHz, min, max, direction, value,
-    // on, waveform, offsetMin, offsetMax}; its id (kind, or "kind:target")
-    // is what status.tests[].id and status.available[].id report. `enabled`
-    // MUST be serialized even when false — omitting it means "select".
-    patternSelect: (test, enabled) => req('POST', '/api/patch/rigcheck/pattern/select', { test, enabled: enabled !== false }),
-    patternSetScope: (body) => req('POST', '/api/patch/rigcheck/pattern/scope', body),
-    patternSetIsolate: (isolate) => req('POST', '/api/patch/rigcheck/pattern/isolate', { isolate: !!isolate }),
-    patternSetFade: (fadeMs) => req('POST', '/api/patch/rigcheck/pattern/fade', { fadeMs }),
-    // patternSetOutput(true) = the start button, (false) = the stop button.
-    //
-    // `protocol` is OPTIONAL and, when not given, the key is left off the
-    // body entirely — absent means "keep whatever protocol is armed", which
-    // is byte for byte what this endpoint did before the field existed. It
-    // is never sent on the stop direction: stopping is protocol-agnostic
-    // (the server terminates whatever stream is actually running) and a stop
-    // must not re-arm anything.
-    patternSetOutput: (enabled, protocol) => {
-      const body = { enabled: !!enabled };
-      if (enabled && protocol) body.protocol = protocol;
-      return req('POST', '/api/patch/rigcheck/pattern/output', body);
-    },
-
-    getRigCheckState: () => req('GET', '/api/patch/rigcheck'),
-    rigCheckStart: (body) => req('POST', '/api/patch/rigcheck/start', body),
-    rigCheckStop: () => req('POST', '/api/patch/rigcheck/stop'),
-    rigCheckBlackout: () => req('POST', '/api/patch/rigcheck/blackout'),
-    rigCheckNext: () => req('POST', '/api/patch/rigcheck/next'),
-    rigCheckPrevious: () => req('POST', '/api/patch/rigcheck/previous'),
-    rigCheckJump: (index) => req('POST', '/api/patch/rigcheck/jump', { index }),
-    rigCheckMode: (mode) => req('POST', '/api/patch/rigcheck/mode', { mode }),
-    rigCheckLevel: (level) => req('POST', '/api/patch/rigcheck/level', { level }),
-    rigCheckChannel: (delta) => req('POST', '/api/patch/rigcheck/channel', { delta }),
-    // rigCheckStopBeacon fires the "stop and blackout" call via
-    // fetch(keepalive:true), bypassing req()'s JSON-response parsing — used
-    // from pagehide/visibilitychange handlers where the page may already be
-    // gone before a normal response arrives (mirrors walkIdentifyOffBeacon's
-    // "never leave the rig lit" safety net, task ask item 4).
-    rigCheckStopBeacon: () => {
-      try { fetch('/api/patch/rigcheck/stop', { method: 'POST', keepalive: true }); } catch (e) { /* best-effort */ }
-    },
+    // The retired Rig Check screen's API wrappers were removed in C7; the
+    // Console's Tests panel uses the tests API (above).
 
     // --- Devices screen: clear discovered devices (internal/web/devicesclear.go) ---
     // Deliberately narrow (server-side doc comment): clears only the
@@ -433,6 +413,18 @@ const Api = (() => {
     // patch/capture exports. This is the file the owner hands to a
     // coworker; POST it back through importLibrary to load it.
     libraryExportUrl: () => '/api/library/export',
+    // getLibrarySourceBytes fetches one original .gdtf archive the library
+    // kept (sourceFiles[].sha256 from getLibrary) as an ArrayBuffer — what
+    // the "re-read channel detail" action hands to MvrImport.
+    getLibrarySourceBytes: async (key, hash) => {
+      const res = await fetch('/api/library/source?key=' + encodeURIComponent(key) + '&hash=' + encodeURIComponent(hash));
+      if (!res.ok) {
+        let msg = 'HTTP ' + res.status;
+        try { const d = await res.json(); if (d && d.error) msg = d.error; } catch (e) { /* keep status */ }
+        throw new Error(msg);
+      }
+      return res.arrayBuffer();
+    },
     // importLibrary takes an already-parsed library document (the JSON of
     // an exported file) and a mode. 'merge' folds it into what is already
     // there and can only add; 'replace' discards the entire existing

@@ -11,16 +11,17 @@ import (
 
 const MaxPatternFade = 30 * time.Second
 
+var errFadeRange = fmt.Errorf("fade time must be between 0 and 30 seconds")
+
 // Fade time belongs to the operator's session, survives Stop/show changes,
 // and only affects transitions started after it is changed.
 func (r *RigCheck) SetPatternFade(d time.Duration) (PatternStatus, error) {
 	if d < 0 || d > MaxPatternFade {
-		return PatternStatus{}, fmt.Errorf("fade time must be between 0 and 30 seconds")
+		return PatternStatus{}, errFadeRange
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.patternFadeTime = d
-	r.lastTouch = r.clock.Now()
 	return r.patternStatusLocked(), nil
 }
 
@@ -224,9 +225,6 @@ func (r *RigCheck) preparePatternScopeLocked(entries []Entry) error {
 		return nil
 	}
 	raws := scopeUniverses(entries)
-	if err := r.out.validate(r.out.proto, raws); err != nil {
-		return err
-	}
 	for _, raw := range raws {
 		if r.started[raw] {
 			continue

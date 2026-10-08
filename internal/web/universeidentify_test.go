@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/netip"
+	"net/http"
 	"os/exec"
-	"sync"
+	"strings"
 	"testing"
 	"time"
 
@@ -111,38 +111,92 @@ func checkIdentifyArtNet(t *testing.T, packets []session.SentPacket, from, to in
 	}
 }
 
+// inRange keeps only the ArtDmx datagrams whose Port-Address is in from..to.
+func inRange(packets []session.SentPacket, from, to int) []session.SentPacket {
+	var out []session.SentPacket
+	for _, sp := range packets {
+		if len(sp.Data) < 16 {
+			continue
+		}
+		if u := int(sp.Data[15])<<8 | int(sp.Data[14]); u >= from && u <= to {
+			out = append(out, sp)
+		}
+	}
+	return out
+}
+
+// TestUniverseIdentifyArtNetRangeIsolationAndZero: Identify drives exactly
+// its range, exclusively, while Send's frames carry on elsewhere; when it
+// ends, a universe nobody else drives gets zero frames and one Send drives
+// falls straight back to Send's frame (C3: Identify is a source of the one
+// output engine, not a separate engine).
 func TestUniverseIdentifyArtNetRangeIsolationAndZero(t *testing.T) {
 	for _, bounds := range [][2]int{{0, 2}, {511, 512}} {
 		t.Run(fmt.Sprintf("%d-%d", bounds[0], bounds[1]), func(t *testing.T) {
 			h := newHarness(t)
 			t.Cleanup(h.srv.Close)
 			seedOneFixture(t, h, 900)
-			// Dormant manual frames include both an overlapping and an unrelated
-			// universe. The tool must not transmit, erase or resume either one.
-			for _, raw := range []uint16{1, 800} {
-				pa, _ := artnet.PortAddressFromRaw(raw)
-				h.srv.DMX.StartUniverse(pa, netip.AddrPort{}, 512)
-				_ = h.srv.DMX.SetFrame(pa, bytes.Repeat([]byte{73}, 512))
+			h.srv.DMX.Arm("test")
+			// Manual frames on an overlapping universe (1 or 511) and an
+			// unrelated one (800).
+			overlap := uint16(bounds[0] + 1)
+			for _, raw := range []uint16{overlap, 800} {
+				if err := h.srv.DMX.SetFrame(session.SourceRaw, raw, bytes.Repeat([]byte{73}, 512)); err != nil {
+					t.Fatal(err)
+				}
 			}
 			lease := armIdentify(t, h, "artnet", bounds[0], bounds[1])
 			h.clock.Advance(100 * time.Millisecond)
-			if h.tport.SentCount() != 0 {
-				t.Fatal("Arm transmitted before Identify on")
+			for _, sp := range inRange(h.tport.TakeSent(), bounds[0], bounds[1]) {
+				if u := int(sp.Data[15])<<8 | int(sp.Data[14]); u != int(overlap) {
+					t.Fatalf("setting the range transmitted universe %d before Identify on", u)
+				}
 			}
 			identifyCall(t, h, "start", lease, 200)
 			h.clock.Advance(100 * time.Millisecond)
-			checkIdentifyArtNet(t, h.tport.TakeSent(), bounds[0], bounds[1], false)
-			identifyCall(t, h, "stop", nil, 200)
-			checkIdentifyArtNet(t, h.tport.TakeSent(), bounds[0], bounds[1], true)
-			h.clock.Advance(time.Second)
-			if h.tport.SentCount() != 0 || h.srv.DMX.OutputRunning() {
-				t.Fatal("disarm left output running or resumed manual Send")
+			sent := h.tport.TakeSent()
+			checkIdentifyArtNet(t, inRange(sent, bounds[0], bounds[1]), bounds[0], bounds[1], false)
+			if n := len(inRange(sent, 800, 800)); n == 0 {
+				t.Fatal("Identify stopped the unrelated manual universe")
 			}
-			for _, raw := range []uint16{1, 800} {
+			identifyCall(t, h, "stop", nil, 200)
+			stop := inRange(h.tport.TakeSent(), bounds[0], bounds[1])
+			var others []session.SentPacket
+			back := 0
+			for _, sp := range stop {
+				if u := int(sp.Data[15])<<8 | int(sp.Data[14]); u == int(overlap) {
+					if sp.Data[18] != 73 {
+						t.Fatalf("universe %d did not fall back to its manual frame when Identify ended", u)
+					}
+					back++
+				} else {
+					others = append(others, sp)
+				}
+			}
+			if back != 1 {
+				t.Fatalf("overlapping universe: %d frames at Identify off, want its manual frame once", back)
+			}
+			if len(others) != 3*(bounds[1]-bounds[0]) {
+				t.Fatalf("Identify off: %d zero frames for the universes nobody else drives, want 3 each", len(others))
+			}
+			for _, sp := range others {
+				for _, v := range sp.Data[18:] {
+					if v != 0 {
+						t.Fatal("Identify off sent a non-zero frame on a universe nobody else drives")
+					}
+				}
+			}
+			h.clock.Advance(time.Second)
+			for _, sp := range inRange(h.tport.TakeSent(), bounds[0], bounds[1]) {
+				if u := int(sp.Data[15])<<8 | int(sp.Data[14]); u != int(overlap) {
+					t.Fatalf("universe %d still transmitted after Identify off", u)
+				}
+			}
+			for _, raw := range []uint16{overlap, 800} {
 				pa, _ := artnet.PortAddressFromRaw(raw)
 				f, ok := h.srv.DMX.Frame(pa)
 				if !ok || !bytes.Equal(f, bytes.Repeat([]byte{73}, 512)) {
-					t.Fatalf("Identify altered dormant manual universe %d", raw)
+					t.Fatalf("Identify altered manual universe %d", raw)
 				}
 			}
 		})
@@ -159,6 +213,7 @@ func TestUniverseIdentifySACNRawNumbersCadenceAndTermination(t *testing.T) {
 		t.Fatal(rr.Body.String())
 	}
 	seedOneFixture(t, h, 999)
+	h.srv.DMX.Arm("test")
 	for _, bounds := range [][2]int{{1, 3}, {511, 512}} {
 		lease := armIdentify(t, h, "sacn", bounds[0], bounds[1])
 		if p := drainE131(t, ln, time.Millisecond); len(p) != 0 {
@@ -215,20 +270,34 @@ func TestUniverseIdentifySACNRawNumbersCadenceAndTermination(t *testing.T) {
 			}
 		}
 		h.clock.Advance(time.Second)
-		if h.tport.SentCount() != 0 || len(drainE131(t, ln, time.Millisecond)) != 0 {
-			t.Fatal("sACN selection emitted Art-Net or disarm left sACN transmitting")
+		// Since C4a the armed engine's base source keeps the seeded
+		// fixture's universe (999) on Art-Net at its defaults; that is the
+		// only Art-Net allowed here. Identify on sACN must add none.
+		base, _ := artnet.PortAddressFromRaw(999)
+		for _, sp := range h.tport.TakeSent() {
+			if sp.Packet.Kind != artnet.KindDmx || sp.Packet.Dmx.Net != base.Net || sp.Packet.Dmx.SubUni != base.SubUni() {
+				t.Fatal("sACN selection emitted Art-Net beyond the patched universe's base state")
+			}
+		}
+		if len(drainE131(t, ln, time.Millisecond)) != 0 {
+			t.Fatal("disarm left sACN transmitting")
 		}
 	}
 }
 
+// TestUniverseIdentifyOwnershipAndStaleRequests: since C3 other output is
+// not refused while Identify is set (the engine composes them); a second
+// range still needs this one turned off first, and a stale token never
+// starts or extends a newer range.
 func TestUniverseIdentifyOwnershipAndStaleRequests(t *testing.T) {
 	h := newHarness(t)
 	t.Cleanup(h.srv.Close)
 	seedOneFixture(t, h, 400)
+	h.srv.DMX.Arm("test")
 	lease := armIdentify(t, h, "artnet", 4, 5)
-	for _, path := range []string{"/api/dmx", "/api/dmx/start", "/api/patch/rigcheck/start", "/api/patch/rigcheck/pattern/output", "/api/patch/rigcheck/pattern/start"} {
-		if rr := doJSON(t, h.srv.Handler(), "POST", path, map[string]any{}); rr.Code != 409 {
-			t.Fatalf("armed Identify did not reject %s: %d", path, rr.Code)
+	for _, path := range []string{"/api/dmx", "/api/tests/set", "/api/tests/clear"} {
+		if rr := doJSON(t, h.srv.Handler(), "POST", path, map[string]any{}); rr.Code == 409 {
+			t.Fatalf("Identify still refuses %s with 409: %s", path, rr.Body.String())
 		}
 	}
 	identifyCall(t, h, "arm", map[string]any{"protocol": "sacn", "from": 9, "to": 10}, 409)
@@ -239,50 +308,54 @@ func TestUniverseIdentifyOwnershipAndStaleRequests(t *testing.T) {
 	identifyCall(t, h, "heartbeat", lease, 409)
 	h.tport.TakeSent()
 	identifyCall(t, h, "start", newLease, 200)
-	checkIdentifyArtNet(t, h.tport.TakeSent(), 10, 10, false)
+	checkIdentifyArtNet(t, inRange(h.tport.TakeSent(), 10, 10), 10, 10, false)
 }
 
-func TestUniverseIdentifyRefusesExistingOutput(t *testing.T) {
-	for _, protocol := range []string{"artnet", "sacn", "manual"} {
-		t.Run(protocol, func(t *testing.T) {
-			h := newHarness(t)
-			t.Cleanup(h.srv.Close)
-			if protocol == "manual" {
-				pa, _ := artnet.PortAddressFromRaw(10)
-				h.srv.DMX.StartUniverse(pa, netip.AddrPort{}, 512)
-				h.srv.DMX.Start()
-				t.Cleanup(h.srv.DMX.Stop)
-			} else {
-				if protocol == "sacn" {
-					sacnLoopback(t, h, 100)
-				}
-				seedOneFixture(t, h, 0)
-				startRigCheck(t, h, protocol)
-			}
-			identifyCall(t, h, "arm", map[string]any{"protocol": "artnet", "from": 1, "to": 2}, 409)
-		})
+// TestUniverseIdentifyCoexistsWithOtherOutput: arming Identify while the
+// tests layer or the raw universe levels run is no longer refused (C3).
+func TestUniverseIdentifyCoexistsWithOtherOutput(t *testing.T) {
+	h := newHarness(t)
+	t.Cleanup(h.srv.Close)
+	h.srv.DMX.Arm("test")
+	if rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", jdcLikeEntryRequest("JDC 1", 0, 1)); rr.Code != http.StatusOK {
+		t.Fatalf("create entry: %d %s", rr.Code, rr.Body.String())
 	}
+	startTests(t, h, "dimmer_sine")
+	if err := h.srv.DMX.SetFrame(session.SourceRaw, 10, []byte{1}); err != nil {
+		t.Fatal(err)
+	}
+	armIdentify(t, h, "artnet", 1, 2)
 }
 
+// TestUniverseIdentifyLeaseStopPathsAndFailures: Identify's own lease, a
+// show change and server Close end it. Stop all output (Disarm) silences the
+// wire but leaves Identify set, like every source; releasing Send's frames
+// and a transmit error do not touch it.
 func TestUniverseIdentifyLeaseStopPathsAndFailures(t *testing.T) {
-	for _, action := range []string{"lease", "dmx-stop", "all-stop", "show-change", "close", "send-error"} {
+	for _, action := range []string{"lease", "show-change", "close", "dmx-stop", "all-stop", "send-error"} {
 		t.Run(action, func(t *testing.T) {
 			h := newHarness(t)
 			t.Cleanup(h.srv.Close)
+			h.srv.DMX.Arm("test")
 			lease := armIdentify(t, h, "artnet", 1, 2)
 			identifyCall(t, h, "start", lease, 200)
 			h.tport.TakeSent()
+			ends := true
 			switch action {
 			case "lease":
 				h.clock.Advance(4 * time.Second)
 				identifyCall(t, h, "heartbeat", lease, 200)
+				h.srv.DMX.Heartbeat("test")
 				h.clock.Advance(4 * time.Second)
+				h.srv.DMX.Heartbeat("test")
 				if !identifySnapshot(t, h).Running {
 					t.Fatal("valid heartbeat failed to extend lease")
 				}
 				// Status polling must NOT extend the lease.
 				h.clock.Advance(time.Second)
+				h.srv.DMX.Heartbeat("test")
 			case "dmx-stop", "all-stop":
+				ends = false
 				path := "/api/dmx/stop"
 				if action == "all-stop" {
 					path = "/api/output/stop"
@@ -295,64 +368,64 @@ func TestUniverseIdentifyLeaseStopPathsAndFailures(t *testing.T) {
 			case "close":
 				h.srv.Close()
 			case "send-error":
+				ends = false
 				h.tport.SetSendError(errors.New("link down"))
 				h.clock.Advance(25 * time.Millisecond)
+				if h.srv.outputStatus().Error == "" {
+					t.Fatal("a transmit error is not reported as an output error")
+				}
+				h.tport.SetSendError(nil)
 			}
-			if st := identifySnapshot(t, h); st.Armed || st.Running {
-				t.Fatalf("%s left Identify armed: %+v", action, st)
+			st := identifySnapshot(t, h)
+			if !ends {
+				if !st.Running {
+					t.Fatalf("%s turned Identify off: %+v", action, st)
+				}
+				return
+			}
+			if st.Armed || st.Running {
+				t.Fatalf("%s left Identify on: %+v", action, st)
 			}
 			identifyCall(t, h, "start", lease, 409)
 			h.tport.TakeSent()
 			h.clock.Advance(time.Second)
-			if h.tport.SentCount() != 0 {
-				t.Fatal("packets after disarm")
+			if n := len(inRange(h.tport.TakeSent(), 1, 2)); n != 0 {
+				t.Fatalf("%d packets in the identified range after Identify ended", n)
 			}
 		})
 	}
 }
 
-func TestUniverseIdentifyArmRacesManualStart(t *testing.T) {
+// TestUniverseIdentifyStartupFailuresAndRehearsal: a wire failure is now the
+// master output's error (Identify itself starts — it is a source); and in
+// rehearsal sACN Identify works without opening any socket, because the
+// simulated engine's sACN goes to an in-memory link.
+func TestUniverseIdentifyStartupFailuresAndRehearsal(t *testing.T) {
 	h := newHarness(t)
 	t.Cleanup(h.srv.Close)
-	t.Cleanup(h.srv.DMX.Stop)
-	pa, _ := artnet.PortAddressFromRaw(800)
-	h.srv.DMX.StartUniverse(pa, netip.AddrPort{}, 512)
-	var wg sync.WaitGroup
-	for _, path := range []string{identifyURL + "/arm", "/api/dmx/start"} {
-		wg.Go(func() {
-			doJSON(t, h.srv.Handler(), "POST", path, map[string]any{"protocol": "artnet", "from": 1, "to": 2})
-		})
+	h.srv.DMX.Arm("test")
+	h.srv.OutputBindIP = net.ParseIP("::1") // the sACN socket requires IPv4
+	lease := armIdentify(t, h, "sacn", 1, 2)
+	identifyCall(t, h, "start", lease, 200)
+	if st := h.srv.outputStatus(); st.Error == "" {
+		t.Fatalf("an sACN socket that cannot open is not reported: %+v", st)
 	}
-	wg.Wait()
-	if identifySnapshot(t, h).Armed == h.srv.DMX.OutputRunning() {
-		t.Fatal("exactly one of Identify Arm and manual Start must succeed")
-	}
-}
 
-func TestUniverseIdentifyStartupFailuresAndRehearsal(t *testing.T) {
-	for _, protocol := range []string{"artnet", "sacn"} {
-		t.Run(protocol, func(t *testing.T) {
-			h := newHarness(t)
-			t.Cleanup(h.srv.Close)
-			lease := armIdentify(t, h, protocol, 1, 2)
-			if protocol == "artnet" {
-				h.tport.SetSendError(errors.New("link down"))
-			} else {
-				h.srv.OutputBindIP = net.ParseIP("::1") // sender requires IPv4
-			}
-			identifyCall(t, h, "start", lease, 500)
-			st := identifySnapshot(t, h)
-			if st.Armed || st.Running || st.Error == "" || h.tport.SentCount() != 0 {
-				t.Fatalf("failed start did not disarm: %+v", st)
-			}
-			identifyCall(t, h, "start", lease, 409)
-		})
+	r := newHarness(t)
+	r.srv.Simulation = true
+	t.Cleanup(r.srv.Close)
+	r.srv.DMX.Arm("test")
+	lease = armIdentify(t, r, "sacn", 1, 2)
+	identifyCall(t, r, "start", lease, 200)
+	r.clock.Advance(100 * time.Millisecond)
+	r.srv.simSACN.mu.Lock()
+	n := r.srv.simSACN.sent
+	r.srv.simSACN.mu.Unlock()
+	if n == 0 {
+		t.Fatal("simulated sACN Identify sent nothing to the in-memory link")
 	}
-	h := newHarness(t)
-	h.srv.Simulation = true
-	identifyCall(t, h, "arm", map[string]any{"protocol": "sacn", "from": 1, "to": 2}, 409)
-	if st := identifySnapshot(t, h); st.Armed || st.Running {
-		t.Fatalf("rehearsal armed a real socket: %+v", st)
+	if st := r.srv.outputStatus(); st.Error != "" || !strings.Contains(st.SACNAdapter, "simulated") {
+		t.Fatalf("simulated sACN: error %q adapter %q", st.Error, st.SACNAdapter)
 	}
 }
 

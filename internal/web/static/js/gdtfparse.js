@@ -99,6 +99,18 @@
 // 255 (this module never reads a channel's actual bit depth from GDTF's
 // <DMXChannel> — that's a further-out-of-scope refinement, not a correctness
 // bug for the common single-ChannelFunction-per-channel case this covers).
+//
+// FULL CHANNEL DETAIL (Console-lite C1). The paragraph above still describes
+// every pre-existing key of a channelFunctions record, unchanged byte for
+// byte (Rig Check reads them; testdata/robe_extracts_legacy_channelfunctions
+// .golden.json pins them). Each record now ALSO carries the whole owning
+// <DMXChannel>: byteCount/byteIndex, functionsKnown:true, and functions[] —
+// every ChannelFunction of every LogicalChannel with its DMX range AT THE
+// CHANNEL'S FULL RESOLUTION, its ChannelSets with ranges and wheel slots,
+// its Wheel link and its ModeMaster dependency — and every mode (and the
+// fixture) carries wheels[] from <Wheels>. See channelDetail() for the rules
+// and the DIN SPEC 15800 sections each one follows; patch.FunctionRange
+// (internal/patch/entry.go) is the Go side of the same wire contract.
 const GdtfParse = (() => {
   function parseXml(xmlString) {
     const doc = new DOMParser().parseFromString(xmlString, 'application/xml');
@@ -183,19 +195,54 @@ const GdtfParse = (() => {
   //               note above parseChannelFunction.
   //   byteCount — Y, clamped to 1..MAX_DMX_BYTES, defaulting to 1 when the
   //               notation carries no "/Y" part at all.
+  //   shifting  — the "/Ys" suffix (DIN SPEC 15800 Table 1, DMXValue: byte
+  //               SHIFTING instead of the default byte mirroring). Only
+  //               scaleDmxValue below reads it; the legacy fields ignore it,
+  //               exactly as they always have.
   function parseDmxValueParts(s) {
-    if (s === null || s === undefined) return { present: false, value: 0, byteCount: 1 };
+    if (s === null || s === undefined) return { present: false, value: 0, byteCount: 1, shifting: false };
     const str = String(s).trim();
-    if (str === '') return { present: false, value: 0, byteCount: 1 };
+    if (str === '') return { present: false, value: 0, byteCount: 1, shifting: false };
     const slash = str.indexOf('/');
     const n = parseInt(slash >= 0 ? str.slice(0, slash) : str, 10);
-    if (!Number.isFinite(n)) return { present: false, value: 0, byteCount: 1 };
+    if (!Number.isFinite(n)) return { present: false, value: 0, byteCount: 1, shifting: false };
     let byteCount = 1;
+    let shifting = false;
     if (slash >= 0) {
-      const b = parseInt(str.slice(slash + 1), 10);
+      const tail = str.slice(slash + 1).trim();
+      const b = parseInt(tail, 10);
       if (Number.isFinite(b) && b >= 1) byteCount = Math.min(b, MAX_DMX_BYTES);
+      shifting = /^\d+\s*s$/i.test(tail);
     }
-    return { present: true, value: n, byteCount };
+    return { present: true, value: n, byteCount, shifting };
+  }
+
+  // maxForBytes: the top DMX value of an n-byte channel (255, 65535, ...).
+  function maxForBytes(n) { return Math.pow(2, 8 * n) - 1; }
+
+  // scaleDmxValue: one parsed "X/Y" value at a channel of chanBytes bytes —
+  // DIN SPEC 15800 Table 1 (DMXValue): "By default byte mirroring is used
+  // for the conversion. So 255/1 in a 16 bit channel will result in 65535.
+  // ... 255/1s in a 16 bit channel will result in 65280." Mirroring is
+  // implemented as the reference implementation does it (libMVRgdtf
+  // GdtfConverter::ConvertDMXValue): value / max(Y bytes) * max(channel
+  // bytes), rounded half-up — identical to repeating the byte when scaling
+  // up (128/1 -> 32896). Shifting is a plain shift. Returns null when the
+  // value cannot be produced (absent, negative, or beyond the channel's
+  // range): callers refuse and warn rather than clamp.
+  function scaleDmxValue(parts, chanBytes) {
+    if (!parts.present || parts.value < 0) return null;
+    const chanMax = maxForBytes(chanBytes);
+    let v;
+    if (parts.byteCount === chanBytes) v = parts.value;
+    else if (parts.shifting) {
+      const shift = 8 * (chanBytes - parts.byteCount);
+      v = shift >= 0 ? parts.value * Math.pow(2, shift) : Math.floor(parts.value / Math.pow(2, -shift));
+    } else {
+      if (parts.value > maxForBytes(parts.byteCount)) return null;
+      v = Math.floor(parts.value / maxForBytes(parts.byteCount) * chanMax + 0.5);
+    }
+    return v > chanMax ? null : v;
   }
 
   // parseDmxValue: the pre-existing raw-value-only reading of "X/Y", kept
@@ -281,10 +328,244 @@ const GdtfParse = (() => {
     };
   }
 
+  // channelElements: parsed channel object -> its <DMXChannel> element, for
+  // channelDetail() below. A WeakMap rather than a property so the parse
+  // tree this module returns (modes[].channels) is unchanged in shape.
+  const channelElements = new WeakMap();
+
   function parseDmxChannel(chEl) {
     const offsets = parseOffsets(chEl.getAttribute('Offset'));
     const logicalChannels = childrenByTag(chEl, 'LogicalChannel').map(parseLogicalChannel);
-    return { offsets, logicalChannels };
+    const ch = { offsets, logicalChannels };
+    channelElements.set(ch, chEl);
+    return ch;
+  }
+
+  function attrOr(el, name, fallback) {
+    const v = el.getAttribute(name);
+    return v === null || v === undefined ? fallback : v;
+  }
+
+  // floatAttr: a Float attribute, or the spec's stated default when the
+  // attribute is absent (DIN SPEC 15800 §"File Format Definition": "If a XML
+  // attribute is not specified, the default value of this XML attribute
+  // will be used"). An unparseable value also falls back, as the legacy
+  // parseFloatAttr does.
+  function floatAttr(el, name, specDefault) {
+    const v = el.getAttribute(name);
+    if (v === null || v === undefined || String(v).trim() === '') return specDefault;
+    const n = parseFloat(v);
+    return Number.isFinite(n) ? n : specDefault;
+  }
+
+  // channelName: a DMXChannel's name, which GDTF derives rather than
+  // stores — "a geometry name and the attribute name of the first logical
+  // channel with separator '_'" (DIN SPEC 15800, DMX Channel). This is what
+  // a ModeMaster Node link starts with.
+  function channelName(chEl) {
+    const lc = childByTag(chEl, 'LogicalChannel');
+    return (chEl.getAttribute('Geometry') || '') + '_' + (lc ? (lc.getAttribute('Attribute') || '') : '');
+  }
+
+  // resolveModeMaster: ModeMaster is a Node link from the DMX mode
+  // (Table 60): "DMXChannelName" or "DMXChannelName.LogicalChannel.
+  // ChannelFunction". Returns the master channel's byte count, or 0 when
+  // the link does not resolve to an addressed channel of this mode.
+  function resolveModeMaster(link, channelsByName) {
+    const parts = link.split('.');
+    const master = channelsByName.get(parts[0]);
+    if (!master || !master.offsets.length) return 0;
+    if (parts.length >= 3) {
+      const el = channelElements.get(master);
+      const lc = childrenByTag(el, 'LogicalChannel').find(l => (l.getAttribute('Attribute') || '') === parts[1]);
+      const fn = lc ? childrenByTag(lc, 'ChannelFunction').find(f => (f.getAttribute('Name') || '') === parts.slice(2).join('.')) : null;
+      if (!fn) return 0;
+    }
+    return master.offsets.length;
+  }
+
+  // channelDetail: the full-detail record for one <DMXChannel> — every
+  // ChannelFunction of every LogicalChannel, in document order. Rules, each
+  // from DIN SPEC 15800 unless marked:
+  //
+  //  * Resolution: byteCount = the Offset list's length (Table 58, "Relative
+  //    addresses ... from highest to least significant"); every DMX value is
+  //    scaled to it with scaleDmxValue (Table 1).
+  //  * DMXFrom absent = "0/1" (Table 60/61 default). DMXTo = the next
+  //    function's DMXFrom - 1, or the channel maximum (Table 60). "Next" runs
+  //    across LogicalChannels in document order and a next function that
+  //    does not start higher (mode-mastered alternatives sharing a start)
+  //    yields the maximum — the reference implementation's linking
+  //    (libMVRgdtf GdtfDmxChannel::ReadFromNode, GdtfDmxChannelFunction::
+  //    GetEndAdress). UNVERIFIED against a vendor file with two
+  //    LogicalChannels in one DMXChannel: none is in testdata.
+  //  * Sets: DMXTo = the next set's DMXFrom - 1, or the function's DMXTo
+  //    (Table 61). A set that does not start higher than the one before it
+  //    is skipped with a warning, as libMVRgdtf drops it. PhysicalFrom/To
+  //    absent = the parent function's (Table 61). WheelSlotIndex is 1-based
+  //    (Table 61); "0", which vendor files write on non-slot sets, is "no
+  //    slot".
+  //  * PhysicalFrom/To absent on a function = 0 / 1 (Table 60).
+  //  * Default: <ChannelFunction Default> (Table 60), else the GDTF 1.0
+  //    location <DMXChannel Default> (moved to ChannelFunction in 1.1, see
+  //    the spec's revision history; libMVRgdtf copies it onto the channel's
+  //    functions, and so does this). Highlight: <ChannelFunction Highlight>
+  //    if a file has one (the legacy parse reads it there), else
+  //    <DMXChannel Highlight> (Table 58; "None" = not stated).
+  //  * ModeMaster kept verbatim; ModeFrom/ModeTo (default "0/1") scaled to
+  //    the MASTER channel's resolution. A master that does not resolve keeps
+  //    hasMode false and is warned about — no range is invented.
+  //  * A value that cannot be produced (unparseable, beyond the channel) is
+  //    refused: the function or set is dropped, or the has-flag stays false,
+  //    with a warning naming it. Nothing is clamped.
+  function channelDetail(ch, channelsByName, label, warnings) {
+    const el = channelElements.get(ch);
+    const byteCount = ch.offsets.length;
+    if (!el || byteCount < 1 || byteCount > MAX_DMX_BYTES) {
+      if (byteCount > MAX_DMX_BYTES) warnings.push(`${label}: channel "${channelName(el)}" spans ${byteCount} bytes; GDTF values go to ${MAX_DMX_BYTES} — full channel detail not read for it.`);
+      return null;
+    }
+    const chMax = maxForBytes(byteCount);
+    const name = channelName(el);
+    const chDefault = parseDmxValueParts(el.getAttribute('Default'));
+    const chHighlight = parseDmxValueParts(el.getAttribute('Highlight'));
+    const functions = [];
+    childrenByTag(el, 'LogicalChannel').forEach(lcEl => {
+      const logicalAttribute = lcEl.getAttribute('Attribute') || '';
+      childrenByTag(lcEl, 'ChannelFunction').forEach(cfEl => {
+        const fnName = cfEl.getAttribute('Name') || '';
+        const what = `${label}: channel "${name}" function "${fnName}"`;
+        const dmxFrom = scaleDmxValue(parseDmxValueParts(attrOr(cfEl, 'DMXFrom', '0/1')), byteCount);
+        if (dmxFrom === null) {
+          warnings.push(`${what}: DMXFrom "${cfEl.getAttribute('DMXFrom')}" is not a value this channel can hold — function left out.`);
+          return;
+        }
+        const physicalFrom = floatAttr(cfEl, 'PhysicalFrom', 0);
+        const physicalTo = floatAttr(cfEl, 'PhysicalTo', 1);
+        const fnDefault = parseDmxValueParts(cfEl.getAttribute('Default'));
+        const defParts = fnDefault.present ? fnDefault : chDefault;
+        const def = scaleDmxValue(defParts, byteCount);
+        if (defParts.present && def === null) warnings.push(`${what}: Default is not a value this channel can hold — left unknown.`);
+        const fnHighlight = parseDmxValueParts(cfEl.getAttribute('Highlight'));
+        const hiParts = fnHighlight.present ? fnHighlight : chHighlight;
+        const hi = scaleDmxValue(hiParts, byteCount);
+        if (hiParts.present && hi === null) warnings.push(`${what}: Highlight is not a value this channel can hold — left unknown.`);
+        const modeMaster = cfEl.getAttribute('ModeMaster') || '';
+        let hasMode = false, modeFrom = 0, modeTo = 0;
+        if (modeMaster) {
+          const masterBytes = resolveModeMaster(modeMaster, channelsByName);
+          const mf = masterBytes ? scaleDmxValue(parseDmxValueParts(attrOr(cfEl, 'ModeFrom', '0/1')), masterBytes) : null;
+          const mt = masterBytes ? scaleDmxValue(parseDmxValueParts(attrOr(cfEl, 'ModeTo', '0/1')), masterBytes) : null;
+          if (mf === null || mt === null) {
+            warnings.push(`${what}: ModeMaster "${modeMaster}" ${masterBytes ? 'has a ModeFrom/ModeTo the master cannot hold' : 'does not resolve to an addressed channel of this mode'} — the dependency is kept by name, its range is unknown.`);
+          } else {
+            hasMode = true; modeFrom = mf; modeTo = mt;
+          }
+        }
+        const sets = [];
+        childrenByTag(cfEl, 'ChannelSet').forEach(csEl => {
+          const setName = csEl.getAttribute('Name') || '';
+          const from = scaleDmxValue(parseDmxValueParts(attrOr(csEl, 'DMXFrom', '0/1')), byteCount);
+          if (from === null || (sets.length && from <= sets[sets.length - 1].dmxFrom)) {
+            warnings.push(`${what}: channel set "${setName}" ${from === null ? 'has a DMXFrom this channel cannot hold' : 'does not start above the set before it'} — set left out.`);
+            return;
+          }
+          const slot = parseInt(csEl.getAttribute('WheelSlotIndex'), 10);
+          sets.push({
+            name: setName, dmxFrom: from, dmxTo: 0,
+            physicalFrom: floatAttr(csEl, 'PhysicalFrom', physicalFrom),
+            physicalTo: floatAttr(csEl, 'PhysicalTo', physicalTo),
+            hasWheelSlot: Number.isFinite(slot) && slot >= 1,
+            wheelSlot: Number.isFinite(slot) && slot >= 1 ? slot : 0,
+          });
+        });
+        functions.push({
+          logicalAttribute,
+          attribute: cfEl.getAttribute('Attribute') || 'NoFeature',
+          name: fnName,
+          dmxFrom, dmxTo: 0, physicalFrom, physicalTo,
+          hasDefault: def !== null, default: def === null ? 0 : def,
+          hasHighlight: hi !== null, highlight: hi === null ? 0 : hi,
+          wheel: cfEl.getAttribute('Wheel') || '',
+          modeMaster, hasMode, modeFrom, modeTo,
+          sets,
+        });
+      });
+    });
+    functions.forEach((f, i) => {
+      const next = functions[i + 1];
+      f.dmxTo = next && next.dmxFrom > f.dmxFrom ? next.dmxFrom - 1 : chMax;
+      f.sets = f.sets.filter((cs, j) => {
+        cs.dmxTo = j + 1 < f.sets.length ? f.sets[j + 1].dmxFrom - 1 : f.dmxTo;
+        if (cs.dmxTo < cs.dmxFrom) {
+          warnings.push(`${label}: channel "${name}" function "${f.name}": channel set "${cs.name}" starts after its function ends — set left out.`);
+          return false;
+        }
+        return true;
+      });
+    });
+    if (functions.length && functions[0].dmxFrom !== 0) {
+      warnings.push(`${label}: channel "${name}": first channel function "${functions[0].name}" does not start at 0 — DMX values below ${functions[0].dmxFrom} belong to no function in this file. Kept as stated.`);
+    }
+    return { byteCount, functions };
+  }
+
+  // parseWheelSlotColor: <Slot Color> is ColorCIE "x,y,Y" (Table 1/12).
+  function parseColorCIE(s) {
+    if (s === null || s === undefined) return null;
+    const parts = String(s).replace(/[{}]/g, '').split(',').map(p => parseFloat(p.trim()));
+    return parts.length === 3 && parts.every(Number.isFinite) ? parts : null;
+  }
+
+  // xyToSrgbHex: a DISPLAY SWATCH from CIE 1931 chromaticity only. Y is
+  // ignored on purpose — vendor files disagree on its scale (Robe BMFL Spot:
+  // 0.145 for a deep red, 100.0 for white in the same wheel; Robin 100
+  // LEDBeam: 100.0 for every colour). X = x/y, Y = 1, Z = (1-x-y)/y; linear
+  // sRGB by the IEC 61966-2-1 XYZ->sRGB (D65) matrix; negative (out-of-gamut)
+  // components clipped to 0; scaled so the largest is 1; sRGB-encoded.
+  // Approximate by construction. null when no colour can be formed.
+  function xyToSrgbHex(x, y) {
+    if (!(y > 0)) return null;
+    const X = x / y, Y = 1, Z = (1 - x - y) / y;
+    const lin = [
+      3.2406 * X - 1.5372 * Y - 0.4986 * Z,
+      -0.9689 * X + 1.8758 * Y + 0.0415 * Z,
+      0.0557 * X - 0.2040 * Y + 1.0570 * Z,
+    ].map(v => Math.max(0, v));
+    const m = Math.max(...lin);
+    if (!(m > 0)) return null;
+    return '#' + lin.map(v => {
+      const c = v / m;
+      const enc = c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+      return Math.floor(enc * 255 + 0.5).toString(16).padStart(2, '0');
+    }).join('');
+  }
+
+  // parseWheels: <Wheels>/<Wheel>/<Slot> (DIN SPEC 15800 "Wheel Collect",
+  // Tables 11-12), document order — slot i is WheelSlotIndex i+1. Color
+  // absent = hasColor false (the spec's default white is NOT filled in);
+  // prism <Facet> children and Filter links are not read.
+  function parseWheels(fixtureTypeEl, warnings) {
+    const wheelsEl = childByTag(fixtureTypeEl, 'Wheels');
+    if (!wheelsEl) return [];
+    return childrenByTag(wheelsEl, 'Wheel').map(wEl => ({
+      name: wEl.getAttribute('Name') || '',
+      slots: childrenByTag(wEl, 'Slot').map(sEl => {
+        const raw = sEl.getAttribute('Color');
+        const xyY = parseColorCIE(raw);
+        if (raw !== null && raw !== undefined && !xyY) {
+          warnings.push(`wheel "${wEl.getAttribute('Name') || ''}" slot "${sEl.getAttribute('Name') || ''}": Color "${raw}" is not CIE x,y,Y — colour left unknown.`);
+        }
+        const hex = xyY ? xyToSrgbHex(xyY[0], xyY[1]) : null;
+        return {
+          name: sEl.getAttribute('Name') || '',
+          hasColor: !!xyY,
+          colorX: xyY ? xyY[0] : 0, colorY: xyY ? xyY[1] : 0, colorYY: xyY ? xyY[2] : 0,
+          hasSRGB: hex !== null, srgb: hex || '',
+          mediaFileName: sEl.getAttribute('MediaFileName') || '',
+        };
+      }),
+    }));
   }
 
   // resolveChannelFunction: the channelFunctions simplification rule from
@@ -443,8 +724,8 @@ const GdtfParse = (() => {
       if (!chs) return false;
       let contributedReal = false;
       chs.forEach(ch => {
-        ch.offsets.forEach(localOffset => {
-          resolved.push({ offset: localOffset + offsetBase, ch, geometryInstance: name + ':' + offsetBase });
+        ch.offsets.forEach((localOffset, byteIndex) => {
+          resolved.push({ offset: localOffset + offsetBase, ch, byteIndex, geometryInstance: name + ':' + offsetBase });
           contributedReal = true;
         });
       });
@@ -690,7 +971,7 @@ const GdtfParse = (() => {
     });
   }
 
-  function parseMode(modeEl, geometryIndex, fixtureWarnings) {
+  function parseMode(modeEl, geometryIndex, fixtureWarnings, wheels) {
     const name = modeEl.getAttribute('Name') || '';
     const channelsContainer = childByTag(modeEl, 'DMXChannels');
     const channelEls = channelsContainer ? childrenByTag(channelsContainer, 'DMXChannel') : [];
@@ -726,7 +1007,7 @@ const GdtfParse = (() => {
         modeWarnings.push(`mode "${name}": root geometry "${rootGeomName}" not found in <Geometries> — falling back to the literal DMXChannel list (no replication resolved).`);
       }
       placements = [];
-      channels.forEach(ch => { ch.offsets.forEach(off => placements.push({ offset: off, ch })); });
+      channels.forEach(ch => { ch.offsets.forEach((off, byteIndex) => placements.push({ offset: off, ch, byteIndex })); });
     }
 
     let footprint = 0;
@@ -780,10 +1061,57 @@ const GdtfParse = (() => {
     // (resolveChannelFunction returned null, or resolved with an empty
     // attribute) contributes nothing — this map only ever holds real,
     // resolved GDTF data, never a placeholder "absent" entry.
+    const channelsByName = new Map();
+    channels.forEach(ch => {
+      const nm = channelName(channelElements.get(ch));
+      if (!channelsByName.has(nm)) channelsByName.set(nm, ch);
+    });
+    const detailCache = new Map();
+    const detailFor = ch => {
+      if (!detailCache.has(ch)) detailCache.set(ch, channelDetail(ch, channelsByName, `mode "${name}"`, modeWarnings));
+      return detailCache.get(ch);
+    };
+
     const channelFunctions = {};
     placements.forEach(p => {
       const resolved = resolveChannelFunction(p.ch.logicalChannels);
       if (!resolved || !resolved.attribute) return;
+      const detail = detailFor(p.ch);
+      // GDTF 1.0 channel-level Default (C1b, owner decision 2026-10-07).
+      // GDTF 1.0 states Default on <DMXChannel>; 1.1 moved it to
+      // <ChannelFunction> (DIN SPEC 15800 revision history, Version 1.1:
+      // "Moved Default from DMX Channel to Channel Function"). A 1.0 file
+      // therefore has no ChannelFunction Default at all, and Rig Check /
+      // the programmer — which read these first-function fields — knew no
+      // resting value for any of its channels. Where the first function
+      // states none but its DMXChannel does, carry the channel's, in the
+      // same raw "X/Y" units as ever (default X, defaultByteCount Y). A
+      // ChannelFunction Default, when present, still wins (1.1+ files are
+      // unchanged), and "None"/absent stays unknown.
+      let { hasDefault, defaultValue, defaultByteCount } = resolved;
+      if (!hasDefault) {
+        const chEl = channelElements.get(p.ch);
+        const chDef = parseDmxValueParts(chEl ? chEl.getAttribute('Default') : null);
+        if (chDef.present) {
+          hasDefault = true;
+          defaultValue = chDef.value;
+          defaultByteCount = chDef.byteCount;
+        }
+      }
+      // GDTF 1.0 channel-level Highlight (C4b), the same rule for the same
+      // reason: 1.0 states Highlight on <DMXChannel> (Table 58), a
+      // ChannelFunction Highlight wins when present, "None"/absent stays
+      // unknown. The full-detail functions already fall back this way.
+      let { hasHighlight, highlightValue, highlightByteCount } = resolved;
+      if (!hasHighlight) {
+        const chEl = channelElements.get(p.ch);
+        const chHi = parseDmxValueParts(chEl ? chEl.getAttribute('Highlight') : null);
+        if (chHi.present) {
+          hasHighlight = true;
+          highlightValue = chHi.value;
+          highlightByteCount = chHi.byteCount;
+        }
+      }
       channelFunctions[p.offset] = {
         geometryInstance: p.geometryInstance || '',
         source: 'gdtf',
@@ -814,18 +1142,26 @@ const GdtfParse = (() => {
         // names here made every GDTF apply and every MVR import that
         // resolved even one channel function fail outright with
         // `json: unknown field "defaultValue"`.
-        hasDefault: resolved.hasDefault,
-        default: resolved.defaultValue,
-        defaultByteCount: resolved.defaultByteCount,
-        hasHighlight: resolved.hasHighlight,
-        highlight: resolved.highlightValue,
-        highlightByteCount: resolved.highlightByteCount,
+        hasDefault,
+        default: defaultValue,
+        defaultByteCount,
+        hasHighlight,
+        highlight: highlightValue,
+        highlightByteCount,
         channelSets: resolved.channelSets,
+        // Full channel detail — see channelDetail(). Same wire-contract
+        // rule as above: these keys are patch.ChannelFunction's
+        // byteCount/byteIndex/functionsKnown/functions JSON tags, and each
+        // functions[] object is exactly patch.FunctionRange.
+        byteCount: p.ch.offsets.length,
+        byteIndex: p.byteIndex || 0,
+        functionsKnown: !!detail,
+        functions: detail ? detail.functions : [],
       };
     });
 
     if (modeWarnings.length) fixtureWarnings.push(...modeWarnings);
-    return { name, footprint, channels, channelFunctions };
+    return { name, footprint, channels, channelFunctions, wheels };
   }
 
   // parseDescriptionXml(xmlString) -> {
@@ -842,7 +1178,17 @@ const GdtfParse = (() => {
   //             channelFunctions: { [offset]: {source:'gdtf',attribute,
   //               functionName,dmxFrom,dmxTo,physicalFrom,physicalTo,
   //               hasDefault,default,defaultByteCount,hasHighlight,
-  //               highlight,highlightByteCount,channelSets} } }]
+  //               highlight,highlightByteCount,channelSets,
+  //               byteCount,byteIndex,functionsKnown,functions:[{
+  //                 logicalAttribute,attribute,name,dmxFrom,dmxTo,
+  //                 physicalFrom,physicalTo,hasDefault,default,
+  //                 hasHighlight,highlight,wheel,modeMaster,hasMode,
+  //                 modeFrom,modeTo,sets:[{name,dmxFrom,dmxTo,
+  //                 physicalFrom,physicalTo,hasWheelSlot,wheelSlot}]}]} },
+  //             wheels }],
+  //   wheels: [{ name, slots: [{ name, hasColor, colorX, colorY, colorYY,
+  //              hasSRGB, srgb, mediaFileName }] }],
+  //   warnings: string[]
   // }
   //
   // NOTE the deliberate key-name difference between the two shapes above:
@@ -868,7 +1214,11 @@ const GdtfParse = (() => {
     const dmxModesEl = childByTag(fixtureTypeEl, 'DMXModes');
     const modeEls = dmxModesEl ? childrenByTag(dmxModesEl, 'DMXMode') : [];
     const warnings = [];
-    const modes = modeEls.map(modeEl => parseMode(modeEl, geometryIndex, warnings));
+    // wheels: fixture-level (GDTF defines them on the FixtureType) and
+    // handed to every mode, so a mode applied to a patch entry carries the
+    // wheels its functions' Wheel links and sets' wheel slots point into.
+    const wheels = parseWheels(fixtureTypeEl, warnings);
+    const modes = modeEls.map(modeEl => parseMode(modeEl, geometryIndex, warnings, wheels));
 
     // Placeholder-profile detection runs once over the finished modes (it
     // needs the manufacturer, which parseMode never sees) and, like the
@@ -883,7 +1233,7 @@ const GdtfParse = (() => {
     // this fixture. There is deliberately ONE warnings channel: a second
     // one would need a second surfacing path in every caller, and the one
     // that got wired up last would be the one nobody sees.
-    return { manufacturer, model, fixtureType, modes, warnings };
+    return { manufacturer, model, fixtureType, modes, wheels, warnings };
   }
 
   return { parseDescriptionXml };

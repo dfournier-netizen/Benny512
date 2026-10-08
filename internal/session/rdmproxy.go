@@ -84,11 +84,12 @@ const (
 	ProxyBackoffAttempts = 2
 )
 
-// Per-device proxy circuit breaker.
+// Per-device circuit breaker.
 //
-// Keyed on (node port, responder UID) — see deviceKey. Only
-// PROXY_BUFFER_FULL trips it; see ProxyBreakerTrip for why timeouts
-// deliberately do not.
+// Keyed on (node port, responder UID) — see deviceKey. Two kinds of evidence
+// trip it: PROXY_BUFFER_FULL refusals (ProxyBreakerTrip) and silence that is
+// attributable to one device because the rest of its port kept answering
+// (SilenceBreakerTrip). Silence on its own never does; see ProxyBreakerTrip.
 const (
 	// ProxyBreakerTrip is how many consecutive commands to one device must
 	// fail with ResultProxyBufferFull before the controller stops asking.
@@ -101,23 +102,44 @@ const (
 	// which is exactly the LOG3/LOG4 pattern.
 	//
 	// A response TIMEOUT does not count toward this and does not reset it.
-	// That is not an oversight, and the bench has now confirmed why.
+	// That is not an oversight, and the bench has confirmed why.
 	//
 	// RDM-LOG4 contains a 36-second window in which the EN4 answered nothing
 	// at all, to any UID, including the healthy wired proxy that had never
 	// once refused. The cause turned out to be the owner power-cycling the
-	// node mid-capture. Had this breaker counted silence, that reboot would
-	// have blacklisted the entire rig — the healthy wired proxy included —
-	// and then held every device out through a full cool-down after the node
-	// was already back and answering. Someone who reboots a node to fix
-	// something would watch the tool go blind for the reboot AND the
-	// cool-down, and reasonably conclude the reboot made things worse.
+	// node mid-capture. Had a breaker counted bare silence, that reboot
+	// would have blacklisted the entire rig — the healthy wired proxy
+	// included — and then held every device out through a full cool-down
+	// after the node was already back and answering. Someone who reboots a
+	// node to fix something would watch the tool go blind for the reboot
+	// AND the cool-down, and reasonably conclude the reboot made things
+	// worse.
 	//
-	// PROXY_BUFFER_FULL is a statement a device made about itself. Silence
-	// is a statement about nothing: a reboot, a pulled cable, a switch
-	// renegotiating. It must never be read as a device's own refusal.
-	// TestTimeoutsDoNotOpenTheBreaker guards this against a real event.
+	// PROXY_BUFFER_FULL is a statement a device made about itself. Bare
+	// silence is a statement about nothing: a reboot, a pulled cable, a
+	// switch renegotiating. TestTimeoutsDoNotOpenTheBreaker guards this
+	// against a real event.
+	//
+	// Silence CAN open the breaker, but only through SilenceBreakerTrip and
+	// only with link evidence: a silent command counts against its device
+	// solely when some other command on the same node port was answered
+	// since that device's previous strike or answer. A dead fixture
+	// (RDM-LOG36) is silent while its neighbours answer, so its strikes
+	// accumulate. A rebooting node (RDM-LOG4) silences everyone at once:
+	// each device can take at most one strike before the answers stop, and
+	// no further strike can count until something answers again — at
+	// which point the answers reset whoever gave them. So the LOG4
+	// reasoning above still holds; it now holds by construction rather
+	// than by ignoring silence altogether.
 	ProxyBreakerTrip = 3
+	// SilenceBreakerTrip is how many link-attributed silent commands to one
+	// device open its breaker with CauseNoResponse. "Silent" means the
+	// command timed out without a single response packet of any kind; see
+	// silentTimeout and noteSilenceLocked for what counts. Three, for the
+	// same reason as ProxyBreakerTrip: each strike has already spent its
+	// whole retry budget, and three in a row with the port answering
+	// around them is a device that is not there.
+	SilenceBreakerTrip = 3
 	// ProxyBreakerCooldownInitial is how long the first open lasts.
 	// Fifteen seconds is long enough to be worth the trouble — it takes the
 	// device out of a whole discovery/backfill pass — and short enough that
@@ -193,9 +215,43 @@ type DeviceUnreachableError struct {
 	Opens int
 	// RetryAt is when the next probe command will be allowed through.
 	RetryAt time.Time
+	// Cause says which evidence opened the breaker. The zero value,
+	// CauseProxyRefusal, is the original PROXY_BUFFER_FULL meaning.
+	Cause UnreachableCause
+	// Silences is the consecutive unanswered-command count behind a
+	// CauseNoResponse open. Zero for CauseProxyRefusal.
+	Silences int
+}
+
+// UnreachableCause names the evidence that opened a device's breaker.
+type UnreachableCause int
+
+const (
+	// CauseProxyRefusal: consecutive commands ended ResultProxyBufferFull.
+	CauseProxyRefusal UnreachableCause = iota
+	// CauseNoResponse: consecutive commands to this device drew no response
+	// at all while other devices on the same node port were answering, so
+	// the silence is attributable to this device rather than to the link.
+	CauseNoResponse
+)
+
+// String renders the cause for JSON and logs.
+func (c UnreachableCause) String() string {
+	switch c {
+	case CauseProxyRefusal:
+		return "proxy-refusal"
+	case CauseNoResponse:
+		return "no-response"
+	default:
+		return "unknown"
+	}
 }
 
 func (e *DeviceUnreachableError) Error() string {
+	if e.Cause == CauseNoResponse {
+		return fmt.Sprintf("session: %s not answering (%d requests in a row unanswered while other devices on the same port answered; next probe at %s)",
+			e.UID, e.Silences, e.RetryAt.Format(time.RFC3339))
+	}
 	return fmt.Sprintf("session: %s not answering through its proxy (%d consecutive refusals; next probe at %s)",
 		e.UID, e.Refusals, e.RetryAt.Format(time.RFC3339))
 }
@@ -252,6 +308,27 @@ type deviceHealth struct {
 	opens int
 	// since is when the breaker most recently opened.
 	since time.Time
+	// cause is the evidence behind the most recent open.
+	cause UnreachableCause
+	// silences counts link-attributed silent commands (SilenceBreakerTrip).
+	silences int
+	// silenceMark is the port's answer count (linkEvidence.answers) at this
+	// device's most recent counted strike or answer. A new strike counts
+	// only once the port's count has moved past it.
+	silenceMark uint64
+	// openAnswers is the port's answer count when the breaker last opened;
+	// a silent probe grows the cool-down only if it has moved since.
+	openAnswers uint64
+	// lastCooldown is the duration the most recent open actually used.
+	lastCooldown time.Duration
+	// node is the port the breaker was opened through, for the automatic
+	// silence probe.
+	node NodeRef
+	// probeGen and probeTimer drive the automatic silence probe. Every open,
+	// close and Stop bumps probeGen, so a timer armed for an earlier state
+	// never submits anything.
+	probeGen   uint64
+	probeTimer Timer
 	// collect is what this device was observed to do with a GET
 	// QUEUED_MESSAGE probe, so the probe is paid for once per device rather
 	// than once per deferral. Unrelated to the breaker; it lives here
@@ -314,9 +391,13 @@ func (c *RDMController) breakerHoldLocked(req Request, now time.Time) *DeviceUnr
 		h.probing = true
 		return nil
 	}
-	return &DeviceUnreachableError{
-		UID: req.UID, Refusals: h.refusals, Opens: h.opens, RetryAt: h.openUntil,
+	e := &DeviceUnreachableError{
+		UID: req.UID, Refusals: h.refusals, Opens: h.opens, RetryAt: h.openUntil, Cause: h.cause,
 	}
+	if h.cause == CauseNoResponse {
+		e.Silences = h.silences
+	}
+	return e
 }
 
 // noteProxyRefusalLocked records one command that gave up with
@@ -343,17 +424,8 @@ func (c *RDMController) noteProxyRefusalLocked(req Request, now time.Time) {
 }
 
 func (c *RDMController) openBreakerLocked(h *deviceHealth, now time.Time, req Request) {
-	if h.cooldown <= 0 {
-		h.cooldown = ProxyBreakerCooldownInitial
-	}
-	h.openUntil = now.Add(h.cooldown)
-	h.since = now
-	h.opens++
-	c.stats.DevicesUnreachable++
-	h.cooldown *= ProxyBreakerCooldownFactor
-	if h.cooldown > ProxyBreakerCooldownMax {
-		h.cooldown = ProxyBreakerCooldownMax
-	}
+	h.cause = CauseProxyRefusal
+	c.armBreakerLocked(h, now, req, true)
 	// The breaker opening is the moment Benny512 gives up on this device,
 	// and PROXY_BUFFER_FULL is the one failure with a documented remedy:
 	// drain the queue the proxy says it cannot add to. One bounded pass per
@@ -361,11 +433,49 @@ func (c *RDMController) openBreakerLocked(h *deviceHealth, now time.Time, req Re
 	c.maybeAutoDrainLocked(req.Node, req.UID, DrainReasonProxyRecovery)
 }
 
+// armBreakerLocked opens h's breaker for one cool-down. grow selects the
+// usual escalation (use h.cooldown, then lengthen it for next time); without
+// it the open repeats the previous cool-down unchanged, for a silent probe
+// that the link gave no evidence about (see noteSilenceLocked).
+func (c *RDMController) armBreakerLocked(h *deviceHealth, now time.Time, req Request, grow bool) {
+	if h.cooldown <= 0 {
+		h.cooldown = ProxyBreakerCooldownInitial
+	}
+	d := h.cooldown
+	if !grow && h.lastCooldown > 0 {
+		d = h.lastCooldown
+	}
+	h.openUntil = now.Add(d)
+	h.lastCooldown = d
+	h.since = now
+	h.opens++
+	h.probing = false
+	h.node = req.Node
+	h.openAnswers = c.linkEvidenceLocked(req.Node).answers
+	c.stats.DevicesUnreachable++
+	if grow {
+		h.cooldown *= ProxyBreakerCooldownFactor
+		if h.cooldown > ProxyBreakerCooldownMax {
+			h.cooldown = ProxyBreakerCooldownMax
+		}
+	}
+	c.cancelSilenceProbeLocked(h)
+	if h.cause == CauseNoResponse {
+		c.scheduleSilenceProbeLocked(h, deviceKeyFor(req), d)
+	}
+}
+
 // noteDeviceRespondedLocked records that the device answered for real — an
 // ACK, or a NACK about the request itself. Either proves the proxy found
 // room and delivered a response, which is precisely the property the
 // breaker measures, so both fully close it and reset the cool-down.
+//
+// It is also the port's proof of life for the silence breaker: every answer
+// on a node port advances that port's answer count, whoever gave it.
 func (c *RDMController) noteDeviceRespondedLocked(req Request) {
+	ev := c.linkEvidenceLocked(req.Node)
+	ev.answers++
+	ev.last = req.UID
 	h := c.devices[deviceKeyFor(req)]
 	if h == nil {
 		return
@@ -374,6 +484,9 @@ func (c *RDMController) noteDeviceRespondedLocked(req Request) {
 	h.probing = false
 	h.openUntil = time.Time{}
 	h.cooldown = ProxyBreakerCooldownInitial
+	h.silences = 0
+	h.silenceMark = ev.answers
+	c.cancelSilenceProbeLocked(h)
 }
 
 // DeviceReachability is a snapshot of one responder's proxy breaker, for
@@ -391,6 +504,10 @@ type DeviceReachability struct {
 	Since time.Time
 	// RetryAt is when the next probe is due.
 	RetryAt time.Time
+	// Cause is what opened the breaker most recently.
+	Cause UnreachableCause
+	// Silences is the consecutive link-attributed unanswered-command count.
+	Silences int
 }
 
 // Reachability reports every responder whose proxy breaker has opened at
@@ -411,6 +528,7 @@ func (c *RDMController) Reachability() []DeviceReachability {
 			Unreachable: !h.openUntil.IsZero() && now.Before(h.openUntil),
 			Refusals:    h.refusals, Opens: h.opens,
 			Since: h.since, RetryAt: h.openUntil,
+			Cause: h.cause, Silences: h.silences,
 		})
 	}
 	return out
@@ -464,4 +582,264 @@ func (c *RDMController) onProxyBackoffElapsed(cmd *Command, gen uint64) {
 		return
 	}
 	c.issueLocked(cmd, true)
+}
+
+// --- silence breaker -------------------------------------------------------
+//
+// RDM-LOG36: three Martin ERA 800s on one port of node 2.11.90.6, one of them
+// (4D50:00115938) dead — 123 requests, zero replies — while the other two
+// answered every request. Commands are serialised one in flight per node
+// port, so each silent command held the port for its whole retry budget and
+// the healthy fixtures starved. Owner decision (Dom, 2026-10-06): a fixture
+// that stops answering is moved to the end of the queue, marked, and
+// rechecked now and then. The mechanism is the breaker above with a second
+// kind of evidence; see ProxyBreakerTrip for why that evidence must be
+// link-attributed and SilenceBreakerTrip for the threshold.
+
+// linkEvidence is one node port's proof of life: how many commands on it
+// have been answered (ACK or NACK), and by whom most recently.
+type linkEvidence struct {
+	answers uint64
+	last    rdm.UID
+}
+
+func (c *RDMController) linkEvidenceLocked(n NodeRef) *linkEvidence {
+	k := linkKeyFor(n)
+	ev := c.links[k]
+	if ev == nil {
+		ev = &linkEvidence{}
+		c.links[k] = ev
+	}
+	return ev
+}
+
+// silentTimeout reports whether a ResultTimeout command is evidence of a
+// silent DEVICE: not one response packet of any kind came back (no
+// ACK_TIMER, no ACK_OVERFLOW block, no proxy refusal), it was not a
+// broadcast (never answered by spec), and it was not a GET QUEUED_MESSAGE
+// drain — RDM-LOG8 shows real devices ignoring some of those while answering
+// everything else.
+func silentTimeout(cmd *Command) bool {
+	return cmd.responses == 0 &&
+		!cmd.req.UID.IsBroadcast() &&
+		!isQueuedMessageRequest(cmd.req)
+}
+
+// noteSilenceLocked records one silent command, and opens the breaker with
+// CauseNoResponse once SilenceBreakerTrip of them are attributable to this
+// device.
+//
+// A strike counts only if the port has answered something since this
+// device's previous strike or answer. Because an answer from this device
+// resets it, that answer necessarily came from a neighbour: the port is
+// alive and this device is not answering. A node-wide outage yields at most
+// one strike per device and then nothing, so it can never trip anyone. A
+// strike that does not count changes nothing — it neither counts nor resets.
+func (c *RDMController) noteSilenceLocked(req Request, now time.Time) {
+	ev := c.linkEvidenceLocked(req.Node)
+	k := deviceKeyFor(req)
+	h := c.devices[k]
+	if h == nil {
+		h = &deviceHealth{cooldown: ProxyBreakerCooldownInitial}
+		if ev.last == req.UID {
+			// This device gave the port's most recent answer, so nothing
+			// has answered since it did.
+			h.silenceMark = ev.answers
+		}
+		c.devices[k] = h
+	}
+	if h.probing && h.cause == CauseNoResponse {
+		// A silent half-open probe: still gone, reopen. Lengthen the
+		// cool-down only if the port proved itself alive meanwhile;
+		// otherwise this probe is no evidence about the device at all (the
+		// node may be the thing that is down) and the same cool-down repeats.
+		grow := ev.answers > h.openAnswers
+		if grow {
+			h.silences++
+			h.silenceMark = ev.answers
+		}
+		c.armBreakerLocked(h, now, req, grow)
+		return
+	}
+	if ev.answers <= h.silenceMark {
+		return
+	}
+	h.silences++
+	h.silenceMark = ev.answers
+	if h.silences >= SilenceBreakerTrip {
+		h.cause = CauseNoResponse
+		// Deliberately no maybeAutoDrainLocked: draining queued messages is
+		// the remedy for PROXY_BUFFER_FULL, not for a device that says
+		// nothing at all.
+		c.armBreakerLocked(h, now, req, true)
+	}
+}
+
+// requeueBehind moves every pending command for uid in q behind all the
+// pending commands for other UIDs, keeping both groups' own order — "move it
+// to the end of the queue and proceed to the next". It runs when a command
+// to uid has just finished silent, so a neighbour's request (and with it the
+// link evidence the silence breaker needs) gets the port before uid's next.
+//
+// It does nothing while any pending command's UID is held mid-ACK_OVERFLOW
+// by another command: that hold stalls the queue head deliberately, and
+// reordering around it could put a held UID at the head ahead of runnable
+// work.
+func requeueBehind(q *cmdQueue, uid rdm.UID, overflow map[rdm.UID]*Command) {
+	if len(q.pending) < 2 {
+		return
+	}
+	for _, p := range q.pending {
+		if owner, held := overflow[p.req.UID]; held && owner != p {
+			return
+		}
+	}
+	others := make([]*Command, 0, len(q.pending))
+	var mine []*Command
+	for _, p := range q.pending {
+		if p.req.UID == uid {
+			mine = append(mine, p)
+		} else {
+			others = append(others, p)
+		}
+	}
+	if len(mine) == 0 || len(others) == 0 {
+		return
+	}
+	q.pending = append(others, mine...)
+}
+
+// --- automatic recheck ------------------------------------------------------
+
+// scheduleSilenceProbeLocked arms the automatic probe for a silence-open
+// breaker d from now, replacing any earlier one.
+func (c *RDMController) scheduleSilenceProbeLocked(h *deviceHealth, k deviceKey, d time.Duration) {
+	c.cancelSilenceProbeLocked(h)
+	if c.stopped {
+		return
+	}
+	gen := h.probeGen
+	h.probeTimer = c.cfg.Clock.AfterFunc(d, func() { c.onSilenceProbeDue(k, gen) })
+}
+
+// cancelSilenceProbeLocked retires any armed probe; the generation bump also
+// disarms a callback that has already been dequeued and is waiting for c.mu.
+func (c *RDMController) cancelSilenceProbeLocked(h *deviceHealth) {
+	h.probeGen++
+	if h.probeTimer != nil {
+		h.probeTimer.Stop()
+		h.probeTimer = nil
+	}
+}
+
+// stopSilenceProbesLocked retires every armed probe, for Stop.
+func (c *RDMController) stopSilenceProbesLocked() {
+	for _, h := range c.devices {
+		c.cancelSilenceProbeLocked(h)
+	}
+}
+
+// onSilenceProbeDue is the controller rechecking a silent device on its own,
+// so a fixture that comes back is picked up without any caller having to ask
+// it something. It runs on the clock's goroutine and takes c.mu itself.
+//
+// The probe is GET DEVICE_INFO — E1.20-required, so never gated on
+// SUPPORTED_PARAMETERS — submitted through the normal path, so its result
+// reaches the event stream like any command's, and it is admitted as the
+// breaker's single half-open probe exactly as a caller's command would be.
+func (c *RDMController) onSilenceProbeDue(k deviceKey, gen uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	h := c.devices[k]
+	if c.stopped || h == nil || h.probeGen != gen {
+		return
+	}
+	h.probeTimer = nil
+	if h.cause != CauseNoResponse || h.openUntil.IsZero() || h.probing {
+		return // closed, or a probe is already out; its outcome reschedules.
+	}
+	now := c.cfg.Clock.Now()
+	if now.Before(h.openUntil) {
+		c.scheduleSilenceProbeLocked(h, k, h.openUntil.Sub(now))
+		return
+	}
+	if c.commandForLocked(h.node, k.uid) || !c.todListsLocked(h.node, k.uid) {
+		// Either a command for this device is already queued (it becomes the
+		// probe when it reaches the wire) or the node no longer lists the
+		// device. Look again after another cool-down, without sending.
+		c.scheduleSilenceProbeLocked(h, k, h.lastCooldown)
+		return
+	}
+	c.submitLocked(Request{Node: h.node, UID: k.uid, CommandClass: rdm.GetCommand, PID: rdm.PIDDeviceInfo})
+}
+
+// commandForLocked reports whether a command for uid through node's port is
+// in flight or pending.
+func (c *RDMController) commandForLocked(node NodeRef, uid rdm.UID) bool {
+	q := c.queues[c.queueKeyFor(Request{Node: node, UID: uid})]
+	if q == nil {
+		return false
+	}
+	link := linkKeyFor(node)
+	is := func(cmd *Command) bool {
+		return cmd != nil && cmd.req.UID == uid && linkKeyFor(cmd.req.Node) == link
+	}
+	if is(q.inflight) {
+		return true
+	}
+	for _, p := range q.pending {
+		if is(p) {
+			return true
+		}
+	}
+	return false
+}
+
+// todListsLocked reports whether the cached Table of Devices for node's port
+// lists uid.
+func (c *RDMController) todListsLocked(node NodeRef, uid rdm.UID) bool {
+	e := c.tod[todKey{ip: node.Key.IP, port: node.Port.RawValue()}]
+	if e == nil {
+		return false
+	}
+	for _, u := range e.uids {
+		if u == uid {
+			return true
+		}
+	}
+	return false
+}
+
+// silenceProbeOnToDLocked makes the probe due at once for every silence-open
+// device that a fresh Table of Devices lists: the node has just discovered
+// it, which is what power-cycling a fixture produces, and that is how a tech
+// fixes one. Waiting out a cool-down of up to ProxyBreakerCooldownMax after
+// that would read as the fix not having worked.
+func (c *RDMController) silenceProbeOnToDLocked(key todKey, uids []rdm.UID) {
+	if len(c.devices) == 0 || len(uids) == 0 {
+		return
+	}
+	now := c.cfg.Clock.Now()
+	for k, h := range c.devices {
+		if k.link.ip != key.ip || k.link.port != key.port {
+			continue
+		}
+		if h.cause != CauseNoResponse || h.openUntil.IsZero() || h.probing {
+			continue
+		}
+		listed := false
+		for _, u := range uids {
+			if u == k.uid {
+				listed = true
+				break
+			}
+		}
+		if !listed {
+			continue
+		}
+		if now.Before(h.openUntil) {
+			h.openUntil = now
+		}
+		c.scheduleSilenceProbeLocked(h, k, 0)
+	}
 }

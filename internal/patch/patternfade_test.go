@@ -117,18 +117,28 @@ func TestPatternFadeDeselectAndScope(t *testing.T) {
 	if _, err := rc.SetPatternScope([]Entry{dimmerEntry("b", 1)}); err != nil {
 		t.Fatal(err)
 	}
+	// C5: Rig Check claims only its scope's channels, so a fixture leaving
+	// the scope is RELEASED at once to whatever lies beneath it (the base
+	// source's profile defaults on a live server; nothing in this bare
+	// harness, so its universe retires with zero frames). Before C5 it faded
+	// toward 0 inside Rig Check's whole-universe claim — but 0 is not a
+	// fixture's resting value (a Pan would be driven to one end of travel and
+	// then jump back), so it no longer fades out. The fixture entering the
+	// scope still fades in from its start state.
 	sent := tr.TakeSent()
-	old, _ := lastFrame(t, sent, 0)
-	next, ok := lastFrame(t, sent, 1)
-	if !ok || old[9] != 255 || next[9] != 0 {
-		t.Fatalf("scope start old=%v new=%v", old, next)
+	old, ok := lastFrame(t, sent, 0)
+	next, ok2 := lastFrame(t, sent, 1)
+	if !ok || !ok2 || old[9] != 0 || next[9] != 0 {
+		t.Fatalf("scope change: old released to 0 (got %v, sent %v), new starts at 0 (got %v)", old[9], ok, next[9])
 	}
 	clock.Advance(time.Second)
 	sent = tr.TakeSent()
-	old, _ = lastFrame(t, sent, 0)
+	if _, stillSent := lastFrame(t, sent, 0); stillSent {
+		t.Fatal("the released universe is still being transmitted")
+	}
 	next, ok = lastFrame(t, sent, 1)
-	if !ok || old[9] != 0 || next[9] != 255 {
-		t.Fatal("scope did not retire old fixture and start new universe")
+	if !ok || next[9] != 255 {
+		t.Fatal("scope did not fade the new fixture up")
 	}
 }
 
@@ -170,7 +180,7 @@ func TestPatternFadeDoesNotRestartOtherWaveforms(t *testing.T) {
 	}
 }
 
-func TestPatternFadeWatchdogAndSettingChanges(t *testing.T) {
+func TestPatternFadeSettingChanges(t *testing.T) {
 	rc, tr, clock := harness(t)
 	rc.SetPatternFade(10 * time.Second)
 	rc.StartPattern([]Entry{dimmerEntry("a", 0)}, PatternSpec{Kind: PatternDimmerToggle, Params: PatternParams{On: true}})
@@ -185,13 +195,6 @@ func TestPatternFadeWatchdogAndSettingChanges(t *testing.T) {
 	clock.Advance(time.Second)
 	if got := fadeFrame(t, tr, 0)[9]; got != 51 {
 		t.Fatalf("duration change restarted current transition: %d", got)
-	}
-	clock.Advance(5 * time.Second)
-	if got := fadeFrame(t, tr, 0)[9]; got != 0 {
-		t.Fatalf("watchdog faded instead of blacking out: %d", got)
-	}
-	if st := rc.PatternStatus(); st.OutputEnabled || st.LastEndReason != "watchdog" {
-		t.Fatalf("%+v", st)
 	}
 }
 

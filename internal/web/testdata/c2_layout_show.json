@@ -1,0 +1,1637 @@
+{
+  "workspace": {
+    "groups": [],
+    "presets": [],
+    "baselines": [],
+    "layout": {
+      "derived": true,
+      "cellMm": 2000,
+      "zGapMm": 800,
+      "originXMm": -6670.87305,
+      "originYMm": 1865.55334,
+      "layers": [
+        {
+          "id": "ly1791375552268758132-1",
+          "name": "Manual",
+          "zKnown": false,
+          "zMin": 0,
+          "zMax": 0,
+          "order": 0
+        },
+        {
+          "id": "ly1791375552274642255-3",
+          "name": "Height 1053 mm",
+          "zKnown": true,
+          "zMin": 1053.27075,
+          "zMax": 1053.27075,
+          "order": 1
+        },
+        {
+          "id": "ly1791375552274645236-4",
+          "name": "Height 5565–5857 mm",
+          "zKnown": true,
+          "zMin": 5565.0166,
+          "zMax": 5856.77441,
+          "order": 2
+        },
+        {
+          "id": "ly1791375552274646784-5",
+          "name": "Height 7660–7813 mm",
+          "zKnown": true,
+          "zMin": 7660.03125,
+          "zMax": 7812.87549,
+          "order": 3
+        }
+      ],
+      "items": [
+        {
+          "id": "pl1791375552271863751-2",
+          "kind": "entry",
+          "ref": "e1791375552261777731-2",
+          "layer": "ly1791375552268758132-1",
+          "col": 5,
+          "row": 5,
+          "w": 1,
+          "h": 1,
+          "rot": 0
+        },
+        {
+          "id": "pl1791375552274649095-6",
+          "kind": "entry",
+          "ref": "e1791375552261770179-1",
+          "layer": "ly1791375552274645236-4",
+          "col": 0,
+          "row": 1,
+          "w": 1,
+          "h": 1,
+          "rot": 0
+        },
+        {
+          "id": "pl1791375552274650059-7",
+          "kind": "entry",
+          "ref": "e1791375552261778386-3",
+          "layer": "ly1791375552274645236-4",
+          "col": 7,
+          "row": 1,
+          "w": 1,
+          "h": 1,
+          "rot": 0
+        },
+        {
+          "id": "pl1791375552274651049-8",
+          "kind": "entry",
+          "ref": "e1791375552261778932-4",
+          "layer": "ly1791375552274642255-3",
+          "col": 2,
+          "row": 1,
+          "w": 1,
+          "h": 1,
+          "rot": 0
+        },
+        {
+          "id": "pl1791375552274653930-9",
+          "kind": "entry",
+          "ref": "e1791375552261780785-5",
+          "layer": "ly1791375552274642255-3",
+          "col": 3,
+          "row": 1,
+          "w": 1,
+          "h": 1,
+          "rot": 0
+        },
+        {
+          "id": "pl1791375552274654868-10",
+          "kind": "entry",
+          "ref": "e1791375552261781230-6",
+          "layer": "ly1791375552274645236-4",
+          "col": 2,
+          "row": 0,
+          "w": 1,
+          "h": 1,
+          "rot": 0
+        },
+        {
+          "id": "pl1791375552274657021-11",
+          "kind": "entry",
+          "ref": "e1791375552261781665-7",
+          "layer": "ly1791375552274645236-4",
+          "col": 1,
+          "row": 0,
+          "w": 1,
+          "h": 1,
+          "rot": 0
+        },
+        {
+          "id": "pl1791375552274657624-12",
+          "kind": "entry",
+          "ref": "e1791375552261783307-8",
+          "layer": "ly1791375552274646784-5",
+          "col": 7,
+          "row": 3,
+          "w": 1,
+          "h": 1,
+          "rot": 0
+        },
+        {
+          "id": "pl1791375552274659277-13",
+          "kind": "entry",
+          "ref": "e1791375552261783869-9",
+          "layer": "ly1791375552274646784-5",
+          "col": 7,
+          "row": 2,
+          "w": 1,
+          "h": 1,
+          "rot": 0
+        }
+      ]
+    }
+  },
+  "schemaVersion": 7,
+  "name": "Imported",
+  "createdAt": "2026-10-07T08:19:12.261784882-04:00",
+  "modifiedAt": "2026-10-07T08:19:12.274671564-04:00",
+  "entries": [
+    {
+      "id": "e1791375552261770179-1",
+      "name": "Alpha Spot QWO 800",
+      "fixtureType": "Alpha Spot QWO 800",
+      "mode": "Standard [Lamp Dmx] [Color Mixing=Cmy]",
+      "footprint": 0,
+      "universe": 1,
+      "startAddress": 1,
+      "position": "Truss Lights",
+      "fixtureNumber": "11",
+      "notes": "Fixture \"Alpha Spot QWO 800\": GDTF file \"Clay Paky@Alpha Spot QWO 800@r3048.gdtf\" not found in archive",
+      "intended": {
+        "personality": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "dimmerCurve": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "tiltInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panTiltSwap": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "deviceLabel": {
+          "known": false,
+          "value": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        }
+      },
+      "asFound": {
+        "uid": "",
+        "readAt": "0001-01-01T00:00:00Z",
+        "universe": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "startAddress": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "footprint": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "personality": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "dimmerCurve": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "tiltInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panTiltSwap": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "deviceLabel": {
+          "known": false,
+          "value": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        }
+      },
+      "channelFunctions": {},
+      "wheels": [],
+      "wheelsKnown": false,
+      "phaseCount": 0,
+      "location": {
+        "known": true,
+        "x": -6670.87305,
+        "y": -890.867859,
+        "z": 5565.0166,
+        "rotationKnown": true,
+        "rotX": 0,
+        "rotY": -89.99999006188595,
+        "rotZ": -8.505256118888579e-7
+      }
+    },
+    {
+      "id": "e1791375552261777731-2",
+      "name": "Alpha Spot QWO 800",
+      "fixtureType": "Alpha Spot QWO 800",
+      "mode": "Standard [Lamp Dmx] [Color Mixing=Cmy]",
+      "footprint": 0,
+      "universe": 1,
+      "startAddress": 33,
+      "position": "Truss Lights",
+      "fixtureNumber": "12",
+      "notes": "Fixture \"Alpha Spot QWO 800\": GDTF file \"Clay Paky@Alpha Spot QWO 800@r3048.gdtf\" not found in archive",
+      "intended": {
+        "personality": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "dimmerCurve": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "tiltInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panTiltSwap": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "deviceLabel": {
+          "known": false,
+          "value": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        }
+      },
+      "asFound": {
+        "uid": "",
+        "readAt": "0001-01-01T00:00:00Z",
+        "universe": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "startAddress": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "footprint": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "personality": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "dimmerCurve": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "tiltInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panTiltSwap": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "deviceLabel": {
+          "known": false,
+          "value": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        }
+      },
+      "channelFunctions": {},
+      "wheels": [],
+      "wheelsKnown": false,
+      "phaseCount": 0,
+      "location": {
+        "known": true,
+        "x": -6670.87305,
+        "y": -890.867859,
+        "z": 4565.0166,
+        "rotationKnown": true,
+        "rotX": 0,
+        "rotY": -89.99999006188595,
+        "rotZ": -8.505256118888579e-7
+      }
+    },
+    {
+      "id": "e1791375552261778386-3",
+      "name": "Alpha Spot QWO 800",
+      "fixtureType": "Alpha Spot QWO 800",
+      "mode": "Standard [Lamp Dmx] [Color Mixing=Cmy]",
+      "footprint": 0,
+      "universe": 1,
+      "startAddress": 161,
+      "position": "Truss Lights",
+      "fixtureNumber": "16",
+      "notes": "Fixture \"Alpha Spot QWO 800\": GDTF file \"Clay Paky@Alpha Spot QWO 800@r3048.gdtf\" not found in archive",
+      "intended": {
+        "personality": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "dimmerCurve": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "tiltInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panTiltSwap": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "deviceLabel": {
+          "known": false,
+          "value": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        }
+      },
+      "asFound": {
+        "uid": "",
+        "readAt": "0001-01-01T00:00:00Z",
+        "universe": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "startAddress": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "footprint": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "personality": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "dimmerCurve": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "tiltInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panTiltSwap": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "deviceLabel": {
+          "known": false,
+          "value": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        }
+      },
+      "channelFunctions": {},
+      "wheels": [],
+      "wheelsKnown": false,
+      "phaseCount": 0,
+      "location": {
+        "known": true,
+        "x": 6720.64404,
+        "y": -890.868164,
+        "z": 5565.0166,
+        "rotationKnown": true,
+        "rotX": 0,
+        "rotY": 89.99999500003757,
+        "rotZ": 0.000005187968083037329
+      }
+    },
+    {
+      "id": "e1791375552261778932-4",
+      "name": "ALC4",
+      "fixtureType": "ALC4",
+      "mode": "Standard [CT Mode=7 Step Preset]",
+      "footprint": 0,
+      "universe": 0,
+      "startAddress": 201,
+      "position": "Floor Lights",
+      "fixtureNumber": "21",
+      "notes": "Fixture \"ALC4\": GDTF file \"ADB@ALC4@r3012.gdtf\" not found in archive",
+      "intended": {
+        "personality": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "dimmerCurve": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "tiltInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panTiltSwap": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "deviceLabel": {
+          "known": false,
+          "value": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        }
+      },
+      "asFound": {
+        "uid": "",
+        "readAt": "0001-01-01T00:00:00Z",
+        "universe": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "startAddress": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "footprint": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "personality": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "dimmerCurve": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "tiltInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panTiltSwap": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "deviceLabel": {
+          "known": false,
+          "value": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        }
+      },
+      "channelFunctions": {},
+      "wheels": [],
+      "wheelsKnown": false,
+      "phaseCount": 0,
+      "location": {
+        "known": true,
+        "x": -3373.78198,
+        "y": 90.8989639,
+        "z": 1053.27075,
+        "rotationKnown": true,
+        "rotX": 120.5613936927765,
+        "rotY": 0,
+        "rotZ": 0
+      }
+    },
+    {
+      "id": "e1791375552261780785-5",
+      "name": "ALC4",
+      "fixtureType": "ALC4",
+      "mode": "Standard [CT Mode=7 Step Preset]",
+      "footprint": 0,
+      "universe": 0,
+      "startAddress": 206,
+      "position": "Floor Lights",
+      "fixtureNumber": "22",
+      "notes": "Fixture \"ALC4\": GDTF file \"ADB@ALC4@r3012.gdtf\" not found in archive",
+      "intended": {
+        "personality": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "dimmerCurve": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "tiltInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panTiltSwap": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "deviceLabel": {
+          "known": false,
+          "value": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        }
+      },
+      "asFound": {
+        "uid": "",
+        "readAt": "0001-01-01T00:00:00Z",
+        "universe": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "startAddress": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "footprint": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "personality": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "dimmerCurve": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "tiltInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panTiltSwap": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "deviceLabel": {
+          "known": false,
+          "value": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        }
+      },
+      "channelFunctions": {},
+      "wheels": [],
+      "wheelsKnown": false,
+      "phaseCount": 0,
+      "location": {
+        "known": true,
+        "x": -2373.78198,
+        "y": 90.8989639,
+        "z": 1053.27075,
+        "rotationKnown": true,
+        "rotX": 120.5613936927765,
+        "rotY": 0,
+        "rotZ": 0
+      }
+    },
+    {
+      "id": "e1791375552261781230-6",
+      "name": "A.leda Wash K20",
+      "fixtureType": "A.leda Wash K20",
+      "mode": "Standard",
+      "footprint": 0,
+      "universe": 0,
+      "startAddress": 1,
+      "fixtureNumber": "1",
+      "notes": "Fixture \"A.leda Wash K20\": GDTF file \"Clay Paky@A.leda Wash K20@r3044.gdtf\" not found in archive",
+      "intended": {
+        "personality": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "dimmerCurve": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "tiltInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panTiltSwap": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "deviceLabel": {
+          "known": false,
+          "value": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        }
+      },
+      "asFound": {
+        "uid": "",
+        "readAt": "0001-01-01T00:00:00Z",
+        "universe": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "startAddress": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "footprint": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "personality": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "dimmerCurve": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "tiltInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panTiltSwap": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "deviceLabel": {
+          "known": false,
+          "value": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        }
+      },
+      "channelFunctions": {},
+      "wheels": [],
+      "wheelsKnown": false,
+      "phaseCount": 0,
+      "location": {
+        "known": true,
+        "x": -3531.79517,
+        "y": 1361.95911,
+        "z": 5856.77441,
+        "rotationKnown": true,
+        "rotX": 0,
+        "rotY": 0,
+        "rotZ": -69.80887210444453
+      }
+    },
+    {
+      "id": "e1791375552261781665-7",
+      "name": "A.leda Wash K20",
+      "fixtureType": "A.leda Wash K20",
+      "mode": "Standard",
+      "footprint": 0,
+      "universe": 0,
+      "startAddress": 21,
+      "fixtureNumber": "2",
+      "notes": "Fixture \"A.leda Wash K20\": GDTF file \"Clay Paky@A.leda Wash K20@r3044.gdtf\" not found in archive",
+      "intended": {
+        "personality": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "dimmerCurve": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "tiltInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panTiltSwap": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "deviceLabel": {
+          "known": false,
+          "value": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        }
+      },
+      "asFound": {
+        "uid": "",
+        "readAt": "0001-01-01T00:00:00Z",
+        "universe": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "startAddress": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "footprint": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "personality": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "dimmerCurve": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "tiltInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panTiltSwap": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "deviceLabel": {
+          "known": false,
+          "value": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        }
+      },
+      "channelFunctions": {},
+      "wheels": [],
+      "wheelsKnown": false,
+      "phaseCount": 0,
+      "location": {
+        "known": true,
+        "x": -2762.11108,
+        "y": 1865.55334,
+        "z": 5856.77441,
+        "rotationKnown": true,
+        "rotX": 0,
+        "rotY": 0,
+        "rotZ": -74.30876642229664
+      }
+    },
+    {
+      "id": "e1791375552261783307-8",
+      "name": "Robin MMX Spot",
+      "fixtureType": "Robin MMX Spot",
+      "mode": "1",
+      "footprint": 0,
+      "universe": 5,
+      "startAddress": 1,
+      "fixtureNumber": "47",
+      "notes": "Fixture \"Robin MMX Spot\": GDTF file \"Robe@Robin MMX Spot@r3046.gdtf\" not found in archive",
+      "intended": {
+        "personality": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "dimmerCurve": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "tiltInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panTiltSwap": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "deviceLabel": {
+          "known": false,
+          "value": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        }
+      },
+      "asFound": {
+        "uid": "",
+        "readAt": "0001-01-01T00:00:00Z",
+        "universe": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "startAddress": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "footprint": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "personality": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "dimmerCurve": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "tiltInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panTiltSwap": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "deviceLabel": {
+          "known": false,
+          "value": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        }
+      },
+      "channelFunctions": {},
+      "wheels": [],
+      "wheelsKnown": false,
+      "phaseCount": 0,
+      "location": {
+        "known": true,
+        "x": 6611.44922,
+        "y": -3391.25732,
+        "z": 7812.87549,
+        "rotationKnown": true,
+        "rotX": 14.999996521546608,
+        "rotY": -0.000002387208574627779,
+        "rotZ": -134.99999035761616
+      }
+    },
+    {
+      "id": "e1791375552261783869-9",
+      "name": "Robin MMX WashBeam",
+      "fixtureType": "Robin MMX WashBeam",
+      "mode": "1",
+      "footprint": 0,
+      "universe": 5,
+      "startAddress": 229,
+      "fixtureNumber": "71",
+      "notes": "Fixture \"Robin MMX WashBeam\": GDTF file \"Robe@Robin MMX WashBeam@r3039.gdtf\" not found in archive",
+      "intended": {
+        "personality": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "dimmerCurve": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "tiltInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panTiltSwap": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "deviceLabel": {
+          "known": false,
+          "value": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        }
+      },
+      "asFound": {
+        "uid": "",
+        "readAt": "0001-01-01T00:00:00Z",
+        "universe": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "startAddress": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "footprint": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "personality": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "dimmerCurve": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "tiltInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panTiltSwap": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "deviceLabel": {
+          "known": false,
+          "value": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        }
+      },
+      "channelFunctions": {},
+      "wheels": [],
+      "wheelsKnown": false,
+      "phaseCount": 0,
+      "location": {
+        "known": true,
+        "x": 6377.80078,
+        "y": -2818.1936,
+        "z": 7660.03125,
+        "rotationKnown": true,
+        "rotX": 14.999996521546608,
+        "rotY": -0.000002387208574627779,
+        "rotZ": -134.99999035761616
+      }
+    },
+    {
+      "id": "e1791375552266565225-10",
+      "name": "Desk Par",
+      "footprint": 4,
+      "universe": 0,
+      "startAddress": 400,
+      "fixtureNumber": "99",
+      "intended": {
+        "personality": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "dimmerCurve": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "tiltInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panTiltSwap": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "deviceLabel": {
+          "known": false,
+          "value": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        }
+      },
+      "asFound": {
+        "uid": "",
+        "readAt": "0001-01-01T00:00:00Z",
+        "universe": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "startAddress": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "footprint": {
+          "known": false,
+          "value": 0,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "personality": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "dimmerCurve": {
+          "known": false,
+          "value": 0,
+          "count": 0,
+          "countKnown": false,
+          "label": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "tiltInvert": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "panTiltSwap": {
+          "known": false,
+          "value": false,
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        },
+        "deviceLabel": {
+          "known": false,
+          "value": "",
+          "at": "0001-01-01T00:00:00Z",
+          "err": "",
+          "state": "unknown"
+        }
+      },
+      "channelFunctions": {},
+      "wheels": [],
+      "wheelsKnown": false,
+      "phaseCount": 0,
+      "location": {
+        "known": false,
+        "x": 0,
+        "y": 0,
+        "z": 0,
+        "rotationKnown": false,
+        "rotX": 0,
+        "rotY": 0,
+        "rotZ": 0
+      }
+    }
+  ]
+}

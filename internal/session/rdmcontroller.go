@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"sort"
 	"sync"
 	"time"
 
@@ -55,9 +56,21 @@ type TimeoutProfile struct {
 
 // ProfileDirect is for responders on a wired DMX/RDM run behind an Art-Net
 // gateway (Netron EN4 direct).
+//
+// ResponseTimeout is 500 ms (owner decision, 2026-10-06), down from 1.5 s.
+// Across 6,754 matched request/reply pairs in bench captures RDM-LOG2 to
+// RDM-LOG36 — the CRMX/wireless logs LOG2-LOG4 and LOG13 included — the
+// slowest reply to a FIRST attempt took 96 ms (p50 31 ms, p99 about 63 ms).
+// Every reply later than about 100 ms arrived 10-70 ms after a
+// RETRANSMISSION: the first packet was lost, the device was not slow. So
+// 500 ms is about five times the worst measured answer, and the retries stay
+// at two because they are what recovers those lost packets (about 100 cases).
+// An unanswered command now costs 1.5 s instead of 4.5 s — the figure that,
+// in RDM-LOG36, let one dead fixture hold its whole node port. No code calls
+// SetNodeProfile, so this is the profile every rig, wired or CRMX, runs.
 var ProfileDirect = TimeoutProfile{
 	Name:            "Direct",
-	ResponseTimeout: 1500 * time.Millisecond,
+	ResponseTimeout: 500 * time.Millisecond,
 	Retries:         2,
 	MaxAckTimer:     10 * time.Second,
 	CommandDeadline: 15 * time.Second,
@@ -336,6 +349,11 @@ type Command struct {
 	finished      bool
 	finalResult   Result
 	messageCount  byte
+	// responses counts response packets of any kind matched to this command
+	// (ACK, ACK_TIMER, ACK_OVERFLOW block, NACK including PROXY_BUFFER_FULL).
+	// Zero at a timeout is what makes the timeout SILENT — see
+	// silentTimeout in rdmproxy.go.
+	responses int
 
 	// answerPID is the Parameter ID every response to this command must
 	// carry. For all but one PID it is simply req.PID and never changes.
@@ -513,6 +531,10 @@ const (
 	// dropped. Nothing is ever attributed to a waiting command on the
 	// strength of this event; see collectRoutesToLocked.
 	EventQueuedMessageCollected
+	// EventNodeFault fires for every inbound ArtRdm datagram whose RDM
+	// message failed to decode. From and Detail carry the sender and the
+	// decoder's error. See NodeFault.
+	EventNodeFault
 )
 
 // String renders the event kind.
@@ -528,6 +550,8 @@ func (k EventKind) String() string {
 		return "queued-messages"
 	case EventQueuedMessageCollected:
 		return "queued-message-collected"
+	case EventNodeFault:
+		return "node-fault"
 	default:
 		return "unknown"
 	}
@@ -551,7 +575,24 @@ type Event struct {
 	// parameter the responder chose to deliver, and its payload.
 	QueuedPID  rdm.ParameterID
 	QueuedData []byte
-	At         time.Time
+	// From and Detail are set for EventNodeFault: the node IP that sent a
+	// malformed ArtRdm datagram, and the decoder's error text.
+	From   netip.Addr
+	Detail string
+	At     time.Time
+}
+
+// NodeFault summarises the malformed ArtRdm datagrams one node IP has sent
+// this session: Art-Net framing decoded as ArtRdm, but the RDM message it
+// carried did not (bad checksum, impossible length, truncated). That is the
+// node's own fault — a fixture's bad answer arrives inside a well-formed
+// RDM frame or not at all.
+type NodeFault struct {
+	IP        netip.Addr
+	Malformed uint64
+	First     time.Time
+	Last      time.Time
+	LastError string
 }
 
 // RDMStats are cheap counters for the diagnostics screen.
@@ -597,6 +638,13 @@ type RDMStats struct {
 	AckTimerReissues uint64
 	// AckTimerCollectors counts devices observed to serve QUEUED_MESSAGE.
 	AckTimerCollectors uint64
+	// ForeignResponses counts RDM responses whose Destination UID is not this
+	// controller's UID — another controller's traffic on the same network
+	// (RDM-LOG36: 2.11.52.172). They are never matched to our commands.
+	ForeignResponses uint64
+	// MalformedRDM counts ArtRdm datagrams whose RDM message failed to
+	// decode — node faults, see NodeFaults.
+	MalformedRDM uint64
 }
 
 // RDMController is the RDM-over-Art-Net client state machine (architecture
@@ -620,6 +668,14 @@ type RDMController struct {
 	// device has never been refused — the state every directly-wired device
 	// stays in for the whole life of the process.
 	devices map[deviceKey]*deviceHealth
+	// links carries, per node port, the evidence that the link itself is
+	// alive: a count of commands answered (ACK or NACK) and who answered
+	// last. It is what lets a device's silence be told apart from the whole
+	// port's (rdmproxy.go, SilenceBreakerTrip).
+	links map[linkKey]*linkEvidence
+	// nodeFaults records, per node IP, ArtRdm datagrams whose RDM payload
+	// would not decode (HandleInbound).
+	nodeFaults map[netip.Addr]*NodeFault
 	// drains carries the in-flight GET QUEUED_MESSAGE drain, at most one
 	// per device, so an automatic drain and a caller-driven one cannot
 	// interleave and consume each other's queued messages (rdmqueued.go).
@@ -687,12 +743,54 @@ func NewRDMController(cfg RDMConfig) *RDMController {
 		tod:          make(map[todKey]*todEntry),
 		discoveries:  make(map[todKey]*Discovery),
 		todNodes:     make(map[todKey]NodeRef),
+		links:        make(map[linkKey]*linkEvidence),
+		nodeFaults:   make(map[netip.Addr]*NodeFault),
 		events:       make(chan Event, cfg.EventBuffer),
 	}
 }
 
 // Events is the controller's event stream (ToD updates, command lifecycle).
 func (c *RDMController) Events() <-chan Event { return c.events }
+
+// NodeFaults reports every node IP that has sent at least one malformed
+// ArtRdm datagram this session, sorted by IP. Never nil.
+func (c *RDMController) NodeFaults() []NodeFault {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]NodeFault, 0, len(c.nodeFaults))
+	for _, f := range c.nodeFaults {
+		out = append(out, *f)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].IP.Less(out[j].IP) })
+	return out
+}
+
+// noteNodeFault records one ArtRdm datagram whose RDM message would not
+// decode. RDM-LOG36 caught the shape: at 15:22:10 node 2.11.90.6 sent four
+// 239-byte datagrams with the ArtRdm opcode (0x8300) whose body was
+// ArtPollReply content ("Port 1".."Port 4", NodeReport "#0001 [2186]
+// RcPowerOk"), which the RDM decoder rejects with a checksum mismatch. That
+// is the node mis-framing its own traffic, not a fixture answering badly, so
+// it is recorded against the node rather than silently dropped.
+func (c *RDMController) noteNodeFault(from netip.AddrPort, err error) {
+	ip := from.Addr()
+	if ip.Is4In6() {
+		ip = ip.Unmap()
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := c.cfg.Clock.Now()
+	c.stats.MalformedRDM++
+	f := c.nodeFaults[ip]
+	if f == nil {
+		f = &NodeFault{IP: ip, First: now}
+		c.nodeFaults[ip] = f
+	}
+	f.Malformed++
+	f.Last = now
+	f.LastError = err.Error()
+	c.emitLocked(Event{Kind: EventNodeFault, From: ip, Detail: f.LastError, At: now})
+}
 
 // Stats returns a snapshot of the counters.
 func (c *RDMController) Stats() RDMStats {
@@ -717,6 +815,8 @@ func (c *RDMController) Stop() {
 		return
 	}
 	c.stopped = true
+	// No automatic silence probe may outlive the controller.
+	c.stopSilenceProbesLocked()
 	// Retire drain passes before their commands are aborted, so a waiter
 	// gets one ErrControllerStopped rather than a partial pass that then
 	// tries to schedule another step.
@@ -1017,6 +1117,11 @@ func (c *RDMController) HandleInbound(in Inbound) {
 	case artnet.KindRdm:
 		msg, err := pkt.Rdm.DecodedRDMMessage()
 		if err != nil {
+			// Art-Net framing said ArtRdm but the RDM message inside is
+			// broken: the node's fault, flagged rather than dropped. Only
+			// this case counts — a datagram that is not valid Art-Net at all
+			// returned above and is nobody's fault we can name.
+			c.noteNodeFault(in.From, err)
 			return
 		}
 		c.HandleRDMResponse(msg)
@@ -1033,6 +1138,22 @@ func (c *RDMController) HandleRDMResponse(msg rdm.Message) {
 	if !msg.CommandClass.IsResponse() {
 		return
 	}
+	// A response is addressed to the controller that asked (E1.20 response
+	// addressing; section number not verified here), so one whose
+	// Destination UID is not ours is another controller's and must never be
+	// matched against our commands. Matching below uses TN + source UID +
+	// command class only, and RDM-LOG36 shows those can collide: a second
+	// controller (2.11.52.172, UID 4E41:AD35000F) produced 11 responses
+	// addressed to 4D50:00115938, and the one at 15:07:12.003 carried TN 9,
+	// src 4D50:00115938, GET_COMMAND_RESPONSE — the exact key of our own
+	// TN 9 GET DEVICE_INFO to that UID sent at 15:06:23.388, which had only
+	// just timed out. Across every capture LOG2-LOG36 (8,247 controller
+	// packets) every response meant for us carries dst=7FF0:00000001; these
+	// 11 are the only exceptions.
+	if msg.DestinationUID != c.cfg.ControllerUID {
+		c.stats.ForeignResponses++
+		return
+	}
 	c.stats.Responses++
 
 	cmd := c.inflightByTN[msg.TransactionNumber]
@@ -1045,6 +1166,7 @@ func (c *RDMController) HandleRDMResponse(msg rdm.Message) {
 		c.stats.StrayResponses++
 		return
 	}
+	cmd.responses++
 
 	rt, _ := msg.ResponseType()
 	cmd.messageCount = msg.MessageCount
@@ -1265,6 +1387,7 @@ func (c *RDMController) finishLocked(cmd *Command, kind ResultKind, err error) {
 		return
 	}
 	c.releaseTNLocked(cmd)
+	silent := false
 	switch kind {
 	case ResultAck, ResultNack:
 		// The device answered for real, so its proxy found room and
@@ -1273,15 +1396,26 @@ func (c *RDMController) finishLocked(cmd *Command, kind ResultKind, err error) {
 		c.noteDeviceRespondedLocked(cmd.req)
 	case ResultProxyBufferFull:
 		c.noteProxyRefusalLocked(cmd.req, c.cfg.Clock.Now())
+	case ResultTimeout:
+		// Only a timeout that drew no response packet at all is evidence
+		// about the device, and even then only when the link is shown to be
+		// alive around it — see SilenceBreakerTrip.
+		if silent = silentTimeout(cmd); silent {
+			c.noteSilenceLocked(cmd.req, c.cfg.Clock.Now())
+		}
 	}
-	// Every other outcome — timeout, deadline, abort — deliberately leaves
-	// the breaker's state alone. See ProxyBreakerTrip for why silence must
-	// not be read as a statement about any one device.
+	// Every other outcome — deadline, abort, a timeout after some response —
+	// deliberately leaves the breaker's state alone.
 	if owner, ok := c.overflowUID[cmd.req.UID]; ok && owner == cmd {
 		delete(c.overflowUID, cmd.req.UID)
 	}
 	if q := c.queues[cmd.qkey]; q != nil && q.inflight == cmd {
 		q.inflight = nil
+		if silent {
+			// Owner decision (2026-10-06): a fixture that stops answering
+			// goes to the end of the queue and the port moves on.
+			requeueBehind(q, cmd.req.UID, c.overflowUID)
+		}
 	}
 	c.completeLocked(cmd, kind, err)
 	c.pumpLocked()

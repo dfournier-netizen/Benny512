@@ -83,10 +83,10 @@ func TestEachScreenUsesItsOwnNumbering(t *testing.T) {
 			why:     "a patch sheet says universe 1; the operator should not have to translate",
 		},
 		{
-			file:    "rigcheck.js",
-			wants:   []string{"formatUser"},
+			file:    "console-tools.js",
+			wants:   []string{"formatUser", "parseUser"},
 			forbids: []string{"formatArtnet"},
-			why:     "Rig Check and Function check are operator screens, scoped the way Patch is",
+			why:     "the Console's raw universe levels (the Send screen until C7) are worked in the show's numbering, like Patch",
 		},
 		{
 			file:    "walk.js",
@@ -120,8 +120,8 @@ func TestEachScreenUsesItsOwnNumbering(t *testing.T) {
 	// And the ambiguous old API is gone everywhere, not merely unused in the
 	// screens above: while the name exists, a new screen can reach for it.
 	for _, name := range []string{
-		"ui.js", "nodes.js", "analyzer.js", "patch.js", "rigcheck.js", "walk.js",
-		"devices.js", "devicedetail.js", "send.js", "reconcile.js", "settings.js",
+		"ui.js", "nodes.js", "analyzer.js", "patch.js", "console-tests.js", "walk.js",
+		"devices.js", "devicedetail.js", "console-tools.js", "reconcile.js", "settings.js",
 		"library.js", "workspace.js", "app.js",
 	} {
 		src := read(name)

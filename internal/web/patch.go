@@ -27,26 +27,15 @@
 //	POST   /api/patch/reconcile/fix-all           <- fixAllRequest        -> fixAllResponse (confirm:false = preview only, never applies)
 //	POST   /api/patch/adopt                       <- adoptRequest         -> patchResponse
 //	POST   /api/patch/import                      <- importRequest       -> patchResponse
+//	POST   /api/patch/locations                   <- locationsRequest    -> locationsResponse (patchimport.go: re-imported MVR positions for named entries)
+//	GET    /api/patch/layout                      -> layoutResponse (layout.go: Console-lite grid)
+//	POST   /api/patch/layout/{action}             <- per-action body     -> layoutResponse + result
 //	GET    /api/patch/export?format=json|txt      -> file download
 //	GET    /api/patch/reconcile/export?format=json|txt -> file download
-//	GET    /api/patch/rigcheck                    -> rigCheckStateJSON
-//	POST   /api/patch/rigcheck/start              <- rigCheckStartRequest -> rigCheckStateJSON
-//	POST   /api/patch/rigcheck/stop               -> rigCheckStateJSON
-//	POST   /api/patch/rigcheck/blackout           -> rigCheckStateJSON
-//	POST   /api/patch/rigcheck/next               -> rigCheckStateJSON
-//	POST   /api/patch/rigcheck/previous           -> rigCheckStateJSON
-//	POST   /api/patch/rigcheck/jump               <- rigCheckJumpRequest  -> rigCheckStateJSON
-//	POST   /api/patch/rigcheck/mode               <- rigCheckModeRequest  -> rigCheckStateJSON
-//	POST   /api/patch/rigcheck/level              <- rigCheckLevelRequest -> rigCheckStateJSON
-//	POST   /api/patch/rigcheck/channel            <- rigCheckChannelRequest -> rigCheckStateJSON
-//	POST   /api/patch/rigcheck/pattern/start      <- patternStartRequest  -> patternStatusJSON (stage 2 test-pattern engine — see internal/patch/testpattern.go)
-//	POST   /api/patch/rigcheck/pattern/adjust     <- patternAdjustRequest -> patternStatusJSON
-//	POST   /api/patch/rigcheck/pattern/tests      <- patternTestsRequest   -> patternStatusJSON (whole-selection apply)
-//	POST   /api/patch/rigcheck/pattern/select     <- patternSelectRequest  -> patternStatusJSON (toggle ONE test)
-//	POST   /api/patch/rigcheck/pattern/scope      <- patternScopeRequest   -> patternStatusJSON
-//	POST   /api/patch/rigcheck/pattern/isolate    <- patternIsolateRequest -> patternStatusJSON
-//	POST   /api/patch/rigcheck/pattern/output     <- patternOutputRequest  -> patternStatusJSON (start/stop output only)
-//	GET    /api/patch/rigcheck/pattern            -> patternStatusJSON (also the pattern's client-liveness watchdog heartbeat — see its section below)
+//
+//	(The Rig Check routes /api/patch/rigcheck/* were retired in C7 with the
+//	Patch screen's Rig Check view; the Console's Tests panel drives the same
+//	engine through /api/tests, tests.go.)
 package web
 
 import (
@@ -65,7 +54,6 @@ import (
 	"benny512/internal/params"
 	"benny512/internal/patch"
 	"benny512/internal/rdm"
-	"benny512/internal/sacn"
 )
 
 // --- patch CRUD --------------------------------------------------------
@@ -181,6 +169,23 @@ type entryRequest struct {
 	Notes         string  `json:"notes"`
 
 	ChannelFunctions map[string]channelFunctionRequest `json:"channelFunctions"`
+
+	// Wheels/WheelsKnown travel with ChannelFunctions as one profile (schema
+	// v6): the GDTF importers send both, a plain field edit sends neither,
+	// and handleUpdatePatchEntry preserves both together. The value types
+	// are patch.Wheel/patch.WheelSlot themselves rather than mirrored
+	// request structs, so the wire shape cannot drift from the stored one;
+	// DisallowUnknownFields still applies to every nested key.
+	Wheels      []patch.Wheel `json:"wheels"`
+	WheelsKnown bool          `json:"wheelsKnown"`
+
+	// Location is the MVR world position (patch schema v7), sent by the MVR
+	// importer (mvrimport.js). A pointer because "absent" is a real state: a
+	// plain field edit sends none, and handleUpdatePatchEntry then keeps the
+	// stored one (same rule as channelFunctions). patch.Location itself is
+	// the wire type, so the shape cannot drift; DisallowUnknownFields applies
+	// to its keys and Validate refuses flags that disagree with the numbers.
+	Location *patch.Location `json:"location"`
 }
 
 // channelFunctionRequest is entryRequest.ChannelFunctions' value shape,
@@ -225,6 +230,15 @@ type channelFunctionRequest struct {
 
 	RDMSlotType  string `json:"rdmSlotType"`
 	RDMSlotLabel string `json:"rdmSlotLabel"`
+
+	// --- full channel detail (patch schema v6) ---------------------------
+	// Mirrors patch.ChannelFunction's ByteCount/ByteIndex/FunctionsKnown/
+	// Functions; see that struct for meaning and units. Functions uses
+	// patch.FunctionRange directly (see entryRequest.Wheels for why).
+	ByteCount      int                   `json:"byteCount"`
+	ByteIndex      int                   `json:"byteIndex"`
+	FunctionsKnown bool                  `json:"functionsKnown"`
+	Functions      []patch.FunctionRange `json:"functions"`
 }
 
 type channelSetRequest struct {
@@ -264,6 +278,15 @@ func channelFunctionsFromRequest(in map[string]channelFunctionRequest) (map[uint
 		if source != patch.SourceGDTF && source != patch.SourceRDMInferred {
 			return nil, errBadChannelFunctionSource
 		}
+		// functionsKnown is the only thing separating "these are all of
+		// this channel's functions" from "nobody imported them"; a body
+		// whose flag and list disagree is refused, not stored.
+		if cfr.FunctionsKnown && cfr.Functions == nil {
+			return nil, fmt.Errorf("channelFunctions %s: functionsKnown is true but functions is absent", offsetStr)
+		}
+		if !cfr.FunctionsKnown && len(cfr.Functions) > 0 {
+			return nil, fmt.Errorf("channelFunctions %s: functions sent with functionsKnown false", offsetStr)
+		}
 		sets := make([]patch.ChannelSet, 0, len(cfr.ChannelSets))
 		for _, cs := range cfr.ChannelSets {
 			sets = append(sets, patch.ChannelSet{
@@ -283,7 +306,10 @@ func channelFunctionsFromRequest(in map[string]channelFunctionRequest) (map[uint
 			HasDefault: cfr.HasDefault, Default: cfr.Default, DefaultByteCount: cfr.DefaultByteCount,
 			HasHighlight: cfr.HasHighlight, Highlight: cfr.Highlight, HighlightByteCount: cfr.HighlightByteCount,
 			RDMSlotType: cfr.RDMSlotType, RDMSlotLabel: cfr.RDMSlotLabel,
+			ByteCount: cfr.ByteCount, ByteIndex: cfr.ByteIndex,
+			FunctionsKnown: cfr.FunctionsKnown, Functions: cfr.Functions,
 		}
+		out[uint16(offset)] = patch.CloneChannelFunction(out[uint16(offset)])
 	}
 	return out, nil
 }
@@ -351,6 +377,12 @@ func (s *Server) handleUpdatePatchEntry(w http.ResponseWriter, r *http.Request) 
 		// below.
 		if len(req.ChannelFunctions) == 0 {
 			entry.ChannelFunctions = pp.Entries[idx].ChannelFunctions
+			// Wheels are part of the same profile (schema v6).
+			entry.Wheels, entry.WheelsKnown = pp.Entries[idx].Wheels, pp.Entries[idx].WheelsKnown
+		}
+		// No location in the body = not being edited (schema v7).
+		if req.Location == nil {
+			entry.Location = pp.Entries[idx].Location
 		}
 		pp.Entries[idx] = entry
 		// A plain field edit (fixing a typo, adjusting Notes) must not
@@ -383,12 +415,24 @@ func entryFromRequest(id string, req entryRequest) (patch.Entry, error) {
 	if err != nil {
 		return patch.Entry{}, err
 	}
+	if !req.WheelsKnown && len(req.Wheels) > 0 {
+		return patch.Entry{}, fmt.Errorf("wheels sent with wheelsKnown false")
+	}
+	var loc patch.Location
+	if req.Location != nil {
+		if err := req.Location.Validate(); err != nil {
+			return patch.Entry{}, err
+		}
+		loc = *req.Location
+	}
 	return patch.Entry{
+		Location:   loc,
 		PhaseCount: phaseCount,
 		ID:         id, Name: req.Name, FixtureType: req.FixtureType, Mode: req.Mode,
 		Footprint: req.Footprint, Universe: req.Universe, StartAddress: req.StartAddress,
 		Position: req.Position, FixtureNumber: req.FixtureNumber, Notes: req.Notes,
 		ChannelFunctions: cf,
+		Wheels:           patch.CloneWheels(req.Wheels), WheelsKnown: req.WheelsKnown,
 	}, nil
 }
 
@@ -400,6 +444,8 @@ func (s *Server) handleDeletePatchEntry(w http.ResponseWriter, r *http.Request) 
 			return fmt.Errorf("unknown patch entry %q", id)
 		}
 		pp.Entries = append(pp.Entries[:idx], pp.Entries[idx+1:]...)
+		// Its layout placement goes with it, in the same write (layout.go).
+		dropLayoutRefs(pp, "entry", id)
 		return nil
 	})
 	if err != nil {
@@ -1088,123 +1134,6 @@ func writeReconcileExportText(w io.Writer, at time.Time, p patch.Patch, rep patc
 
 // --- rig check ---------------------------------------------------------
 
-type rigCheckStateJSON struct {
-	Running          bool   `json:"running"`
-	Mode             string `json:"mode,omitempty"`
-	Level            byte   `json:"level"`
-	EntryIndex       int    `json:"entryIndex"`
-	EntryCount       int    `json:"entryCount"`
-	CurrentEntryID   string `json:"currentEntryId,omitempty"`
-	CurrentEntryName string `json:"currentEntryName,omitempty"`
-	ChannelOffset    int    `json:"channelOffset"`
-	CurrentChannel   uint16 `json:"currentChannel,omitempty"`
-	// Protocol echoes the armed wire protocol back, following the same
-	// scope-echo convention the pattern endpoints use: the server, not an
-	// unverified browser-side guess, is the authority on what is armed.
-	// Always present — "artnet" is meaningful data, not a missing key.
-	Protocol string `json:"protocol"`
-}
-
-func (s *Server) buildRigCheckStateJSON() rigCheckStateJSON {
-	st := s.RigCheck.State()
-	out := rigCheckStateJSON{
-		Running: st.Running, Mode: string(st.Mode), Level: st.Level,
-		EntryIndex: st.EntryIndex, EntryCount: len(st.EntryIDs),
-		ChannelOffset: st.ChannelOffset, CurrentChannel: st.CurrentChannel,
-		Protocol: string(st.Protocol),
-	}
-	if st.EntryIndex >= 0 && st.EntryIndex < len(st.EntryIDs) {
-		out.CurrentEntryID = st.EntryIDs[st.EntryIndex]
-		if p, ok := s.PatchStore.Get(); ok {
-			if idx := p.IndexOf(out.CurrentEntryID); idx >= 0 {
-				out.CurrentEntryName = patch.EntryLabel(p.Entries[idx])
-			}
-		}
-	}
-	return out
-}
-
-func (s *Server) handleGetRigCheckState(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.buildRigCheckStateJSON())
-}
-
-type rigCheckStartRequest struct {
-	// ScopeKind: "" / "all" | "universe" | "position" | "selection" (task
-	// ask, item 4: "whole patch, one universe, or a selection"; "position"
-	// added for stage 2's test-pattern engine — task brief: "whole rig /
-	// one universe / one position / an explicit set of fixtures" — and
-	// shared here since it's equally meaningful for the classic
-	// channel-level walk).
-	ScopeKind   string   `json:"scopeKind"`
-	Universe    uint16   `json:"universe"`
-	Position    string   `json:"position"`
-	EntryIDs    []string `json:"entryIds"`
-	FixtureType string   `json:"fixtureType"`
-	Mode        string   `json:"mode"`
-	Level       byte     `json:"level"`
-	// Protocol selects the wire protocol this run transmits on: "artnet"
-	// (the default) or "sacn". ABSENT MEANS ARTNET, byte for byte the
-	// behaviour every client had before sACN existed — that is the whole
-	// backwards-compatibility contract. Any other value is a 400; it is
-	// never quietly treated as Art-Net, because a tech who asked for sACN
-	// and silently got Art-Net has no way to see that from the console.
-	Protocol string `json:"protocol"`
-}
-
-// rigCheckScopeEntries resolves ScopeKind into the ordered []patch.Entry
-// both the classic walk (handleRigCheckStart) and the stage 2 pattern
-// engine (handleRigCheckPatternStart) drive over — one scope-resolution
-// implementation so the two surfaces' "whole rig / one universe / one
-// position / a selection" options can never quietly diverge in meaning.
-func (s *Server) rigCheckScopeEntries(p patch.Patch, kind string, universe uint16, position string, entryIDs []string, fixtureType ...string) ([]patch.Entry, error) {
-	var out []patch.Entry
-	switch kind {
-	case "", "all":
-		out = append([]patch.Entry(nil), p.Entries...)
-	case "universe":
-		for _, e := range p.Entries {
-			if e.Universe == universe {
-				out = append(out, e)
-			}
-		}
-	case "position":
-		for _, e := range p.Entries {
-			if e.Position == position {
-				out = append(out, e)
-			}
-		}
-	case "selection":
-		want := make(map[string]bool, len(entryIDs))
-		for _, id := range entryIDs {
-			want[id] = true
-		}
-		for _, e := range p.Entries {
-			if want[e.ID] {
-				out = append(out, e)
-			}
-		}
-	case "fixtureType":
-		want := ""
-		if len(fixtureType) > 0 {
-			want = strings.TrimSpace(fixtureType[0])
-		}
-		if want == "" {
-			return nil, fmt.Errorf("fixtureType is required")
-		}
-		for _, e := range p.Entries {
-			if strings.TrimSpace(e.FixtureType) == want {
-				out = append(out, e)
-			}
-		}
-		if len(out) == 0 {
-			return nil, fmt.Errorf("fixtureType %q does not exist", want)
-		}
-	default:
-		return nil, fmt.Errorf("scopeKind must be all|universe|position|selection, got %q", kind)
-	}
-	return s.withRDMPhaseWeights(out), nil
-}
-
 // withRDMPhaseWeights adds runtime-only phase weights to entries committed
 // to fixtures whose root DEVICE_INFO reports sub-devices. A 16-cell fixture
 // therefore consumes 16 phase positions, while patch/reconcile counts and
@@ -1224,128 +1153,6 @@ func (s *Server) withRDMPhaseWeights(entries []patch.Entry) []patch.Entry {
 	return entries
 }
 
-func (s *Server) handleRigCheckStart(w http.ResponseWriter, r *http.Request) {
-	var req rigCheckStartRequest
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	p, ok := s.PatchStore.Get()
-	if !ok {
-		writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("no active patch"))
-		return
-	}
-	entries, err := s.rigCheckScopeEntries(p, req.ScopeKind, req.Universe, req.Position, req.EntryIDs)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	proto, err := patch.NormalizeProtocol(req.Protocol)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	if err := s.RigCheck.StartWithProtocol(entries, patch.Mode(req.Mode), req.Level, proto); err != nil {
-		writeRigCheckError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, s.buildRigCheckStateJSON())
-}
-
-func (s *Server) handleRigCheckStop(w http.ResponseWriter, r *http.Request) {
-	s.RigCheck.Stop()
-	writeJSON(w, http.StatusOK, s.buildRigCheckStateJSON())
-}
-
-func (s *Server) handleRigCheckBlackout(w http.ResponseWriter, r *http.Request) {
-	s.RigCheck.Blackout()
-	writeJSON(w, http.StatusOK, s.buildRigCheckStateJSON())
-}
-
-func (s *Server) handleRigCheckNext(w http.ResponseWriter, r *http.Request) {
-	if err := s.RigCheck.Next(); err != nil {
-		writeRigCheckError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, s.buildRigCheckStateJSON())
-}
-
-func (s *Server) handleRigCheckPrevious(w http.ResponseWriter, r *http.Request) {
-	if err := s.RigCheck.Previous(); err != nil {
-		writeRigCheckError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, s.buildRigCheckStateJSON())
-}
-
-type rigCheckJumpRequest struct {
-	Index int `json:"index"`
-}
-
-func (s *Server) handleRigCheckJump(w http.ResponseWriter, r *http.Request) {
-	var req rigCheckJumpRequest
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	if err := s.RigCheck.Jump(req.Index); err != nil {
-		writeRigCheckError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, s.buildRigCheckStateJSON())
-}
-
-type rigCheckModeRequest struct {
-	Mode string `json:"mode"`
-}
-
-func (s *Server) handleRigCheckMode(w http.ResponseWriter, r *http.Request) {
-	var req rigCheckModeRequest
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	if err := s.RigCheck.SetMode(patch.Mode(req.Mode)); err != nil {
-		writeRigCheckError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, s.buildRigCheckStateJSON())
-}
-
-type rigCheckLevelRequest struct {
-	Level byte `json:"level"`
-}
-
-func (s *Server) handleRigCheckLevel(w http.ResponseWriter, r *http.Request) {
-	var req rigCheckLevelRequest
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	if err := s.RigCheck.SetLevel(req.Level); err != nil {
-		writeRigCheckError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, s.buildRigCheckStateJSON())
-}
-
-type rigCheckChannelRequest struct {
-	Delta int `json:"delta"`
-}
-
-func (s *Server) handleRigCheckChannel(w http.ResponseWriter, r *http.Request) {
-	var req rigCheckChannelRequest
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	if err := s.RigCheck.StepChannel(req.Delta); err != nil {
-		writeRigCheckError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, s.buildRigCheckStateJSON())
-}
-
 func writeRigCheckError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, patch.ErrRigCheckNotRunning), errors.Is(err, patch.ErrRigCheckPatternRunning), errors.Is(err, patch.ErrRigCheckNoPatternRunning),
@@ -1355,85 +1162,20 @@ func writeRigCheckError(w http.ResponseWriter, err error) {
 		// Its own doc comment above already promised a 409 here.
 		errors.Is(err, patch.ErrRigCheckAmbiguousTest):
 		writeError(w, http.StatusConflict, err)
-	case errors.Is(err, patch.ErrRigCheckEmptyScope),
-		// A well-formed request for a scope that cannot be expressed on the
-		// chosen protocol: an Art-Net Port-Address whose show universe maps
-		// outside sACN's 1..63999, or sACN asked of a server with no sACN
-		// binding. 422, not 400 — the request is fine, the combination of
-		// this scope and this configuration is not. The error text names the
-		// offending universe (sacn.ArtnetPortAddressToSACNUniverse).
-		errors.Is(err, sacn.ErrInvalidUniverse),
-		errors.Is(err, patch.ErrSACNNotConfigured):
+	case errors.Is(err, patch.ErrRigCheckEmptyScope):
 		writeError(w, http.StatusUnprocessableEntity, err)
 	default:
 		writeError(w, http.StatusBadRequest, err)
 	}
 }
 
-// --- rig check: stage 2 attribute-level test-pattern engine ---------------
+// --- rig check: shared shapes of the attribute-level test-pattern engine ---
 //
-// Endpoints (see internal/patch/testpattern.go for the engine itself, and its
-// package doc comment for every design decision behind the contract below):
-//
-//	POST /api/patch/rigcheck/pattern/tests   <- patternTestsRequest   -> patternStatusJSON
-//	POST /api/patch/rigcheck/pattern/select  <- patternSelectRequest  -> patternStatusJSON
-//	POST /api/patch/rigcheck/pattern/scope   <- patternScopeRequest   -> patternStatusJSON
-//	POST /api/patch/rigcheck/pattern/isolate <- patternIsolateRequest -> patternStatusJSON
-//	POST /api/patch/rigcheck/pattern/output  <- patternOutputRequest  -> patternStatusJSON
-//	                                            (the only one that carries an
-//	                                            optional "protocol"; see it)
-//	POST /api/patch/rigcheck/pattern/start   <- patternStartRequest   -> patternStatusJSON  (legacy)
-//	POST /api/patch/rigcheck/pattern/adjust  <- patternAdjustRequest  -> patternStatusJSON  (legacy)
-//	GET  /api/patch/rigcheck/pattern         -> patternStatusJSON
-//
-// The five single-purpose POSTs are the current surface, one endpoint per
-// engine mutator, and EVERY one of them — including the two legacy ones and
-// the GET — answers with the FULL patternStatusJSON snapshot. That is not
-// incidental: a client re-renders from the returned snapshot and never
-// mutates its own copy of the state, which is what stops a selection change
-// from failing to show up until something else forces a refresh.
-//
-// The legacy pair remains routed and behaviourally unchanged because
-// static/js/patch.js still calls it:
-//
-//	POST .../pattern/start   ==  POST .../pattern/tests  (+ output on unless
-//	                             "outputEnabled": false), with a flat
-//	                             single-test shorthand beside "tests"
-//	POST .../pattern/adjust  ==  select / isolate / output multiplexed into
-//	                             one request, plus the single-selected-test
-//	                             parameter replace
-//
-// The engine holds TWO independent pieces of state and this surface mirrors
-// that split exactly:
-//
-//   - .../pattern/start is the SELECTION apply. It sets the scope, the set of
-//     selected tests, and the isolate flag, and — unless the caller sends
-//     "outputEnabled": false — lets output flow. Sending it with
-//     "outputEnabled": false is how a UI builds up a selection BEFORE
-//     anything moves.
-//   - .../pattern/adjust is the incremental mutator: toggle or
-//     re-parameterise ONE test ("test" + "enabled"), and/or flip output
-//     ("outputEnabled"), and/or flip isolate ("isolate"). Every one of those
-//     works identically whether or not output is currently flowing — the
-//     start button only allows output to flow, it does not limit
-//     configuration.
-//
-// Stop/blackout are NOT separate endpoints: the existing
-// POST /api/patch/rigcheck/stop and POST /api/patch/rigcheck/blackout apply
-// equally here (patch.RigCheck.Stop/Blackout are pattern-aware) — one Stop
-// button, one Blackout button, regardless of which engine is driving output.
-// Both stop OUTPUT and leave the test selection completely intact, so a
-// tech's picked tests survive a panic-button press and are still there to
-// re-run.
-//
-// GET .../rigcheck/pattern is not just a read — see patternStatusJSON's
-// lastEndReason field and testpattern.go's client-liveness-watchdog doc
-// comment: every call to it refreshes the running pattern's liveness deadline
-// exactly like the two POSTs do. The UI MUST poll this at an interval
-// comfortably under patch.PatternWatchdogTimeout (5s) for as long as output
-// is meant to keep flowing — stop polling (tab closed, navigated away,
-// crashed) and output blacks out and ceases within that window with no
-// further action from the UI required. The selection survives that too.
+// The engine is internal/patch/testpattern.go. Its own HTTP surface
+// (/api/patch/rigcheck/*) was retired in C7; what remains here is shared by
+// the Console's Tests API (tests.go) and the saved test presets
+// (workspace.go): the test request shape, the status JSON and the scope
+// readback.
 
 // patternTestRequest is one test in a selection. Kind is one of the
 // patch.PatternKind string constants (testpattern.go); every other field is
@@ -1478,192 +1220,6 @@ func (t patternTestRequest) spec() patch.PatternSpec {
 	}
 }
 
-// patternStartRequest applies a whole selection. The scope vocabulary is
-// identical to rigCheckStartRequest's.
-//
-// Tests is the current form. The flat Kind/RateHz/... fields beside it are
-// the pre-stackable-tests single-test shorthand, still supported verbatim:
-// when Tests is empty and Kind is set, the request means "select exactly this
-// one test". When Tests is non-empty, the flat fields are ignored.
-type patternStartRequest struct {
-	ScopeKind string   `json:"scopeKind"`
-	Universe  uint16   `json:"universe"`
-	Position  string   `json:"position"`
-	EntryIDs  []string `json:"entryIds"`
-
-	Tests []patternTestRequest `json:"tests"`
-
-	// --- single-test shorthand (see this struct's doc comment) ---
-	Kind      string  `json:"kind"`
-	RateHz    float64 `json:"rateHz"`
-	Min       byte    `json:"min"`
-	Max       byte    `json:"max"`
-	Target    string  `json:"target"`
-	Direction string  `json:"direction"`
-	Value     byte    `json:"value"`
-	On        bool    `json:"on"`
-	Waveform  string  `json:"waveform"`
-	OffsetMin float64 `json:"offsetMin"`
-	OffsetMax float64 `json:"offsetMax"`
-
-	// Isolate turns on the old zero-everything-else behaviour: no GDTF
-	// defaults, no dimmer-up, no shutter-open, every channel not driven by a
-	// selected test forced to 0. Default false. Useful for proving which
-	// channel drives which function; useless for seeing light.
-	Isolate bool `json:"isolate"`
-	// OutputEnabled is a POINTER on purpose: omitted (nil) means "yes, start
-	// output", which is what every pre-existing caller of this endpoint
-	// means by hitting it. An explicit false selects the tests and leaves
-	// the rig dark, which is the "pick your tests first" half of the owner's
-	// workflow.
-	OutputEnabled *bool `json:"outputEnabled"`
-}
-
-func (req patternStartRequest) specs() []patch.PatternSpec {
-	if len(req.Tests) > 0 {
-		out := make([]patch.PatternSpec, 0, len(req.Tests))
-		for _, t := range req.Tests {
-			out = append(out, t.spec())
-		}
-		return out
-	}
-	if req.Kind == "" {
-		return make([]patch.PatternSpec, 0)
-	}
-	return []patch.PatternSpec{patternTestRequest{
-		Kind: req.Kind, RateHz: req.RateHz, Min: req.Min, Max: req.Max, Target: req.Target,
-		Direction: req.Direction, Value: req.Value, On: req.On, Waveform: req.Waveform,
-		OffsetMin: req.OffsetMin, OffsetMax: req.OffsetMax,
-	}.spec()}
-}
-
-// handleRigCheckPatternStart applies a selection and (by default) lets output
-// flow — task ask: "starting a pattern that moves fixtures should be a
-// deliberate action": this endpoint always requires an explicit POST naming
-// both a scope and at least one test, never an implicit continuation of
-// anything else.
-func (s *Server) handleRigCheckPatternStart(w http.ResponseWriter, r *http.Request) {
-	var req patternStartRequest
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	p, ok := s.PatchStore.Get()
-	if !ok {
-		writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("no active patch"))
-		return
-	}
-	entries, err := s.rigCheckScopeEntries(p, req.ScopeKind, req.Universe, req.Position, req.EntryIDs)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	st, err := s.RigCheck.SetPatternTests(entries, req.specs(), req.Isolate)
-	if err != nil {
-		writeRigCheckError(w, err)
-		return
-	}
-	s.setPatternScope(patternScopeFields{ScopeKind: req.ScopeKind, Universe: req.Universe, Position: req.Position, EntryIDs: req.EntryIDs}, entries)
-	if req.OutputEnabled == nil || *req.OutputEnabled {
-		st, err = s.RigCheck.StartPatternOutput()
-		if err != nil {
-			writeRigCheckError(w, err)
-			return
-		}
-	}
-	writeJSON(w, http.StatusOK, s.patternStatusJSON(st))
-}
-
-// patternAdjustRequest is the incremental mutator — every field is optional
-// and independent, and any combination is applied in the order listed below
-// (isolate, then the test toggle, then the output flag) so one request can
-// both pick a test and start output.
-//
-// Test names one test to enable/re-parameterise (or, with Enabled explicitly
-// false, to deselect). Enabled is a POINTER so that omitting it means "yes,
-// select it" — deselecting requires saying so.
-//
-// The flat RateHz/Min/Max/... fields beside it are the pre-stackable-tests
-// shorthand: "replace the parameters of the one selected test", which is what
-// the previous version of this endpoint did. They apply only when Test is
-// absent, and 409 if zero or more than one test is selected (there is then no
-// single test the call could mean).
-type patternAdjustRequest struct {
-	Test    *patternTestRequest `json:"test"`
-	Enabled *bool               `json:"enabled"`
-
-	OutputEnabled *bool `json:"outputEnabled"`
-	Isolate       *bool `json:"isolate"`
-
-	RateHz    float64 `json:"rateHz"`
-	Min       byte    `json:"min"`
-	Max       byte    `json:"max"`
-	Target    string  `json:"target"`
-	Direction string  `json:"direction"`
-	Value     byte    `json:"value"`
-	On        bool    `json:"on"`
-	Waveform  string  `json:"waveform"`
-	OffsetMin float64 `json:"offsetMin"`
-	OffsetMax float64 `json:"offsetMax"`
-}
-
-func (s *Server) handleRigCheckPatternAdjust(w http.ResponseWriter, r *http.Request) {
-	var req patternAdjustRequest
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	st := s.RigCheck.PatternStatus()
-	if req.Isolate != nil {
-		st = s.RigCheck.SetPatternIsolate(*req.Isolate)
-	}
-	switch {
-	case req.Test != nil:
-		enabled := req.Enabled == nil || *req.Enabled
-		var err error
-		st, err = s.RigCheck.SelectPatternTest(req.Test.spec(), enabled)
-		if err != nil {
-			writeRigCheckError(w, err)
-			return
-		}
-	case req.OutputEnabled == nil && req.Isolate == nil:
-		// Pure single-test parameter replace (the legacy shape). Only taken
-		// when the request carries nothing else at all, so an
-		// {"outputEnabled":false} or {"isolate":true} request is never
-		// misread as "and also blank the selected test's parameters".
-		var err error
-		st, err = s.RigCheck.AdjustPattern(patch.PatternParams{
-			RateHz: req.RateHz, Min: req.Min, Max: req.Max, Target: req.Target, Direction: req.Direction,
-			Value: req.Value, On: req.On, Waveform: patch.Waveform(req.Waveform),
-			OffsetMin: req.OffsetMin, OffsetMax: req.OffsetMax,
-		})
-		if err != nil {
-			writeRigCheckError(w, err)
-			return
-		}
-	}
-	if req.OutputEnabled != nil {
-		if *req.OutputEnabled {
-			var err error
-			st, err = s.RigCheck.StartPatternOutput()
-			if err != nil {
-				writeRigCheckError(w, err)
-				return
-			}
-		} else {
-			st = s.RigCheck.StopPatternOutput()
-		}
-	}
-	writeJSON(w, http.StatusOK, s.patternStatusJSON(st))
-}
-
-// handleRigCheckPatternStatus is GET .../rigcheck/pattern — see this
-// section's doc comment above for why this read is also the client-liveness
-// watchdog's heartbeat.
-func (s *Server) handleRigCheckPatternStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.patternStatusJSON(s.RigCheck.PatternStatus()))
-}
-
 // --- rig check pattern: one endpoint per engine mutator -------------------
 //
 // These five are the surface a new UI should drive. Each maps 1:1 onto one
@@ -1689,216 +1245,6 @@ type patternScopeFields struct {
 	Position    string   `json:"position"`
 	EntryIDs    []string `json:"entryIds"`
 	FixtureType string   `json:"fixtureType"`
-}
-
-// resolveScope turns the scope fields into the ordered entries the engine
-// takes, or writes the appropriate error response and returns ok=false.
-func (s *Server) resolveScope(w http.ResponseWriter, f patternScopeFields) ([]patch.Entry, bool) {
-	p, ok := s.PatchStore.Get()
-	if !ok {
-		writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("no active patch"))
-		return nil, false
-	}
-	entries, err := s.rigCheckScopeEntries(p, f.ScopeKind, f.Universe, f.Position, f.EntryIDs, f.FixtureType)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return nil, false
-	}
-	return entries, true
-}
-
-// patternTestsRequest is the whole-state selection apply — the primary call
-// a UI makes. It replaces the scope, the ENTIRE set of selected tests, and
-// the isolate flag in one atomic operation, and it never touches the output
-// flag: applying a selection while output flows re-renders on the very next
-// frame, and applying one with output off moves nothing.
-//
-// Sending "tests": [] is a legitimate request meaning "deselect everything",
-// not a malformed one.
-type patternTestsRequest struct {
-	patternScopeFields
-	Tests []patternTestRequest `json:"tests"`
-	// Isolate is the zero-everything-else base state (no GDTF defaults, no
-	// dimmer-up, no shutter-open). Absent means false, which is the normal
-	// mode — this is a whole-state apply, so an omitted isolate really does
-	// mean "isolate off", not "leave it as it was". Use .../pattern/isolate
-	// to change only that flag.
-	Isolate bool `json:"isolate"`
-}
-
-func (req patternTestsRequest) specs() []patch.PatternSpec {
-	out := make([]patch.PatternSpec, 0, len(req.Tests))
-	for _, t := range req.Tests {
-		out = append(out, t.spec())
-	}
-	return out
-}
-
-func (s *Server) handleRigCheckPatternTests(w http.ResponseWriter, r *http.Request) {
-	var req patternTestsRequest
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	entries, ok := s.resolveScope(w, req.patternScopeFields)
-	if !ok {
-		return
-	}
-	st, err := s.RigCheck.SetPatternTests(entries, req.specs(), req.Isolate)
-	if err != nil {
-		writeRigCheckError(w, err)
-		return
-	}
-	s.setPatternScope(req.patternScopeFields, entries)
-	writeJSON(w, http.StatusOK, s.patternStatusJSON(st))
-}
-
-// patternSelectRequest toggles ONE test on or off — what a single
-// toggle-button press sends. `test` carries the full spec (kind + params);
-// the test's identity is kind, or "kind:target" when the spec has a target,
-// which is exactly the `id` the status's tests[]/available[] report, so a UI
-// never has to invent one.
-//
-// Enabled is a POINTER: omitting it means "select it" (the common case),
-// and DESELECTING requires an explicit "enabled": false on the wire. A
-// client MUST serialize that false rather than dropping the key — an
-// enabled flag that vanishes when it is false is the exact class of bug this
-// codebase forbids `omitempty` for.
-//
-// Re-selecting an already-selected test replaces its parameters wholesale.
-// Legal at any time; NEVER requires stopping output first.
-type patternSelectRequest struct {
-	Test    patternTestRequest `json:"test"`
-	Enabled *bool              `json:"enabled"`
-}
-
-func (s *Server) handleRigCheckPatternSelect(w http.ResponseWriter, r *http.Request) {
-	var req patternSelectRequest
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	enabled := req.Enabled == nil || *req.Enabled
-	st, err := s.RigCheck.SelectPatternTest(req.Test.spec(), enabled)
-	if err != nil {
-		writeRigCheckError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, s.patternStatusJSON(st))
-}
-
-// patternScopeRequest replaces the scope alone, keeping every selected test
-// (each is re-resolved against the new fixtures). Legal while output flows.
-type patternScopeRequest struct {
-	patternScopeFields
-}
-
-func (s *Server) handleRigCheckPatternScope(w http.ResponseWriter, r *http.Request) {
-	var req patternScopeRequest
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	entries, ok := s.resolveScope(w, req.patternScopeFields)
-	if !ok {
-		return
-	}
-	st, err := s.RigCheck.SetPatternScope(entries)
-	if err != nil {
-		writeRigCheckError(w, err)
-		return
-	}
-	s.setPatternScope(req.patternScopeFields, entries)
-	writeJSON(w, http.StatusOK, s.patternStatusJSON(st))
-}
-
-// patternIsolateRequest flips the isolate flag alone. Absent means false —
-// this is a set, not a patch.
-type patternIsolateRequest struct {
-	Isolate bool `json:"isolate"`
-}
-
-func (s *Server) handleRigCheckPatternIsolate(w http.ResponseWriter, r *http.Request) {
-	var req patternIsolateRequest
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, s.patternStatusJSON(s.RigCheck.SetPatternIsolate(req.Isolate)))
-}
-
-// patternOutputRequest is the start/stop button and NOTHING else:
-// {"enabled": true} lets output flow for whatever is currently selected,
-// {"enabled": false} blacks out (immediately, via SendNow — not on the next
-// retransmit tick) and ceases output while leaving the selection COMPLETELY
-// intact. The owner's rule, preserved here: the stop button stops output, it
-// does not deselect any tests, and the start button only allows output to
-// flow — it does not limit configuration.
-//
-// Enabled is a plain bool and an absent one therefore means false (stop):
-// a client asking to start must say so.
-//
-// Starting with an empty scope is a 422; starting with an empty SELECTION is
-// a legitimate 200 that renders only the base state.
-//
-// Protocol names the wire this run goes out on, with EXACTLY the vocabulary
-// rigCheckStartRequest.Protocol uses ("artnet" / "sacn"), resolved by the
-// same patch.NormalizeProtocol. It is a POINTER because absent and present
-// mean different things here, and the difference is the whole
-// backwards-compatibility contract:
-//
-//	absent          keep whatever protocol is currently armed — byte for byte
-//	                the behaviour every caller of this endpoint had before
-//	                the field existed, when pattern output simply inherited
-//	                r.out.proto from the last Channel-check Start.
-//	"artnet"/"sacn" arm that protocol for this run, restarting output on it
-//	                if output is already flowing on the other one.
-//	""              Art-Net. NormalizeProtocol's empty string is Art-Net and
-//	                this endpoint does not invent a second reading of it; a
-//	                client that means "leave it alone" omits the key.
-//	anything else   400, naming both accepted values. It NEVER falls back to
-//	                Art-Net: a tech who asked for sACN and silently got
-//	                Art-Net cannot see that from the console.
-//
-// A scope that cannot be expressed on the chosen protocol is a 422 carrying
-// the server's own universe-naming message (writeRigCheckError), and nothing
-// is stopped, started or clamped.
-type patternOutputRequest struct {
-	Enabled  bool    `json:"enabled"`
-	Protocol *string `json:"protocol"`
-}
-
-// patternProtocol resolves patternOutputRequest.Protocol: nil is "keep the
-// armed protocol", anything else goes through patch.NormalizeProtocol. There
-// is deliberately no second protocol table on this path.
-func (s *Server) patternProtocol(p *string) (patch.Protocol, error) {
-	if p == nil {
-		return s.RigCheck.Protocol(), nil
-	}
-	return patch.NormalizeProtocol(*p)
-}
-
-func (s *Server) handleRigCheckPatternOutput(w http.ResponseWriter, r *http.Request) {
-	var req patternOutputRequest
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	if !req.Enabled {
-		writeJSON(w, http.StatusOK, s.patternStatusJSON(s.RigCheck.StopPatternOutput()))
-		return
-	}
-	proto, err := s.patternProtocol(req.Protocol)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	st, err := s.RigCheck.StartPatternOutputWithProtocol(proto)
-	if err != nil {
-		writeRigCheckError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, s.patternStatusJSON(st))
 }
 
 type patternEntryStatusJSON struct {
@@ -2052,17 +1398,8 @@ type patternStatusJSON struct {
 	Available []availableTestJSON     `json:"available"`
 
 	// LastEndReason is why OUTPUT most recently stopped: "" (never enabled),
-	// "manual", "restarted" or "watchdog" — sticky, so a UI polling in after
-	// the fact can tell a deliberate Stop from an abandoned run the watchdog
-	// caught.
+	// "manual", "restarted" or "show changed" — sticky.
 	LastEndReason string `json:"lastEndReason,omitempty"`
-	// Protocol is the wire this pattern is on ("artnet"/"sacn"), or the one
-	// the next start would use. Always present, deliberately NO omitempty:
-	// "artnet" is real data and a missing key would read as "unknown" to a
-	// screen that has to state what is on the wire in words. GET
-	// .../rigcheck/pattern doubles as the 5s watchdog heartbeat, so this is
-	// also how the Function check tab stays truthful while output flows.
-	Protocol string `json:"protocol"`
 }
 
 func toPatternEntriesJSON(in []patch.PatternEntryStatus) []patternEntryStatusJSON {
@@ -2082,7 +1419,6 @@ func toPatternStatusJSON(st patch.PatternStatus) patternStatusJSON {
 		Running: st.OutputEnabled, OutputEnabled: st.OutputEnabled,
 		SelectedCount: len(st.Tests), ElapsedMS: st.ElapsedMS, TotalScope: st.TotalScope,
 		LastEndReason: st.LastEndReason,
-		Protocol:      string(st.Protocol),
 		Entries:       make([]patternEntryStatusJSON, 0),
 		ScopeKind:     "all",
 		ScopeEntryIDs: make([]string, 0),

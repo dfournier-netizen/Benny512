@@ -67,8 +67,11 @@ func harness(t *testing.T) (*RigCheck, *session.FakeTransport, *session.FakeCloc
 	t.Helper()
 	clock := session.NewFakeClock(time.Time{})
 	tr := session.NewFakeTransport()
-	dmx := session.NewDMXOutputEngine(session.DMXConfig{Clock: clock, Transport: tr, Rate: 40})
-	t.Cleanup(dmx.Stop)
+	// Lease -1: these tests are about Rig Check, not the master Arm's lease,
+	// and advance the fake clock far past 5 s without a browser.
+	dmx := session.NewDMXOutputEngine(session.DMXConfig{Clock: clock, Transport: tr, Rate: 40, Lease: -1})
+	dmx.Arm("test")
+	t.Cleanup(dmx.Disarm)
 	rc := NewRigCheck(dmx)
 	// Legacy waveform/composition cases deliberately use Snap. Fade behavior
 	// and the one-second production default are exercised in patternfade_test.
@@ -301,53 +304,64 @@ func TestPattern_Blackout_EndsTheRun(t *testing.T) {
 	}
 }
 
-// TestPattern_Watchdog_AutoStopsWhenClientGoesQuiet is the client-
-// disappears-mid-pattern scenario made concrete: advancing the clock past
-// PatternWatchdogTimeout with no StartPattern/AdjustPattern/PatternStatus
-// touch in between must blackout-and-stop the run on its own.
-func TestPattern_Watchdog_AutoStopsWhenClientGoesQuiet(t *testing.T) {
+// TestPattern_NoRigCheckWatchdog: C3 removed Rig Check's own 5 s
+// client-liveness watchdog — the master Arm's lease (session.DMXOutputEngine)
+// is now the one liveness rule for every source, with the owner's
+// multi-browser semantics. A running pattern with no Rig Check request for a
+// minute keeps rendering.
+func TestPattern_NoRigCheckWatchdog(t *testing.T) {
 	rc, tr, clock := harness(t)
 	e := dimmerEntry("d1", 0)
 	if _, err := rc.StartPattern([]Entry{e}, PatternSpec{Kind: PatternDimmerSine, Params: PatternParams{RateHz: 1, Max: 255}}); err != nil {
 		t.Fatal(err)
 	}
-	tr.TakeSent()
-
-	clock.Advance(PatternWatchdogTimeout + 200*time.Millisecond)
-
+	clock.Advance(60*time.Second + 500*time.Millisecond)
 	frame, ok := lastFrame(t, tr.TakeSent(), 0)
-	if !ok {
-		t.Fatal("expected the watchdog's blackout frame")
+	if !ok || frame[9] != 255 {
+		t.Fatalf("after 60.5 s untouched the dimmer should be at its sine peak (255); got %v ok=%v", frame[9:11], ok)
 	}
-	for i, v := range frame {
-		if v != 0 {
-			t.Fatalf("channel %d = %d after watchdog trip, want 0", i+1, v)
-		}
-	}
-	st := rc.PatternStatus()
-	if st.OutputEnabled {
-		t.Error("pattern should have been auto-stopped by the watchdog")
-	}
-	if st.LastEndReason != "watchdog" {
-		t.Errorf("LastEndReason = %q, want %q", st.LastEndReason, "watchdog")
+	if st := rc.PatternStatus(); !st.OutputEnabled || st.LastEndReason != "" {
+		t.Fatalf("pattern stopped by itself: OutputEnabled=%v LastEndReason=%q", st.OutputEnabled, st.LastEndReason)
 	}
 }
 
-// TestPattern_Watchdog_StatusPollKeepsItAlive is the watchdog's other half:
-// a client that keeps reading status (as any live UI must, to render the
-// running waveform) must NOT trip the watchdog even though, cumulatively,
-// far more than PatternWatchdogTimeout elapses.
-func TestPattern_Watchdog_StatusPollKeepsItAlive(t *testing.T) {
-	rc, _, clock := harness(t)
+// TestPattern_OutputFollowsSelection: with SetOutputFollowsSelection (the
+// live server's mode since C3, when Rig Check lost its own START/STOP),
+// selecting a test over a scope starts rendering at once and deselecting the
+// last one blacks out and stops it, selection scope kept.
+func TestPattern_OutputFollowsSelection(t *testing.T) {
+	rc, tr, _ := harness(t)
+	rc.SetOutputFollowsSelection(true)
 	e := dimmerEntry("d1", 0)
-	if _, err := rc.StartPattern([]Entry{e}, PatternSpec{Kind: PatternDimmerSine, Params: PatternParams{RateHz: 1, Max: 255}}); err != nil {
+	if _, err := rc.SetPatternScope([]Entry{e}); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 10; i++ {
-		clock.Advance(PatternWatchdogTimeout - time.Second) // always under the window since last touch
-		if !rc.PatternStatus().OutputEnabled {
-			t.Fatalf("pattern stopped early at iteration %d despite regular status polling", i)
-		}
+	if st := rc.PatternStatus(); st.OutputEnabled {
+		t.Fatal("a scope with no test selected must not render")
+	}
+	if n := len(tr.TakeSent()); n != 0 {
+		t.Fatalf("scope alone put %d packets on the wire", n)
+	}
+	spec := PatternSpec{Kind: PatternDimmerToggle, Params: PatternParams{On: true}}
+	st, err := rc.SelectPatternTest(spec, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.OutputEnabled {
+		t.Fatal("selecting a test did not start rendering")
+	}
+	if frame, ok := lastFrame(t, tr.TakeSent(), 0); !ok || frame[9] != 255 {
+		t.Fatalf("selected dimmer-on test: channel 10 = %v (ok=%v), want 255 at once", frame, ok)
+	}
+	st, err = rc.SelectPatternTest(spec, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.OutputEnabled || st.TotalScope != 1 {
+		t.Fatalf("deselecting the last test: OutputEnabled=%v scope=%d, want stopped with the scope kept", st.OutputEnabled, st.TotalScope)
+	}
+	if frame, ok := lastFrame(t, tr.TakeSent(), 0); !ok || frame[9] != 0 {
+		t.Fatalf("deselecting the last test must black out; channel 10 = %v", frame)
 	}
 }
 
@@ -966,24 +980,6 @@ func TestPattern_SelectionSurvivesStopAndTogglesLive(t *testing.T) {
 	}
 	if !st.OutputEnabled || len(st.Tests) != 1 {
 		t.Errorf("restart from surviving selection: OutputEnabled=%v Tests=%d", st.OutputEnabled, len(st.Tests))
-	}
-}
-
-// TestPattern_WatchdogKeepsSelection proves the watchdog stops OUTPUT only —
-// a client that comes back finds its tests still picked.
-func TestPattern_WatchdogKeepsSelection(t *testing.T) {
-	rc, _, clock := harness(t)
-	e := strobeBarEntry("jdc1", 0, 1)
-	if _, err := rc.StartPattern([]Entry{e}, PatternSpec{Kind: PatternDimmerSine, Params: PatternParams{RateHz: 1, Max: 255}}); err != nil {
-		t.Fatal(err)
-	}
-	clock.Advance(PatternWatchdogTimeout + 200*time.Millisecond)
-	st := rc.PatternStatus()
-	if st.OutputEnabled || st.LastEndReason != "watchdog" {
-		t.Fatalf("watchdog: OutputEnabled=%v LastEndReason=%q", st.OutputEnabled, st.LastEndReason)
-	}
-	if len(st.Tests) != 1 {
-		t.Errorf("watchdog cleared the selection (%d tests left), want it kept", len(st.Tests))
 	}
 }
 

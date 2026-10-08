@@ -1,6 +1,7 @@
 package library
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"benny512/internal/patch"
 )
 
 // Store guards one Library plus its on-disk persistence. It follows
@@ -134,7 +137,10 @@ func migrate(lib *Library) {
 		lib.Records[i] = normalizeRecord(lib.Records[i])
 	}
 	sortRecords(lib.Records)
-	// Future: switch lib.SchemaVersion { case 1: ...; lib.SchemaVersion = 2 }
+	// v1 -> v2: nothing to convert. The C1 keys are absent from a v1 file,
+	// which reads as FunctionsKnown/WheelsKnown false ("not imported"), and
+	// normalizeRecord has already made the new slices non-nil.
+	// Future: switch lib.SchemaVersion { case 2: ...; lib.SchemaVersion = 3 }
 	lib.SchemaVersion = CurrentSchemaVersion
 }
 
@@ -368,7 +374,14 @@ func mergeModes(dst, src []Mode) []Mode {
 			continue
 		}
 		merged := sm
-		if len(sm.ChannelFunctions) == 0 && len(out[found].ChannelFunctions) > 0 {
+		if lessDetailedSameProfile(sm, out[found]) {
+			// The same profile known in LESS detail — typically "Save
+			// profiles from this patch" over entries imported before full
+			// GDTF channel detail existed, after this mode was re-read from
+			// its GDTF. Nothing new was learned; keep the stored mode whole
+			// (detail, wheels, origin, verification).
+			merged = out[found]
+		} else if len(sm.ChannelFunctions) == 0 && len(out[found].ChannelFunctions) > 0 {
 			merged.ChannelFunctions = out[found].ChannelFunctions
 			// The mode's origin describes its channel map, so keep the
 			// origin of the map that survived.
@@ -407,6 +420,37 @@ func mergeModes(dst, src []Mode) []Mode {
 	}
 	sort.SliceStable(out, func(i, j int) bool { return foldKeyPart(out[i].Name) < foldKeyPart(out[j].Name) })
 	return out
+}
+
+// lessDetailedSameProfile reports whether incoming carries no schema-v6
+// channel detail while stored does, and the two are otherwise the same
+// profile: same footprint, same first-function channel map (compared in
+// the pre-v6 shape both share), where a default only the stored mode states
+// does not count as a difference.
+func lessDetailedSameProfile(incoming, stored Mode) bool {
+	if incoming.WheelsKnown || len(incoming.Wheels) > 0 || incoming.Footprint != stored.Footprint {
+		return false
+	}
+	inJSON, ok := patch.PreV6ChannelFunctionsJSON(incoming.ChannelFunctions)
+	if !ok {
+		return false
+	}
+	if _, storedPlain := patch.PreV6ChannelFunctionsJSON(stored.ChannelFunctions); storedPlain && !stored.WheelsKnown {
+		return false // stored has no detail either: the ordinary merge rules apply
+	}
+	storedPlainCF := patch.WithoutChannelDetail(stored.ChannelFunctions)
+	for off, cf := range storedPlainCF {
+		// A resting value the stored (re-read) mode knows and the incoming
+		// one does not state is MORE knowledge, not a difference: C1b
+		// carries GDTF 1.0's DMXChannel Default into these fields, which
+		// pre-C1b imports of the same file never had.
+		if in, ok := incoming.ChannelFunctions[off]; ok && !in.HasDefault && cf.HasDefault {
+			cf.HasDefault, cf.Default, cf.DefaultByteCount = false, 0, 0
+			storedPlainCF[off] = cf
+		}
+	}
+	storedJSON, _ := patch.PreV6ChannelFunctionsJSON(storedPlainCF)
+	return len(incoming.ChannelFunctions) > 0 && bytes.Equal(inJSON, storedJSON)
 }
 
 // sameModePayload compares the two halves of a Mode that describe the

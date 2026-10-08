@@ -36,8 +36,8 @@
 //
 // Every safety property of the old model is preserved: StopPatternOutput
 // (and Stop, and Blackout) blackout via SendNow immediately rather than
-// waiting for the DMX retransmit tick, and the client-liveness watchdog
-// still blacks out an abandoned run.
+// waiting for the DMX retransmit tick. An abandoned run is now the master
+// Arm lease's business (session.DMXOutputEngine), not a Rig Check watchdog.
 //
 // --- Composition order and offset contention (deterministic) --------------
 //
@@ -159,17 +159,13 @@
 // --- Client-disappears-mid-pattern ---------------------------------------
 //
 // Output, once enabled, needs no further HTTP request to keep moving — it is
-// driven entirely by this package's own ticker. A browser tab that crashes,
-// or a laptop that loses network, leaves nothing to ever send the Stop a
-// classic (static-level) rig check can safely rely on a human for. The
-// decision made here is a liveness watchdog (PatternWatchdogTimeout,
-// rigcheck.go): every pattern-surface call that proves a client is still
-// there — including a plain PatternStatus read — refreshes r.lastTouch, and
-// patternTick blackout-and-stops output the moment more than that window has
-// elapsed since the last one. A "GET .../rigcheck/pattern" status read counts
-// as a touch specifically so a UI that's merely polling to render live state
-// keeps output alive for free. The watchdog stops OUTPUT; it does not clear
-// the selection, so a client that comes back finds its tests still picked.
+// driven entirely by this package's own ticker. Until C3 this file carried a
+// 5 s client-liveness watchdog for that reason. It is gone: every frame
+// computed here reaches the wire only through the unified output engine,
+// whose master Arm lease (kept alive by ANY connected browser, lost when all
+// have been silent 5 s, then Blackout or Hold last look per Settings) is the
+// one liveness rule for every source. A per-screen watchdog that blacked out
+// Rig Check while another browser still held the lease would contradict it.
 //
 // --- 16-bit (coarse+fine) attributes --------------------------------------
 //
@@ -1180,7 +1176,12 @@ func isShutterAttr(attr string) bool {
 // buildEntryBaseState precomputes e's base state. Pure and cheap enough to
 // redo on any selection change; nothing here depends on which tests are
 // active (that is decided at frame time, by offset ownership).
-func buildEntryBaseState(e Entry) entryBaseState {
+func buildEntryBaseState(e Entry) entryBaseState { return buildOwnedBaseState(e, nil) }
+
+// buildOwnedBaseState is buildEntryBaseState for a target that owns only
+// some offsets (a cell, C5): only those count towards the unknown-default
+// tally.
+func buildOwnedBaseState(e Entry, owned []uint16) entryBaseState {
 	bs := entryBaseState{entryID: e.ID, universe: e.Universe, startAddr: e.StartAddress, shutterKnown: true}
 	covered := map[uint16]bool{}
 
@@ -1232,6 +1233,14 @@ func buildEntryBaseState(e Entry) entryBaseState {
 	// Footprint slots with no ChannelFunction at all are equally unknown —
 	// counting only the resolved ones would understate how much of the rig
 	// this engine is flying blind over.
+	if owned != nil {
+		for _, off := range owned {
+			if !covered[off] {
+				bs.unknownCount++
+			}
+		}
+		return bs
+	}
 	for off := uint16(1); off <= e.Footprint; off++ {
 		if !covered[off] {
 			bs.unknownCount++
@@ -1514,20 +1523,10 @@ type PatternStatus struct {
 	Available []AvailableTest
 	// LastEndReason explains how OUTPUT most recently stopped: "" (never
 	// enabled on this RigCheck instance), "manual" (Stop/StopPatternOutput,
-	// or Blackout), "restarted" (superseded by a classic Start), or
-	// "watchdog" (PatternWatchdogTimeout elapsed with no client touch).
-	// Sticky across OutputEnabled becoming false so a UI that polls in and
-	// finds nothing running can still tell "the user hit Stop" apart from
-	// "the browser tab died and the watchdog caught it".
+	// or Blackout, or the last test deselected), "restarted" (superseded by
+	// a classic Start), or "show changed" (the show was switched or
+	// re-addressed). Sticky across OutputEnabled becoming false.
 	LastEndReason string
-	// Protocol is the wire protocol pattern output is currently being
-	// transmitted on, or -- when output is off -- the one the next
-	// StartPatternOutput would use unless it names another. It is the same
-	// value RigCheck.Protocol() reports, because there is exactly ONE armed
-	// protocol per RigCheck (rigcheckout.go): the Function check and the
-	// classic channel walk share the output boundary, and a screen that
-	// cannot see this field cannot tell which wire it is about to drive.
-	Protocol Protocol
 }
 
 // --- the selection -------------------------------------------------------
@@ -1547,6 +1546,12 @@ type patternSelection struct {
 	scope   []Entry
 	tests   map[TestID]PatternSpec
 	isolate bool
+	// owned (C5, SetTests) narrows a scope entry to some of its offsets —
+	// a cell — keyed by the entry's ID; an entry absent here owns its whole
+	// footprint. scopeOrder makes the phase spread follow the scope's own
+	// order (the programmer selection's) instead of universe/address.
+	owned      map[string][]uint16
+	scopeOrder bool
 
 	// resolved is rebuilt from scope+tests on every mutation, in canonical
 	// order.
@@ -1602,21 +1607,23 @@ func (sel *patternSelection) rebuild() {
 				pt.missingDetailCount++
 			}
 		}
-		assignPhases(pt)
+		assignPhases(pt, sel.scopeOrder)
 		sel.built[id] = pt
 	}
 
 	sel.base = make([]entryBaseState, 0, len(sel.scope))
 	for _, e := range sel.scope {
-		sel.base = append(sel.base, buildEntryBaseState(e))
+		sel.base = append(sel.base, buildOwnedBaseState(e, sel.owned[e.ID]))
 	}
 }
 
 // assignPhases spreads pt's OffsetMin..OffsetMax across the fixtures the test
-// actually drives, ordered by universe then start address. A target's
-// runtime-only PhaseWeight consumes that many positions in the calculation,
-// while it remains one normal fixture everywhere else.
-func assignPhases(pt *patternTest) {
+// actually drives, ordered by universe then start address — or, with
+// scopeOrder (the Tests API, C5), in the scope's own order, which for the
+// programmer selection is the order the fixtures were selected in. A
+// target's runtime-only PhaseWeight consumes that many positions in the
+// calculation, while it remains one normal fixture everywhere else.
+func assignPhases(pt *patternTest, scopeOrder bool) {
 	if len(pt.targets) == 0 {
 		return
 	}
@@ -1625,6 +1632,9 @@ func assignPhases(pt *patternTest) {
 		ordered[i] = i
 	}
 	sort.SliceStable(ordered, func(a, b int) bool {
+		if scopeOrder {
+			return false // rebuild resolved the targets in scope order
+		}
 		ta, tb := pt.targets[ordered[a]], pt.targets[ordered[b]]
 		if ta.universe != tb.universe {
 			return ta.universe < tb.universe
@@ -1672,6 +1682,7 @@ func (r *RigCheck) SetPatternScope(entries []Entry) (PatternStatus, error) {
 		return PatternStatus{}, err
 	}
 	r.selection.scope = append([]Entry(nil), entries...)
+	r.selection.owned, r.selection.scopeOrder, r.testsLayer = nil, false, false
 	r.selection.rebuild()
 	r.afterSelectionChangeLocked()
 	return r.patternStatusLocked(), nil
@@ -1689,6 +1700,7 @@ func (r *RigCheck) SelectPatternTest(spec PatternSpec, enabled bool) (PatternSta
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.testsLayer = false
 	if enabled {
 		r.selection.tests[spec.TestID()] = spec
 	} else {
@@ -1721,6 +1733,7 @@ func (r *RigCheck) SetPatternTests(entries []Entry, specs []PatternSpec, isolate
 		return PatternStatus{}, err
 	}
 	r.selection.scope = append([]Entry(nil), entries...)
+	r.selection.owned, r.selection.scopeOrder, r.testsLayer = nil, false, false
 	r.selection.tests = make(map[TestID]PatternSpec, len(normalized))
 	for _, spec := range normalized {
 		r.selection.tests[spec.TestID()] = spec
@@ -1743,15 +1756,39 @@ func (r *RigCheck) SetPatternIsolate(isolate bool) PatternStatus {
 }
 
 // afterSelectionChangeLocked re-renders the current frame if (and only if)
-// output is flowing. A selection change with output off is pure bookkeeping —
-// nothing reaches the wire, which is exactly the guarantee "pick your tests
-// before you press start" needs.
+// output is flowing. Without SetOutputFollowsSelection a selection change
+// with output off is pure bookkeeping — the "pick your tests before you press
+// start" model. With it, the selection itself switches rendering on and off
+// (followSelectionLocked), and the master Arm decides the wire.
 func (r *RigCheck) afterSelectionChangeLocked() {
-	r.lastTouch = r.clock.Now()
+	if r.followSelectionLocked() {
+		return
+	}
 	if !r.patternOutput {
 		return
 	}
 	r.recomputePatternLocked(r.clock.Now().Sub(r.patternEpoch).Seconds())
+}
+
+// followSelectionLocked applies SetOutputFollowsSelection: it starts pattern
+// output when a test is selected over a scope and output is off, and stops
+// it (blackout, selection kept) when the last test is deselected. It reports
+// whether it changed the output state, in which case the frame is already
+// current.
+func (r *RigCheck) followSelectionLocked() bool {
+	if !r.followSelection {
+		return false
+	}
+	want := len(r.selection.tests) > 0 && len(r.selection.scope) > 0
+	switch {
+	case want && !r.patternOutput:
+		_, err := r.startPatternOutputLocked()
+		return err == nil
+	case !want && r.patternOutput:
+		r.stopLocked("manual")
+		return true
+	}
+	return false
 }
 
 // --- RigCheck integration: the output flag -------------------------------
@@ -1765,57 +1802,19 @@ func (r *RigCheck) afterSelectionChangeLocked() {
 func (r *RigCheck) StartPatternOutput() (PatternStatus, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.startPatternOutputLocked(r.out.proto)
+	return r.startPatternOutputLocked()
 }
 
-// StartPatternOutputWithProtocol is StartPatternOutput with an explicit wire
-// protocol, and StartPatternOutput is exactly
-// StartPatternOutputWithProtocol(currently-armed) -- which is what makes a
-// caller that names no protocol behave byte for byte as it did before this
-// method existed.
-//
-// It is the SAME armed protocol StartWithProtocol sets, not a second
-// selection mechanism: rigOutput (rigcheckout.go) is the one place that knows
-// which wire a universe is on, and "exactly one protocol is live for a given
-// universe" depends on there being exactly one such place.
-//
-// Asking for the protocol that is already armed while output is already
-// flowing is the idempotent touch it has always been; asking for a DIFFERENT
-// one restarts output on it, which stops the outgoing stream properly first
-// (sACN: three zero frames and three Stream_Terminated packets, ANSI
-// E1.31-2025 6.2.6) through the usual stopLocked choke point.
-func (r *RigCheck) StartPatternOutputWithProtocol(proto Protocol) (PatternStatus, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.startPatternOutputLocked(proto)
-}
-
-func (r *RigCheck) startPatternOutputLocked(proto Protocol) (PatternStatus, error) {
+func (r *RigCheck) startPatternOutputLocked() (PatternStatus, error) {
 	if len(r.selection.scope) == 0 {
 		return PatternStatus{}, ErrRigCheckEmptyScope
 	}
-
-	// Every universe in the scope is mapped BEFORE anything is stopped or
-	// started, exactly as StartWithProtocol does it: a scope containing one
-	// universe that cannot be expressed on the chosen protocol fails here,
-	// names the universe, and leaves whatever was running untouched. It
-	// never clamps into range.
 	raws := scopeUniverses(r.selection.scope)
-	if err := r.out.validate(proto, raws); err != nil {
-		return PatternStatus{}, err
-	}
-
-	if r.patternOutput && proto == r.out.proto {
-		r.lastTouch = r.clock.Now()
+	if r.patternOutput {
 		return r.patternStatusLocked(), nil
 	}
 	r.stopLocked("restarted") // supersede any classic run; leaves the selection alone
-	// Set the armed protocol only AFTER the stop, so the stream that was
-	// running is terminated on the protocol it was actually running on.
-	r.out.proto = proto
 
-	// Pattern output goes out through the same output boundary the classic
-	// walk uses, so a universe is never driven by both protocols here either.
 	for _, u := range raws {
 		if err := r.out.startUniverse(u); err != nil {
 			r.stopLocked("restarted")
@@ -1823,23 +1822,19 @@ func (r *RigCheck) startPatternOutputLocked(proto Protocol) (PatternStatus, erro
 		}
 		r.started[u] = true
 	}
-	if r.out.proto == ProtocolArtNet {
-		r.dmx.Start()
-	}
 
 	now := r.clock.Now()
 	r.patternOutput = true
 	r.running = true
 	r.patternEpoch = now
 	r.lastPatternEnd = ""
-	r.lastTouch = now
 
 	r.recomputePatternLocked(0)
 	r.armPatternTickLocked()
 	return r.patternStatusLocked(), nil
 }
 
-// SavedPattern captures settings only, without touching the watchdog or output.
+// SavedPattern captures settings only, without touching output.
 func (r *RigCheck) SavedPattern() ([]string, []PatternSpec, bool, int64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -1863,19 +1858,14 @@ func (r *RigCheck) StopPatternOutput() PatternStatus {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.stopLocked("manual")
-	r.lastTouch = r.clock.Now()
 	return r.patternStatusLocked()
 }
 
-// PatternStatus reports the whole engine state. Every call is itself a
-// client-liveness touch while output is flowing — see this file's doc comment
-// on why a status poll doubles as the watchdog heartbeat.
+// PatternStatus reports the whole engine state. A read only: it is not a
+// heartbeat (the master Arm's lease is, see session.DMXOutputEngine).
 func (r *RigCheck) PatternStatus() PatternStatus {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.patternOutput {
-		r.lastTouch = r.clock.Now()
-	}
 	return r.patternStatusLocked()
 }
 
@@ -1923,6 +1913,7 @@ func (r *RigCheck) AdjustPattern(params PatternParams) (PatternStatus, error) {
 		return PatternStatus{}, err
 	}
 	r.selection.tests = map[TestID]PatternSpec{spec.TestID(): spec}
+	r.testsLayer = false
 	r.selection.rebuild()
 	r.afterSelectionChangeLocked()
 	st := r.patternStatusLocked()
@@ -1939,7 +1930,6 @@ func (r *RigCheck) patternStatusLocked() PatternStatus {
 		OutputEnabled: r.patternOutput,
 		TotalScope:    len(sel.scope),
 		LastEndReason: r.lastPatternEnd,
-		Protocol:      r.out.proto,
 		Tests:         make([]TestStatus, 0, len(sel.order)),
 		Contested:     make([]ContestedOffset, 0),
 		Available:     AvailableTests(sel.scope),
@@ -2169,7 +2159,11 @@ func (r *RigCheck) recomputePatternLocked(elapsed float64) {
 	}
 	comp := r.composePatternLocked(elapsed)
 	r.fadePatternLocked(comp, r.clock.Now())
-	r.out.setFrames(comp.frames, false)
+	claim := map[uint16]*slotClaim{}
+	for _, e := range r.selection.scope {
+		claimEntry(claim, e, r.selection.owned[e.ID])
+	}
+	r.out.setFrames(comp.frames, claim, false)
 }
 
 // armPatternTickLocked (re)schedules the next patternTick, ticking at the
@@ -2189,8 +2183,7 @@ func (r *RigCheck) armPatternTickLocked() {
 
 // patternTick is the self-rescheduling chain's callback — see
 // DMXOutputEngine.tick's doc comment (session/dmxout.go) for the identical
-// pattern this mirrors. It is also where the client-liveness watchdog is
-// enforced: see this file's doc comment.
+// pattern this mirrors.
 func (r *RigCheck) patternTick() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -2198,10 +2191,6 @@ func (r *RigCheck) patternTick() {
 		return // stopped between scheduling and firing — nothing to do, and nothing to reschedule
 	}
 	now := r.clock.Now()
-	if now.Sub(r.lastTouch) > PatternWatchdogTimeout {
-		r.stopLocked("watchdog") // blacks out; leaves the selection intact
-		return
-	}
 	r.recomputePatternLocked(now.Sub(r.patternEpoch).Seconds())
 	r.armPatternTickLocked()
 }
@@ -2209,7 +2198,7 @@ func (r *RigCheck) patternTick() {
 // cancelPatternOutputLocked stops the pattern ticker (if any) and clears the
 // OUTPUT flag, recording reason as LastEndReason. Called from stopLocked
 // (rigcheck.go) so every path out of a running rig check — Stop, a classic
-// Start superseding this one, or the watchdog — cancels the ticker the same
+// Start superseding this one, or a show change — cancels the ticker the same
 // way. It deliberately does NOT touch the selection: the owner's stop button
 // stops output and deselects nothing.
 func (r *RigCheck) cancelPatternOutputLocked(reason string) {

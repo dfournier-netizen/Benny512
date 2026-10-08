@@ -1,13 +1,16 @@
-// A bounded Send-tab tool. Raw protocol numbers deliberately bypass show
-// numbering, patch scopes, saved selections and the manual Send frame buffer.
+// A bounded Console Tools tool (console-tools.js; it was on the Send screen
+// until C7). Raw protocol numbers deliberately bypass show numbering, patch
+// scopes, saved selections and the raw universe levels.
 const UniverseIdentify = (() => {
   let state = null, token = '', busy = false, epoch = 0, timer = null;
   let message = '';
   const el = id => document.getElementById(id);
 
-  function html() {
+  // html(head): head is the heading tag for the tool's title ('h2' by
+  // default; the Console's Tools panel nests it under its own h2).
+  function html(head = 'h2') {
     return `<section class="b5-step-section b5-identify" aria-labelledby="identifyHead">
-      <h2 class="b5-step-section__head" id="identifyHead">Universe Identify</h2>
+      <${head} class="b5-step-section__head" id="identifyHead">Universe Identify</${head}>
       <div class="b5-toolbar">
         <div class="b5-toolbar__row">
           <div class="b5-field">
@@ -29,14 +32,15 @@ const UniverseIdentify = (() => {
         <div class="b5-alert b5-alert--caution">
           ${UI.icon('status-warning')}
           <div><p class="b5-alert__title">This test drives full universes</p>
-          <p class="b5-alert__body">Only your entered range is used; the patch never supplies targets. Stop manual Send and Rig Check first. Arm validates the range without sending, then Identify on starts output. Editing either endpoint or the protocol disarms. Off / Disarm sends zeros to the identified range and releases it; previous output is not restored. Leaving Send or losing the browser heartbeat also disarms.</p></div>
+          <p class="b5-alert__body">Only your entered range is used; the patch never supplies targets. While Identify is on it owns each universe in the range outright; every other universe keeps its raw levels, tests and programmer values. Set range checks the range without sending, then Identify on starts it. Editing either endpoint or the protocol turns it off. Identify off hands each universe back to whatever else drives it, or sends zeros if nothing does. Closing this page or losing its heartbeat also turns it off.</p>
+          <p class="b5-alert__body">Output follows the master Arm in the top strip: Identify reaches the rig only while output is Armed.</p></div>
         </div>
         <div class="b5-actionbar b5-identify__actions">
           <div class="b5-actionbar__status"><span id="identifyStatus" role="status" aria-live="polite"></span></div>
           <div class="b5-actionbar__buttons">
-            <button id="identifyArm" class="b5-btn">Arm range</button>
+            <button id="identifyArm" class="b5-btn">Set range</button>
             <button id="identifyStart" class="b5-bigbtn b5-bigbtn--go" disabled>Identify on</button>
-            <button id="identifyStop" class="b5-bigbtn b5-bigbtn--stop">Off / Disarm</button>
+            <button id="identifyStop" class="b5-bigbtn b5-bigbtn--stop">Identify off</button>
           </div>
         </div>
         <p id="identifyMessage" class="b5-caption" role="alert"></p>
@@ -58,8 +62,8 @@ const UniverseIdentify = (() => {
   function render() {
     if (!el('identifyStatus')) return;
     const armed = state && state.armed, running = state && state.running;
-    el('identifyStatus').textContent = !state ? 'Status unknown' : !armed ? 'Disarmed · output off' :
-      `${running ? 'Identifying' : 'Armed · output off'} · ${state.protocol === 'artnet' ? 'Art-Net' : 'sACN'} ${state.from}–${state.to}${!token ? ' · another session' : ''}`;
+    el('identifyStatus').textContent = !state ? 'Status unknown' : !armed ? 'Identify off' :
+      `${running ? 'Identifying' : 'Range set · not identifying'} · ${state.protocol === 'artnet' ? 'Art-Net' : 'sACN'} ${state.from}–${state.to}${!token ? ' · another session' : ''}`;
     el('identifyStatus').className = `b5-pill b5-pill--lg ${armed ? 'b5-pill--warn b5-pill--solid' : 'b5-pill--open'}`;
     let valid = true;
     try { range(); } catch (e) { valid = false; }

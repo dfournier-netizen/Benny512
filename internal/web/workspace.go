@@ -20,6 +20,44 @@ type savedGroup struct {
 	ID       string   `json:"id"`
 	Name     string   `json:"name"`
 	EntryIDs []string `json:"entryIds"`
+	// Members (C4b) is the group in order, fixtures AND cells ({entryId,
+	// cell}, cell "" = the whole fixture). EntryIDs stays, for readers that
+	// predate Members, as the distinct fixtures in member order. A group
+	// stored before C4b has no members key and loads as its EntryIDs, whole
+	// fixtures (normalizeGroup). Saved Rig Check test presets embed this
+	// struct and never carry members, hence omitempty on this one field.
+	Members []patch.ProgTarget `json:"members,omitempty"`
+}
+
+// normalizeGroup fills Members from EntryIDs for a pre-C4b group, then
+// rewrites EntryIDs as the distinct fixtures of Members, in order.
+func normalizeGroup(g *savedGroup) {
+	if g.Members == nil {
+		g.Members = make([]patch.ProgTarget, 0, len(g.EntryIDs))
+		for _, id := range g.EntryIDs {
+			g.Members = append(g.Members, patch.ProgTarget{EntryID: id})
+		}
+	}
+	ids, seen := make([]string, 0, len(g.Members)), map[string]bool{}
+	for _, m := range g.Members {
+		if !seen[m.EntryID] {
+			seen[m.EntryID] = true
+			ids = append(ids, m.EntryID)
+		}
+	}
+	g.EntryIDs = ids
+}
+
+// programmerPreset is one per-family programmer preset (C4b), stored in the
+// show's workspace beside groups — so it shares their per-show isolation,
+// preceding-save .bak, Recover and Reset this show.
+type programmerPreset struct {
+	ID        string              `json:"id"`
+	Name      string              `json:"name"`
+	Family    string              `json:"family"`
+	CreatedAt time.Time           `json:"createdAt"`
+	UpdatedAt time.Time           `json:"updatedAt"`
+	Values    []patch.PresetValue `json:"values"`
 }
 type savedTestPreset struct {
 	savedGroup
@@ -51,6 +89,15 @@ type showWorkspace struct {
 	Groups    []savedGroup      `json:"groups"`
 	Presets   []savedTestPreset `json:"presets"`
 	Baselines []rigBaseline     `json:"baselines"`
+	// Layout is the Console-lite grid (layout.go), stored here so it shares
+	// groups' per-show persistence, backup and recovery.
+	Layout showLayout `json:"layout"`
+	// ProgrammerPresets are the Console-lite per-family presets (C4b).
+	ProgrammerPresets []programmerPreset `json:"programmerPresets"`
+	// TestSequences are the Console-lite test sequences (C5), here so they
+	// share groups' per-show isolation, preceding-save .bak, Recover and
+	// Reset this show.
+	TestSequences []testSequenceJSON `json:"testSequences"`
 }
 
 func workspaceFor(p patch.Patch) showWorkspace {
@@ -59,12 +106,37 @@ func workspaceFor(p patch.Patch) showWorkspace {
 	if w.Groups == nil {
 		w.Groups = []savedGroup{}
 	}
+	for i := range w.Groups {
+		normalizeGroup(&w.Groups[i])
+	}
+	if w.ProgrammerPresets == nil {
+		w.ProgrammerPresets = []programmerPreset{}
+	}
+	for i := range w.ProgrammerPresets {
+		if w.ProgrammerPresets[i].Values == nil {
+			w.ProgrammerPresets[i].Values = make([]patch.PresetValue, 0)
+		}
+	}
 	if w.Presets == nil {
 		w.Presets = []savedTestPreset{}
+	}
+	if w.TestSequences == nil {
+		w.TestSequences = []testSequenceJSON{}
+	}
+	for i := range w.TestSequences {
+		if w.TestSequences[i].Steps == nil {
+			w.TestSequences[i].Steps = []testStepJSON{}
+		}
+		for j := range w.TestSequences[i].Steps {
+			if w.TestSequences[i].Steps[j].Tests == nil {
+				w.TestSequences[i].Steps[j].Tests = []patternTestRequest{}
+			}
+		}
 	}
 	if w.Baselines == nil {
 		w.Baselines = []rigBaseline{}
 	}
+	normalizeLayout(&w.Layout)
 	return w
 }
 
@@ -161,10 +233,13 @@ func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
 	s.identifyMu.Unlock()
 	writeJSON(w, 200, map[string]any{"active": ok, "name": name, "nic": s.NIC, "output": s.DMX.OutputRunning() || identifyRunning, "simulation": s.Simulation})
 }
+
+// handleStopAllOutput is the strip's Stop all output: since C3 it is the
+// master Disarm — zero frames on every stream, E1.31 Stream_Terminated on
+// sACN, then silence until someone arms again. Every source keeps its state
+// (selected tests, Send levels), so Arm brings the same look back.
 func (s *Server) handleStopAllOutput(w http.ResponseWriter, r *http.Request) {
-	s.RigCheck.Stop()
-	s.DMX.Blackout()
-	s.DMX.Stop()
+	s.DMX.Disarm()
 	writeJSON(w, 200, map[string]bool{"stopped": true})
 }
 func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request) {
@@ -242,6 +317,14 @@ func (s *Server) handleWorkspaceAction(w http.ResponseWriter, r *http.Request) {
 					break
 				}
 			}
+			// A deleted group leaves no placement behind on the layout.
+			kept := make([]layoutItem, 0, len(data.Layout.Items))
+			for _, it := range data.Layout.Items {
+				if it.Kind != "group" || it.Ref != req.ID {
+					kept = append(kept, it)
+				}
+			}
+			data.Layout.Items = kept
 		case "delete-preset":
 			for i, item := range data.Presets {
 				if item.ID == req.ID {
@@ -285,8 +368,7 @@ func (s *Server) handleWorkspaceAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.RigCheck.Stop()
-		s.DMX.Blackout()
-		s.DMX.Stop()
+		s.DMX.Disarm()
 		port, err := s.OnRehearse(p, req.Fault)
 		if err != nil {
 			writeError(w, 400, err)
@@ -340,7 +422,9 @@ func (s *Server) handleWorkspaceAction(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, fmt.Errorf("100 group limit reached"))
 			return
 		}
-		data.Groups = append(data.Groups, savedGroup{ID: id, Name: name, EntryIDs: req.EntryIDs})
+		g := savedGroup{ID: id, Name: name, EntryIDs: req.EntryIDs}
+		normalizeGroup(&g)
+		data.Groups = append(data.Groups, g)
 	case "save-preset":
 		ids, specs, isolate, fadeMS := s.RigCheck.SavedPattern()
 		if len(specs) == 0 {
@@ -367,6 +451,7 @@ func (s *Server) handleWorkspaceAction(w http.ResponseWriter, r *http.Request) {
 		for i, e := range entries {
 			digests[e.ID] = profileDigest(e)
 			entries[i].ChannelFunctions = nil
+			entries[i].Wheels = nil
 		}
 		data.Baselines = append(data.Baselines, rigBaseline{ID: id, Name: name, At: time.Now(), Entries: entries, ProfileDigests: digests, Devices: devices, Issues: workspaceIssues(p, devices)})
 	default:
@@ -388,8 +473,21 @@ func (s *Server) handleWorkspaceAction(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"id": id})
 }
 
+// profileDigest hashes the entry's profile for Rig Baselines. A profile
+// with no schema-v6 channel detail is hashed in its exact pre-v6 bytes
+// (patch.PreV6ChannelFunctionsJSON), so baselines taken before full GDTF
+// detail existed do not report every fixture's profile as changed after the
+// upgrade; one WITH detail (re-imported GDTF) includes it and its wheels —
+// that is a real profile change.
 func profileDigest(e patch.Entry) string {
-	data, _ := json.Marshal(e.ChannelFunctions)
+	data, ok := patch.PreV6ChannelFunctionsJSON(e.ChannelFunctions)
+	if !ok || e.WheelsKnown || len(e.Wheels) > 0 {
+		data, _ = json.Marshal(struct {
+			ChannelFunctions map[uint16]patch.ChannelFunction `json:"channelFunctions"`
+			Wheels           []patch.Wheel                    `json:"wheels"`
+			WheelsKnown      bool                             `json:"wheelsKnown"`
+		}{e.ChannelFunctions, e.Wheels, e.WheelsKnown})
+	}
 	return fmt.Sprintf("%x", sha256.Sum256(data))
 }
 

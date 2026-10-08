@@ -75,8 +75,8 @@ const WalkScreen = (() => {
   let scopeKind = sessionStorage.getItem('benny512.walk.scopeKind') || 'all';
   // scopeUniverseCanonical: the 0-based wire Port-Address the "One universe"
   // scope will start on. THIS is the source of truth; the input only ever
-  // shows/accepts the display-base-converted number, exactly as send.js's
-  // sendUniverseCanonical and nodes.js's staged port fields do.
+  // shows/accepts the display-base-converted number, exactly as console-tools.js's
+  // canonical raw universe and nodes.js's staged port fields do.
   let scopeUniverseCanonical = 0;
   let orderMode = sessionStorage.getItem('benny512.walk.order') || 'address';
   let fixturesOnly = sessionStorage.getItem('benny512.walk.fixturesOnly') !== 'false';

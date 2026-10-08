@@ -53,7 +53,16 @@ import (
 // library file is a thing the owner HANDS TO A COWORKER (see Export), so a
 // file written by an older or newer build is an ordinary, expected event,
 // not a corruption.
-const CurrentSchemaVersion = 1
+//
+// Version 2 (Console-lite C1b, owner decision 2026-10-07): a mode may carry
+// full GDTF channel detail (patch.ChannelFunction's FunctionsKnown/
+// Functions/ByteCount/ByteIndex) and Wheels/WheelsKnown (C1). The fields are
+// additive and a v1 document needs no conversion, but a build that knows
+// only v1 would import a v2 document and silently drop the detail; the
+// number says so up front. validate() refuses any version newer than this
+// one — including on the build that shipped before C1, whose validate()
+// already refused anything above 1 (checked on master 6b2a9d9).
+const CurrentSchemaVersion = 2
 
 // FileFormat is the self-identifying "format" string every exported library
 // document carries and every import is checked against. A JSON document
@@ -135,6 +144,13 @@ type Mode struct {
 	ChannelFunctions map[uint16]patch.ChannelFunction `json:"channelFunctions"`
 	// Origin is where this mode's data came from.
 	Origin Origin `json:"origin"`
+	// Wheels/WheelsKnown are the fixture type's GDTF wheels, carried per
+	// mode so a mode applied to a patch entry brings them along — the same
+	// pair, with the same meaning, as patch.Entry.Wheels/WheelsKnown
+	// (WheelsKnown false = never imported, not "no wheels"). Wheels is
+	// never nil once it has been through this package (see normalizeMode).
+	Wheels      []patch.Wheel `json:"wheels"`
+	WheelsKnown bool          `json:"wheelsKnown"`
 }
 
 // Record is one fixture TYPE: the library's unit of storage. See the
@@ -244,18 +260,17 @@ func KeyFor(manufacturer, model string) string {
 }
 
 // normalizeMode makes m safe to marshal and to hand out: non-nil channel
-// map, non-nil ChannelSets on every channel function in it (patch's own
-// invariant — a nil slice there marshals to `null`).
+// map, non-nil ChannelSets/Functions on every channel function in it and
+// non-nil Wheels (patch's own invariant — a nil slice there marshals to
+// `null`).
 func normalizeMode(m Mode) Mode {
 	if m.ChannelFunctions == nil {
 		m.ChannelFunctions = make(map[uint16]patch.ChannelFunction)
 	}
 	for off, cf := range m.ChannelFunctions {
-		if cf.ChannelSets == nil {
-			cf.ChannelSets = make([]patch.ChannelSet, 0)
-			m.ChannelFunctions[off] = cf
-		}
+		m.ChannelFunctions[off] = patch.CloneChannelFunction(cf)
 	}
+	m.Wheels = patch.CloneWheels(m.Wheels)
 	if m.VerifiedHash == "" || m.VerifiedHash != modeHash(m) {
 		m.VerifiedHash = ""
 		m.VerifiedAt = time.Time{}
@@ -337,10 +352,9 @@ func cloneRecord(r Record) Record {
 		cm := m
 		cm.ChannelFunctions = make(map[uint16]patch.ChannelFunction, len(m.ChannelFunctions))
 		for off, cf := range m.ChannelFunctions {
-			ccf := cf
-			ccf.ChannelSets = append(make([]patch.ChannelSet, 0, len(cf.ChannelSets)), cf.ChannelSets...)
-			cm.ChannelFunctions[off] = ccf
+			cm.ChannelFunctions[off] = patch.CloneChannelFunction(cf)
 		}
+		cm.Wheels = patch.CloneWheels(m.Wheels)
 		out.Modes[i] = cm
 	}
 	return out

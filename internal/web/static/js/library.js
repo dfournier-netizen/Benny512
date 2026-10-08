@@ -3,6 +3,9 @@ const LibraryPanel=(()=>{
   let dialog, records=[], entries=[], query='', verifiedOnly=false, chosen=null, pending=null, busy=false;
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const verified=m=>!!m.verifiedHash && !!m.verifiedAt && !m.verifiedAt.startsWith('0001-');
+  // Full channel detail (every function, set and wheel) exists only for modes
+  // read by the current GDTF parser; older imports and patch harvests say so.
+  const detailKnown=m=>!!m.wheelsKnown||Object.values(m.channelFunctions||{}).some(cf=>cf.functionsKnown);
   function status(s){dialog.querySelector('[data-library-status]').textContent=s;}
   async function refresh(){records=(await Api.getLibrary()).records;const p=await Api.getPatch();entries=p.patch?p.patch.entries:[];if(chosen){const r=records.find(r=>r.key===chosen.r.key),m=r?.modes.find(m=>m.name===chosen.m.name);chosen=m?{r,m}:null;}}
   async function open(){
@@ -35,10 +38,17 @@ const LibraryPanel=(()=>{
     const list=dialog.querySelector('[data-library-records]');
     list.innerHTML=records.map((r,ri)=>{
       if(!(r.manufacturer+' '+r.model).toLowerCase().includes(query.toLowerCase()))return '';
-      const modes=r.modes.map((m,mi)=>verifiedOnly&&!verified(m)?'':`<div class="b5-workspace-item"><strong>${esc(m.name||'Unnamed mode')}</strong> · ${m.footprint} channels <span class="b5-pill b5-pill--tag ${verified(m)?'b5-pill--ok':'b5-pill--unread'}">${verified(m)?'Operator verified':'Not verified'}</span><div class="b5-caption">${esc(m.origin?.detail||m.origin?.source||'Source unknown')}${verified(m)?' · '+esc(new Date(m.verifiedAt).toLocaleDateString())+' · '+esc(m.verificationNote):''}</div><div class="b5-row"><button class="b5-btn b5-btn--sm" data-use-mode="${ri}:${mi}">Use in patch</button><button class="b5-btn b5-btn--sm" data-verify-mode="${ri}:${mi}">${verified(m)?'Clear verification':'Mark verified…'}</button></div></div>`).join('');
-      return modes?`<section><h3>${esc(r.manufacturer+' '+r.model)}</h3><div class="b5-row">${(r.sourceFiles||[]).map(f=>`<a class="b5-btn b5-btn--sm" href="/api/library/source?key=${encodeURIComponent(r.key)}&amp;hash=${encodeURIComponent(f.sha256)}" download>${esc(f.name)}</a>`).join('')}</div>${modes}</section>`:'';
+      const modes=r.modes.map((m,mi)=>verifiedOnly&&!verified(m)?'':`<div class="b5-workspace-item"><strong>${esc(m.name||'Unnamed mode')}</strong> · ${m.footprint} channels <span class="b5-pill b5-pill--tag ${verified(m)?'b5-pill--ok':'b5-pill--unread'}">${verified(m)?'Operator verified':'Not verified'}</span><div class="b5-caption">${esc(m.origin?.detail||m.origin?.source||'Source unknown')}${verified(m)?' · '+esc(new Date(m.verifiedAt).toLocaleDateString())+' · '+esc(m.verificationNote):''} · Channel detail: ${detailKnown(m)?'full':'not imported'}</div><div class="b5-row"><button class="b5-btn b5-btn--sm" data-use-mode="${ri}:${mi}">Use in patch</button><button class="b5-btn b5-btn--sm" data-verify-mode="${ri}:${mi}">${verified(m)?'Clear verification':'Mark verified…'}</button></div></div>`).join('');
+      const missing=r.modes.some(m=>!detailKnown(m)),files=r.sourceFiles||[];
+      const reread=!missing?'':files.length?files.map((f,fi)=>`<button class="b5-btn b5-btn--sm" data-reread="${ri}:${fi}">Re-read channel detail from ${esc(f.name)}</button>`).join(''):'<p class="b5-caption" data-detail-missing>Channel detail not imported — no original GDTF is stored for this type. Re-import the GDTF to get full channel detail.</p>';
+      return modes?`<section><h3>${esc(r.manufacturer+' '+r.model)}</h3><div class="b5-row">${files.map(f=>`<a class="b5-btn b5-btn--sm" href="/api/library/source?key=${encodeURIComponent(r.key)}&amp;hash=${encodeURIComponent(f.sha256)}" download>${esc(f.name)}</a>`).join('')}</div>${reread?`<div class="b5-row">${reread}</div>`:''}${modes}</section>`:'';
     }).join('')||'<p>No matching modes. Import a GDTF or save profiles from a patch.</p>';
     list.querySelectorAll('[data-use-mode]').forEach(b=>b.onclick=()=>{const [ri,mi]=b.dataset.useMode.split(':').map(Number);chosen={r:records[ri],m:records[ri].modes[mi]};paintUse();const area=dialog.querySelector('[data-library-use]');area.scrollIntoView({block:'start'});area.querySelector('input').focus({preventScroll:true});});
+    list.querySelectorAll('[data-reread]').forEach(b=>b.onclick=()=>{
+      const [ri,fi]=b.dataset.reread.split(':').map(Number),r=records[ri],f=r.sourceFiles[fi];
+      action(async()=>{const buf=await Api.getLibrarySourceBytes(r.key,f.sha256);return MvrImport.rereadGdtfIntoLibrary(buf,f.name);},
+        x=>`Re-read ${f.name}: ${x.result.added} added · ${x.result.updated} updated · ${x.result.skipped} unchanged${(x.parsed.warnings||[]).length?` · ${x.parsed.warnings.length} file warning${x.parsed.warnings.length===1?'':'s'}`:''}. Changed modes need verifying again.`);
+    });
     list.querySelectorAll('[data-verify-mode]').forEach(b=>b.onclick=async()=>{
       const [ri,mi]=b.dataset.verifyMode.split(':').map(Number),r=records[ri],m=r.modes[mi];
       if(!await Workspace.ask(verified(m)?`Clear verification for ${r.model} / ${m.name}?`:`Confirm you tested ${r.model} / ${m.name} on hardware and verified its footprint and channel functions?`))return;
@@ -77,7 +87,7 @@ const LibraryPanel=(()=>{
     area.querySelector('[data-library-add]').onsubmit=async e=>{
       e.preventDefault();const form=e.target,values=new FormData(form),address=Number(values.get('address'));
       if(address+m.footprint-1>512){status('This profile extends past channel 512. Choose another address.');return;}
-      await action(()=>Api.createPatchEntry({name:values.get('fixtureName'),fixtureType:(r.manufacturer+' '+r.model).trim(),mode:m.name,footprint:m.footprint,universe:UI.parseUser(values.get('universe')),startAddress:address,channelFunctions:m.channelFunctions}),'Added to the active patch; commit it to a physical fixture in Reconcile. Check for address overlaps.');
+      await action(()=>Api.createPatchEntry({name:values.get('fixtureName'),fixtureType:(r.manufacturer+' '+r.model).trim(),mode:m.name,footprint:m.footprint,universe:UI.parseUser(values.get('universe')),startAddress:address,channelFunctions:m.channelFunctions,wheels:m.wheels||[],wheelsKnown:!!m.wheelsKnown}),'Added to the active patch; commit it to a physical fixture in Reconcile. Check for address overlaps.');
     };
     area.querySelector('[data-apply-profile]').onclick=async()=>{
       const ids=[...area.querySelectorAll('[data-profile-entry]:checked')].map(e=>e.dataset.profileEntry);

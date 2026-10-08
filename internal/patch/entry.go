@@ -35,6 +35,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -90,7 +91,33 @@ import (
 // "state" key on any setting; migrate() below normalizes the resulting
 // empty string to "unknown", never "not_fitted" — see the v4 -> v5 note in
 // migrate() for why that direction is the whole point of the bump.
-const CurrentSchemaVersion = 5
+//
+// Version 6 (Console-lite C1, full GDTF channel detail): ChannelFunction
+// gained ByteCount/ByteIndex and FunctionsKnown/Functions (every
+// ChannelFunction of every LogicalChannel of the owning DMXChannel, with its
+// ChannelSets — see FunctionRange), and Entry gained Wheels/WheelsKnown. A
+// v5 file has none of those keys: FunctionsKnown and WheelsKnown unmarshal
+// to false, which IS the "full channel detail was never imported" mark, and
+// migrate() only normalizes the nil slices to empty ones. Nothing is derived
+// from the first-function fields — a v5 entry's ranges stay unknown until
+// its GDTF is re-imported (see TestMigrate_V5FileLoadsWithChannelDetailNotImported).
+//
+// Version 7 (Console-lite C2, positions): Entry gained Location — the
+// fixture's MVR world position and orientation (see Location). A v6 file has
+// no "location" key, which unmarshals to Known == false and RotationKnown ==
+// false: exactly "no position was ever imported". migrate() derives nothing
+// (the free-text Position label is never parsed for coordinates) — see
+// TestMigrate_V6FileLoadsWithLocationUnknown.
+//
+// Version 8 (Console-lite C1b, profile cache): a FILE-encoding change only.
+// Each distinct profile (fixture type + mode + channel map + wheels) is
+// stored once in a top-level "profiles" table keyed by content hash, and
+// each entry stores "profile": <key> instead of its channel map and wheels
+// — see showfile.go. Entry, Patch and every API shape are unchanged. A v7
+// or older file (maps inline) is read as before by decodeShowFile; the next
+// save writes v8. From v8 on, a file NEWER than this build is refused, not
+// opened: an older build reading a v8 file would see no channel maps at all.
+const CurrentSchemaVersion = 8
 
 // MatchState records a patch entry's reconciliation state, persisted so a
 // user-confirmed pairing is never re-litigated across sessions (task ask:
@@ -225,6 +252,16 @@ type Entry struct {
 	// actually contains — see ChannelFunction's doc comment.
 	ChannelFunctions map[uint16]ChannelFunction `json:"channelFunctions"`
 
+	// Wheels are the GDTF <Wheels> of the fixture type this entry was
+	// profiled from (schema v6) — what FunctionRange.Wheel and
+	// SetRange.WheelSlot point into. Never nil (make([]Wheel, 0)).
+	// WheelsKnown is the only thing that separates "this fixture has no
+	// wheels" (true, empty list) from "nobody imported them" (false — every
+	// pre-v6 entry, every hand-entered or RDM-adopted one). No `omitempty`
+	// on either: the false and the empty list are both the signal.
+	Wheels      []Wheel `json:"wheels"`
+	WheelsKnown bool    `json:"wheelsKnown"`
+
 	// PhaseWeight is runtime-only Rig Check metadata. A web caller may set it
 	// from a committed fixture's RDM DEVICE_INFO sub-device count so one
 	// multi-cell fixture consumes several positions when calculating a phase
@@ -234,6 +271,61 @@ type Entry struct {
 	// Zero selects automatic profile/RDM detection; a positive count is an
 	// operator-confirmed phase-slot override, unrelated to footprint/counts.
 	PhaseCount uint16 `json:"phaseCount"`
+
+	// Location is the fixture's world position (schema v7). Independent of
+	// the free-text Position label above, which it never reads or changes.
+	Location Location `json:"location"`
+}
+
+// Location is a fixture's position and orientation in MVR world coordinates
+// (MVR 1.6 / DIN SPEC 15801, "Node Definition: Matrix": right-handed, Z up,
+// 1 unit = 1 mm), after composing every ancestor transform of the <Fixture>
+// (Layer, GroupObject, Truss, ... — each child's Matrix is "inside the parent
+// coordinate system"). Produced by the browser's MVR parser (mvrparse.js),
+// which documents the composition.
+//
+// Known false = no position was ever imported (pre-v7 data, hand-entered,
+// RDM-adopted, or an MVR fixture whose Matrix could not be read); X/Y/Z are
+// then 0 and mean nothing. RotationKnown is separate because a readable
+// offset can sit on a basis that is not a rotation (a mirrored or degenerate
+// matrix): position known, orientation refused.
+//
+// RotX/RotY/RotZ are degrees, R = Rz(RotZ)·Ry(RotY)·Rx(RotX) acting on column
+// vectors (equivalently: rotate about world X, then world Y, then world Z),
+// RotY in [-90, 90]; at RotY = ±90 (gimbal lock) RotX is fixed at 0. MVR does
+// not define Euler angles at all — the matrix is the data — so this
+// convention is ours, chosen for display (a glyph's plan rotation is RotZ);
+// the angles are exact for the stated convention, not approximate.
+//
+// No `omitempty` anywhere: a fixture at X = 0 or hung at RotY = 0 is real
+// data, and the two Known flags are half of the signal.
+type Location struct {
+	Known         bool    `json:"known"`
+	X             float64 `json:"x"`
+	Y             float64 `json:"y"`
+	Z             float64 `json:"z"`
+	RotationKnown bool    `json:"rotationKnown"`
+	RotX          float64 `json:"rotX"`
+	RotY          float64 `json:"rotY"`
+	RotZ          float64 `json:"rotZ"`
+}
+
+// Validate refuses a Location whose flags and numbers disagree: values
+// without Known, rotation without RotationKnown, rotation without position,
+// or a non-finite number. It never repairs one.
+func (l Location) Validate() error {
+	for _, v := range []float64{l.X, l.Y, l.Z, l.RotX, l.RotY, l.RotZ} {
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return errors.New("Location values must be finite numbers.")
+		}
+	}
+	if !l.Known && (l.X != 0 || l.Y != 0 || l.Z != 0 || l.RotationKnown) {
+		return errors.New("The location carries coordinates or a rotation but says it is not known.")
+	}
+	if !l.RotationKnown && (l.RotX != 0 || l.RotY != 0 || l.RotZ != 0) {
+		return errors.New("The location carries rotation angles but says the rotation is not known.")
+	}
+	return nil
 }
 
 // ChannelFunctionSource records how a ChannelFunction's attribute mapping
@@ -407,6 +499,221 @@ type ChannelFunction struct {
 	// of hiding how little the inference is actually built on.
 	RDMSlotType  string `json:"rdmSlotType,omitempty"`
 	RDMSlotLabel string `json:"rdmSlotLabel,omitempty"`
+
+	// --- full channel detail (schema v6, Console-lite C1) ----------------
+	//
+	// Everything above still describes the FIRST ChannelFunction of the
+	// first LogicalChannel exactly as it always has — Rig Check reads those
+	// fields and they are deliberately left byte-identical (including the
+	// legacy DMXTo, which is in the file's raw units and falls back to 255;
+	// use Functions for real ranges). The fields below describe the whole
+	// owning <DMXChannel>.
+	//
+	// ByteCount is the number of DMX bytes the owning <DMXChannel> spans
+	// (the length of its Offset list: 1 = 8-bit, 2 = 16-bit, ...).
+	// ByteIndex is this offset's position in that list, 0 = coarse — GDTF
+	// lists Offset "from highest to least significant" (DIN SPEC 15800,
+	// Table 58). 0/0 on an entry with FunctionsKnown false means unknown.
+	ByteCount int `json:"byteCount"`
+	ByteIndex int `json:"byteIndex"`
+	// FunctionsKnown says Functions was produced by the full-detail parser.
+	// false = "detail not imported" (pre-v6 data, RDM-inferred, hand-made),
+	// and Functions is then always empty — never a list derived from the
+	// first-function fields above.
+	FunctionsKnown bool `json:"functionsKnown"`
+	// Functions is EVERY ChannelFunction of EVERY LogicalChannel of the
+	// owning DMXChannel, in document order. Every offset of a multi-byte
+	// channel carries the same list. Never nil (make([]FunctionRange, 0)).
+	Functions []FunctionRange `json:"functions"`
+}
+
+// FunctionRange is one GDTF <ChannelFunction> (DIN SPEC 15800, Table 60).
+//
+// RESOLUTION CONVENTION: every DMX value here — DMXFrom, DMXTo, Default,
+// Highlight — is at the owning DMXChannel's FULL resolution: 0..255 for an
+// 8-bit channel, 0..65535 for 16-bit, and so on. The file's "value/bytes"
+// notation is converted per the spec's DMXValue type (Table 1: byte
+// mirroring by default, byte shifting with an "s" suffix) as the reference
+// implementation does it (libMVRgdtf GdtfConverter::ConvertDMXValue).
+// ModeFrom/ModeTo are at the MASTER channel's resolution.
+//
+// DMXTo is the next function's DMXFrom - 1 or, for the last function of the
+// channel (or when the next one does not start higher, i.e. mode-mastered
+// alternatives sharing a start), the channel's maximum (Table 60; "next" is
+// taken across LogicalChannels in document order, as libMVRgdtf links
+// them).
+type FunctionRange struct {
+	// LogicalAttribute is the parent <LogicalChannel Attribute>.
+	LogicalAttribute string  `json:"logicalAttribute"`
+	Attribute        string  `json:"attribute"`
+	Name             string  `json:"name"`
+	DMXFrom          uint32  `json:"dmxFrom"`
+	DMXTo            uint32  `json:"dmxTo"`
+	PhysicalFrom     float64 `json:"physicalFrom"`
+	PhysicalTo       float64 `json:"physicalTo"`
+	// HasDefault/HasHighlight: the file stated one (see
+	// ChannelFunction.HasDefault for why the flag exists). Default comes from
+	// <ChannelFunction Default> or, for a GDTF 1.0 file, from the owning
+	// <DMXChannel Default> (moved to ChannelFunction in GDTF 1.1; the
+	// reference implementation applies the channel's value to its
+	// functions). Highlight comes from <ChannelFunction Highlight> if present,
+	// else <DMXChannel Highlight> (Table 58; "None" = not stated).
+	HasDefault   bool   `json:"hasDefault"`
+	Default      uint32 `json:"default"`
+	HasHighlight bool   `json:"hasHighlight"`
+	Highlight    uint32 `json:"highlight"`
+	// Wheel is the GDTF <Wheel Name> this function links to, or "".
+	Wheel string `json:"wheel"`
+	// ModeMaster is the GDTF Node link verbatim ("Head_Color1", or
+	// "Head_Gobo1.Gobo1.Gobo1" for a ChannelFunction), "" = none. HasMode is
+	// true only when that master resolved to a DMXChannel of the same mode
+	// and ModeFrom/ModeTo could be read; a ModeMaster with HasMode false is
+	// an unresolved dependency, reported by the parser, never guessed.
+	ModeMaster string     `json:"modeMaster"`
+	HasMode    bool       `json:"hasMode"`
+	ModeFrom   int        `json:"modeFrom"`
+	ModeTo     int        `json:"modeTo"`
+	Sets       []SetRange `json:"sets"`
+}
+
+// SetRange is one GDTF <ChannelSet> (Table 61). DMXFrom/DMXTo are at the
+// channel's full resolution; DMXTo is the next set's DMXFrom - 1, or the
+// parent function's DMXTo for the last set. WheelSlot is GDTF's 1-based
+// WheelSlotIndex into the parent function's Wheel; HasWheelSlot is false
+// when the attribute is absent or 0 (vendor files write "0" on sets that
+// are not wheel slots).
+type SetRange struct {
+	Name         string  `json:"name"`
+	DMXFrom      uint32  `json:"dmxFrom"`
+	DMXTo        uint32  `json:"dmxTo"`
+	PhysicalFrom float64 `json:"physicalFrom"`
+	PhysicalTo   float64 `json:"physicalTo"`
+	HasWheelSlot bool    `json:"hasWheelSlot"`
+	WheelSlot    int     `json:"wheelSlot"`
+}
+
+// Wheel is one GDTF <Wheel> (Table 11) with its slots in document order —
+// slot i (0-based) is WheelSlotIndex i+1. Slots is never nil.
+type Wheel struct {
+	Name  string      `json:"name"`
+	Slots []WheelSlot `json:"slots"`
+}
+
+// WheelSlot is one GDTF <Slot> (Table 12). ColorX/ColorY/ColorYY are the
+// file's CIE 1931 xyY verbatim (HasColor false when the slot states no
+// Color — the spec's default white is NOT filled in). SRGB is a DISPLAY
+// SWATCH ONLY, "#rrggbb", converted from x,y alone: Y is ignored because
+// vendor files disagree on its scale (Robe BMFL writes 0.145 for a deep
+// red and 100.0 for white in the same wheel; Robin 100 LEDBeam writes 100.0
+// for every colour). Out-of-gamut components are clipped and the result is
+// normalised to full brightness, so it is approximate by construction.
+// MediaFileName is the gobo/animation image name (without extension) in
+// the archive's ./wheels folder, "" when none.
+type WheelSlot struct {
+	Name          string  `json:"name"`
+	HasColor      bool    `json:"hasColor"`
+	ColorX        float64 `json:"colorX"`
+	ColorY        float64 `json:"colorY"`
+	ColorYY       float64 `json:"colorYY"`
+	HasSRGB       bool    `json:"hasSRGB"`
+	SRGB          string  `json:"srgb"`
+	MediaFileName string  `json:"mediaFileName"`
+}
+
+// CloneChannelFunction returns cf with every slice it holds copied (and
+// normalised non-nil), so a value handed across a store's mutex boundary
+// can never alias the stored one.
+func CloneChannelFunction(cf ChannelFunction) ChannelFunction {
+	cf.ChannelSets = append(make([]ChannelSet, 0, len(cf.ChannelSets)), cf.ChannelSets...)
+	fns := make([]FunctionRange, len(cf.Functions))
+	for i, f := range cf.Functions {
+		f.Sets = append(make([]SetRange, 0, len(f.Sets)), f.Sets...)
+		fns[i] = f
+	}
+	cf.Functions = fns
+	return cf
+}
+
+// HasChannelDetail reports whether cf carries any schema-v6 detail.
+func (cf ChannelFunction) HasChannelDetail() bool {
+	return cf.FunctionsKnown || cf.ByteCount != 0 || cf.ByteIndex != 0 || len(cf.Functions) > 0
+}
+
+// preV6ChannelFunction is ChannelFunction's exact pre-schema-v6 field list,
+// order and JSON tags. It exists for ONE purpose: stored digests that a
+// pre-v6 build computed by hashing a marshalled channel map — the Fixture
+// Library's per-mode verification stamp (library.modeHash) and Rig
+// Baselines' profile digest (internal/web/workspace.go) — must still match
+// after upgrading, or every verified mode would silently lose its stamp and
+// every baseline would report every fixture's profile as changed.
+type preV6ChannelFunction struct {
+	GeometryInstance   string                `json:"geometryInstance,omitempty"`
+	Source             ChannelFunctionSource `json:"source"`
+	Attribute          string                `json:"attribute,omitempty"`
+	FunctionName       string                `json:"functionName,omitempty"`
+	DMXFrom            uint32                `json:"dmxFrom"`
+	DMXTo              uint32                `json:"dmxTo"`
+	PhysicalFrom       float64               `json:"physicalFrom"`
+	PhysicalTo         float64               `json:"physicalTo"`
+	ChannelSets        []ChannelSet          `json:"channelSets"`
+	HasDefault         bool                  `json:"hasDefault"`
+	Default            uint32                `json:"default"`
+	DefaultByteCount   uint16                `json:"defaultByteCount"`
+	HasHighlight       bool                  `json:"hasHighlight"`
+	Highlight          uint32                `json:"highlight"`
+	HighlightByteCount uint16                `json:"highlightByteCount"`
+	RDMSlotType        string                `json:"rdmSlotType,omitempty"`
+	RDMSlotLabel       string                `json:"rdmSlotLabel,omitempty"`
+}
+
+// PreV6ChannelFunctionsJSON returns m marshalled exactly as a pre-v6 build
+// marshalled it, and true — but only when no function in m carries v6
+// detail. A map WITH detail returns (nil, false): it is new data, and its
+// digest is meant to differ.
+func PreV6ChannelFunctionsJSON(m map[uint16]ChannelFunction) ([]byte, bool) {
+	legacy := make(map[uint16]preV6ChannelFunction, len(m))
+	for off, cf := range m {
+		if cf.HasChannelDetail() {
+			return nil, false
+		}
+		legacy[off] = preV6ChannelFunction{
+			GeometryInstance: cf.GeometryInstance, Source: cf.Source, Attribute: cf.Attribute, FunctionName: cf.FunctionName,
+			DMXFrom: cf.DMXFrom, DMXTo: cf.DMXTo, PhysicalFrom: cf.PhysicalFrom, PhysicalTo: cf.PhysicalTo,
+			ChannelSets: cf.ChannelSets,
+			HasDefault:  cf.HasDefault, Default: cf.Default, DefaultByteCount: cf.DefaultByteCount,
+			HasHighlight: cf.HasHighlight, Highlight: cf.Highlight, HighlightByteCount: cf.HighlightByteCount,
+			RDMSlotType: cf.RDMSlotType, RDMSlotLabel: cf.RDMSlotLabel,
+		}
+	}
+	b, err := json.Marshal(legacy)
+	if err != nil {
+		return nil, false
+	}
+	return b, true
+}
+
+// WithoutChannelDetail returns a copy of m with every schema-v6 field
+// cleared — the profile as a pre-v6 import would have recorded it. Used to
+// recognise "the same profile, known in less detail" (library merge).
+func WithoutChannelDetail(m map[uint16]ChannelFunction) map[uint16]ChannelFunction {
+	out := make(map[uint16]ChannelFunction, len(m))
+	for off, cf := range m {
+		cf = CloneChannelFunction(cf)
+		cf.ByteCount, cf.ByteIndex, cf.FunctionsKnown = 0, 0, false
+		cf.Functions = make([]FunctionRange, 0)
+		out[off] = cf
+	}
+	return out
+}
+
+// CloneWheels returns a deep, non-nil copy of ws.
+func CloneWheels(ws []Wheel) []Wheel {
+	out := make([]Wheel, len(ws))
+	for i, w := range ws {
+		w.Slots = append(make([]WheelSlot, 0, len(w.Slots)), w.Slots...)
+		out[i] = w
+	}
+	return out
 }
 
 // entryIDCounter guarantees NewEntryID uniqueness even when called twice
@@ -497,17 +804,31 @@ func migrate(p *Patch) {
 	// show file records that we never asked; it must not come back claiming
 	// we know the fixture lacks the hardware (see
 	// TestMigrate_V4FileLoadsWithSettingStatesUnknown).
+	//
+	// v5 -> v6: no "functionsKnown"/"functions"/"byteCount"/"byteIndex" on
+	// any ChannelFunction and no "wheels"/"wheelsKnown" on any entry. The
+	// false Known flags are already the "full channel detail not imported"
+	// state; normalizeChannelFunctions only turns the nil slices into empty
+	// ones. Like v2 -> v3, nothing is derived from the first-function data.
+	//
+	// v6 -> v7: no "location" key on any entry; the zero Location is already
+	// "not known". Nothing to do, nothing derived from the Position label.
+	//
+	// v7 -> v8: nothing here — the profile table is resolved by
+	// decodeShowFile before migrate runs, and a v7 file's inline maps are
+	// already in place.
 	normalizeChannelFunctions(p.Entries)
 	normalizeSettingStates(p.Entries)
-	// Future: switch p.SchemaVersion { case 5: ...; p.SchemaVersion = 6 }
+	// Future: switch p.SchemaVersion { case 8: ...; p.SchemaVersion = 9 }
 	p.SchemaVersion = CurrentSchemaVersion
 }
 
 // normalizeChannelFunctions turns a nil Entry.ChannelFunctions (an entry
 // built by a caller that never touched the field — a plain
 // `patch.Entry{...}` literal from an older call site, or JSON-unmarshalled
-// from a v1 file) and any nil ChannelFunction.ChannelSets into their
-// non-nil empty equivalents, in place. Called from migrate() (the on-load
+// from a v1 file), any nil ChannelFunction.ChannelSets/Functions (and a
+// function's nil Sets), and a nil Entry.Wheels (and a wheel's nil Slots)
+// into their non-nil empty equivalents, in place. Called from migrate() (the on-load
 // path) AND from every Store method that installs entries into the active
 // patch (Replace/Mutate/EnsureActive below) — load is not the only way a
 // nil map reaches this package; a fresh `patch.Entry{...}` literal from
@@ -519,12 +840,32 @@ func normalizeChannelFunctions(entries []Entry) {
 			entries[i].ChannelFunctions = make(map[uint16]ChannelFunction)
 		}
 		for offset, cf := range entries[i].ChannelFunctions {
-			if cf.ChannelSets == nil {
-				cf.ChannelSets = make([]ChannelSet, 0)
-				entries[i].ChannelFunctions[offset] = cf
+			if cf.ChannelSets == nil || cf.Functions == nil || functionSetsHaveNil(cf.Functions) {
+				entries[i].ChannelFunctions[offset] = CloneChannelFunction(cf)
 			}
 		}
+		if entries[i].Wheels == nil || wheelSlotsHaveNil(entries[i].Wheels) {
+			entries[i].Wheels = CloneWheels(entries[i].Wheels)
+		}
 	}
+}
+
+func functionSetsHaveNil(fns []FunctionRange) bool {
+	for _, f := range fns {
+		if f.Sets == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func wheelSlotsHaveNil(ws []Wheel) bool {
+	for _, w := range ws {
+		if w.Slots == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // IndexOf returns the index of the entry with the given ID, or -1.
@@ -546,9 +887,9 @@ func clonePatch(p Patch) Patch {
 	for i := range cp.Entries {
 		cp.Entries[i].ChannelFunctions = make(map[uint16]ChannelFunction, len(p.Entries[i].ChannelFunctions))
 		for offset, cf := range p.Entries[i].ChannelFunctions {
-			cf.ChannelSets = append([]ChannelSet{}, cf.ChannelSets...)
-			cp.Entries[i].ChannelFunctions[offset] = cf
+			cp.Entries[i].ChannelFunctions[offset] = CloneChannelFunction(cf)
 		}
+		cp.Entries[i].Wheels = CloneWheels(p.Entries[i].Wheels)
 	}
 	return cp
 }
@@ -582,8 +923,8 @@ func NewStore(path string) *Store {
 			// call here (unlike decodeJSON's request-body path in
 			// internal/web, which deliberately wants strictness for typos
 			// in a live API call, not for a file that must always open).
-			if json.Unmarshal(data, &p) == nil {
-				migrate(&p)
+			if decoded, err := decodeShowFile(data); err == nil {
+				p = decoded
 				st.patch = &p
 			}
 		}
@@ -601,6 +942,29 @@ func (st *Store) Get() (Patch, bool) {
 		return Patch{}, false
 	}
 	return clonePatch(*st.patch), true
+}
+
+// Token returns an opaque value identifying the active patch's current
+// version, compared with ==. Every mutation path installs a NEW *Patch
+// (Mutate, Replace, load, create, reset, recover, clear) and never edits the
+// installed one in place, so the pointer changes on every change; holding
+// the returned value keeps the old *Patch reachable, so its address cannot
+// be reused by a later one. The Console-lite programmer uses it to rebuild
+// its parameter models only when the show actually changed.
+func (st *Store) Token() any {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return st.patch
+}
+
+// GetWithToken is Get and Token read under one lock.
+func (st *Store) GetWithToken() (Patch, bool, any) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.patch == nil {
+		return Patch{}, false, st.patch
+	}
+	return clonePatch(*st.patch), true, st.patch
 }
 
 // EnsureActive returns the active patch, creating an empty one (stamped

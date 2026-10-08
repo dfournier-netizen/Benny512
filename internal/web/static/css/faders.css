@@ -1,0 +1,90 @@
+/* faders.css — the always-visible group fader bar (Console-lite G3,
+   faders.js). Owner: "Always visible, on the bottom of the screen."
+
+   PLACEMENT. A fixed bar at the bottom of every screen: on a phone just
+   ABOVE the fixed bottom nav (its measured height, --b5-nav-height, app.js),
+   on wide screens at the very bottom (the nav is hidden there, so the
+   measured height is 0). In Rig Walk the walk bar owns the bottom edge, so
+   the faders sit above its reserve. faders.js publishes the bar's own height
+   as --b5-faders-height; every other bottom-sticky bar and the page body
+   add it, so nothing sits under the bar and nothing is hidden behind it.
+   Loaded after every screen sheet so these offsets are the last word. */
+.b5-faders {
+  position: fixed; left: 0; right: 0;
+  bottom: var(--b5-nav-height, 0px);
+  z-index: var(--b5-z-sticky);
+  background: var(--b5-color-bg-surface);
+  border-top: var(--b5-border-width-thick) solid var(--b5-color-border-strong);
+  box-shadow: var(--b5-shadow-lg);
+  min-width: 0;
+}
+body.b5-walk-mode .b5-faders { bottom: var(--b5-walk-bar-reserve); }
+.b5-faders__head {
+  display: flex; align-items: center; gap: var(--b5-space-2);
+  padding: var(--b5-space-1) var(--b5-space-3);
+  min-width: 0;
+}
+.b5-faders__toggle { font-weight: var(--b5-font-weight-bold); }
+.b5-faders__status { flex: 1 1 auto; min-width: 0; font-size: var(--b5-font-size-xs); color: var(--b5-color-text-warning);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.b5-faders__body { padding: 0 var(--b5-space-3) var(--b5-space-2); min-width: 0; }
+.b5-faders__body[hidden] { display: none; }
+/* One line: a dashed border (not just a colour) marks it as a warning about
+   the output state. */
+.b5-faders__hint { margin: 0 0 var(--b5-space-1); padding: 2px var(--b5-space-2);
+  font-size: var(--b5-font-size-xs); color: var(--b5-color-text-warning);
+  border: 1px dashed var(--b5-color-warning-700); border-radius: var(--b5-radius-sm); }
+/* One line where it fits; on a phone it wraps rather than cut off "ARM". */
+.b5-faders__hint[hidden] { display: none; }
+/* Wide content scrolls inside its own box (DESIGN.md rule 4). */
+.b5-faders__rows { display: flex; gap: var(--b5-space-4); overflow-x: auto; min-width: 0; padding-bottom: var(--b5-space-1); }
+.b5-faders__section { flex: 0 0 auto; display: flex; flex-direction: column; gap: var(--b5-space-1); min-width: 0; }
+.b5-faders__section + .b5-faders__section { border-left: var(--b5-border-width-thick) solid var(--b5-color-border-strong); padding-left: var(--b5-space-4); }
+.b5-faders__heading { margin: 0; font-size: var(--b5-font-size-xs); font-weight: var(--b5-font-weight-bold); color: var(--b5-color-text-secondary); }
+.b5-faders__row { display: flex; gap: var(--b5-space-2); }
+.b5-faders__empty { margin: 0; font-size: var(--b5-font-size-xs); color: var(--b5-color-text-muted); align-self: center; }
+
+.b5-fader {
+  width: 6.5rem; flex: 0 0 auto; display: flex; flex-direction: column; align-items: stretch; gap: 2px;
+  padding: var(--b5-space-1); border: var(--b5-border-width-thin) solid var(--b5-color-border-strong);
+  border-radius: var(--b5-radius-sm); background: var(--b5-color-bg-surface-raised); min-width: 0;
+}
+/* Untouched: dashed (DESIGN.md: dashed = nothing attached) and "—". */
+.b5-fader.is-untouched { border-style: dashed; }
+.b5-fader__label { font-size: var(--b5-font-size-xs); font-weight: var(--b5-font-weight-bold); line-height: 1.25;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere;
+  min-height: 2.5em; }
+.b5-fader__meta { font-size: var(--b5-font-size-xs); color: var(--b5-color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.b5-fader__nc { color: var(--b5-color-text-warning); white-space: normal; line-height: 1.2; }
+.b5-fader__value { margin-top: auto; font-family: var(--b5-font-mono); font-size: var(--b5-font-size-sm); font-weight: var(--b5-font-weight-bold); }
+.b5-fader__track {
+  position: relative; height: 80px; width: 100%; min-height: var(--b5-size-touch-min);
+  background: var(--b5-color-bg-inset); border: var(--b5-border-width-thin) solid var(--b5-color-border-strong);
+  border-radius: var(--b5-radius-sm); touch-action: none; cursor: ns-resize;
+}
+.b5-fader__track:focus-visible { outline: none; box-shadow: var(--b5-shadow-focus); }
+.b5-fader__fill { position: absolute; left: 0; right: 0; bottom: 0; background: var(--b5-color-accent-500-a30); border-radius: inherit; }
+.b5-fader__thumb { position: absolute; left: -2px; right: -2px; height: 8px; margin-bottom: -4px;
+  background: var(--b5-color-text-primary); border-radius: 2px; }
+.b5-fader.is-untouched .b5-fader__thumb { background: transparent; border: 2px dashed var(--b5-color-text-muted); }
+.b5-fader__release { width: 100%; justify-content: center; }
+
+/* Phones: a shorter track so the open bar leaves the screen usable. */
+@media (max-width: 767px) {
+  .b5-faders__head { padding-inline: var(--b5-space-2); }
+  .b5-faders__body { padding-inline: var(--b5-space-2); }
+  .b5-fader { width: 5.25rem; }
+  .b5-fader__track { height: var(--b5-size-touch-min); }
+}
+
+/* ---- everything else at the bottom clears the bar ---------------------- */
+.b5-app__body { padding-bottom: calc(var(--b5-space-5) + var(--b5-faders-height, 0px)); }
+.b5-actionbar { bottom: var(--b5-faders-height, 0px); }
+.b5-toast-region { bottom: calc(var(--b5-space-4) + var(--b5-faders-height, 0px) + var(--b5-nav-height, 0px)); }
+body.b5-walk-mode .b5-app__body { padding-bottom: calc(var(--b5-walk-bar-reserve) + var(--b5-faders-height, 0px)); }
+@media (max-width: 767px) {
+  .b5-app__body { padding-bottom: calc(var(--b5-size-touch-min) + var(--b5-space-6) + var(--b5-faders-height, 0px)); }
+  .b5-actionbar { bottom: calc(var(--b5-nav-height, calc(var(--b5-size-touch-min) + var(--b5-space-6))) + var(--b5-faders-height, 0px)); }
+  .b5-con-summary { bottom: calc(var(--b5-con-nav-reserve, calc(var(--b5-size-touch-min) + var(--b5-space-6))) + var(--b5-faders-height, 0px)); }
+  body.b5-walk-mode .b5-app__body { padding-bottom: calc(var(--b5-walk-bar-reserve) + var(--b5-faders-height, 0px)); }
+}

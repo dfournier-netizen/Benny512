@@ -90,6 +90,20 @@ type Settings struct {
 	// input and never written back: the field is gone from the UI, and
 	// keeping it live would leave two settings meaning overlapping things.
 	LegacyUniverseBase *int `json:"universeBase,omitempty"`
+	// SACNNIC is the network adapter sACN goes out on (C3: each protocol
+	// has its own). "" means the same adapter as Art-Net — what sACN used
+	// before it had a setting of its own. NIC above is the Art-Net adapter.
+	// Unlike NIC this one applies without a restart: the sACN socket is
+	// opened at Arm, so it takes effect at the next Arm.
+	SACNNIC string `json:"sacnNic"`
+	// LeaseLossAction is what the master output does when every browser
+	// has been silent for 5 s: "blackout" (= Disarm; the default) or
+	// "hold" (keep transmitting the last look until someone re-arms).
+	LeaseLossAction string `json:"leaseLossAction"`
+	// UniverseProtocols lists the show universes that go out on something
+	// other than the default Art-Net: "sacn", or "both". A universe with no
+	// row is Art-Net only. See output.go.
+	UniverseProtocols []UniverseProtocol `json:"universeProtocols"`
 }
 
 // Server bundles the engines and serves REST + WS + the embedded UI.
@@ -155,6 +169,10 @@ type Server struct {
 	// SetSACNStorePath, mirroring SetPatchStorePath/SetLibraryStorePath.
 	SACNSettings *sacn.Store
 
+	// simSACN is the in-memory sACN link a Simulation server's engine
+	// transmits to (output.go): rehearsal and --demo never open a socket.
+	simSACN *simSACNLink
+
 	// sacnPort overrides the E1.31 destination port (0 = ACN_SDT_MULTICAST_
 	// PORT, 5568). Only the protocol-isolation test sets it, so a real-socket
 	// test can bind a listener without competing for the well-known port.
@@ -171,12 +189,24 @@ type Server struct {
 	// installation's real configuration.
 	settingsStore *settingsStore
 	rdmLogger     *capture.DiskLogger
+	// midi holds the MIDI encoder mapping (C8, midi.go). Its zero value is
+	// an in-memory store; cmd/benny512 gives it a file in real mode only.
+	midi midiStore
 
 	// unreachLogged deduplicates the "stopped asking this device" NOTE line
 	// in the RDM log, keyed UID -> the breaker RetryAt already reported.
 	// See noteUnreachableToLog.
 	unreachMu     sync.Mutex
 	unreachLogged map[string]time.Time
+	// unreachCause remembers, per UID in unreachLogged, which cause the
+	// open NOTE named, so the recovery NOTE (and the re-read that follows a
+	// no-response recovery) matches it. Guarded by unreachMu.
+	unreachCause map[string]session.UnreachableCause
+
+	// faultLogged deduplicates the node-fault NOTE line: one for the first
+	// malformed ArtRdm from a node, then at most one summary per
+	// nodeFaultNoteInterval. See noteNodeFaultToLog. Guarded by unreachMu.
+	faultLogged map[netip.Addr]*nodeFaultLog
 
 	// walkStore holds Rig Walk mode's session state (see internal/walk and
 	// walk.go in this package). Defaults to an in-memory-only store
@@ -218,10 +248,24 @@ type Server struct {
 	// See handleReset's step 5 for the matching comment at the call site.
 	LibraryStore *library.Store
 
-	// RigCheck drives DMXOutputEngine for the Patch screen's channel-level
-	// rig check (internal/patch/rigcheck.go) — one instance for the life of
-	// the server, same "one active run at a time" model as walkStore.
+	// RigCheck is the Rig Check test engine (internal/patch/rigcheck.go) —
+	// one instance for the life of the server. Since C7 it is driven by the
+	// Console's Tests layer (tests.go) and by loading a saved test preset;
+	// the Patch screen's Rig Check view and its /api/patch/rigcheck/* routes
+	// are retired.
 	RigCheck *patch.RigCheck
+
+	// Programmer is the Console-lite programmer (chunk C4a, programmer.go):
+	// one per station, shared by every connected browser. It also owns the
+	// output engine's base source (every patched channel at its default).
+	Programmer *patch.Programmer
+
+	// tests is the Console-lite Tests layer and test sequences (C5,
+	// tests.go): it drives RigCheck on the Console's scopes.
+	tests *testsState
+	// layoutRev is the layout revision (C6c, layout.go): bumped by every
+	// successful layout action and broadcast as {"type":"layout"}.
+	layoutRev *layoutRevision
 
 	// patternScope is the semantic expression that resolved the RigCheck
 	// pattern's current entry list. The engine deliberately stores resolved
@@ -271,6 +315,9 @@ func defaultSettings() Settings {
 		// previous default (universeBase 1) produced, so an existing rig
 		// reads identically after the upgrade.
 		ArtnetStartUniverse: 0,
+		// Blackout is the owner-confirmed default lease-loss action (C3).
+		LeaseLossAction:   "blackout",
+		UniverseProtocols: make([]UniverseProtocol, 0),
 	}
 }
 
@@ -295,7 +342,13 @@ func New(nodes *session.ArtNetSession, rdmc *session.RDMController, dmx *session
 		// handler in library.go dereferences it unconditionally.
 		LibraryStore: library.NewStore(""),
 		RigCheck:     patch.NewRigCheck(dmx),
-		hub:          newHub(),
+		// Seeded from the clock in milliseconds (exact in a JS number) so a
+		// browser holding a revision from before a restart cannot match.
+		Programmer: patch.NewProgrammer(dmx, uint64(time.Now().UnixMilli())),
+		hub:        newHub(),
+		tests:      newTestsState(),
+		layoutRev:  newLayoutRevision(),
+		simSACN:    &simSACNLink{},
 	}
 	// The automatic identity read. Constructed here so s.AutoRead is never
 	// nil, and hooked to the registry immediately — but it sends nothing
@@ -312,9 +365,15 @@ func New(nodes *session.ArtNetSession, rdmc *session.RDMController, dmx *session
 	// only ever returns an error for a failed SAVE, which cannot happen with
 	// an empty path.
 	s.SACNSettings, _ = sacn.NewStore("")
-	s.RigCheck.SetSACNBinding(s.sacnBinding())
+	// The unified output engine (C3): sACN through this server's settings,
+	// the Function check's output following its selection (Rig Check has no
+	// START/STOP of its own any more), and the Output settings applied.
+	s.DMX.SetSACNBinding(s.engineSACNBinding())
+	s.RigCheck.SetOutputFollowsSelection(true)
+	s.applyOutputSettings(s.settings)
 	s.mux = http.NewServeMux()
 	s.routes()
+	s.syncProgrammer(true)
 	return s
 }
 
@@ -323,12 +382,13 @@ func New(nodes *session.ArtNetSession, rdmc *session.RDMController, dmx *session
 // Settings). Safe to call even if nothing was ever opened.
 func (s *Server) Close() {
 	s.stopUniverseIdentify()
-	// Blackout-and-stop the rig check on server shutdown, same discipline
-	// as leaving the Patch screen or a page unload — never leave the rig
-	// lit (task ask, item 4's safety rule) even across a process restart.
+	// Never leave the rig lit across a process exit: Disarm blacks out
+	// every stream on the wire (zero frames, and E1.31 Stream_Terminated
+	// for sACN) before the transports close.
 	if s.RigCheck != nil {
 		s.RigCheck.Stop()
 	}
+	s.DMX.Disarm()
 	s.settingsMu.Lock()
 	defer s.settingsMu.Unlock()
 	if s.rdmLogger != nil {
@@ -370,6 +430,7 @@ func (s *Server) SetWalkStorePath(path string) {
 func (s *Server) SetPatchStorePath(path string) {
 	s.PatchStore = patch.NewStore(path)
 	s.patchStorePath = path
+	s.syncProgrammer(true)
 }
 
 // SetLibraryStorePath switches the fixture library's persistence to path (a
@@ -403,6 +464,7 @@ func (s *Server) SetSettingsStorePath(path string) error {
 	s.settingsStore = st
 	s.settings = loaded
 	s.settingsMu.Unlock()
+	s.applyOutputSettings(loaded)
 	return err
 }
 
@@ -443,7 +505,7 @@ func (s *Server) applyLogRDMPathLocked(path string) error {
 }
 
 // Handler returns the http.Handler to serve (routes + static UI).
-func (s *Server) Handler() http.Handler { return s.showGuard(s.identifyOutputGuard(s.mux)) }
+func (s *Server) Handler() http.Handler { return s.showGuard(s.mux) }
 
 // Run starts the WS hub's broadcast pumps (capture batches, node/RDM
 // events) and the capture ring's throttle ticker. Call once at startup;
@@ -476,7 +538,6 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/fixture/{uid}/param/{pid}", s.handleSetParam)
 	s.mux.HandleFunc("POST /api/identify", s.handleIdentify)
 	s.mux.HandleFunc("POST /api/dmx", s.handleDMX)
-	s.mux.HandleFunc("POST /api/dmx/start", s.handleDMXStart)
 	s.mux.HandleFunc("POST /api/dmx/stop", s.handleDMXStop)
 	s.mux.HandleFunc("GET /api/dmx/identify", s.handleUniverseIdentifyStatus)
 	s.mux.HandleFunc("POST /api/dmx/identify/arm", s.handleUniverseIdentifyArm)
@@ -487,6 +548,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/settings", s.handlePostSettings)
 	s.mux.HandleFunc("GET /api/sacn", s.handleGetSACNConfig)
 	s.mux.HandleFunc("POST /api/sacn", s.handlePostSACNConfig)
+	// C8: the MIDI encoder mapping (midi.go).
+	s.mux.HandleFunc("GET /api/midi", s.handleGetMIDI)
+	s.mux.HandleFunc("POST /api/midi", s.handlePostMIDI)
 	s.mux.HandleFunc("GET /api/capture/snapshot", s.handleCaptureSnapshot)
 	s.mux.HandleFunc("GET /api/capture/rdm/snapshot", s.handleRDMCaptureSnapshot)
 	s.mux.HandleFunc("GET /api/capture/export", s.handleCaptureExport)
@@ -568,6 +632,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/workspace", s.handleWorkspace)
 	s.mux.HandleFunc("GET /api/context", s.handleContext)
 	s.mux.HandleFunc("POST /api/output/stop", s.handleStopAllOutput)
+	s.mux.HandleFunc("GET /api/output", s.handleGetOutput)
+	s.mux.HandleFunc("POST /api/output/arm", s.handleOutputArm)
+	s.mux.HandleFunc("POST /api/output/disarm", s.handleOutputDisarm)
+	s.mux.HandleFunc("POST /api/output/heartbeat", s.handleOutputHeartbeat)
+	s.mux.HandleFunc("POST /api/output/goodbye", s.handleOutputGoodbye)
 	s.mux.HandleFunc("POST /api/patch/workspace/{action}", s.handleWorkspaceAction)
 	s.mux.HandleFunc("GET /api/patch/workspace/report/{id}", s.handleBaselineReport)
 	s.mux.HandleFunc("POST /api/patch/new", s.handleNewPatch)
@@ -596,27 +665,31 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/patch/reconcile/{id}/adopt", s.handleReconcileAdoptIntended)
 	s.mux.HandleFunc("POST /api/patch/adopt", s.handlePatchAdopt)
 	s.mux.HandleFunc("POST /api/patch/import", s.handlePatchImport)
+	s.mux.HandleFunc("POST /api/patch/locations", s.handlePatchLocations)
+	s.mux.HandleFunc("GET /api/patch/layout", s.handleGetLayout)
+	s.mux.HandleFunc("POST /api/patch/layout/{action}", s.handleLayoutAction)
 	s.mux.HandleFunc("GET /api/patch/export", s.handlePatchExport)
 	s.mux.HandleFunc("GET /api/patch/reconcile/export", s.handlePatchReconcileExport)
-	s.mux.HandleFunc("GET /api/patch/rigcheck", s.handleGetRigCheckState)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/start", s.handleRigCheckStart)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/stop", s.handleRigCheckStop)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/blackout", s.handleRigCheckBlackout)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/next", s.handleRigCheckNext)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/previous", s.handleRigCheckPrevious)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/jump", s.handleRigCheckJump)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/mode", s.handleRigCheckMode)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/level", s.handleRigCheckLevel)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/channel", s.handleRigCheckChannel)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/start", s.handleRigCheckPatternStart)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/adjust", s.handleRigCheckPatternAdjust)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/tests", s.handleRigCheckPatternTests)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/select", s.handleRigCheckPatternSelect)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/scope", s.handleRigCheckPatternScope)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/isolate", s.handleRigCheckPatternIsolate)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/fade", s.handlePatternFade)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/output", s.handleRigCheckPatternOutput)
-	s.mux.HandleFunc("GET /api/patch/rigcheck/pattern", s.handleRigCheckPatternStatus)
+	// /api/patch/rigcheck/* (the Patch screen's Rig Check view) was retired
+	// in C7: the Console's Tests panel drives the same engine through
+	// /api/tests below.
+
+	s.mux.HandleFunc("GET /api/tests", s.handleGetTests)
+	s.mux.HandleFunc("POST /api/tests/{action}", s.handleTestsAction)
+	s.mux.HandleFunc("GET /api/programmer", s.handleGetProgrammer)
+	s.mux.HandleFunc("GET /api/programmer/fixtures", s.handleGetProgrammerFixtures)
+	s.mux.HandleFunc("POST /api/programmer/select", s.handleProgrammerSelect)
+	s.mux.HandleFunc("POST /api/programmer/set", s.handleProgrammerSet)
+	s.mux.HandleFunc("POST /api/programmer/clear", s.handleProgrammerClear)
+	s.mux.HandleFunc("POST /api/programmer/raw", s.handleProgrammerRaw)
+	s.mux.HandleFunc("POST /api/programmer/highlight", s.handleProgrammerHighlight)
+	s.mux.HandleFunc("POST /api/programmer/locate", s.handleProgrammerLocate)
+	s.mux.HandleFunc("POST /api/programmer/fan", s.handleProgrammerFan)
+	s.mux.HandleFunc("POST /api/programmer/groups/{action}", s.handleProgrammerGroups)
+	s.mux.HandleFunc("POST /api/programmer/presets/{action}", s.handleProgrammerPresets)
+
+	s.mux.HandleFunc("GET /api/faders", s.handleGetFaders)
+	s.mux.HandleFunc("POST /api/faders/{action}", s.handleFadersAction)
 
 	s.mux.HandleFunc("GET /ws", s.handleWS)
 }
@@ -672,6 +745,29 @@ type nodeJSON struct {
 	LastSeen     time.Time      `json:"lastSeen"`
 	Ports        []nodePortJSON `json:"ports"`
 	FixtureCount int            `json:"fixtureCount"`
+	// Fault is present only when this node's IP has sent at least one
+	// malformed ArtRdm datagram this session (session.NodeFault). A pointer
+	// so that "nothing recorded" is absence, never a plausible zero count.
+	Fault *nodeFaultJSON `json:"fault,omitempty"`
+}
+
+// nodeFaultJSON is a node-level RDM fault: ArtRdm framing whose RDM message
+// did not decode (RDM-LOG36: 2.11.90.6 sent ArtPollReply content under the
+// ArtRdm opcode). Note is the finished sentence the UI renders verbatim.
+type nodeFaultJSON struct {
+	Malformed uint64    `json:"malformed"`
+	First     time.Time `json:"first"`
+	Last      time.Time `json:"last"`
+	LastError string    `json:"lastError"`
+	Note      string    `json:"note"`
+}
+
+// nodeFaultNote is the one place the node-fault sentence is written. It
+// names the node as the thing to act on, so a tech does not go looking at
+// fixtures, and carries no universe numbers.
+func nodeFaultNote(f session.NodeFault) string {
+	return fmt.Sprintf("This node has sent %d malformed RDM packets (last at %s). That is the node's firmware or its own RDM handling, not a fixture — power-cycling or updating the node is the next step.",
+		f.Malformed, f.Last.Format("15:04:05"))
 }
 
 func toNodeJSON(n registry.NodeView) nodeJSON {
@@ -699,9 +795,22 @@ func toNodeJSON(n registry.NodeView) nodeJSON {
 
 func (s *Server) handleGetNodes(w http.ResponseWriter, r *http.Request) {
 	nodes := s.Registry.Nodes()
+	// Faults are recorded per sending IP, so every NodeKey (bind index) of
+	// that IP carries the same fault.
+	faults := make(map[netip.Addr]session.NodeFault)
+	if s.RDM != nil {
+		for _, f := range s.RDM.NodeFaults() {
+			faults[f.IP] = f
+		}
+	}
 	out := make([]nodeJSON, 0, len(nodes))
 	for _, n := range nodes {
-		out = append(out, toNodeJSON(n))
+		nj := toNodeJSON(n)
+		if f, ok := faults[n.Key.IP]; ok {
+			nj.Fault = &nodeFaultJSON{Malformed: f.Malformed, First: f.First, Last: f.Last,
+				LastError: f.LastError, Note: nodeFaultNote(f)}
+		}
+		out = append(out, nj)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -800,6 +909,10 @@ type fixtureJSON struct {
 	Unreachable     bool       `json:"unreachable"`
 	UnreachableNote string     `json:"unreachableNote,omitempty"`
 	RetryAt         *time.Time `json:"retryAt,omitempty"`
+	// UnreachableCause is session.UnreachableCause.String() —
+	// "proxy-refusal" or "no-response" — while Unreachable is true, and
+	// absent otherwise (a reachable device has no cause to state).
+	UnreachableCause string `json:"unreachableCause,omitempty"`
 
 	// ProxiedDeviceCount/ProxiedDeviceCountKnown/ProxiedListChanged surface
 	// this device's own PROXIED_DEVICE_COUNT report as structured data
@@ -839,6 +952,11 @@ type fixtureJSON struct {
 func unreachableNote(f registry.Fixture) string {
 	if !f.ProxyUnreachable {
 		return ""
+	}
+	if f.UnreachableCause == session.CauseNoResponse {
+		// RDM-LOG36: one fixture silent while its neighbours on the same
+		// port answer. Saying the line works points the tech at the fixture.
+		return "Not answering RDM. Other fixtures on the same port are answering, so the line is working. Benny512 has paused this one so the rest of the rig keeps running, and will check it again automatically."
 	}
 	return "Not answering through its wireless proxy. Benny512 has paused it so the rest of the rig keeps running, and will try again automatically."
 }
@@ -891,6 +1009,9 @@ func toFixtureJSON(f registry.Fixture, read autoread.State, attempts int) fixtur
 	if f.ProxyUnreachable && !f.ProxyRetryAt.IsZero() {
 		at := f.ProxyRetryAt
 		out.RetryAt = &at
+	}
+	if f.ProxyUnreachable {
+		out.UnreachableCause = f.UnreachableCause.String()
 	}
 	return out
 }
@@ -1257,10 +1378,10 @@ func (s *Server) handleIdentify(w http.ResponseWriter, r *http.Request) {
 // wire encoding for free: encoding/json base64-encodes a []byte field on
 // both the marshal and unmarshal side, so 512 slots cost ~683 base64 chars
 // instead of a ~4KB+ JSON object of "123":45 pairs — worth having given
-// this now fires at ~30Hz while scrubbing (see send.js's throttle), even
+// this now fires at ~30Hz while scrubbing (see console-tools.js's throttle; it was send.js's), even
 // though the absolute bytes-per-second is trivial on localhost either way.
 // This is a breaking wire-format change, not a backward-compatible one:
-// /api/dmx has exactly one caller (send.js, owned in this same change) plus
+// /api/dmx has exactly one caller (send.js then; console-tools.js since C7) plus
 // this package's own tests (updated alongside), so there is no external
 // caller to preserve compatibility for.
 type dmxRequest struct {
@@ -1283,26 +1404,24 @@ func (s *Server) handleDMX(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("channels: want %d bytes (a full-frame snapshot), got %d", session.DMXUniverseSize, len(req.Channels)))
 		return
 	}
-	s.DMX.StartUniverse(pa, netip.AddrPort{}, 512)
-	// SetFrame, not SetChannels: this is always a complete 512-slot frame
-	// now, so a single whole-buffer replace is both simpler and correct by
-	// construction — no per-channel loop that could (as the old map-based
-	// code did) simply never visit a channel the client didn't mention.
-	if err := s.DMX.SetFrame(pa, req.Channels); err != nil {
+	// The raw source (C3): a complete 512-slot frame, zeros included, so it
+	// claims the whole universe and outranks Rig Check's tests and the
+	// programmer there. It reaches the wire on the next tick while the
+	// master output is armed, and never while it is disarmed.
+	if err := s.DMX.SetFrame(session.SourceRaw, pa.RawValue(), req.Channels); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (s *Server) handleDMXStart(w http.ResponseWriter, r *http.Request) {
-	s.DMX.Start()
-	writeJSON(w, http.StatusOK, map[string]string{"status": "started"})
-}
-
+// handleDMXStop releases every frame the raw source (the Console's Tools raw
+// universe levels, /api/dmx) holds:
+// those universes fall back to whatever Rig Check or the programmer drives
+// there, or leave the wire with zero frames. It does not disarm.
 func (s *Server) handleDMXStop(w http.ResponseWriter, r *http.Request) {
-	s.DMX.Stop()
-	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
+	s.DMX.ReleaseAll(session.SourceRaw)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "released"})
 }
 
 // --- Settings ------------------------------------------------------------
@@ -1320,6 +1439,10 @@ func (s *Server) handlePostSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	migrateUniverseSetting(&req)
+	if err := normalizeOutputSettings(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	if req.ArtnetStartUniverse < 0 || req.ArtnetStartUniverse > 32767 {
 		writeError(w, http.StatusBadRequest, fmt.Errorf(
 			"artnetStartUniverse must be an Art-Net Port-Address in 0-32767, got %d", req.ArtnetStartUniverse))
@@ -1345,6 +1468,7 @@ func (s *Server) handlePostSettings(w http.ResponseWriter, r *http.Request) {
 		logErr = s.applyLogRDMPathLocked(req.LogRDMPath)
 	}
 	s.settingsMu.Unlock()
+	s.applyOutputSettings(req)
 	if logErr != nil {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("logRdmPath: %w", logErr))
 		return
@@ -1482,6 +1606,9 @@ func (s *Server) pumpRDMEvents(ctx context.Context) {
 				}
 				s.noteUnreachableToLog(ev)
 			}
+			if ev.Kind == session.EventNodeFault {
+				s.noteNodeFaultToLog(ev)
+			}
 			if ev.Kind == session.EventToDUpdate {
 				uids := make([]string, 0, len(ev.UIDs))
 				for _, u := range ev.UIDs {
@@ -1522,10 +1649,20 @@ func (s *Server) noteUnreachableToLog(ev session.Event) {
 			if s.unreachLogged == nil {
 				s.unreachLogged = make(map[string]time.Time)
 			}
+			if s.unreachCause == nil {
+				s.unreachCause = make(map[string]session.UnreachableCause)
+			}
 			s.unreachLogged[uid] = due.RetryAt
+			s.unreachCause[uid] = due.Cause
 		}
 		s.unreachMu.Unlock()
 		if already {
+			return
+		}
+		if due.Cause == session.CauseNoResponse {
+			s.logNote(ev.At, fmt.Sprintf(
+				"%s not answering — %d requests in a row went unanswered while other devices on the same port answered. Benny512 has paused it so the rest of the port keeps running; next check at %s.",
+				uid, due.Silences, due.RetryAt.Format("15:04:05")))
 			return
 		}
 		s.logNote(ev.At, fmt.Sprintf(
@@ -1535,11 +1672,76 @@ func (s *Server) noteUnreachableToLog(ev session.Event) {
 	case session.ResultAck, session.ResultNack:
 		s.unreachMu.Lock()
 		_, was := s.unreachLogged[uid]
+		cause := s.unreachCause[uid]
 		delete(s.unreachLogged, uid)
+		delete(s.unreachCause, uid)
 		s.unreachMu.Unlock()
-		if was {
-			s.logNote(ev.At, fmt.Sprintf("%s is answering again through its wireless proxy; resuming normally.", uid))
+		if !was {
+			return
 		}
+		if cause != session.CauseNoResponse {
+			s.logNote(ev.At, fmt.Sprintf("%s is answering again through its wireless proxy; resuming normally.", uid))
+			return
+		}
+		s.logNote(ev.At, fmt.Sprintf("%s is answering again; resuming normally.", uid))
+		// While it was paused the background reader's passes failed fast and
+		// may have spent its budget (StateGaveUp), which would leave a
+		// fixture that came back as an empty row for good. Re-read it.
+		if s.AutoRead != nil {
+			s.AutoRead.Forget(ev.UID)
+			s.AutoRead.Note(ev.Node, ev.UID)
+		}
+	}
+}
+
+// nodeFaultNoteInterval bounds the node-fault NOTE to one summary per node
+// per minute after the first.
+const nodeFaultNoteInterval = 60 * time.Second
+
+// nodeFaultLog is noteNodeFaultToLog's per-node dedupe state.
+type nodeFaultLog struct {
+	lastNote time.Time // when the last NOTE for this node was written
+	since    uint64    // malformed packets since that NOTE, not yet reported
+	lastErr  string
+}
+
+// noteNodeFaultToLog writes the RDM log NOTE for a node that sent a
+// malformed ArtRdm datagram (session.EventNodeFault).
+//
+// RDM-LOG36's node sent four inside one millisecond, so one line per packet
+// would bury the packets the log exists for. The first fault from a node is
+// written at once; after that, at most one summary per
+// nodeFaultNoteInterval, carrying the count since the previous NOTE. The
+// running total is on /api/nodes (nodeJSON.Fault) regardless.
+func (s *Server) noteNodeFaultToLog(ev session.Event) {
+	at := ev.At
+	if at.IsZero() {
+		at = time.Now()
+	}
+	s.unreachMu.Lock()
+	st, seen := s.faultLogged[ev.From]
+	var text string
+	switch {
+	case !seen:
+		if s.faultLogged == nil {
+			s.faultLogged = make(map[netip.Addr]*nodeFaultLog)
+		}
+		s.faultLogged[ev.From] = &nodeFaultLog{lastNote: at}
+		text = fmt.Sprintf("Node %s sent a malformed RDM packet (%s). That is the node's own fault, not a fixture.",
+			ev.From, ev.Detail)
+	default:
+		st.since++
+		st.lastErr = ev.Detail
+		if at.Sub(st.lastNote) >= nodeFaultNoteInterval {
+			text = fmt.Sprintf("Node %s sent %d more malformed RDM packets since %s (last: %s). That is the node's own fault, not a fixture.",
+				ev.From, st.since, st.lastNote.Format("15:04:05"), st.lastErr)
+			st.lastNote = at
+			st.since = 0
+		}
+	}
+	s.unreachMu.Unlock()
+	if text != "" {
+		s.logNote(at, text)
 	}
 }
 
@@ -1590,6 +1792,12 @@ func (s *Server) pumpCapture(ctx context.Context) {
 //	"devices_cleared"      — Scope ("all"|"port") and Cleared (device-entry
 //	                         count) — a POST /api/devices/clear result,
 //	                         broadcast so every other open browser refreshes
+//	"programmer"           — Revision: the programmer changed (C4a); every
+//	                         browser re-reads GET /api/programmer
+//	"tests"                — Revision: the tests layer changed (C5); every
+//	                         browser re-reads GET /api/tests
+//	"layout"               — Revision: the show's layout changed (C6c); every
+//	                         browser re-reads GET /api/patch/layout
 type wsMessage struct {
 	Type        string                  `json:"type"`
 	Kind        string                  `json:"kind,omitempty"`
@@ -1608,7 +1816,11 @@ type wsMessage struct {
 	// "cleared":0 on every node/rdm/capture/... push.
 	Scope   string `json:"scope,omitempty"`
 	Cleared *int   `json:"cleared,omitempty"`
-	Err     string `json:"err,omitempty"`
+	// Revision is set only for Type "programmer", "tests", "layout" and
+	// "faders" (a
+	// pointer for the same reason as Cleared).
+	Revision *uint64 `json:"revision,omitempty"`
+	Err      string  `json:"err,omitempty"`
 }
 
 // introspectProgressJSON mirrors params.IntrospectProgress.

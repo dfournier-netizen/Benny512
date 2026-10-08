@@ -1,0 +1,77 @@
+fix: one silent fixture no longer starves its node port; flag node faults
+
+Root cause (RDM-LOG36). Three Martin ERA 800s share one port of node
+2.11.90.6. 4D50:00115938 is a faulty unit (owner confirmed with a second
+controller): 123 requests, zero replies. Benny512 allows one in-flight
+command per node port, each silent command held the port for 1.5 s x 3
+attempts, and nothing stopped callers re-asking the dead fixture - from
+15:22:33 to the end of the capture 100% of the port's traffic went to it
+and the two healthy fixtures starved ("rows stall and spin"). Every reply
+from the healthy fixtures was valid: starvation, not corruption.
+
+Changes (owner decisions 2026-10-06: move a fixture that stops answering
+to the end of the queue, mark it, recheck occasionally; shorten the
+timeout; flag node-level faults):
+
+- ProfileDirect response timeout 1500 ms -> 500 ms, retries stay 2.
+  6,754 matched replies across LOG2-LOG36 (wired and CRMX): slowest
+  first-attempt reply 96 ms; every later reply was a lost packet answered
+  after a retransmit.
+- The per-device breaker also opens on silence attributable to ONE device:
+  a silent command counts only if another command on the same node port
+  was answered since that device's previous strike or answer. Three
+  strikes -> paused (CauseNoResponse), queued commands fail fast. A node
+  reboot (RDM-LOG4) silences everyone, so no second strike can count;
+  TestTimeoutsDoNotOpenTheBreaker passes unmodified.
+  docs/decisions/0001-silence-pauses-a-device-only-with-link-evidence.md
+- After a silent command the fixture's other pending commands move behind
+  every other fixture's on the port.
+- Automatic recheck: one GET DEVICE_INFO after the cool-down (15 s,
+  doubling to 2 min while the port is proven alive), skipped while the ToD
+  no longer lists the fixture, immediate when a ToD lists it again. On
+  recovery the background reader re-reads its identity.
+- Responses whose Destination UID is not ours are ignored and counted
+  (E1.20 response addressing; section number not verified here). LOG36's
+  second controller (2.11.52.172) produced one carrying the exact TN, source
+  UID and command class of our earlier TN 9 GET DEVICE_INFO to ...38. Every
+  response addressed to us in LOG2-LOG36 carries dst=7FF0:00000001.
+- ArtRdm datagrams whose RDM message will not decode are recorded against
+  the sending node (NodeFaults, MalformedRDM): LOG36's 2.11.90.6 sent four
+  239-byte ArtRdm-framed datagrams carrying ArtPollReply text. Shown as a
+  "Node fault - malformed RDM" pill and sentence on Nodes, one deduplicated
+  NOTE in the RDM log, and in /api/diagnostics/rdm.
+- Devices: no-response wording distinct from the CRMX proxy-refusal
+  sentence (which is unchanged).
+
+Proof of failure against the unfixed code:
+  TestLOG36DeadFixtureDoesNotStarveItsNeighbours:
+    4D50:00115908 worst request latency 45.01s, want <= 4.6s
+    no command to 4D50:00115938 ever finished device-unreachable; it was asked 39 times
+  TestNodeWideSilenceOpensNoBreakerAndResumesAtOnce:
+    first answer on the port came 1.51s after the node returned, want <= 600ms
+  TestSilenceStrikesNeedAnotherDeviceAnsweringBetween:
+    after 3 link-attributed silences a command to 4D50:00115938 went to the wire
+  TestSilentDeviceMovesToTheBackOfTheQueue:
+    wire order = [...38/0x0060 ...38/0x0082 ...08/0x0060 ...] (dead fixture first)
+  TestForeignResponseDoesNotSatisfyOurCommand:
+    ForeignResponses=0 StrayResponses=0, want 1/0
+  TestMalformedArtRdmIsRecordedAsANodeFault:
+    NodeFaults() = [], want one entry for 2.11.90.6
+  TestSilentDirectCommandFinishesAfterThreeHalfSecondAttempts:
+    silent command took 4.5s, want 1.5s
+  TestNoResponseLogNoteAndRecoveryReRead:
+    reader state stayed "gaveUp" after recovery (identity never re-read)
+  TestNodesJSONCarriesNodeFault: node 2.11.90.6 bind 1 has no fault
+  TestNodeFaultLogNoteIsDeduplicated:
+    NOTEs after 3 malformed packets within 60 s = 0, want exactly 1
+  TestNodesFaultPill (literal nodes.js under node):
+    FAIL faulted node card carries the "Node fault - malformed RDM" pill
+  TestFixturesJSONStatesNoResponseCause: unreachableCause = <nil>
+
+Verified (Linux sandbox): gofmt, vet, build, full suite and -race across
+all 16 packages, node --check, Windows amd64 cross-build. Render-proved on
+a disposable --demo build at desktop and 390 px. Not yet done: hardware
+re-test with the faulty ERA; Windows-native test run.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016qz85EC5fFBjKaxNMdVWnR

@@ -1,0 +1,1138 @@
+{
+ "paladin_cube_real_extract.xml": [
+  {
+   "name": "Cells 24CH",
+   "footprint": 24,
+   "channelFunctions": {
+    "1": {
+     "geometryInstance": "Beam 1:0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_R",
+     "functionName": "Red",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 2,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 65535,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    },
+    "2": {
+     "geometryInstance": "Beam 1:0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_R",
+     "functionName": "Red",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 2,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 65535,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    },
+    "3": {
+     "geometryInstance": "Beam 1:0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_G",
+     "functionName": "Green",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 2,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 65535,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    },
+    "4": {
+     "geometryInstance": "Beam 1:0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_G",
+     "functionName": "Green",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 2,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 65535,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    },
+    "5": {
+     "geometryInstance": "Beam 1:0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_B",
+     "functionName": "Blue",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 2,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 65535,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    },
+    "6": {
+     "geometryInstance": "Beam 1:0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_B",
+     "functionName": "Blue",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 2,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 65535,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    },
+    "7": {
+     "geometryInstance": "Beam 1:0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_W",
+     "functionName": "White",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 2,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 65535,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    },
+    "8": {
+     "geometryInstance": "Beam 1:0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_W",
+     "functionName": "White",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 2,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 65535,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    },
+    "9": {
+     "geometryInstance": "Beam 2:0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_R",
+     "functionName": "ColorAdd_R 1",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 2,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 65535,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    },
+    "10": {
+     "geometryInstance": "Beam 2:0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_R",
+     "functionName": "ColorAdd_R 1",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 2,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 65535,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    },
+    "11": {
+     "geometryInstance": "Beam 2:0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_G",
+     "functionName": "ColorAdd_G 1",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 2,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 65535,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    },
+    "12": {
+     "geometryInstance": "Beam 2:0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_G",
+     "functionName": "ColorAdd_G 1",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 2,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 65535,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    },
+    "13": {
+     "geometryInstance": "Beam 2:0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_B",
+     "functionName": "ColorAdd_B 1",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 2,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 65535,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    },
+    "14": {
+     "geometryInstance": "Beam 2:0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_B",
+     "functionName": "ColorAdd_B 1",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 2,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 65535,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    },
+    "15": {
+     "geometryInstance": "Beam 2:0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_W",
+     "functionName": "ColorAdd_W 1",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 2,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 65535,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    },
+    "16": {
+     "geometryInstance": "Beam 2:0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_W",
+     "functionName": "ColorAdd_W 1",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 2,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 65535,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    },
+    "17": {
+     "geometryInstance": "Beam 3:0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_R",
+     "functionName": "ColorAdd_R 1",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 2,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 65535,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    },
+    "18": {
+     "geometryInstance": "Beam 3:0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_R",
+     "functionName": "ColorAdd_R 1",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 2,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 65535,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    },
+    "19": {
+     "geometryInstance": "Beam 3:0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_G",
+     "functionName": "ColorAdd_G 1",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 2,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 65535,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    },
+    "20": {
+     "geometryInstance": "Beam 3:0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_G",
+     "functionName": "ColorAdd_G 1",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 2,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 65535,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    },
+    "21": {
+     "geometryInstance": "Beam 3:0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_B",
+     "functionName": "ColorAdd_B 1",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 2,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 65535,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    },
+    "22": {
+     "geometryInstance": "Beam 3:0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_B",
+     "functionName": "ColorAdd_B 1",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 2,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 65535,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    },
+    "23": {
+     "geometryInstance": "Beam 3:0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_W",
+     "functionName": "ColorAdd_W 1",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 2,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 65535,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    },
+    "24": {
+     "geometryInstance": "Beam 3:0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_W",
+     "functionName": "ColorAdd_W 1",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 2,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 65535,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "8bit 4CH",
+   "footprint": 4,
+   "channelFunctions": {
+    "1": {
+     "geometryInstance": "Unison Beam :0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_R",
+     "functionName": "Red",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 1,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 255,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    },
+    "2": {
+     "geometryInstance": "Unison Beam :0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_G",
+     "functionName": "Green",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 1,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 255,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    },
+    "3": {
+     "geometryInstance": "Unison Beam :0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_B",
+     "functionName": "Blue",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 1,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 255,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    },
+    "4": {
+     "geometryInstance": "Unison Beam :0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_W",
+     "functionName": "White",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 1,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 255,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "RGB 3CH",
+   "footprint": 3,
+   "channelFunctions": {
+    "1": {
+     "geometryInstance": "Unison Beam :0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_R",
+     "functionName": "Red",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 1,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 255,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    },
+    "2": {
+     "geometryInstance": "Unison Beam :0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_G",
+     "functionName": "Green",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 1,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 255,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    },
+    "3": {
+     "geometryInstance": "Unison Beam :0",
+     "source": "gdtf",
+     "attribute": "ColorAdd_B",
+     "functionName": "Blue",
+     "dmxFrom": 0,
+     "dmxTo": 255,
+     "physicalFrom": 0,
+     "physicalTo": 100,
+     "hasDefault": true,
+     "default": 0,
+     "defaultByteCount": 1,
+     "hasHighlight": false,
+     "highlight": 0,
+     "highlightByteCount": 0,
+     "channelSets": [
+      {
+       "name": "Min",
+       "dmxFrom": 0,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "",
+       "dmxFrom": 1,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      },
+      {
+       "name": "Max",
+       "dmxFrom": 255,
+       "physicalFrom": 0,
+       "physicalTo": 0
+      }
+     ]
+    }
+   }
+  }
+ ]
+}

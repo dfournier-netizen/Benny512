@@ -32,7 +32,8 @@ func nearly(a, b float64) bool { return math.Abs(a-b) < 1e-9 }
 
 // Rate-slider bounds live in the browser, so this is a source-reading guard in
 // the family of TestUniverseScheme rather than a behavioural test: it asserts
-// what rigcheck.js DECLARES and how the Rate row is wired, not what a rendered
+// what console-tests.js DECLARES (the tables moved there from rigcheck.js in
+// C7) and how the Rate row is wired, not what a rendered
 // slider looks like. Said plainly so nobody reads more into a green run than
 // it earns -- the rendered control is covered by the Playwright pass.
 //
@@ -51,15 +52,15 @@ var (
 // the shared bounds, because that is the form the instruction took -- a later
 // retune of the shared slider must re-derive Ballyhoo's, not silently diverge.
 func TestBallyhooRateBounds(t *testing.T) {
-	js := readJS(t, "rigcheck.js")
+	js := readJS(t, "console-tests.js")
 
 	dm := reDefaultRateBounds.FindStringSubmatch(js)
 	if dm == nil {
-		t.Fatal("rigcheck.js declares no DEFAULT_RATE_BOUNDS — the shared Rate slider range must be in one place a test can read")
+		t.Fatal("console-tests.js declares no DEFAULT_RATE_BOUNDS — the shared Rate slider range must be in one place a test can read")
 	}
 	bm := reBallyhooBounds.FindStringSubmatch(js)
 	if bm == nil {
-		t.Fatal("rigcheck.js declares no per-kind ballyhoo rate bounds — Ballyhoo must override the shared range, not share it")
+		t.Fatal("console-tests.js declares no per-kind ballyhoo rate bounds — Ballyhoo must override the shared range, not share it")
 	}
 
 	dMin, dMax := mustFloat(t, dm[1], "default min"), mustFloat(t, dm[2], "default max")
@@ -88,7 +89,7 @@ func TestBallyhooRateBounds(t *testing.T) {
 
 	// And the Rate row must actually use the per-kind bounds rather than the
 	// literals it used before.
-	if !regexp.MustCompile(`slider\(t\.id, 'rateHz', 'Rate', t\.rateHz, rb\.min, rb\.max, rb\.step`).MatchString(js) {
+	if !regexp.MustCompile(`rb = rateBounds\(t\.kind\); box\.appendChild\(slider\(id, 'rateHz', 'Rate', t\.rateHz, rb\.min, rb\.max, rb\.step`).MatchString(js) {
 		t.Error("the Rate slider is not wired to rateBoundsFor(kind) — a per-kind table nothing reads is worse than no table")
 	}
 }
@@ -97,11 +98,11 @@ func TestBallyhooRateBounds(t *testing.T) {
 // Ballyhoo-specific. Every other rate-bearing test keeps the range it was
 // tuned with, so the override table must hold exactly one entry.
 func TestSharedRateBoundsUnchangedForOtherKinds(t *testing.T) {
-	js := readJS(t, "rigcheck.js")
+	js := readJS(t, "console-tests.js")
 
 	dm := reDefaultRateBounds.FindStringSubmatch(js)
 	if dm == nil {
-		t.Fatal("rigcheck.js declares no DEFAULT_RATE_BOUNDS")
+		t.Fatal("console-tests.js declares no DEFAULT_RATE_BOUNDS")
 	}
 	if dm[1] != "0.05" || dm[2] != "5" || dm[3] != "0.05" {
 		t.Errorf("shared rate bounds = min %s, max %s, step %s; want the untouched 0.05/5/0.05 — only Ballyhoo was to change", dm[1], dm[2], dm[3])
@@ -109,7 +110,7 @@ func TestSharedRateBoundsUnchangedForOtherKinds(t *testing.T) {
 
 	table := regexp.MustCompile(`(?s)const RATE_BOUNDS = \{(.*?)\};`).FindStringSubmatch(js)
 	if table == nil {
-		t.Fatal("rigcheck.js declares no RATE_BOUNDS table")
+		t.Fatal("console-tests.js declares no RATE_BOUNDS table")
 	}
 	kinds := regexp.MustCompile(`(?m)^\s*([a-z_]+):\s*\{`).FindAllStringSubmatch(table[1], -1)
 	if len(kinds) != 1 || kinds[0][1] != "ballyhoo" {

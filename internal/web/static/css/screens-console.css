@@ -1,0 +1,211 @@
+/* Console-lite screen, chunk C6a: shell, selection grid, layout edit mode.
+   Functional, not polished — a design agent replaces the placeholders
+   (docs/design/console-lite-ui-brief.md). Every state here is a WORD, an
+   icon or a border weight/style first, and a hue last (DESIGN.md rule 1). */
+
+#screen-console { min-width: 0; }
+.b5-con-ic { display: inline-flex; flex: none; }
+.b5-con-ic svg { width: var(--b5-size-icon-md, 18px); height: var(--b5-size-icon-md, 18px); }
+
+/* ---- toolbar ---- */
+.b5-con-toolbar { display: flex; flex-direction: column; gap: var(--b5-space-2); min-width: 0; }
+.b5-con-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2); min-width: 0; }
+.b5-con-rowlabel { font-weight: var(--b5-font-weight-bold); min-width: 4.5em; }
+.b5-con-sep { flex: 0 0 var(--b5-space-2); }
+/* Layer and group chips: one row that scrolls inside its own box (rule 4). */
+.b5-con-chips { display: flex; gap: var(--b5-space-2); overflow-x: auto; flex: 1 1 0; min-width: 0; padding-bottom: var(--b5-space-1); }
+.b5-con-chips > .b5-seg { flex: none; white-space: nowrap; }
+.b5-con-chipnote { font-weight: var(--b5-font-weight-regular); color: var(--b5-color-text-secondary); }
+
+.b5-con-status { min-height: 1.5em; margin: var(--b5-space-2) 0; display: flex; align-items: center; gap: var(--b5-space-2); flex-wrap: wrap; }
+.b5-con-status--error { color: var(--b5-color-text-danger); border-left: var(--b5-border-width-thick) solid var(--b5-color-border-danger); padding-left: var(--b5-space-2); }
+/* Not sticky: the kit bar is translucent and the page chrome above it is
+   only partly sticky, so a stuck bar would sit over the grid's text. */
+.b5-con-modebar { position: static; }
+.b5-con-modebar[hidden] { display: none; }
+
+/* ---- two regions: grid | edit + controls ---- */
+.b5-con-main { display: flex; flex-direction: column; gap: var(--b5-space-4); min-width: 0; }
+.b5-con-pane { min-width: 0; display: flex; flex-direction: column; gap: var(--b5-space-3); }
+@media (min-width: 1024px) {
+  .b5-con-main { flex-direction: row; align-items: flex-start; }
+  .b5-con-pane--grid { flex: 3 1 0; }
+  .b5-con-pane--side { flex: 2 1 0; }
+}
+
+/* ---- the grid: scrolls in its own box, never the page ---- */
+.b5-con-gridbox {
+  overflow: auto; max-height: 62vh; min-width: 0;
+  border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
+  border-radius: var(--b5-radius-md); background: var(--b5-color-bg-inset);
+  padding: var(--b5-space-2);
+}
+@media (max-width: 767px) { .b5-con-gridbox { max-height: 52vh; } }
+.b5-con-layer + .b5-con-layer { margin-top: var(--b5-space-4); }
+.b5-con-layerhead { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2); justify-content: space-between; margin-bottom: var(--b5-space-2); position: sticky; left: 0; }
+.b5-con-layername { margin: 0; font-size: var(--b5-font-size-md); }
+.b5-con-canvaswrap { display: inline-block; }
+.b5-con-canvas {
+  position: relative;
+  background-color: var(--b5-color-bg-surface);
+  background-image:
+    linear-gradient(to right, var(--b5-color-border-subtle) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--b5-color-border-subtle) 1px, transparent 1px);
+  background-size: var(--b5-con-cell) var(--b5-con-cell);
+}
+.b5-con-layer--unplaced .b5-con-canvas { background-color: var(--b5-color-bg-surface-raised); }
+
+/* ---- tiles: unselected = hairline; selected = thick double outline +
+   check icon + order number; partial group = dashed. ---- */
+.b5-con-tile {
+  position: absolute; box-sizing: border-box; padding: 2px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.b5-con-tile__main {
+  position: relative; flex: 1 1 auto; min-height: var(--b5-size-touch-min); min-width: 0; width: 100%;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  padding: var(--b5-space-1); overflow: hidden; text-align: left;
+  font: inherit; font-size: var(--b5-font-size-xs); line-height: 1.25;
+  color: var(--b5-color-text-primary); background: var(--b5-color-bg-surface-raised);
+  border: var(--b5-border-width-thin) solid var(--b5-color-text-muted); border-radius: var(--b5-radius-sm);
+  cursor: pointer;
+}
+.b5-con-tile__main:focus-visible, .b5-con-cell:focus-visible, .b5-con-cellsbtn:focus-visible, .b5-con-obj__handle:focus-visible { outline: 3px solid var(--b5-color-border-focus); outline-offset: 1px; }
+.b5-con-tile__name { font-weight: var(--b5-font-weight-bold); font-size: var(--b5-font-size-sm); max-width: calc(100% - 1.6em);
+  overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.b5-con-tile__meta { color: var(--b5-color-text-secondary); max-width: 100%; overflow: hidden; overflow-wrap: anywhere; }
+.b5-con-tile__meta > .b5-con-badge { margin-right: 3px; }
+/* A tile that also carries a cell control keeps its name to one line. */
+.b5-con-tile.has-cells .b5-con-tile__name { -webkit-line-clamp: 1; }
+.b5-con-tile.has-cells .b5-con-tile__meta { white-space: nowrap; text-overflow: ellipsis; }
+.b5-con-tile.has-cells .b5-con-tile__main { gap: 0; }
+.b5-con-glyph {
+  position: absolute; top: 4px; right: 4px;
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 1.5em; height: 1.5em; padding: 0 2px; border: var(--b5-border-width-thin) dashed var(--b5-color-text-muted);
+  border-radius: var(--b5-radius-full); font-size: var(--b5-font-size-xs); color: var(--b5-color-text-secondary);
+}
+.b5-con-glyph--group { border-style: double; border-width: 3px; border-radius: var(--b5-radius-sm); font-weight: var(--b5-font-weight-bold); }
+.b5-con-badge {
+  display: inline-flex; align-items: center; gap: 2px; padding: 0 4px;
+  font-family: var(--b5-font-mono); font-weight: var(--b5-font-weight-bold);
+  color: var(--b5-color-text-on-accent); background: var(--b5-color-text-accent); border-radius: var(--b5-radius-sm);
+}
+.b5-con-badge[hidden] { display: none; }
+.b5-con-badge .b5-con-ic svg { width: 14px; height: 14px; }
+.b5-con-tile.is-selected > .b5-con-tile__main {
+  border: 4px double var(--b5-color-text-accent); background: var(--b5-color-bg-selected);
+}
+.b5-con-tile.has-cells-selected > .b5-con-tile__main { border-left: 6px solid var(--b5-color-text-accent); }
+.b5-con-tile--group.is-partial > .b5-con-tile__main { border: 3px dashed var(--b5-color-text-accent); }
+.b5-con-tile--group > .b5-con-tile__main { background: var(--b5-color-bg-surface-overlay); }
+
+/* cell strip: direct cell buttons when they fit at full touch size */
+.b5-con-cells { display: flex; gap: 2px; min-height: var(--b5-size-touch-min); }
+.b5-con-cell {
+  flex: 1 1 0; min-width: var(--b5-size-touch-min); min-height: var(--b5-size-touch-min);
+  display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  font: inherit; font-size: var(--b5-font-size-xs); color: var(--b5-color-text-primary);
+  background: var(--b5-color-bg-surface-raised); border: var(--b5-border-width-thin) solid var(--b5-color-text-muted);
+  border-radius: var(--b5-radius-sm); cursor: pointer; padding: 0;
+}
+.b5-con-cell.is-selected { border: 3px solid var(--b5-color-text-accent); background: var(--b5-color-bg-selected); }
+.b5-con-cellsbtn {
+  min-height: var(--b5-size-touch-min); width: 100%; line-height: 1.1; text-align: left; display: inline-flex; align-items: center; justify-content: space-between; gap: 2px;
+  font: inherit; font-size: var(--b5-font-size-xs); color: var(--b5-color-text-primary);
+  background: var(--b5-color-bg-surface); border: var(--b5-border-width-thin) dashed var(--b5-color-text-muted); border-radius: var(--b5-radius-sm);
+  padding: 0 var(--b5-space-1); cursor: pointer; overflow: hidden;
+}
+.b5-con-tile.has-cells-selected .b5-con-cellsbtn { border-style: solid; border-width: 3px; border-color: var(--b5-color-text-accent); }
+.b5-con-cellsbtn__label { flex: 1 1 auto; min-width: 0; }
+.b5-con-cellsnote { font-size: var(--b5-font-size-xs); color: var(--b5-color-text-secondary); }
+
+/* cell picker: full-size buttons below the grid */
+.b5-con-picker { border: var(--b5-border-width-thick) solid var(--b5-color-border-accent); border-radius: var(--b5-radius-md); padding: var(--b5-space-3); min-width: 0; }
+.b5-con-picker[hidden] { display: none; }
+.b5-con-pickhead { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--b5-space-2); }
+.b5-con-pickrow { display: flex; flex-wrap: wrap; gap: var(--b5-space-2); max-height: 40vh; overflow: auto; }
+.b5-con-pickn { font-family: var(--b5-font-mono); }
+
+/* ---- objects: drawn, never selectable outside edit mode ---- */
+.b5-con-obj { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; }
+.b5-con-obj__line { position: absolute; height: 10px; margin-top: -5px; transform-origin: 0 50%; box-sizing: border-box; }
+.b5-con-obj--truss .b5-con-obj__line {
+  border-top: 2px solid var(--b5-color-text-secondary); border-bottom: 2px solid var(--b5-color-text-secondary);
+  background: repeating-linear-gradient(45deg, transparent 0 6px, var(--b5-color-border-strong) 6px 7px);
+}
+.b5-con-obj--mark .b5-con-obj__line { height: 0; margin-top: 0; border-top: 3px dashed var(--b5-color-text-warning); }
+.b5-con-obj__rect { position: absolute; box-sizing: border-box; border: 2px dashed var(--b5-color-text-secondary); border-radius: var(--b5-radius-sm); }
+.b5-con-obj__text { position: absolute; transform-origin: 0 0; font-weight: var(--b5-font-weight-bold); color: var(--b5-color-text-secondary); white-space: nowrap; }
+.b5-con-obj__word { position: absolute; font-size: var(--b5-font-size-xs); color: var(--b5-color-text-secondary); white-space: nowrap; left: 4px; top: 2px; }
+.b5-con-obj__word--line { transform: translate(-50%, 4px); }
+.b5-con-obj__handle {
+  position: absolute; transform: translate(-50%, -50%); pointer-events: auto; z-index: 2;
+  min-width: var(--b5-size-touch-min); min-height: var(--b5-size-touch-min); padding: 0 var(--b5-space-1);
+  font: inherit; font-size: var(--b5-font-size-xs); color: var(--b5-color-text-primary);
+  background: var(--b5-color-bg-surface-overlay); border: 2px dashed var(--b5-color-text-warning); border-radius: var(--b5-radius-full); cursor: grab;
+}
+.b5-con-obj__handle.is-target { border-style: solid; border-width: 4px; }
+
+/* ---- edit mode: drags must not scroll the page under a finger ---- */
+#consoleRoot.is-editing .b5-con-tile,
+#consoleRoot.is-editing .b5-con-obj__handle { touch-action: none; cursor: grab; }
+#consoleRoot.is-editing .b5-con-tile__main { border-style: dashed; }
+.b5-con-tile.is-edit-target > .b5-con-tile__main { outline: 4px solid var(--b5-color-text-warning); outline-offset: -4px; }
+.b5-con-tile.is-dragging, .b5-con-obj.is-dragging { opacity: 0.8; z-index: 5; }
+.b5-con-edit { min-width: 0; border: var(--b5-border-width-thick) dashed var(--b5-color-text-warning); border-radius: var(--b5-radius-md); padding: var(--b5-space-3); }
+.b5-con-edit[hidden] { display: none; }
+.b5-con-editgroup { margin-top: var(--b5-space-3); display: flex; flex-direction: column; gap: var(--b5-space-2); min-width: 0; }
+.b5-con-editname { margin: 0; overflow-wrap: anywhere; }
+.b5-con-nudge { display: flex; flex-wrap: wrap; gap: var(--b5-space-2); }
+.b5-con-inline { display: inline-flex; align-items: center; gap: var(--b5-space-2); }
+.b5-con-inline .b5-select { min-height: var(--b5-size-touch-min); max-width: 60vw; }
+.b5-con-layerlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--b5-space-2); }
+.b5-con-layeritem { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--b5-space-2);
+  border: var(--b5-border-width-thin) solid var(--b5-color-border-strong); border-radius: var(--b5-radius-sm); padding: var(--b5-space-2); }
+.b5-con-layeritem__name { overflow-wrap: anywhere; min-width: 0; }
+
+/* ---- C6b placeholder ---- */
+.b5-con-controls { border: var(--b5-border-width-thin) dashed var(--b5-color-border-strong); border-radius: var(--b5-radius-md); padding: var(--b5-space-3); min-width: 0; }
+
+/* ---- selection summary: sticky bottom, ABOVE the phone's fixed bottom
+   nav (its measured height is --b5-con-nav-reserve, set by console.js) ---- */
+.b5-con-summary { margin-top: var(--b5-space-4); min-width: 0; }
+.b5-con-summary__status { min-width: 0; flex: 1 1 20em; }
+.b5-con-summary__names { flex: 1 1 100%; min-width: 0; color: var(--b5-color-text-secondary); font-size: var(--b5-font-size-sm);
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.b5-con-summary__buttons { flex-wrap: wrap; }
+/* C6c: Store group, Highlight and Locate are inline on wide screens; on a
+   phone they sit behind "More" so the bar is ONE line (count, Clear, More)
+   and the grid keeps the screen. */
+.b5-con-summary__morebtn { display: none; }
+.b5-con-summary__more { display: contents; }
+@media (max-width: 767px) {
+  .b5-con-summary .b5-actionbar__title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .b5-con-summary { bottom: var(--b5-con-nav-reserve, calc(var(--b5-size-touch-min) + var(--b5-space-6)));
+    flex-wrap: nowrap; padding: var(--b5-space-1) var(--b5-space-2); gap: var(--b5-space-2); margin-top: var(--b5-space-3); }
+  .b5-con-summary__status { flex: 1 1 auto; flex-wrap: nowrap; gap: var(--b5-space-2); min-width: 0; }
+  .b5-con-summary__status .b5-pill { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .b5-con-summary__names, .b5-con-summary__long { display: none; }
+  .b5-con-summary__buttons { flex: 0 0 auto; flex-basis: auto; flex-wrap: nowrap; gap: var(--b5-space-2); }
+  .b5-con-summary__buttons > .b5-btn { min-height: var(--b5-size-touch-min); padding-inline: var(--b5-space-3); }
+  .b5-con-summary__morebtn { display: inline-flex; }
+  .b5-con-summary__more { display: none; }
+  .b5-con-summary__more.is-open {
+    display: flex; flex-direction: column; gap: var(--b5-space-2);
+    position: absolute; right: var(--b5-space-2); bottom: calc(100% + var(--b5-space-1)); z-index: var(--b5-z-dropdown);
+    min-width: 12rem; padding: var(--b5-space-2);
+    background: var(--b5-color-bg-surface-raised); border: var(--b5-border-width-thick) solid var(--b5-color-border-strong);
+    border-radius: var(--b5-radius-md); box-shadow: var(--b5-shadow-lg);
+  }
+  .b5-con-summary__more .b5-btn, .b5-con-summary__more .b5-seg { min-height: var(--b5-size-touch-min); width: 100%; justify-content: flex-start; }
+}
+
+.b5-con-dialog__actions { justify-content: flex-end; margin-top: var(--b5-space-3); }
+.b5-con-dialog .b5-input { width: 100%; }
+
+/* Phone: eight tabs share the bottom bar; let labels shrink rather than push
+   the last tab off-screen. */
+@media (max-width: 767px) {
+  .b5-nav--mobile .b5-nav__item { min-width: 0; padding-inline: 2px; overflow: hidden; }
+}

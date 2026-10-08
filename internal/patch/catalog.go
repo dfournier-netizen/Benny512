@@ -1,7 +1,6 @@
 package patch
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -61,11 +60,10 @@ func loadPatchFile(path string) (Patch, bool) {
 	if err != nil {
 		return Patch{}, false
 	}
-	var p Patch
-	if json.Unmarshal(data, &p) != nil {
+	p, err := decodeShowFile(data)
+	if err != nil {
 		return Patch{}, false
 	}
-	migrate(&p)
 	return p, true
 }
 

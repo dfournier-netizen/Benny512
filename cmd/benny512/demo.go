@@ -423,7 +423,7 @@ func buildDemo(ctx context.Context, legacyRdmStartCode bool, logNodes bool) (*we
 
 	nodes := session.NewArtNetSession(session.ArtNetConfig{Transport: tport, Clock: clock, PollInterval: 3 * time.Second})
 	rdmc := session.NewRDMController(session.RDMConfig{Transport: tport, Clock: clock, LegacyRdmStartCode: legacyRdmStartCode})
-	dmx := session.NewDMXOutputEngine(session.DMXConfig{Transport: tport, Clock: clock})
+	dmx := session.NewDMXOutputEngine(session.DMXConfig{Transport: tport, Clock: clock, Simulated: true})
 	reg := registry.New(nodes, rdmc)
 	ring := capture.New(capture.DefaultCapacity)
 	rdmRing := capture.New(capture.DefaultRDMCapacity)

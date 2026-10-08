@@ -58,6 +58,14 @@ const SettingsScreen = (() => {
   // sources apart by it (ANSI E1.31-2025 Section 6.2.3), and the server's
   // decoder rejects a body that carries one.
   let sacnCurrent = null;
+  // outputCurrent: the last GET /api/output (C3) — the universes worth
+  // listing (patched, configured, or on the wire) with their sACN mapping.
+  // null when it could not be read.
+  let outputCurrent = null;
+  // protoRows: the raw Art-Net Port-Address of every universe row on
+  // screen. The server's value is the baseline; edits are staged in each
+  // row's select and read back at Apply, like every other field here.
+  let protoRows = [];
 
   // baseline: the last SAVED settings, as strings, keyed by element id. The
   // dirty marker compares live inputs against this — never against the
@@ -65,7 +73,9 @@ const SettingsScreen = (() => {
   let baseline = {};
 
   const FIELD_IDS = ['nicSelect', 'pollInterval', 'captureLimit', 'logRdmPath', 'artnetStartUniverse',
-    'sacnStartUniverse', 'sacnPriority', 'sacnUnicastTo'];
+    'sacnStartUniverse', 'sacnPriority', 'sacnUnicastTo', 'sacnNicSelect', 'leaseLossAction'];
+  // allFieldIds: the static fields plus one select per universe row.
+  function allFieldIds() { return FIELD_IDS.concat(protoRows.map(raw => 'outProto-' + raw)); }
 
   // The bounds internal/sacn/settings.go enforces, restated here so the
   // inputs cannot offer a value the server will refuse. Priority's low end
@@ -78,12 +88,15 @@ const SettingsScreen = (() => {
   const SACN_DEFAULT_PRIORITY = 100;
 
   async function refresh() {
-    [current, nics, sacnCurrent] = await Promise.all([
+    [current, nics, sacnCurrent, outputCurrent] = await Promise.all([
       Api.getSettings(),
       Api.getNICs().catch(() => []),
       // Best-effort: an sACN store that cannot be read leaves the form on
       // its defaults rather than blanking the whole Settings screen.
       Api.getSACNConfig().catch(() => null),
+      // Best-effort too: without it the universe rows show only the
+      // configured ones, with no sACN mapping beside them.
+      Api.getOutput().catch(() => null),
     ]);
     render();
   }
@@ -100,15 +113,21 @@ const SettingsScreen = (() => {
       <section class="b5-step-section" aria-labelledby="setNetHead">
         <h2 class="b5-step-section__head" id="setNetHead">
           <span class="b5-step-num">1</span> Network
-          <span class="b5-step-section__note" id="setNetNote">which card Benny512 talks Art-Net on</span>
+          <span class="b5-step-section__note" id="setNetNote">which card each protocol goes out on</span>
         </h2>
         <div class="b5-group">
           <h3 class="b5-group__head">Interface</h3>
           <div class="b5-field">
-            <label class="b5-field__label" for="nicSelect">Network interface (NIC)</label>
+            <label class="b5-field__label" for="nicSelect">Art-Net network adapter</label>
             <select id="nicSelect" class="b5-select"></select>
             <span class="b5-field__hint">If nodes never answer a poll, this is the first thing to check — it must be the card on the lighting network, not the one with the internet on it.</span>
+            <span class="b5-field__hint">Art-Net DMX, RDM, polling and node configuration all use this card.</span>
             <span class="b5-field__hint"><strong>Takes effect when Benny512 restarts.</strong> The Art&nbsp;Net socket is opened once, against the card chosen at launch, and cannot be moved while the program is running &mdash; so saving a different card here changes what the next launch binds, not this one. Restart to use it. (A <code>--iface</code> given on the command line overrides this setting for that run, and if the saved card is missing on the next machine Benny512 picks one automatically and says so rather than refusing to start.)</span>
+          </div>
+          <div class="b5-field">
+            <label class="b5-field__label" for="sacnNicSelect">sACN network adapter</label>
+            <select id="sacnNicSelect" class="b5-select"></select>
+            <span class="b5-field__hint">The card sACN (E1.31) output leaves by. Its own setting, so a rig can take Art-Net on one network and sACN on another. Takes effect at the next ARM &mdash; no restart.</span>
           </div>
           <div class="b5-field">
             <label class="b5-field__label" for="pollInterval">Poll interval (ms)</label>
@@ -146,7 +165,7 @@ const SettingsScreen = (() => {
           <span class="b5-step-num">3</span> sACN output
           <span class="b5-step-section__note" id="setSacnNote"></span>
         </h2>
-        <p class="b5-caption">Whether a run goes out on Art-Net or sACN is chosen on the <strong>Rig Check</strong> screen, next to the Start button that carries it &mdash; it is a property of a run. What is set here is how this installation sources sACN when a run asks for it: the same three numbers every time.</p>
+        <p class="b5-caption">Which universes go out on sACN is set under <strong>Output</strong> below. What is set here is how this installation sources sACN: the same three numbers for every universe sent on it.</p>
         <div class="b5-group">
           <h3 class="b5-group__head">Universes and priority</h3>
           <div class="b5-field">
@@ -174,9 +193,34 @@ const SettingsScreen = (() => {
         </div>
       </section>
 
+      <section class="b5-step-section" aria-labelledby="setOutHead">
+        <h2 class="b5-step-section__head" id="setOutHead">
+          <span class="b5-step-num">4</span> Output
+          <span class="b5-step-section__note">the master ARM in the top strip governs all of it</span>
+        </h2>
+        <div class="b5-field">
+          <label class="b5-field__label" for="leaseLossAction">If every browser goes silent for 5 seconds</label>
+          <select id="leaseLossAction" class="b5-select">
+            <option value="blackout">Blackout &mdash; disarm and black out</option>
+            <option value="hold">Hold last look &mdash; keep sending what is on the rig</option>
+          </select>
+          <span class="b5-field__hint">Any open Benny512 page (laptop, phone, tablet) keeps ARM alive. When all of them have been silent for 5 seconds &mdash; or the last one is closed &mdash; Benny512 does this. <strong>Default: Blackout.</strong> Hold last look keeps the rig exactly as it was and shows <em>Lease lost &mdash; holding</em>; nothing you change reaches the rig until someone presses ARM again. DISARM and Stop all output always black out, whatever is chosen here.</span>
+        </div>
+        <div class="b5-group">
+          <h3 class="b5-group__head">Protocol per universe</h3>
+          <p class="b5-caption">Each universe goes out on Art-Net, sACN, or both at once with identical levels. A universe not set otherwise is Art-Net. Listed: every universe this show patches and every universe set to something other than Art-Net. Changes take effect on Apply &mdash; at once if output is armed.</p>
+          <div id="outProtoRows" class="b5-stack"></div>
+          <div class="b5-row">
+            <label class="b5-field__label" for="outAddUniverse">Add universe</label>
+            <input id="outAddUniverse" class="b5-input b5-input--mono" type="number" step="1" style="width:8em">
+            <button type="button" id="outAddBtn" class="b5-btn">${UI.icon('apply')}Add</button>
+          </div>
+        </div>
+      </section>
+
       <section class="b5-step-section" aria-labelledby="setCapHead">
         <h2 class="b5-step-section__head" id="setCapHead">
-          <span class="b5-step-num">4</span> Capture &amp; logging
+          <span class="b5-step-num">5</span> Capture &amp; logging
           <span class="b5-step-section__note">what the Analyzer keeps, and what goes to disk</span>
         </h2>
         <div class="b5-field">
@@ -193,7 +237,7 @@ const SettingsScreen = (() => {
 
       <section class="b5-step-section" aria-labelledby="setResetHead">
         <h2 class="b5-step-section__head" id="setResetHead">
-          <span class="b5-step-num">5</span> Danger zone &mdash; full reset
+          <span class="b5-step-num">6</span> Danger zone &mdash; full reset
           <span class="b5-step-section__note">deletes the patch and shuts Benny512 down</span>
         </h2>
         <div class="b5-stack" id="resetPanelRoot"></div>
@@ -243,6 +287,11 @@ const SettingsScreen = (() => {
       nicSel.appendChild(opt);
     }
     nicSel.value = prevValue || current.nic || '';
+    fillSacnNicSelect();
+    const lease = document.getElementById('leaseLossAction');
+    if (lease) lease.value = current.leaseLossAction === 'hold' ? 'hold' : 'blackout';
+    protoRows = [];
+    renderProtoRows();
     document.getElementById('pollInterval').value = current.pollIntervalMs || 3000;
     document.getElementById('captureLimit').value = current.captureLimit || 10000;
     document.getElementById('logRdmPath').value = current.logRdmPath || '';
@@ -274,6 +323,73 @@ const SettingsScreen = (() => {
   // Composed from the PENDING value explicitly, not through UI.formatUser's
   // ambient one — the sentence has to describe the choice currently in the
   // box, including before it is applied.
+  // fillSacnNicSelect: the sACN adapter choice. Blank means "the same card
+  // as Art-Net" — what sACN did before it had a setting of its own.
+  function fillSacnNicSelect() {
+    const sel = document.getElementById('sacnNicSelect');
+    if (!sel) return;
+    sel.innerHTML = '';
+    const blank = document.createElement('option');
+    blank.value = ''; blank.textContent = 'Same adapter as Art-Net';
+    sel.appendChild(blank);
+    nics.forEach(nic => {
+      const opt = document.createElement('option');
+      opt.value = nic.name;
+      const addrs = (nic.ipv4 || []).join(', ');
+      opt.textContent = `${nic.displayName || nic.name}${addrs ? ' — ' + addrs : ''}${nic.up ? '' : ' (down)'}`;
+      sel.appendChild(opt);
+    });
+    const want = current.sacnNic || '';
+    if (want && !nics.some(n => n.name === want)) {
+      const opt = document.createElement('option');
+      opt.value = want; opt.textContent = want + ' (not present on this machine)';
+      sel.appendChild(opt);
+    }
+    sel.value = want;
+  }
+
+  // renderProtoRows: one row per universe worth listing, each a select over
+  // UI.OUTPUT_PROTOCOLS. Universe numbers are formatted here, at the
+  // presentation boundary, from the raw Port-Address the server sends.
+  function renderProtoRows(extra) {
+    const host = document.getElementById('outProtoRows');
+    if (!host) return;
+    const saved = {};
+    (current.universeProtocols || []).forEach(r => { saved[r.universe] = r.protocol; });
+    const mapping = {};
+    ((outputCurrent && outputCurrent.universes) || []).forEach(u => { mapping[u.universe] = u; });
+    // Keep whatever is staged in a select across a re-render.
+    const staged = {};
+    protoRows.forEach(raw => { const el = document.getElementById('outProto-' + raw); if (el && el.value) staged[raw] = el.value; });
+    const set = new Set(protoRows.concat(Object.keys(saved).map(Number), Object.keys(mapping).map(Number), extra === undefined ? [] : [extra]));
+    protoRows = Array.from(set).filter(n => Number.isInteger(n) && n >= 0 && n <= 32767).sort((a, b) => a - b);
+    host.innerHTML = protoRows.length ? protoRows.map(raw => {
+      const m = mapping[raw];
+      const sacnWord = m && m.sacnMappable ? `sACN universe ${m.sacnUniverse}` : (m ? 'no sACN universe at the current starting universes' : 'sACN universe shown after Apply');
+      return `<div class="b5-row b5-out-row">
+        <label class="b5-field__label" for="outProto-${raw}">Universe ${escapeHtml(String(UI.formatUser(raw)))} <span class="b5-text-muted b5-text-sm">Art-Net ${raw} &middot; ${escapeHtml(sacnWord)}</span></label>
+        <select id="outProto-${raw}" class="b5-select">${UI.OUTPUT_PROTOCOLS.map(p => `<option value="${p.id}">${escapeHtml(p.label)}</option>`).join('')}</select>
+      </div>`;
+    }).join('') : '<p class="b5-text-muted b5-text-sm">No universes yet. Patch a show, or add one below.</p>';
+    protoRows.forEach(raw => {
+      const el = document.getElementById('outProto-' + raw);
+      if (!el) return;
+      el.value = staged[raw] || saved[raw] || 'artnet';
+      const restate = () => renderDirty();
+      el.addEventListener('change', restate);
+      el.addEventListener('input', restate);
+    });
+  }
+
+  // protoPayload: every row that is not plain Art-Net (Art-Net is the
+  // default, so a row set back to it is simply left out).
+  function protoPayload() {
+    return protoRows.map(raw => {
+      const el = document.getElementById('outProto-' + raw);
+      return { universe: raw, protocol: el && el.value ? el.value : 'artnet' };
+    }).filter(r => r.protocol !== 'artnet');
+  }
+
   function renderUniverseNotes(pendingStart) {
     const input = document.getElementById('artnetStartUniverse');
     let start = pendingStart;
@@ -416,16 +532,19 @@ const SettingsScreen = (() => {
 
   function captureBaseline() {
     baseline = {};
-    FIELD_IDS.forEach(id => {
+    allFieldIds().forEach(id => {
       const el = document.getElementById(id);
       if (el) baseline[id] = String(el.value);
     });
   }
 
   function dirtyFields() {
-    return FIELD_IDS.filter(id => {
+    return allFieldIds().filter(id => {
       const el = document.getElementById(id);
-      return el && String(el.value) !== baseline[id];
+      // A row added since the last save has no baseline: it counts as a
+      // change only once it is set to something other than Art-Net.
+      const base = id in baseline ? baseline[id] : (id.indexOf('outProto-') === 0 ? 'artnet' : undefined);
+      return el && String(el.value) !== base;
     });
   }
 
@@ -457,6 +576,9 @@ const SettingsScreen = (() => {
         const n = parseInt(document.getElementById('artnetStartUniverse').value, 10);
         return Number.isFinite(n) && n >= 0 && n <= 32767 ? n : 0;
       })(),
+      sacnNic: (document.getElementById('sacnNicSelect') || { value: '' }).value,
+      leaseLossAction: (document.getElementById('leaseLossAction') || { value: 'blackout' }).value,
+      universeProtocols: protoPayload(),
     };
     try {
       await Api.postSettings(payload);
@@ -472,6 +594,8 @@ const SettingsScreen = (() => {
       // worthless paraphrased.
       sacnCurrent = await Api.postSACNConfig(sacnPayload());
       UI.setSacnStart(sacnCurrent.startUniverse);
+      // Re-read the mapping each row shows; best-effort.
+      try { outputCurrent = await Api.getOutput(); renderProtoRows(); } catch (e) { /* keep the last listing */ }
       status.innerHTML = UI.icon('status-ok') + 'applied';
       captureBaseline();
       renderDirty();
@@ -609,6 +733,14 @@ const SettingsScreen = (() => {
       };
       el.addEventListener('input', restate);
       el.addEventListener('change', restate);
+    });
+    const addBtn = document.getElementById('outAddBtn');
+    if (addBtn) addBtn.addEventListener('click', () => {
+      const el = document.getElementById('outAddUniverse');
+      const raw = UI.parseUser(el ? el.value : '');
+      if (!Number.isInteger(raw) || raw < 0 || raw > 32767) return;
+      renderProtoRows(raw);
+      renderDirty();
     });
     buildResetPanel();
     // Baseline the empty form before the first paint, so the dirty marker

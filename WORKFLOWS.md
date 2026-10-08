@@ -4,28 +4,32 @@ Use **Patch → New show** for a separate rig; use the saved-show selector to re
 
 ## Before testing
 
-Check the persistent show name, NIC and output status. **Stop all output** stops Rig Check, manual DMX and Universe Identify; it is not an RDM Identify-off command or a stop for another console.
+Check the persistent show name, NIC and output status. Nothing reaches the rig until **ARM** is pressed in the top strip; **DISARM** or **Stop all output** blacks out every universe Benny512 is sending (zero frames, then sACN stream termination) and stops all DMX output. It is not an RDM Identify-off command or a stop for another console. If every connected browser goes quiet for 5 seconds, output follows the Settings choice: Blackout or Hold last look.
 
 For multi-cell phase spacing, edit the patch entry's **Phase slots**: `0` selects automatic counting; `16` explicitly gives a Rayzor sixteen phase slots. Automatic counting prefers repeated GDTF geometry, then the live RDM sub-device count. It changes only phase spacing between root fixtures, not fixture counts or channel mappings. Previously imported profiles without geometry metadata need re-profiling or an override.
 
 ## Show tools
 
 - **Needs attention:** cached collisions, commitment and configuration issues, with links to the relevant editor/inspector. Re-discover and re-read to refresh evidence.
-- **Selection & groups:** choose entries and save a named group, or send the selection to Function check.
-- **Test presets:** save the selected function tests and exact scope. Loading a preset stops output; press Start separately. A preset referencing a removed entry is rejected instead of silently testing a smaller rig.
+- **Selection & groups:** choose entries and save a named group, or open the selection in the Console.
+- **Test presets:** save the selected function tests and exact scope. A loaded preset's tests are live at once and reach the rig while Armed. A preset referencing a removed entry is rejected instead of silently testing a smaller rig.
 - **Rig baselines:** record the patch and cached fixture settings, then Compare now or export a TXT report. A baseline may contain unresolved issues; its issue count is shown. This is not a physical rig acceptance test.
 - **Offline rehearsal:** choose a fault scenario, confirm stopping live output, then Open rehearsal. The child UI is labelled REHEARSAL and uses fake lighting transport. Changes are temporary; building another replaces it. Rehearsal models normal controls and simple faults, not every device's firmware or RF behavior.
 - **Show recovery:** restore the preceding save, export show JSON, or reset only this show. Reset clears that show's entries/groups/presets/baselines but keeps other shows and the Fixture Library.
 
 Deleting a saved group, preset or baseline asks for confirmation. The preceding-save recovery copy includes the deleted item until another successful show save replaces that copy.
 
-## Send → Universe Identify
+## Console — testing and flashing the rig
 
-Enter both ends of an inclusive range and choose Art-Net or sACN. These are **raw protocol universe numbers**, independent of the Settings numbering offsets. The fields start blank and never use the patch to infer a range. Universes 1–512 send 255 on channel N of universe N and zero on every other channel. **Art-Net universe 0 sends 255 on all 512 channels.** sACN zero and all numbers above 512 are rejected by this tool.
+The **Console** screen is where the rig is tested and flashed. It replaces the old Send screen and the Patch screen's Function check.
 
-Stop manual Send and Rig Check, then press **Arm range** to validate without transmitting. Press **Identify on** to send. While armed, other Send/Rig Check commands are refused. Editing the range or protocol requires a fresh arm. **Off / Disarm**, Send's **Stop**, leaving the Send tab, switching shows, and server shutdown clear and release Identify's range. The server also disarms after five seconds without the owning browser's heartbeat. sACN sends zero frames followed by stream termination. Prior manual levels are retained in their separate buffer but never automatically resumed.
+- **Selection grid:** fixtures on a plan per height layer (from MVR positions or placed by hand; fixtures with no position sit in the Unplaced layer). Tap to select, Add mode (or Shift/Ctrl) to add, select a layer or a stored group; multi-cell fixtures select as a whole or per cell. **Edit layout** is off by default so a gloved tap never moves a fixture.
+- **Controls:** live for the selection — dimmer, position (XY pad and faders), colour (picker, mixing and wheel slots), beam (gobo slots and every sub-function fader), focus, shapers, and hold-to-fire control functions. Highlight/Lowlight, Locate, Fan, Clear, groups and per-family presets. Values stay until cleared; untouched channels sit at their profile default.
+- **Tests:** the Rig Check tests, acting on the selection (or a group, layer or all), underneath manual values — a channel set by hand wins. Test sequences chain steps, advanced by hand or after a time.
+- **Tools → Raw universe:** any universe, 512 channel levels with Park, All off and Release all (the old Send screen). It owns its whole universe, above tests and the programmer.
+- **Tools → Universe Identify:** enter both ends of an inclusive range of **raw protocol universe numbers** (independent of the Settings numbering offsets; never inferred from the patch). Universes 1–512 send 255 on channel N of universe N and zero elsewhere; **Art-Net universe 0 sends 255 on all 512 channels**. sACN zero and numbers above 512 are refused. Press **Arm range**, then **Identify on**. Identify owns its universes exclusively while on. **Off / Disarm**, switching shows and shutdown release it; it also disarms after five seconds without the owning browser's heartbeat.
 
-The demo/rehearsal can exercise Art-Net Identify over fake transport; sACN Identify is refused there to avoid opening a real output socket. Packet tests verify sACN using loopback.
+Everything above reaches the rig only while the master output is **Armed**. Leaving the Console stops nothing.
 
 ## Backup and recovery
 
@@ -53,7 +57,7 @@ Saving a port does not save hidden sibling drafts. Changes that would move other
 
 Device Info and the Parameters mode selector fetch RDM mode names automatically. Current mode loads first, then remaining names sequentially and from cache where possible. A missing response is labelled “Mode name unavailable,” not guessed.
 
-RDM discovery uses Art-Net. Rig Check and Send's Universe Identify support selectable Art-Net or sACN output.
+RDM discovery uses Art-Net. DMX output can go out as Art-Net, sACN or both per universe (Settings → Output); sACN has its own network adapter setting.
 
 ## Devices discovery
 

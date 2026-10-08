@@ -460,7 +460,7 @@ func TestIdentifyUnknownFixture404(t *testing.T) {
 	}
 }
 
-func TestDMXStartStopAndSend(t *testing.T) {
+func TestDMXSendAndRelease(t *testing.T) {
 	h := newHarness(t)
 	rr := doJSON(t, h.srv.Handler(), "POST", "/api/dmx", dmxRequest{Universe: 0, Channels: dmxFrame(map[int]byte{1: 255, 2: 128})})
 	if rr.Code != http.StatusOK {
@@ -474,11 +474,14 @@ func TestDMXStartStopAndSend(t *testing.T) {
 		t.Errorf("frame[0:2] = %v, %v", frame[0], frame[1])
 	}
 
-	if rr := doJSON(t, h.srv.Handler(), "POST", "/api/dmx/start", nil); rr.Code != http.StatusOK {
-		t.Fatalf("dmx start status=%d", rr.Code)
-	}
+	// C3: raw levels follow the master Arm and have no START of their own
+	// (the 410 stub /api/dmx/start was removed in C7, see
+	// TestC7RetiredEndpointsAreGone); /api/dmx/stop releases the raw frames.
 	if rr := doJSON(t, h.srv.Handler(), "POST", "/api/dmx/stop", nil); rr.Code != http.StatusOK {
 		t.Fatalf("dmx stop status=%d", rr.Code)
+	}
+	if _, ok := h.srv.DMX.Frame(mustPortAddr(t, 0)); ok {
+		t.Fatal("/api/dmx/stop did not release Send's frame")
 	}
 }
 
@@ -517,7 +520,7 @@ func TestDMXRejectsShortFrame(t *testing.T) {
 
 // dmxFrame builds a full 512-byte DMX frame (all other slots 0) with the
 // given 1-based channel overrides, mirroring the always-send-everything
-// shape send.js now builds on every commit.
+// shape console-tools.js (send.js until C7) builds on every commit.
 func dmxFrame(overrides map[int]byte) []byte {
 	frame := make([]byte, session.DMXUniverseSize)
 	for ch, v := range overrides {

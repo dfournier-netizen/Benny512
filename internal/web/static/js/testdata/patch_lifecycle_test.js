@@ -1,5 +1,6 @@
 // patch_lifecycle_test.js — cross-file lifecycle regression test for the
-// Patch screen's three sub-tabs, run under plain Node via
+// Patch screen's sub-tabs (Entries and Reconcile; the Rig Check view was
+// retired in C7 — the Console's Tests panel replaces it), run under plain Node via
 // internal/web/patch_lifecycle_test.go (`node patch_lifecycle_test.js`,
 // exit 0 = pass). Not part of the browser app; testdata/ is never loaded by
 // index.html.
@@ -13,7 +14,10 @@
 // snapshot. Both halves verified themselves and both were internally
 // correct; these two defects lived in the gap between them:
 //
-//  1. SAFETY. Leaving the Rig Check view (to Entries/Reconcile) or the
+//  1. (Superseded by C3, 2026-10-07: output now follows the master Arm in
+//     the strip and its multi-browser lease, so leaving a view no longer
+//     stops output at all — section 1 below now pins THAT. The history:)
+//     SAFETY. Leaving the Rig Check view (to Entries/Reconcile) or the
 //     Function sub-view (to Channel check) stopped RigCheckPanel's
 //     client-liveness heartbeat but NOT the pattern output. That heartbeat
 //     is what feeds the server's watchdog, so output kept driving real
@@ -34,7 +38,7 @@
 //
 // HOW IT TESTS THEM
 //
-// It loads the LITERAL ui.js / rigcheck.js / reconcile.js / patch.js the
+// It loads the LITERAL ui.js / reconcile.js / patch.js the
 // browser loads into one vm context over a hand-written DOM stub, wires a
 // recording Api, and drives the screen the way a user does: through the
 // click handlers those files attach to their own buttons. What is asserted
@@ -113,7 +117,7 @@ function makeEl(id) {
 function selectorNodes(sel) {
   switch (sel) {
     case '#patchViewTabs .detail-tab-btn':
-      return ['entries', 'reconcile', 'rigcheck'].map(v => { const b = makeEl('tab-' + v); b.dataset.view = v; return b; });
+      return ['entries', 'reconcile'].map(v => { const b = makeEl('tab-' + v); b.dataset.view = v; return b; });
     case '[data-rcb-arm-entry]': {
       const b = makeEl(''); b.dataset.rcbArmEntry = 'e1'; return [b];
     }
@@ -285,7 +289,7 @@ const ctx = vm.createContext({
 });
 ctx.globalThis = ctx;
 
-for (const f of ['ui.js', 'rigcheck.js', 'reconcile.js', 'patch.js']) {
+for (const f of ['ui.js', 'reconcile.js', 'patch.js']) {
   vm.runInContext(fs.readFileSync(path.join(JS_DIR, f), 'utf8'), ctx, { filename: f });
 }
 
@@ -303,40 +307,25 @@ function check(ok, what, detail) {
 
 function clickTab(view) { live('#patchViewTabs .detail-tab-btn', b => b.dataset.view === view).fire('click'); }
 
-async function goToRigCheckFunction() {
-  clickTab('rigcheck');
-  await settle();
-}
-
-async function startOutput() {
-  doc.getElementById('rcpStart').fire('click'); // confirm() is stubbed to accept
-  await settle();
-  return outputEnabled === true;
-}
-
 async function main() {
   vm.runInContext('PatchScreen.init(); PatchScreen.onEnterScreen();', ctx, { filename: 'drive' });
   await settle();
 
-  console.log('1. leaving the Rig Check VIEW with pattern output flowing stops the output');
-  await goToRigCheckFunction();
-  check(await startOutput(), 'output is flowing before the sub-tab switch', 'outputEnabled=' + outputEnabled);
+  console.log('1. the Patch screen has no Rig Check view (C7: the Console\'s Tests panel replaces it)');
+  const tabs = doc.lastQuery.get('#patchViewTabs .detail-tab-btn') || [];
+  check(tabs.length === 2 && tabs.every(b => b.dataset.view !== 'rigcheck'), 'the Patch screen offers Entries and Reconcile only',
+    'tabs: ' + JSON.stringify(tabs.map(b => b.dataset.view)));
+  check(!/data-view="rigcheck"/.test(doc.getElementById('patchRoot').innerHTML), 'its tab strip markup names no Rig Check view');
+  check(countOf('getRigCheckState') === 0 && countOf('getPattern') === 0, 'entering Patch reads no Rig Check state',
+    'calls: ' + JSON.stringify(callNames()));
   calls.length = 0;
-  clickTab('entries');
+  vm.runInContext('PatchScreen.onLeaveScreen();', ctx, { filename: 'drive' });
   await settle();
-  const stop1 = calls.filter(c => c.name === 'patternSetOutput' && c.args === false);
-  check(stop1.length === 1, 'Rig Check -> Entries sends exactly one patternSetOutput(false)',
-    'calls after the switch: ' + JSON.stringify(callNames()));
-  check(outputEnabled === false, 'pattern output is off after the sub-tab switch', 'outputEnabled=' + outputEnabled);
+  check(calls.length === 0, 'leaving Patch makes no request (nothing on the wire changes)', 'calls: ' + JSON.stringify(callNames()));
+  vm.runInContext('PatchScreen.onEnterScreen();', ctx, { filename: 'drive' });
+  await settle();
 
-  console.log('2. Rig Check opens Function check directly');
-  await goToRigCheckFunction();
-  check(!/Channel check/.test(doc.getElementById('rcSubBody').innerHTML),
-    'removed Channel check is absent from Rig Check');
-  check(!!doc.getElementById('rcpStart').handlers.click,
-    'Function check Start is available directly');
-
-  console.log('3. a Reconcile commit reaches the screen\'s own patch copy without a manual refresh');
+  console.log('2. a Reconcile commit reaches the screen\'s own patch copy without a manual refresh');
   clickTab('reconcile');
   await settle();
   check(countOf('getReconcileBoard') > 0, 'the Reconcile board was fetched on entry');

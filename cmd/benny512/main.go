@@ -190,6 +190,10 @@ func main() {
 		if err := srv.SetSettingsStorePath(settingsStorePath()); err != nil {
 			logf("warn", "settings: %v", err)
 		}
+		// C8: the MIDI encoder mapping, real mode only for the same reason.
+		if err := srv.SetMIDIStorePath(midiStorePath()); err != nil {
+			logf("warn", "MIDI mapping: %v", err)
+		}
 	}
 
 	// A saved Settings.LogRDMPath is OPENED here, not merely remembered.
@@ -372,9 +376,11 @@ func buildReal(ifaceName string, legacyRdmStartCode bool, logNodes bool, logf fu
 
 	// start is deferred to the caller — see this function's doc comment.
 	// demux.Start (begins dispatching whatever the OS socket already has
-	// buffered), the engines' Run loops, nodes.Start's initial ArtPoll, and
-	// dmx.Start's periodic output are the only things in this function that
-	// can put a packet in front of the tap, so they all live here.
+	// buffered), the engines' Run loops and nodes.Start's initial ArtPoll
+	// are the only things in this function that can put a packet in front
+	// of the tap, so they all live here. DMX output is not started here: the
+	// unified output engine (C3) comes up DISARMED and sends nothing until an
+	// operator presses ARM in a browser.
 	start = func() {
 		demux.Start()
 		go reg.Run()
@@ -383,7 +389,6 @@ func buildReal(ifaceName string, legacyRdmStartCode bool, logNodes bool, logf fu
 		if err := nodes.Start(); err != nil {
 			logf("warn", "initial ArtPoll failed: %v", err)
 		}
-		dmx.Start()
 	}
 
 	return srv, start, func() { udp.Close() }, nil
@@ -549,6 +554,16 @@ func settingsStorePath() string {
 		return filepath.Join(filepath.Dir(exe), "benny512-settings.json")
 	}
 	return "benny512-settings.json"
+}
+
+// midiStorePath resolves the persisted MIDI encoder mapping (C8,
+// internal/web/midi.go) beside the running exe, like settingsStorePath: it
+// belongs to this station and its controller, not to any one show.
+func midiStorePath() string {
+	if exe, err := os.Executable(); err == nil {
+		return filepath.Join(filepath.Dir(exe), "benny512-midi.json")
+	}
+	return "benny512-midi.json"
 }
 
 func shouldLog(configured, level string) bool {

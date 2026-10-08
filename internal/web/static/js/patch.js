@@ -1,9 +1,7 @@
 // patch.js — Phase 2a Patch screen: entry table (add/edit/delete/reorder),
 // collision warnings, the patch<->RDM Reconcile view (diff grouped by
-// state, per-row/bulk fix, Identify assist), and channel-level Rig Check
-// controls — including the Art-Net / sACN output protocol the run is
-// started on (see the RC_PROTOCOLS block below for why that choice lives
-// here and its configuration lives in Settings).
+// state, per-row/bulk fix, Identify assist). The Rig Check view was retired
+// in C7: testing is the Console's Tests panel (console-tests.js).
 //
 // Rules (same as every other screen, architecture rev 5 §4): oninput
 // mutates local draft state only, re-render on onchange/explicit action;
@@ -17,12 +15,12 @@
 // walk.js's End Walk pattern) — nothing here ever fires an RDM SET as a
 // side effect of typing or navigating.
 //
-// Safety (task ask, item 4): leaving the Patch screen or the page unloading
-// always best-effort stops the rig check (blackout + stop transmitting),
-// mirroring walk.js's identify-off beacon.
+// Safety: output follows the master Arm in the top strip (C3): it is
+// governed by the master Arm and its lease, which every page keeps alive
+// (workspace.js), not by which screen happens to be on show.
 const PatchScreen = (() => {
   let active = false; // this screen is the current tab
-  let view = 'entries'; // 'entries' | 'reconcile' | 'rigcheck'
+  let view = 'entries'; // 'entries' | 'reconcile'
   let patchData = { active: false };
   let patchCatalog = [];
   // collisions: findings from GET /api/patch/collisions. Every fetch of it
@@ -42,7 +40,6 @@ const PatchScreen = (() => {
   let collisions = [];
   // No `reconcile` mirror here any more: ReconcilePanel (reconcile.js) holds
   // the only copy of the reconcile board, per its rule 1.
-  let rigCheckState = null;
   let statusMsg = '';
 
   // Entries table state.
@@ -87,102 +84,6 @@ const PatchScreen = (() => {
   let gdtfPreview = null; // null | { fileName, parsed, selectedModeIndex, matches }
   let gdtfApplying = false;
 
-  // Rig check setup state.
-  let rcScopeKind = sessionStorage.getItem('benny512.patch.rcScopeKind') || 'all';
-  let rcScopeUniverse = 0;
-  let rcSelection = {}; // entryId -> bool
-  let rcMode = sessionStorage.getItem('benny512.patch.rcMode') || 'highlight';
-  let rcLevel = 255;
-  let rcStarting = false;
-
-  // --- Rig Check output protocol (Art-Net / sACN) --------------------------
-  //
-  // WHERE THIS LIVES, AND WHY IT IS NOT IN SETTINGS. The protocol is a field
-  // on POST /api/patch/rigcheck/start (internal/web/patch.go's
-  // rigCheckStartRequest), so it is a property of a RUN, not of the
-  // installation: it belongs beside the Start button that carries it. The
-  // sACN start universe, priority and unicast override are the opposite —
-  // persisted server-side in benny512-sacn.json, unchanged from run to run —
-  // so they live in Settings beside the Art-Net starting universe.
-  //
-  // APPLY-TO-CONFIRM, not direct action. The signed-off exceptions to the
-  // project's Apply-to-confirm contract (Identify, the Send / Rig Check
-  // level faders, the Function-check test toggles) are all adjustments to
-  // something ALREADY LIVE, made by feel while watching the rig, where an
-  // intermediate value on the way to the intended one is harmless. A
-  // protocol has no intermediate value. Switching it while output flows
-  // stops the outgoing stream properly first — sACN sends three zero frames
-  // and three Stream_Terminated packets (ANSI E1.31-2025 Section 6.2.6),
-  // Art-Net a zero frame and StopUniverse — and then restarts the check at
-  // the FIRST fixture in scope. That is a real operation on a rig, so it
-  // stages on the press and commits on Apply.
-  // The table itself lives in ui.js, because the Function check tab
-  // (rigcheck.js) sends the same vocabulary on its own endpoint and two
-  // copies of a wire vocabulary are two things that can drift apart. See
-  // UI.RC_PROTOCOLS.
-  const RC_PROTOCOLS = UI.RC_PROTOCOLS;
-  // rcProtocolArmed is what the NEXT Start will send; while a run is live it
-  // is the server's own echoed `protocol`, which is the only authority on
-  // what is actually on the wire. rcProtocolDraft is the staged choice, and
-  // differs from armed only between a press and its Apply.
-  let rcProtocolArmed = 'artnet';
-  let rcProtocolDraft = 'artnet';
-  let rcProtocolApplying = false;
-  // rcProtocolTouched: the operator has applied a protocol on this screen.
-  // Until then the armed protocol simply follows the server's echo.
-  let rcProtocolTouched = false;
-  // rcProtocolError holds the SERVER'S OWN WORDS. The 422 for a scope that
-  // cannot be expressed on sACN names the offending universe
-  // ("sACN universe must be 1..63999: show universe -99 …"), and that name is
-  // the only part of the message that tells a tech what to change — so it is
-  // shown verbatim, never folded into a house phrase.
-  let rcProtocolError = '';
-  // sacnConfig: the last GET /api/sacn ({startUniverse, priority, unicastTo}).
-  // null means it has not been read; the note says so rather than inventing
-  // a start universe.
-  let sacnConfig = null;
-
-  const isProtocol = UI.isProtocol;
-  const protocolLabel = UI.protocolLabel;
-
-  // syncProtocolFromState: adopt the server's echo. While a run is live the
-  // echo IS the armed protocol — there is no daylight between "what is on
-  // the wire" and "what the next start sends" until something is staged.
-  function syncProtocolFromState() {
-    const p = rigCheckState && rigCheckState.protocol;
-    if (!isProtocol(p)) return;
-    if ((rigCheckState && rigCheckState.running) || !rcProtocolTouched) {
-      rcProtocolArmed = p;
-      if (!rcProtocolApplying) rcProtocolDraft = p;
-    }
-  }
-
-  // snapProtocolToServer: the control returns to SERVER TRUTH after a
-  // refused start — the same discipline rigcheck.js's scope echo follows.
-  // A browser-side guess the server rejected must not stay on screen looking
-  // armed, or the next press repeats the same refusal.
-  function snapProtocolToServer() {
-    const p = rigCheckState && rigCheckState.protocol;
-    if (!isProtocol(p)) return;
-    rcProtocolTouched = false;
-    rcProtocolArmed = p;
-    rcProtocolDraft = p;
-  }
-
-  // Function check state — the attribute-level test-pattern engine — now
-  // lives entirely in rigcheck.js (RigCheckPanel), which owns its own
-  // server snapshot, scope and rendering. It is reached through a sub-tab
-  // (rcSubView) inside the Rig Check screen so the classic channel-level
-  // check keeps working unchanged and reachable (additive, not a
-  // replacement).
-  //
-  // Nothing about the pattern engine's state is mirrored in this file. This
-  // screen asks RigCheckPanel.outputEnabled() when it needs to know whether
-  // pattern output is flowing (the classic channel-level mutators are
-  // mutually exclusive with it server-side), and that answer comes from the
-  // panel's last server snapshot rather than from a second copy kept here.
-  let rcSubView = sessionStorage.getItem('benny512.patch.rcSubView') || 'classic'; // 'classic' | 'function'
-
   // --- lifecycle ------------------------------------------------------------
 
   function init() {
@@ -191,33 +92,12 @@ const PatchScreen = (() => {
 	});
 	window.addEventListener('b5-show-changed', () => {
 	  clearSelection(); editingEntry = null; entryDraft = null;
-	  mvrPreview = null; gdtfPreview = null; rcSelection = {};
+	  mvrPreview = null; gdtfPreview = null;
 	});
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden' && active) {
-        Api.rigCheckStopBeacon();
-        stopPatternHeartbeat();
-      }
-    });
-    window.addEventListener('pagehide', () => {
-      if (active) {
-        Api.rigCheckStopBeacon();
-        stopPatternHeartbeat();
-      }
-    });
     ensureMvrFileInput();
     ensureGdtfFileInput();
-    // The Function check sub-screen (rigcheck.js) needs four things this
-    // screen owns: the patch's entries, the shared status line, a way back
-    // to the Entries tab, and a way to ask for a full re-render.
-    RigCheckPanel.init({
-      getEntries: () => (patchData.active && patchData.patch ? patchData.patch.entries || [] : []),
-      reloadPatch: () => refreshPatchDataOnly(),
-      setStatus: (m) => setStatus(m),
-      goToEntries: () => setView('entries'),
-    });
-    // The Reconcile screen (reconcile.js) owns its own server snapshot the
-    // same way RigCheckPanel does, so it needs only the shared status line
+    // The Reconcile screen (reconcile.js) owns its own server snapshot, so
+    // it needs only the shared status line
     // and the word this install uses for a universe — it never formats a
     // universe number itself without going through UI.formatUser.
     ReconcilePanel.init({
@@ -428,51 +308,10 @@ const PatchScreen = (() => {
     refresh();
   }
 
+  // onLeaveScreen: leaving the Patch tab changes nothing on the wire (output
+  // follows the master Arm in the strip, which is on every screen).
   function onLeaveScreen() {
     active = false;
-    RigCheckPanel.leave();
-    // Best-effort, always — whether or not the Rig Check sub-view was the
-    // one on screen, the running check must never keep lighting the rig
-    // after the tech has navigated away (task ask: "never leave the rig
-    // lit"). A no-op server-side if nothing is running — covers both the
-    // classic per-entry check AND a running function-pattern (POST
-    // .../rigcheck/stop stops either, per the pattern engine's contract).
-    Api.rigCheckStop().catch(() => {});
-  }
-
-  // stopPatternHeartbeat: the pattern engine's client-liveness poll lives
-  // in RigCheckPanel now; this thin delegate keeps the existing lifecycle
-  // call sites (visibilitychange / pagehide / onLeaveScreen / setView)
-  // saying exactly what they said before.
-  function stopPatternHeartbeat() { RigCheckPanel.stopPolling(); }
-
-  // stopPatternOutputBeforeLeavingRigCheck: the Function check panel's
-  // client-liveness heartbeat is what keeps the server's pattern watchdog
-  // fed, and this screen stops that heartbeat the moment the panel is no
-  // longer on screen (setView away from Rig Check, setRcSubView away from
-  // Function). Stopping the heartbeat WITHOUT stopping the output is a seam:
-  //
-  //   - the rig keeps sweeping for up to PatternWatchdogTimeout (5s) with
-  //     nothing on screen saying so, which is exactly the "never leave the
-  //     rig lit" hazard this screen's own safety copy promises against;
-  //   - then the watchdog blacks out and stamps lastEndReason "watchdog",
-  //     i.e. "this page went more than 5s without reaching the server" —
-  //     a false diagnosis, since the page is alive and just showing a
-  //     different sub-tab;
-  //   - and the Channel check sub-view, which renders "A Function check
-  //     pattern is running" with its own controls disabled off
-  //     RigCheckPanel.outputEnabled(), never learns about that blackout
-  //     (its snapshot only refreshes while the panel polls), so it sits
-  //     behind a stale banner with Scope/Mode/Start disabled forever.
-  //
-  // Output therefore ALWAYS ends within 5s of leaving the Rig Check view
-  // either way — this just makes it end deterministically, immediately, and
-  // honestly ("manual"), and leaves RigCheckPanel's snapshot correct so the
-  // Channel check sub-view renders the truth. Selection is untouched: this
-  // is POST .../pattern/output false, not a deselect.
-  async function stopPatternOutputBeforeLeavingRigCheck() {
-    if (!RigCheckPanel.outputEnabled()) return;
-    try { await RigCheckPanel.stopOutput(); } catch (e) { /* best-effort; onLeaveScreen's rigCheckStop is the backstop */ }
   }
 
   // --- data refresh -----------------------------------------------------
@@ -489,7 +328,6 @@ const PatchScreen = (() => {
       collisions = patchData.active ? (await Api.getPatchCollisions() || []) : [];
     } catch (e) { /* best-effort */ }
     if (view === 'reconcile') await refreshReconcile();
-    if (view === 'rigcheck') await refreshRigCheck();
     render();
   }
 
@@ -534,33 +372,7 @@ const PatchScreen = (() => {
     if (view !== 'reconcile') render();
   }
 
-  async function refreshRigCheck() {
-    try {
-      rigCheckState = await Api.getRigCheckState();
-      syncProtocolFromState();
-    } catch (e) { /* best-effort */ }
-    // The sACN configuration is what the mapping note under the protocol
-    // control is computed from. Best-effort, and a failure leaves sacnConfig
-    // null so the note says it could not be read rather than showing a
-    // plausible start universe nobody configured.
-    try {
-      sacnConfig = await Api.getSACNConfig();
-      UI.setSacnStart(sacnConfig.startUniverse);
-    } catch (e) { /* best-effort */ }
-    // The pattern engine's status is fetched regardless of which Rig Check
-    // sub-view is on screen — the Channel check sub-view needs to know
-    // pattern output is flowing too, so it can warn rather than let a click
-    // surface a raw 409 ("handle gracefully rather than showing a raw
-    // error"). RigCheckPanel owns that snapshot; this just asks it to
-    // refresh. The watchdog heartbeat poll itself is the panel's business.
-    await RigCheckPanel.refreshStatus();
-  }
-
   async function setView(v) {
-    if (v !== 'rigcheck') {
-      await stopPatternOutputBeforeLeavingRigCheck();
-      RigCheckPanel.leave();
-    }
     if (v !== 'reconcile') ReconcilePanel.leave();
     view = v;
     render();
@@ -570,7 +382,6 @@ const PatchScreen = (() => {
       // re-renders — the panel owns that whole cycle (reconcile.js rule 1).
       if (body) ReconcilePanel.enter(body);
     }
-    if (v === 'rigcheck') refreshRigCheck().then(render);
   }
 
   function setStatus(msg) {
@@ -597,7 +408,6 @@ const PatchScreen = (() => {
         <div class="b5-tabs__list" id="patchViewTabs">
           <button class="b5-tabs__tab detail-tab-btn" data-view="entries">Entries</button>
           <button class="b5-tabs__tab detail-tab-btn" data-view="reconcile">Reconcile</button>
-          <button class="b5-tabs__tab detail-tab-btn" data-view="rigcheck">Rig Check</button>
         </div>
       </div>
       <span class="b5-text-muted b5-text-sm" id="patchStatusMsg">${escapeHtml(statusMsg)}</span>
@@ -610,7 +420,6 @@ const PatchScreen = (() => {
     const body = document.getElementById('patchViewBody');
     if (view === 'entries') renderEntries(body);
     else if (view === 'reconcile') { ReconcilePanel.attach(body); ReconcilePanel.render(); }
-    else renderRigCheck(body);
   }
 
   // ============================================================
@@ -663,7 +472,7 @@ const PatchScreen = (() => {
             <button id="btnExportPatchJson" class="b5-btn">${UI.icon('export')}Export JSON</button>
             <button id="btnExportPatchTxt" class="b5-btn">${UI.icon('export')}Export TXT</button>
           </div>
-          <p class="b5-caption">Universe numbers on this screen are the ${escapeHtml(UI.universeScheme('user'))} &mdash; the same numbering as Rig Check, Rig Walk and Send. Nodes and the Analyzer show the raw Art-Net universe instead, and Devices shows both. Set the starting universe on Settings.</p>
+          <p class="b5-caption">Universe numbers on this screen are the ${escapeHtml(UI.universeScheme('user'))} &mdash; the same numbering as Rig Walk and the Console's Tools. Nodes and the Analyzer show the raw Art-Net universe instead, and Devices shows both. Set the starting universe on Settings.</p>
         </div>
       </section>
 
@@ -1019,6 +828,10 @@ const PatchScreen = (() => {
         // exactly the case that SHOULD replace whatever channel-function
         // data (if any) the entry had before, same as it replaces footprint.
         channelFunctions: mode.channelFunctions || {},
+        // ...and the fixture's wheels, which those functions point into
+        // (patch schema v6).
+        wheels: Array.isArray(mode.wheels) ? mode.wheels : [],
+        wheelsKnown: Array.isArray(mode.wheels),
       };
       try {
         patchData = await Api.updatePatchEntry(e.id, draft);
@@ -1563,418 +1376,11 @@ const PatchScreen = (() => {
   // from the per-difference "Apply to fixture" the owner settled on, and
   // having both on one screen would have made the safe one look optional.
 
-  // ============================================================
-  // Rig Check view
-  // ============================================================
-
-  // renderRigCheck: the Rig Check screen's own sub-tab switcher between the
-  // original channel-level check ("Channel check", unchanged) and the new
-  // attribute-group pattern engine ("Function check", Phase 2b — task ask:
-  // additive, not a replacement). A plain button pair rather than the
-  // b5-tabs kit component: b5-tabs is reserved for the outer
-  // Entries/Reconcile/Rig Check switcher one level up, and nesting the same
-  // component two deep reads as confusing in the kit's own styling.
-  function renderRigCheck(body) {
-    body.innerHTML = '<div id="rcSubBody"></div>';
-    RigCheckPanel.attach(document.getElementById('rcSubBody'));
-  }
-
-  async function setRcSubView(v) {
-    if (v === rcSubView) return;
-    if (v !== 'function') {
-      await stopPatternOutputBeforeLeavingRigCheck();
-      stopPatternHeartbeat();
-    }
-    rcSubView = v;
-    sessionStorage.setItem('benny512.patch.rcSubView', v);
-    render();
-    // Entering the Function check hands the panel its container and lets it
-    // (re)establish the scope; it renders itself from whatever the server
-    // answers with. Leaving it stops the panel's watchdog poll.
-    if (v === 'function') RigCheckPanel.enter(document.getElementById('rcSubBody'));
-    else RigCheckPanel.leave();
-  }
-
-  function renderClassicRigCheck(body) {
-    const p = patchData.active ? patchData.patch : null;
-    const entries = (p && p.entries) || [];
-    const st = rigCheckState || { running: false, mode: rcMode, level: rcLevel };
-    // A running Function-check pattern and the classic per-entry check are
-    // mutually exclusive server-side (POST .../rigcheck/mode|level|next
-    // 409s while a pattern runs — verified against the live server, not
-    // assumed). Rather than let a click surface that as a raw error (task
-    // ask: "handle gracefully"), the classic controls are disabled up
-    // front with an explanatory banner and a direct Stop-the-pattern
-    // button whenever one is running.
-    const patternRunning = RigCheckPanel.outputEnabled();
-
-    body.innerHTML = `
-      ${renderRigCheckProtocol(st, entries)}
-      ${patternRunning ? `
-        <div class="b5-alert b5-alert--caution" style="margin-bottom:var(--b5-space-4)">
-          ${UI.icon('status-warning')}
-          <div>
-            <p class="b5-alert__title">A Function check pattern is running</p>
-            <p class="b5-alert__body">Stop it before using the channel-level check — they can't run at the same time.</p>
-            <button id="rcStopPatternFromClassic" class="b5-btn b5-btn--sm b5-btn--danger" style="margin-top:var(--b5-space-2)">Stop pattern</button>
-          </div>
-        </div>
-      ` : ''}
-      <div class="b5-filterbar">
-        <div class="b5-filterbar__group">
-          <label class="b5-visually-hidden" for="rcScopeKind">Scope</label>
-          <select id="rcScopeKind" class="b5-select" style="width:auto" ${patternRunning ? 'disabled' : ''}>
-            <option value="all">Scope: Whole patch</option>
-            <option value="universe">Scope: One universe</option>
-            <option value="selection">Scope: Selection</option>
-          </select>
-          <div id="rcScopeValueWrap"></div>
-        </div>
-      </div>
-      <div class="b5-filterbar">
-        <div class="b5-filterbar__group">
-          <label class="b5-visually-hidden" for="rcMode">Mode</label>
-          <select id="rcMode" class="b5-select" style="width:auto" ${patternRunning ? 'disabled' : ''}>
-            <option value="highlight">Mode: Highlight (this fixture up, rest dark)</option>
-            <option value="all_channels">Mode: All channels to level</option>
-            <option value="step_channel">Mode: Step one channel</option>
-          </select>
-          <label class="b5-text-sm" style="display:flex;align-items:center;gap:8px">Level
-            <input type="range" id="rcLevel" class="b5-range-touch" min="0" max="255" value="${st.level || rcLevel}" ${patternRunning ? 'disabled' : ''}>
-            <span class="b5-text-mono" id="rcLevelVal">${st.level || rcLevel}</span>
-          </label>
-          ${st.running
-        ? '<button id="rcStop" class="b5-btn b5-btn--sm b5-btn--danger">Stop</button>'
-        : `<button id="rcStart" class="b5-btn b5-btn--sm b5-btn--primary" ${rcStarting || patternRunning ? 'disabled' : ''}>${rcStarting ? UI.spinner() + 'Starting…' : 'Start'}</button>`}
-          <button id="rcBlackout" class="b5-btn b5-btn--sm b5-btn--danger">Blackout</button>
-        </div>
-      </div>
-      <div class="b5-alert b5-alert--info" style="margin-bottom:var(--b5-space-4)">
-        ${UI.icon('status-pending')}
-        <div><p class="b5-alert__body">Safety: stopping, leaving this screen, or closing the tab always blacks out and stops output.</p></div>
-      </div>
-      <div id="rcActiveWrap">${st.running ? renderRigCheckActive(st) : `<div class="b5-empty">${UI.icon('status-pending')}<span class="b5-empty__title">Not running</span><span class="b5-empty__body">Choose a scope and mode, then Start.</span></div>`}</div>
-    `;
-
-    wireRigCheckProtocol(body);
-
-    const stopPatternBtn = document.getElementById('rcStopPatternFromClassic');
-    if (stopPatternBtn) stopPatternBtn.addEventListener('click', async () => {
-      try { await RigCheckPanel.stopOutput(); setStatus('function test output stopped'); await refreshRigCheck(); render(); } catch (e) { setStatus('error: ' + e.message); }
-    });
-
-    const scopeKindSel = document.getElementById('rcScopeKind');
-    scopeKindSel.value = rcScopeKind;
-    document.getElementById('rcMode').value = rcMode;
-    renderRigCheckScopeValue(entries);
-
-    scopeKindSel.addEventListener('change', (e) => {
-      rcScopeKind = e.target.value;
-      sessionStorage.setItem('benny512.patch.rcScopeKind', rcScopeKind);
-      renderRigCheckScopeValue(entries);
-    });
-    document.getElementById('rcMode').addEventListener('change', async (e) => {
-      rcMode = e.target.value;
-      sessionStorage.setItem('benny512.patch.rcMode', rcMode);
-      if (st.running) {
-        try { rigCheckState = await Api.rigCheckMode(rcMode); render(); } catch (err) { setStatus('error: ' + err.message); }
-      }
-    });
-    const levelInput = document.getElementById('rcLevel');
-    levelInput.addEventListener('input', (e) => {
-      rcLevel = Number(e.target.value);
-      document.getElementById('rcLevelVal').textContent = String(rcLevel);
-    });
-    levelInput.addEventListener('change', async () => {
-      if (st.running) {
-        try { rigCheckState = await Api.rigCheckLevel(rcLevel); renderRigCheckActiveInPlace(); } catch (e) { setStatus('error: ' + e.message); }
-      }
-    });
-
-    const startBtn = document.getElementById('rcStart');
-    if (startBtn) startBtn.addEventListener('click', onRigCheckStart);
-    const stopBtn = document.getElementById('rcStop');
-    if (stopBtn) stopBtn.addEventListener('click', async () => {
-      try { rigCheckState = await Api.rigCheckStop(); syncProtocolFromState(); render(); } catch (e) { setStatus('error: ' + e.message); }
-    });
-    document.getElementById('rcBlackout').addEventListener('click', async () => {
-      try { await Api.rigCheckBlackout(); setStatus('blackout'); } catch (e) { setStatus('error: ' + e.message); }
-    });
-
-    if (st.running) wireRigCheckActiveHandlers();
-  }
-
-  // renderRigCheckProtocol: which protocol is live RIGHT NOW, stated in
-  // words, plus the staged choice and its Apply. This is an instrument read
-  // in a dark venue: the state word ("LIVE ON sACN" / "STOPPED · armed for
-  // Art-Net") and a per-option word on each button carry the whole signal,
-  // so nothing here depends on hue — desaturate it and it still reads.
-  function renderRigCheckProtocol(st, entries) {
-    const running = !!st.running;
-    const liveLabel = protocolLabel((rigCheckState && rigCheckState.protocol) || rcProtocolArmed);
-    const armedLabel = protocolLabel(rcProtocolArmed);
-    const draftLabel = protocolLabel(rcProtocolDraft);
-    const dirty = rcProtocolDraft !== rcProtocolArmed;
-
-    const statePill = running
-      ? `<span class="b5-pill b5-pill--lg b5-pill--ok b5-pill--solid">${UI.icon('status-ok')}LIVE ON ${escapeHtml(liveLabel)}</span>`
-      : `<span class="b5-pill b5-pill--lg b5-pill--open">${UI.icon('status-pending')}STOPPED &middot; armed for ${escapeHtml(armedLabel)}</span>`;
-
-    const options = RC_PROTOCOLS.map(pr => {
-      const isDraft = pr.id === rcProtocolDraft;
-      const isArmed = pr.id === rcProtocolArmed;
-      // Every option carries its own WORD, so the choice survives greyscale
-      // and does not rely on which button happens to look pressed.
-      const word = UI.protocolOptionWord(running, isArmed, isDraft);
-      const tone = isArmed ? ' b5-pill--ok' : isDraft ? ' b5-pill--warn' : ' b5-pill--open';
-      return `<button type="button" class="b5-seg ${isDraft ? 'is-on' : ''}" data-rc-protocol="${pr.id}" aria-pressed="${isDraft}" ${rcProtocolApplying ? 'disabled' : ''}>${escapeHtml(pr.label)} <span class="b5-pill b5-pill--tag${tone}">${word}</span></button>`;
-    }).join('');
-
-    const applyRow = dirty
-      ? `<div class="b5-row" style="margin-top:var(--b5-space-3)">
-          <span class="b5-pill b5-pill--md b5-pill--warn">${UI.icon('status-warning')}Not applied yet &mdash; ${escapeHtml(armedLabel)} is still ${running ? 'on the wire' : 'armed'}</span>
-          <button type="button" id="rcProtocolApply" class="b5-btn b5-btn--primary" ${rcProtocolApplying ? 'disabled' : ''}>${rcProtocolApplying ? UI.spinner() : UI.icon('apply')}Apply ${escapeHtml(draftLabel)}</button>
-          <button type="button" id="rcProtocolRevert" class="b5-btn b5-btn--ghost" ${rcProtocolApplying ? 'disabled' : ''}>${UI.icon('revert')}Revert</button>
-        </div>
-        <p class="b5-caption">${running
-          ? `Applying stops the check on ${escapeHtml(armedLabel)} &mdash; receivers are told the stream has ended &mdash; and restarts it on ${escapeHtml(draftLabel)} at the first fixture in scope.`
-          : 'Nothing goes on the wire until Start. Apply decides which protocol Start uses.'}</p>`
-      : '';
-
-    const err = rcProtocolError
-      ? `<div class="b5-alert b5-alert--danger" role="alert" style="margin-top:var(--b5-space-3)">
-          ${UI.icon('status-error')}
-          <div>
-            <p class="b5-alert__title">The server refused that run</p>
-            <p class="b5-alert__body">${escapeHtml(rcProtocolError)}</p>
-          </div>
-        </div>`
-      : '';
-
-    return `
-      <section class="b5-step-section" aria-labelledby="rcProtocolHead">
-        <h2 class="b5-step-section__head" id="rcProtocolHead">Output protocol
-          <span class="b5-step-section__note" id="rcProtocolState">${statePill}</span>
-        </h2>
-        <div class="b5-segmented" role="group" aria-label="Output protocol">${options}</div>
-        ${applyRow}
-        ${err}
-        ${renderSacnMappingNote(entries)}
-      </section>`;
-  }
-
-  // renderSacnMappingNote: the worked example, and the single most useful
-  // thing on this screen when sACN is chosen. It says which sACN universes
-  // THIS show's universes will actually be sourced as, and where they go —
-  // because the case that bites is the one that cannot be expressed at all:
-  // Art-Net Port-Address 0 is legal and is this app's default show universe
-  // 1, while sACN has no universe 0. The server refuses that scope with a
-  // 422 naming the universe; this says so before the press.
-  //
-  // Every number here goes through UI.formatSacn / UI.sacnMulticastAddress.
-  // There is no arithmetic in this file: one ambiguous universe formatter
-  // applied at a call site is what shipped an off-by-one here before.
-  function renderSacnMappingNote(entries) {
-    if (rcProtocolDraft !== 'sacn' && rcProtocolArmed !== 'sacn') return '';
-    if (!sacnConfig) {
-      return `<div class="b5-inset"><p class="b5-inset__head">${UI.icon('status-warning')}sACN configuration not read</p>
-        <p class="b5-note">The sACN start universe, priority and unicast override could not be read from this server, so the universes this run would source cannot be worked out here. They are set on the Settings screen.</p></div>`;
-    }
-    const raws = Array.from(new Set((entries || []).map(e => Math.floor(Number(e.universe) || 0)))).sort((a, b) => a - b);
-    const unicast = (sacnConfig.unicastTo || '').trim();
-    const dest = u => (unicast ? `unicast to ${escapeHtml(unicast)}` : `multicast to ${UI.sacnMulticastAddress(u)}`);
-
-    const rows = raws.map(raw => {
-      const u = UI.artnetToSacn(raw);
-      return u === null
-        ? `<li>show universe ${escapeHtml(UI.formatUser(raw))} (Art-Net Port-Address ${raw}) &mdash; <strong>${escapeHtml(UI.formatSacn(raw))}</strong>. Rig Check will refuse to start on sACN while this universe is in scope.</li>`
-        : `<li>show universe ${escapeHtml(UI.formatUser(raw))} &rarr; sACN universe <strong>${escapeHtml(UI.formatSacn(raw))}</strong>, ${dest(u)}</li>`;
-    });
-    const refused = raws.filter(raw => UI.artnetToSacn(raw) === null);
-
-    return `
-      <div class="b5-inset">
-        <p class="b5-inset__head">${UI.icon('apply')}What sACN this show is sourced as</p>
-        <p class="b5-note">sACN start universe ${escapeHtml(String(sacnConfig.startUniverse))} &middot; priority ${escapeHtml(String(sacnConfig.priority))} &middot; ${unicast ? `unicast to ${escapeHtml(unicast)} (no multicast group is used)` : 'multicast (ANSI E1.31-2025 Table 9-10)'}. Change these on the Settings screen.</p>
-        ${raws.length ? `<ul class="b5-rcp-list">${rows.join('')}</ul>` : '<p class="b5-note">Nothing is patched yet, so there is no universe to map.</p>'}
-        ${refused.length ? `<p class="b5-note"><strong>${refused.length} universe${refused.length === 1 ? '' : 's'} cannot be expressed on sACN at all.</strong> sACN universes start at 1; Art-Net Port-Address 0 is legal and is this show&rsquo;s default universe 1. Nothing is clamped or shifted &mdash; the run is refused instead, so the wrong universe is never lit.</p>` : ''}
-      </div>`;
-  }
-
-  function wireRigCheckProtocol(body) {
-    body.querySelectorAll('[data-rc-protocol]').forEach(b => b.addEventListener('click', () => {
-      // STAGING ONLY. Apply-to-confirm: this press never sends anything.
-      const id = b.dataset.rcProtocol;
-      if (!isProtocol(id) || id === rcProtocolDraft) return;
-      rcProtocolDraft = id;
-      rcProtocolError = '';
-      render();
-    }));
-    const applyBtn = document.getElementById('rcProtocolApply');
-    if (applyBtn) applyBtn.addEventListener('click', applyProtocol);
-    const revertBtn = document.getElementById('rcProtocolRevert');
-    if (revertBtn) revertBtn.addEventListener('click', () => {
-      rcProtocolDraft = rcProtocolArmed;
-      rcProtocolError = '';
-      render();
-    });
-  }
-
-  // applyProtocol: the commit half of Apply-to-confirm.
-  //
-  // While a run is LIVE this is a real operation on a rig, so it is also
-  // confirmed by name: the check is stopped on the outgoing protocol (which
-  // is what terminates the sACN stream properly rather than just going
-  // quiet) and restarted on the incoming one, back at the first fixture.
-  //
-  // While nothing is running there is nothing to tell the server — the
-  // protocol travels as a field on the next Start — so Apply moves the
-  // staged choice to ARMED and says so. It is still the commit step: the
-  // press that changed the buttons did not decide anything.
-  async function applyProtocol() {
-    if (rcProtocolDraft === rcProtocolArmed) return;
-    const st = rigCheckState || {};
-    const from = protocolLabel(rcProtocolArmed);
-    const to = protocolLabel(rcProtocolDraft);
-    if (st.running && !confirm(`Switch live output from ${from} to ${to}?\n\nThe check stops on ${from} (receivers are told the stream has ended) and restarts on ${to} at the FIRST fixture in scope. Real fixtures change state now.`)) return;
-    rcProtocolApplying = true;
-    rcProtocolError = '';
-    render();
-    try {
-      if (st.running) {
-        await Api.rigCheckStop();
-        rigCheckState = await Api.rigCheckStart(rigCheckStartBody(rcProtocolDraft));
-        rcProtocolArmed = rcProtocolDraft;
-        rcProtocolTouched = true;
-        syncProtocolFromState();
-        setStatus('rig check restarted on ' + to);
-      } else {
-        rcProtocolArmed = rcProtocolDraft;
-        rcProtocolTouched = true;
-        setStatus('armed for ' + to + ' — nothing is on the wire until Start');
-      }
-    } catch (e) {
-      rcProtocolError = e.message;
-      setStatus('error: ' + e.message);
-      try { rigCheckState = await Api.getRigCheckState(); } catch (e2) { /* keep the last good snapshot */ }
-      snapProtocolToServer();
-    } finally {
-      rcProtocolApplying = false;
-      render();
-    }
-  }
-
-  // rigCheckStartBody: the one place POST /api/patch/rigcheck/start's body is
-  // built, so the protocol can never be sent by one path and omitted by
-  // another. `protocol` is always stated explicitly: absent means Art-Net
-  // server-side, which is the backwards-compatibility contract for clients
-  // that predate this control — but this screen HAS the control, so it says
-  // what it means.
-  function rigCheckStartBody(proto) {
-    const body = { scopeKind: rcScopeKind, mode: rcMode, level: rcLevel, protocol: proto };
-    if (rcScopeKind === 'universe') body.universe = rcScopeUniverse;
-    if (rcScopeKind === 'selection') body.entryIds = Object.keys(rcSelection).filter(id => rcSelection[id]);
-    return body;
-  }
-
-  function renderRigCheckScopeValue(entries) {
-    const wrap = document.getElementById('rcScopeValueWrap');
-    if (!wrap) return;
-    if (rcScopeKind === 'universe') {
-      const ua = UI.userInputAttrs();
-      wrap.innerHTML = `<label class="b5-visually-hidden" for="rcScopeUniverse">Universe</label><input type="number" id="rcScopeUniverse" class="b5-input" style="width:10em" min="${ua.min}" max="${ua.max}" value="${UI.formatUser(rcScopeUniverse)}" placeholder="Universe">`;
-      document.getElementById('rcScopeUniverse').addEventListener('input', (e) => { rcScopeUniverse = UI.parseUser(e.target.value); });
-    } else if (rcScopeKind === 'selection') {
-      wrap.innerHTML = `<div class="b5-stack" style="margin-top:var(--b5-space-2)">${entries.map(e => `
-        <label class="b5-checkbox"><input type="checkbox" data-rc-select="${escapeHtml(e.id)}" ${rcSelection[e.id] ? 'checked' : ''}>${escapeHtml(e.name || e.fixtureType || e.id)} (U${UI.formatUser(e.universe)}/${e.startAddress})</label>
-      `).join('') || '<span class="b5-text-muted b5-text-sm">no entries</span>'}</div>`;
-      wrap.querySelectorAll('[data-rc-select]').forEach(cb => cb.addEventListener('change', (e) => {
-        rcSelection[cb.dataset.rcSelect] = e.target.checked;
-      }));
-    } else {
-      wrap.innerHTML = '';
-    }
-  }
-
-  async function onRigCheckStart() {
-    rcStarting = true;
-    rcProtocolError = '';
-    render();
-    try {
-      rigCheckState = await Api.rigCheckStart(rigCheckStartBody(rcProtocolArmed));
-      rcStarting = false;
-      syncProtocolFromState();
-      render();
-    } catch (e) {
-      rcStarting = false;
-      // 422 is the case this screen exists to make legible: a scope that
-      // cannot be expressed on the chosen protocol. The server's message
-      // NAMES the universe it could not map, and that name is the only part
-      // that tells the operator what to change, so it is kept verbatim.
-      rcProtocolError = e.message;
-      setStatus('error: ' + e.message);
-      // Server truth wins: a refused start left the server armed on whatever
-      // it was armed on, and the control must show that, not the attempt.
-      try { rigCheckState = await Api.getRigCheckState(); } catch (e2) { /* keep the last good snapshot */ }
-      snapProtocolToServer();
-      render();
-    }
-  }
-
-  function renderRigCheckActive(st) {
-    const chInfo = (st.mode === 'step_channel' && st.currentChannel)
-      ? ` &middot; channel ${st.currentChannel} (offset ${st.channelOffset})`
-      : '';
-    return `
-      <div class="b5-card" style="text-align:center">
-        <div class="b5-counter">
-          <div class="b5-counter__value">${st.entryIndex + 1} of ${st.entryCount}</div>
-          <div class="b5-counter__label">${escapeHtml(st.currentEntryName || '—')}</div>
-        </div>
-        <span class="b5-text-muted b5-text-sm">mode: ${escapeHtml(st.mode)} &middot; level: ${st.level}${chInfo}</span>
-      </div>
-      <div class="b5-row" style="margin-top:var(--b5-space-4);justify-content:center">
-        <button id="rcPrev" class="b5-btn b5-btn--walk b5-btn--secondary" ${st.entryIndex <= 0 ? 'disabled' : ''}>&larr; Previous</button>
-        <button id="rcNext" class="b5-btn b5-btn--walk b5-btn--primary" ${st.entryIndex >= st.entryCount - 1 ? 'disabled' : ''}>Next &rarr;</button>
-      </div>
-      ${st.mode === 'step_channel' ? `
-      <div class="b5-row" style="margin-top:var(--b5-space-3);justify-content:center">
-        <button id="rcChPrev" class="b5-btn b5-btn--sm">&larr; Prev channel</button>
-        <button id="rcChNext" class="b5-btn b5-btn--sm">Next channel &rarr;</button>
-      </div>` : ''}
-    `;
-  }
-
-  function renderRigCheckActiveInPlace() {
-    const wrap = document.getElementById('rcActiveWrap');
-    if (!wrap || !rigCheckState || !rigCheckState.running) return;
-    wrap.innerHTML = renderRigCheckActive(rigCheckState);
-    wireRigCheckActiveHandlers();
-  }
-
-  function wireRigCheckActiveHandlers() {
-    const prev = document.getElementById('rcPrev');
-    const next = document.getElementById('rcNext');
-    if (prev) prev.addEventListener('click', async () => { try { rigCheckState = await Api.rigCheckPrevious(); renderRigCheckActiveInPlace(); } catch (e) { setStatus('error: ' + e.message); } });
-    if (next) next.addEventListener('click', async () => { try { rigCheckState = await Api.rigCheckNext(); renderRigCheckActiveInPlace(); } catch (e) { setStatus('error: ' + e.message); } });
-    const chPrev = document.getElementById('rcChPrev');
-    const chNext = document.getElementById('rcChNext');
-    if (chPrev) chPrev.addEventListener('click', async () => { try { rigCheckState = await Api.rigCheckChannel(-1); renderRigCheckActiveInPlace(); } catch (e) { setStatus('error: ' + e.message); } });
-    if (chNext) chNext.addEventListener('click', async () => { try { rigCheckState = await Api.rigCheckChannel(1); renderRigCheckActiveInPlace(); } catch (e) { setStatus('error: ' + e.message); } });
-  }
-
-
   async function focusEntry(targetView, id) {
     await refreshPatchDataOnly();
     await setView(targetView === 'reconcile' ? 'reconcile' : 'entries');
     if (targetView === 'reconcile') ReconcilePanel.focusEntry(id);
     else { const entry=(patchData.patch?.entries||[]).find(e=>e.id===id); if(entry) openEditEntry(entry); }
   }
-  async function openFunctionCheck() {
-    await refreshPatchDataOnly();
-    await RigCheckPanel.refreshStatus();
-    rcSubView='function';
-    await setView('rigcheck');
-  }
-  return { init, onEnterScreen, onLeaveScreen, focusEntry, openFunctionCheck };
+  return { init, onEnterScreen, onLeaveScreen, focusEntry };
 })();

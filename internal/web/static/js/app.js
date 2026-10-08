@@ -35,16 +35,17 @@
     if (currentTab === 'walk' && name !== 'walk') {
       WalkScreen.onLeaveScreen();
     }
-    // Patch screen's Rig Check sub-view drives live DMX output — leaving
-    // the tab must always stop it (task ask, item 4: "never leave the rig
-    // lit"), same discipline and same top-level-const-not-on-window
-    // gotcha noted above for WalkScreen: reference PatchScreen by its bare
-    // identifier, never window.PatchScreen.
+    // Same top-level-const-not-on-window gotcha noted above for
+    // WalkScreen: reference PatchScreen by its bare identifier, never
+    // window.PatchScreen.
     if (currentTab === 'patch' && name !== 'patch') {
       PatchScreen.onLeaveScreen();
     }
-    if (currentTab === 'send' && name !== 'send') {
-      SendScreen.onLeaveScreen();
+    // Console (C6a): leaving changes nothing on the wire (C3 rule) — output,
+    // the programmer and the selection carry on; only an unfinished layout
+    // drag is dropped.
+    if (currentTab === 'console' && name !== 'console') {
+      ConsoleScreen.onLeaveScreen();
     }
     tabs.forEach(t => t.classList.toggle('is-active', t.dataset.tab === name));
     screens.forEach(s => s.classList.toggle('active', s.id === 'screen-' + name));
@@ -61,8 +62,8 @@
     if (name === 'patch') {
       PatchScreen.onEnterScreen();
     }
-    if (name === 'send') {
-      SendScreen.onEnterScreen();
+    if (name === 'console') {
+      ConsoleScreen.onEnterScreen();
     }
   }
 
@@ -85,9 +86,15 @@
   function publishChromeHeight() {
     const header = document.querySelector('.b5-header');
     const context = document.querySelector('.b5-show-context');
+    const nav = document.getElementById('tabsMobile');
     const measure = () => {
       let h = 0;
       if (header) h += header.getBoundingClientRect().height;
+      // C6c: the strip sticks just below the sticky header (workspace.css),
+      // and on a phone every sticky bottom bar sits just above the fixed
+      // bottom nav (0 when the nav is hidden: wide screens, Walk mode).
+      document.documentElement.style.setProperty('--b5-header-height', h + 'px');
+      document.documentElement.style.setProperty('--b5-nav-height', (nav ? nav.getBoundingClientRect().height : 0) + 'px');
       // The strip is emptied (not removed) when there is no show context, so
       // measure it rather than assuming it is always a row tall.
       if (context) h += context.getBoundingClientRect().height;
@@ -98,15 +105,18 @@
       const ro = new ResizeObserver(measure);
       if (header) ro.observe(header);
       if (context) ro.observe(context);
+      if (nav) ro.observe(nav);
     }
     window.addEventListener('resize', measure);
   }
   publishChromeHeight();
 
   // 'fixtures' migrates to 'devices' (Phase 1c+ screen rename) for anyone
-  // with a stale localStorage value from before this change.
+  // with a stale localStorage value from before this change; 'send' to
+  // 'console' (C7: the Send screen's tools are the Console's Tools panel).
   let initial = localStorage.getItem('benny512.tab') || 'nodes';
   if (initial === 'fixtures') initial = 'devices';
+  if (initial === 'send') initial = 'console';
 
   // The Art-Net starting universe must be settled BEFORE any screen's first
   // render — a stale paint that flips a moment later reads as the numbers
@@ -120,9 +130,10 @@
     DevicesScreen.init();
     PatchScreen.init();
     AnalyzerScreen.init();
-    SendScreen.init();
     WalkScreen.init();
     SettingsScreen.init();
     Workspace.init();
+    ConsoleScreen.init();
+    Faders.init();
   });
 })();

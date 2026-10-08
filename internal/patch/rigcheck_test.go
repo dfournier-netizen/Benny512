@@ -12,8 +12,11 @@ func newRigCheckHarness(t *testing.T) (*RigCheck, *session.FakeTransport) {
 	t.Helper()
 	clock := session.NewFakeClock(time.Time{})
 	tr := session.NewFakeTransport()
-	dmx := session.NewDMXOutputEngine(session.DMXConfig{Clock: clock, Transport: tr, Rate: 40})
-	t.Cleanup(dmx.Stop)
+	// Lease -1: these tests are about Rig Check, not the master Arm's lease,
+	// and advance the fake clock far past 5 s without a browser.
+	dmx := session.NewDMXOutputEngine(session.DMXConfig{Clock: clock, Transport: tr, Rate: 40, Lease: -1})
+	dmx.Arm("test")
+	t.Cleanup(dmx.Disarm)
 	return NewRigCheck(dmx), tr
 }
 

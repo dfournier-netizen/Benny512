@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  TRIMMED EXTRACT of a real MVR export (test data, not a Benny512 file).
+  Source: GeneralSceneDescription.xml inside tests/capture_demo_show.mvr of
+  github.com/open-stage/python-mvr at commit
+  9bbcabc101dd5981894bce1812f3365bc15f4b56 (archive SHA-256
+  53b9e2baae20290362c2b40cadf65eed5d7004483c678f90aea21d67125ee3bd; the
+  full GeneralSceneDescription.xml is SHA-256
+  2d31c91cc56161c024600e3ebec99e1471e37439df7f68dbb10ee0a4e30297be).
+  Exported by Capture 2023.1.6 (comment line below is the original's).
+  Licence: python-mvr is MIT licensed, Copyright (c) 2023 vanous; the MIT
+  notice applies to this extract. Whether the MIT grant covers the Capture
+  demo show itself is not stated by the repository - open owner question.
+  Trimming: every element below is byte-identical to the source (indentation
+  kept); only whole <Fixture> elements, the AUXData block, and layers without
+  fixtures were removed, and the enclosing tags were closed. Nothing edited.
+-->
+<!--Created by Capture 2023.1.6--> 
+<GeneralSceneDescription verMajor="1" verMinor="4">
+	<Scene>
+		<Layers>
+			<Layer uuid="d688606b-e8b6-d34c-97d6-96c75513b5cb" name="Truss Lights">
+				<ChildList>
+					<Fixture uuid="2e149740-6a41-bc43-bd59-8968781b11b9" name="Alpha Spot QWO 800">
+						<Matrix>{8.53590478e-08,-1.50995803e-07,1.00000036}{1.48444723e-08,1,1.50995859e-07}{-1.00000095,1.41110048e-08,8.53590052e-08}{-6670.87305,-890.867859,5565.0166}</Matrix>
+						<GDTFSpec>Clay Paky@Alpha Spot QWO 800@r3048.gdtf</GDTFSpec>
+						<GDTFMode>Standard [Lamp Dmx] [Color Mixing=Cmy]</GDTFMode>
+						<FixtureID>11</FixtureID>
+						<UnitNumber>1</UnitNumber>
+						<Addresses>
+							<Address break="0">513</Address>
+						</Addresses>
+					</Fixture>
+					<Fixture uuid="435954ee-e2fa-0a4e-a86d-87c71143cd8f" name="Alpha Spot QWO 800">
+						<Matrix>{8.53590478e-08,-1.50995803e-07,1.00000036}{1.48444723e-08,1,1.50995859e-07}{-1.00000095,1.41110048e-08,8.53590052e-08}{-6670.87305,-890.867859,4565.0166}</Matrix>
+						<GDTFSpec>Clay Paky@Alpha Spot QWO 800@r3048.gdtf</GDTFSpec>
+						<GDTFMode>Standard [Lamp Dmx] [Color Mixing=Cmy]</GDTFMode>
+						<FixtureID>12</FixtureID>
+						<UnitNumber>2</UnitNumber>
+						<Addresses>
+							<Address break="0">545</Address>
+						</Addresses>
+					</Fixture>
+					<Fixture uuid="314d4732-3f2e-f741-9dd7-5634a8893162" name="Alpha Spot QWO 800">
+						<Matrix>{-8.53590691e-08,-1.81427033e-08,-1.00000048}{-9.0547168e-08,1.00000048,-1.81427016e-08}{1.00000143,4.52601121e-08,-8.53590336e-08}{6720.64404,-890.868164,5565.0166}</Matrix>
+						<GDTFSpec>Clay Paky@Alpha Spot QWO 800@r3048.gdtf</GDTFSpec>
+						<GDTFMode>Standard [Lamp Dmx] [Color Mixing=Cmy]</GDTFMode>
+						<FixtureID>16</FixtureID>
+						<UnitNumber>1</UnitNumber>
+						<Addresses>
+							<Address break="0">673</Address>
+						</Addresses>
+					</Fixture>
+				</ChildList>
+			</Layer>
+			<Layer uuid="55457db7-fda3-6241-9db5-b2fee6a49e45" name="Floor Lights">
+				<ChildList>
+					<Fixture uuid="82686b46-e89d-7248-b46a-77ff7d38f106" name="ALC4">
+						<Matrix>{1,0,0}{0,-0.508461356,0.861084878}{0,-0.861084878,-0.508461356}{-3373.78198,90.8989639,1053.27075}</Matrix>
+						<GDTFSpec>ADB@ALC4@r3012.gdtf</GDTFSpec>
+						<GDTFMode>Standard [CT Mode=7 Step Preset]</GDTFMode>
+						<FixtureID>21</FixtureID>
+						<UnitNumber>11</UnitNumber>
+						<Addresses>
+							<Address break="0">201</Address>
+						</Addresses>
+					</Fixture>
+					<Fixture uuid="f7fcf915-7f54-654f-aae9-0fa4d9c92a5b" name="ALC4">
+						<Matrix>{1,0,0}{0,-0.508461356,0.861084878}{0,-0.861084878,-0.508461356}{-2373.78198,90.8989639,1053.27075}</Matrix>
+						<GDTFSpec>ADB@ALC4@r3012.gdtf</GDTFSpec>
+						<GDTFMode>Standard [CT Mode=7 Step Preset]</GDTFMode>
+						<FixtureID>22</FixtureID>
+						<UnitNumber>12</UnitNumber>
+						<Addresses>
+							<Address break="0">206</Address>
+						</Addresses>
+					</Fixture>
+				</ChildList>
+			</Layer>
+			<Layer uuid="92caa87d-595f-4306-98e7-9899082ff723">
+				<ChildList>
+					<GroupObject uuid="0442f346-98c8-48b4-9b22-556d0c95c470">
+						<ChildList>
+							<Truss uuid="0634a931-03cc-0542-bf9d-f5fd3c479bf8" name="Back Arc">
+								<Matrix>{-0.381734729,0.92427206,0}{-0.92427206,-0.381734729,0}{0,0,1}{10.9638882,-8056.2666,6008.95801}</Matrix>
+								<Geometries>
+									<Symbol uuid="de714b2a-486f-50a7-a0c4-4ff92b04e1c4" symdef="12fcdd5e-4194-56a0-96de-1c3c4edf1cd3" />
+								</Geometries>
+							</Truss>
+							<Fixture uuid="bdbbe2a8-aeba-9e49-b241-6406f5c250bc" name="A.leda Wash K20">
+								<Matrix>{0.345152915,-0.938546598,0}{0.938546598,0.345152915,0}{0,0,1}{-3531.79517,1361.95911,5856.77441}</Matrix>
+								<GDTFSpec>Clay Paky@A.leda Wash K20@r3044.gdtf</GDTFSpec>
+								<GDTFMode>Standard</GDTFMode>
+								<FixtureID>1</FixtureID>
+								<UnitNumber>1</UnitNumber>
+								<Addresses>
+									<Address break="0">1</Address>
+								</Addresses>
+							</Fixture>
+							<Fixture uuid="9f0caab6-cb09-1e4d-bbd3-f646eaa742ae" name="A.leda Wash K20">
+								<Matrix>{0.270453185,-0.962733269,0}{0.962733269,0.270453185,0}{0,0,1}{-2762.11108,1865.55334,5856.77441}</Matrix>
+								<GDTFSpec>Clay Paky@A.leda Wash K20@r3044.gdtf</GDTFSpec>
+								<GDTFMode>Standard</GDTFMode>
+								<FixtureID>2</FixtureID>
+								<UnitNumber>2</UnitNumber>
+								<Addresses>
+									<Address break="0">21</Address>
+								</Addresses>
+							</Fixture>
+						</ChildList>
+					</GroupObject>
+					<GroupObject uuid="8bfc858d-1931-40ca-b192-bf0121ba9810">
+						<ChildList>
+							<Fixture uuid="9b538a8f-699d-3e4d-a6af-e799be372b2e" name="Robin MMX Spot">
+								<Matrix>{-0.707106948,-0.707107186,4.16646664e-08}{0.683013201,-0.683012903,0.258819103}{-0.183012769,0.183012798,0.965925872}{6611.44922,-3391.25732,7812.87549}</Matrix>
+								<GDTFSpec>Robe@Robin MMX Spot@r3046.gdtf</GDTFSpec>
+								<GDTFMode>1</GDTFMode>
+								<FixtureID>47</FixtureID>
+								<UnitNumber>19</UnitNumber>
+								<Addresses>
+									<Address break="0">2561</Address>
+								</Addresses>
+							</Fixture>
+							<Fixture uuid="3d6ed866-8e44-344b-96bc-63a39e0ec6c7" name="Robin MMX WashBeam">
+								<Matrix>{-0.707106948,-0.707107186,4.16646664e-08}{0.683013201,-0.683012903,0.258819103}{-0.183012769,0.183012798,0.965925872}{6377.80078,-2818.1936,7660.03125}</Matrix>
+								<GDTFSpec>Robe@Robin MMX WashBeam@r3039.gdtf</GDTFSpec>
+								<GDTFMode>1</GDTFMode>
+								<FixtureID>71</FixtureID>
+								<UnitNumber>43</UnitNumber>
+								<Addresses>
+									<Address break="0">2789</Address>
+								</Addresses>
+							</Fixture>
+						</ChildList>
+					</GroupObject>
+				</ChildList>
+			</Layer>
+		</Layers>
+	</Scene>
+</GeneralSceneDescription>

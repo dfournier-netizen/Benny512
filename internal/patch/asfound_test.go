@@ -120,8 +120,8 @@ func TestMigrate_V3FileLoadsWithAsFoundUnread(t *testing.T) {
 	if p.SchemaVersion != CurrentSchemaVersion {
 		t.Errorf("SchemaVersion = %d after migrate, want %d", p.SchemaVersion, CurrentSchemaVersion)
 	}
-	if CurrentSchemaVersion != 5 {
-		t.Errorf("CurrentSchemaVersion = %d, want 5 — the commit model's bump (4) plus the as-found not-fitted state (5)", CurrentSchemaVersion)
+	if CurrentSchemaVersion < 5 {
+		t.Errorf("CurrentSchemaVersion = %d, want at least 5 — the commit model's bump (4) plus the as-found not-fitted state (5)", CurrentSchemaVersion)
 	}
 	e := p.Entries[0]
 
