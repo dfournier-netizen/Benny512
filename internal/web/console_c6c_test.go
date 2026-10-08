@@ -12,7 +12,7 @@ import (
 
 // TestConsoleTestsPanelAndLayoutSync (Console-lite C6c) runs
 // static/js/testdata/console_c6c_test.js: the real index.html in a small
-// DOM and the LITERAL api.js, ws.js, programmer.js, ui.js, rigcheck.js,
+// DOM and the LITERAL api.js, ws.js, programmer.js, ui.js,
 // console-tests.js and console.js against this real server over real HTTP
 // and WebSocket, on the real BMFL / LEDBeam / Paladin profiles. It checks
 // the exact payloads of the Tests panel (toggle, parameter, scope, fade,

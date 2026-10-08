@@ -1,0 +1,24 @@
+/* Console-lite chunk C7: the Tools panel (console-tools.js) — raw universe
+   levels and Universe Identify, the old Send screen's tools, in the Console's
+   side pane. The channel cells are the kit's Send grid (.b5-dmx-grid /
+   .b5-dmx-cell, with screens-tools.css's park button fit); this file only
+   lays the panel out. Its action bars are NOT sticky: in a side pane under
+   the Tests panel a sticky bar would ride over the Console's own sticky
+   selection bar and, on a phone, the bottom nav. */
+.b5-con-tools .b5-tools-raw,
+.b5-con-tools .b5-tools-identify,
+.b5-con-tools .b5-tools-rdm { display: flex; flex-direction: column; gap: var(--b5-space-3); min-width: 0; }
+.b5-con-tools .b5-tools-rdm[hidden] { display: none; }
+.b5-con-tools .b5-tools-rdm p { margin: 0; }
+.b5-con-tools .b5-tools-raw .b5-step-section__head,
+.b5-con-tools .b5-tools-identify .b5-step-section__head,
+.b5-con-tools .b5-tools-rdm .b5-step-section__head { margin: 0; flex-wrap: wrap; }
+.b5-con-tools .b5-toolbar { margin-bottom: 0; }
+.b5-con-tools .b5-toolbar__row { flex-wrap: wrap; align-items: center; }
+.b5-con-tools .b5-tools-pager .b5-select { min-height: var(--b5-size-touch-min); max-width: 100%; }
+.b5-con-tools .b5-tools-jump { width: 6.5em; }
+.b5-con-tools .b5-scrollbox { max-height: 28rem; overflow: auto; }
+.b5-con-tools .b5-actionbar { position: static; margin-top: 0; }
+.b5-con-tools .b5-tools-identify .b5-step-section { margin: 0; }
+.b5-con-tools .b5-tools-identify .b5-bigbtn { min-width: 0; }
+.b5-con-tools .b5-tools-tallyline { margin: 0; }

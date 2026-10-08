@@ -35,16 +35,11 @@
     if (currentTab === 'walk' && name !== 'walk') {
       WalkScreen.onLeaveScreen();
     }
-    // Patch screen's Rig Check sub-view drives live DMX output — leaving
-    // the tab must always stop it (task ask, item 4: "never leave the rig
-    // lit"), same discipline and same top-level-const-not-on-window
-    // gotcha noted above for WalkScreen: reference PatchScreen by its bare
-    // identifier, never window.PatchScreen.
+    // Same top-level-const-not-on-window gotcha noted above for
+    // WalkScreen: reference PatchScreen by its bare identifier, never
+    // window.PatchScreen.
     if (currentTab === 'patch' && name !== 'patch') {
       PatchScreen.onLeaveScreen();
-    }
-    if (currentTab === 'send' && name !== 'send') {
-      SendScreen.onLeaveScreen();
     }
     // Console (C6a): leaving changes nothing on the wire (C3 rule) — output,
     // the programmer and the selection carry on; only an unfinished layout
@@ -66,9 +61,6 @@
     }
     if (name === 'patch') {
       PatchScreen.onEnterScreen();
-    }
-    if (name === 'send') {
-      SendScreen.onEnterScreen();
     }
     if (name === 'console') {
       ConsoleScreen.onEnterScreen();
@@ -120,9 +112,11 @@
   publishChromeHeight();
 
   // 'fixtures' migrates to 'devices' (Phase 1c+ screen rename) for anyone
-  // with a stale localStorage value from before this change.
+  // with a stale localStorage value from before this change; 'send' to
+  // 'console' (C7: the Send screen's tools are the Console's Tools panel).
   let initial = localStorage.getItem('benny512.tab') || 'nodes';
   if (initial === 'fixtures') initial = 'devices';
+  if (initial === 'send') initial = 'console';
 
   // The Art-Net starting universe must be settled BEFORE any screen's first
   // render — a stale paint that flips a moment later reads as the numbers
@@ -136,7 +130,6 @@
     DevicesScreen.init();
     PatchScreen.init();
     AnalyzerScreen.init();
-    SendScreen.init();
     WalkScreen.init();
     SettingsScreen.init();
     Workspace.init();

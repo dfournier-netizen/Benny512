@@ -1,0 +1,63 @@
+/* Console-lite MIDI encoders (C8), console-midi.js. Functional, not
+   polished. Every state is a word first (FINE / not bound / default unknown
+   / Bank n of m), then a border, then a hue. 44 px targets throughout. */
+
+.b5-midi {
+  display: flex; flex-direction: column; gap: var(--b5-space-2); min-width: 0;
+  padding: var(--b5-space-2); margin-bottom: var(--b5-space-2);
+  border: var(--b5-border-width-thin) solid var(--b5-color-border-strong); border-radius: var(--b5-radius-sm);
+}
+.b5-midi-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2); min-width: 0; }
+.b5-midi-title { font-size: var(--b5-font-size-md); }
+.b5-midi-bar .b5-btn { min-height: var(--b5-size-touch-min); }
+.b5-midi-input { min-height: var(--b5-size-touch-min); max-width: 100%; min-width: 0; }
+.b5-midi-phase, .b5-midi-say, .b5-midi-why { margin: 0; overflow-wrap: anywhere; }
+.b5-midi-phase { color: var(--b5-color-text-secondary); }
+.b5-midi-phase--ok { color: var(--b5-color-text-success); }
+.b5-midi-phase--warn, .b5-midi-say--warn {
+  color: var(--b5-color-text-warning); border-left: var(--b5-border-width-thick) dashed var(--b5-color-text-warning); padding-left: var(--b5-space-2);
+}
+.b5-midi-phase--error, .b5-midi-say--error {
+  color: var(--b5-color-text-danger); border-left: var(--b5-border-width-thick) solid var(--b5-color-border-danger); padding-left: var(--b5-space-2);
+}
+.b5-midi-say:empty { display: none; }
+.b5-midi-why { color: var(--b5-color-text-secondary); grid-column: 1 / -1; }
+
+.b5-midi-learn {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2);
+  padding: var(--b5-space-2); border: var(--b5-border-width-thick) solid var(--b5-color-border-accent); border-radius: var(--b5-radius-sm);
+}
+.b5-midi-learn[hidden] { display: none; }
+.b5-midi-learn__words { margin: 0; font-weight: var(--b5-font-weight-bold); flex: 1 1 16em; min-width: 0; overflow-wrap: anywhere; }
+
+/* the strip: one cell per encoder, as many per row as fit */
+.b5-midi-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--b5-space-2); min-width: 0; }
+.b5-midi-enc {
+  display: flex; flex-direction: column; gap: var(--b5-space-1); min-width: 0; min-height: var(--b5-size-touch-min);
+  padding: var(--b5-space-2); background: var(--b5-color-bg-surface-raised);
+  border: var(--b5-border-width-thin) solid var(--b5-color-text-muted); border-radius: var(--b5-radius-sm);
+}
+.b5-midi-enc.is-empty { border-style: dashed; background: transparent; }
+.b5-midi-enc__num { font-size: var(--b5-font-size-sm); color: var(--b5-color-text-secondary); font-weight: var(--b5-font-weight-bold); }
+.b5-midi-enc__attr { font-weight: var(--b5-font-weight-bold); font-size: var(--b5-font-size-md); overflow-wrap: anywhere; }
+.b5-midi-enc.is-empty .b5-midi-enc__attr { font-weight: var(--b5-font-weight-regular); font-size: var(--b5-font-size-sm); color: var(--b5-color-text-muted); }
+.b5-midi-enc__val { font-size: var(--b5-font-size-sm); color: var(--b5-color-text-secondary); overflow-wrap: anywhere; min-height: 1.2em; }
+.b5-midi-enc__tags { display: flex; flex-wrap: wrap; gap: var(--b5-space-1); }
+.b5-midi-enc__tags:empty { display: none; }
+.b5-midi-fine { min-height: var(--b5-size-touch-min); width: 100%; }
+
+.b5-midi-bank { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2); }
+.b5-midi-bank:empty { display: none; }
+.b5-midi-bank .b5-btn { min-height: var(--b5-size-touch-min); min-width: var(--b5-size-touch-min); }
+.b5-midi-bank__words { font-weight: var(--b5-font-weight-bold); overflow-wrap: anywhere; min-width: 0; }
+
+.b5-midi-setupbody { display: flex; flex-direction: column; gap: var(--b5-space-3); padding-bottom: var(--b5-space-2); min-width: 0; }
+.b5-midi-encrow {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2); min-width: 0;
+  padding-top: var(--b5-space-2); border-top: var(--b5-border-width-thin) solid var(--b5-color-border-default);
+}
+.b5-midi-encrow .b5-btn, .b5-midi-encrow .b5-select, .b5-midi-encrow .b5-input { min-height: var(--b5-size-touch-min); }
+.b5-midi-encrow .b5-select { max-width: 100%; min-width: 0; }
+.b5-midi-encrow__edit { flex-wrap: wrap; min-width: 0; }
+.b5-midi-check { min-height: var(--b5-size-touch-min); }
+.b5-midi-check input[type="checkbox"] { width: 24px; height: 24px; }

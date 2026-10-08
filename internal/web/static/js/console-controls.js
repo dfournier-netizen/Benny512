@@ -861,8 +861,9 @@ const ConsoleControls = (() => {
     if (!els.body || typeof ProgrammerSync === 'undefined') return;
     needModels();
     const sig = signature();
-    if (force || sig !== st.sig) { st.sig = signature(); render(); return; }
-    update();
+    if (force || sig !== st.sig) { st.sig = signature(); render(); } else update();
+    // C8 hook: the MIDI encoder strip follows the open tab and the values.
+    if (typeof ConsoleMIDI !== 'undefined') ConsoleMIDI.refresh();
   }
 
   function mount(region) {
@@ -875,10 +876,15 @@ const ConsoleControls = (() => {
       h('span', { class: 'b5-board__title', text: 'Controls' }),
       h('span', { class: 'b5-board__sub', text: 'live for the selection — ARM decides whether it reaches the rig' })));
     region.appendChild(els.status);
+    // C8 hook: the MIDI encoder strip (console-midi.js) sits between the
+    // status line and the controls.
+    if (typeof ConsoleMIDI !== 'undefined') { const m = h('section', { class: 'b5-midi', 'data-midi-region': '', 'aria-label': 'MIDI encoders' }); region.appendChild(m); ConsoleMIDI.mount(m); }
     region.appendChild(els.body);
     st.sig = '';
     refresh(true);
   }
 
-  return { mount, refresh, colourWrites, _state: st };
+  // C8 hook: lane is exported so MIDI encoders (console-midi.js) write
+  // through the same throttled, latest-wins, single-flight writer.
+  return { mount, refresh, colourWrites, _state: st, lane };
 })();

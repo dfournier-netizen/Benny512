@@ -6,16 +6,13 @@ import (
 	"testing"
 )
 
-// TestPatchScreenLifecycleSeams runs the Patch screen's three sub-tabs —
-// Entries (patch.js), Reconcile (reconcile.js) and Rig Check (rigcheck.js) —
-// as the browser loads them, over a DOM stub and a recording Api, and
-// asserts the two cross-file lifecycle behaviours that nothing else in this
-// suite can see:
+// TestPatchScreenLifecycleSeams runs the Patch screen's sub-tabs — Entries
+// (patch.js) and Reconcile (reconcile.js) — as the browser loads them, over
+// a DOM stub and a recording Api, and asserts:
 //
-//  1. leaving the Rig Check view, or its Function sub-view, while pattern
-//     output is flowing stops that output there and then, rather than
-//     stopping only the client-liveness heartbeat and leaving the rig lit
-//     until the server's watchdog catches it 5s later;
+//  1. the Rig Check view is gone (retired in C7; the Console's Tests panel
+//     replaces it): no tab, no Rig Check reads, and leaving the screen sends
+//     nothing;
 //  2. a Reconcile commit reaches patch.js's own copy of the patch, so the
 //     Entries table shows the entry as confirmed without the whole Patch tab
 //     having to be left and re-entered.

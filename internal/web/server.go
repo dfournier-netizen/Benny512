@@ -189,6 +189,9 @@ type Server struct {
 	// installation's real configuration.
 	settingsStore *settingsStore
 	rdmLogger     *capture.DiskLogger
+	// midi holds the MIDI encoder mapping (C8, midi.go). Its zero value is
+	// an in-memory store; cmd/benny512 gives it a file in real mode only.
+	midi midiStore
 
 	// unreachLogged deduplicates the "stopped asking this device" NOTE line
 	// in the RDM log, keyed UID -> the breaker RetryAt already reported.
@@ -245,9 +248,11 @@ type Server struct {
 	// See handleReset's step 5 for the matching comment at the call site.
 	LibraryStore *library.Store
 
-	// RigCheck drives DMXOutputEngine for the Patch screen's channel-level
-	// rig check (internal/patch/rigcheck.go) — one instance for the life of
-	// the server, same "one active run at a time" model as walkStore.
+	// RigCheck is the Rig Check test engine (internal/patch/rigcheck.go) —
+	// one instance for the life of the server. Since C7 it is driven by the
+	// Console's Tests layer (tests.go) and by loading a saved test preset;
+	// the Patch screen's Rig Check view and its /api/patch/rigcheck/* routes
+	// are retired.
 	RigCheck *patch.RigCheck
 
 	// Programmer is the Console-lite programmer (chunk C4a, programmer.go):
@@ -533,7 +538,6 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/fixture/{uid}/param/{pid}", s.handleSetParam)
 	s.mux.HandleFunc("POST /api/identify", s.handleIdentify)
 	s.mux.HandleFunc("POST /api/dmx", s.handleDMX)
-	s.mux.HandleFunc("POST /api/dmx/start", s.handleDMXStart)
 	s.mux.HandleFunc("POST /api/dmx/stop", s.handleDMXStop)
 	s.mux.HandleFunc("GET /api/dmx/identify", s.handleUniverseIdentifyStatus)
 	s.mux.HandleFunc("POST /api/dmx/identify/arm", s.handleUniverseIdentifyArm)
@@ -544,6 +548,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/settings", s.handlePostSettings)
 	s.mux.HandleFunc("GET /api/sacn", s.handleGetSACNConfig)
 	s.mux.HandleFunc("POST /api/sacn", s.handlePostSACNConfig)
+	// C8: the MIDI encoder mapping (midi.go).
+	s.mux.HandleFunc("GET /api/midi", s.handleGetMIDI)
+	s.mux.HandleFunc("POST /api/midi", s.handlePostMIDI)
 	s.mux.HandleFunc("GET /api/capture/snapshot", s.handleCaptureSnapshot)
 	s.mux.HandleFunc("GET /api/capture/rdm/snapshot", s.handleRDMCaptureSnapshot)
 	s.mux.HandleFunc("GET /api/capture/export", s.handleCaptureExport)
@@ -663,25 +670,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/patch/layout/{action}", s.handleLayoutAction)
 	s.mux.HandleFunc("GET /api/patch/export", s.handlePatchExport)
 	s.mux.HandleFunc("GET /api/patch/reconcile/export", s.handlePatchReconcileExport)
-	s.mux.HandleFunc("GET /api/patch/rigcheck", s.handleGetRigCheckState)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/start", s.handleRigCheckStart)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/stop", s.handleRigCheckStop)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/blackout", s.handleRigCheckBlackout)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/next", s.handleRigCheckNext)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/previous", s.handleRigCheckPrevious)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/jump", s.handleRigCheckJump)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/mode", s.handleRigCheckMode)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/level", s.handleRigCheckLevel)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/channel", s.handleRigCheckChannel)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/start", s.handleRigCheckPatternStart)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/adjust", s.handleRigCheckPatternAdjust)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/tests", s.handleRigCheckPatternTests)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/select", s.handleRigCheckPatternSelect)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/scope", s.handleRigCheckPatternScope)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/isolate", s.handleRigCheckPatternIsolate)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/fade", s.handlePatternFade)
-	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/output", s.handleRigCheckPatternOutput)
-	s.mux.HandleFunc("GET /api/patch/rigcheck/pattern", s.handleRigCheckPatternStatus)
+	// /api/patch/rigcheck/* (the Patch screen's Rig Check view) was retired
+	// in C7: the Console's Tests panel drives the same engine through
+	// /api/tests below.
 
 	s.mux.HandleFunc("GET /api/tests", s.handleGetTests)
 	s.mux.HandleFunc("POST /api/tests/{action}", s.handleTestsAction)
@@ -1384,10 +1375,10 @@ func (s *Server) handleIdentify(w http.ResponseWriter, r *http.Request) {
 // wire encoding for free: encoding/json base64-encodes a []byte field on
 // both the marshal and unmarshal side, so 512 slots cost ~683 base64 chars
 // instead of a ~4KB+ JSON object of "123":45 pairs — worth having given
-// this now fires at ~30Hz while scrubbing (see send.js's throttle), even
+// this now fires at ~30Hz while scrubbing (see console-tools.js's throttle; it was send.js's), even
 // though the absolute bytes-per-second is trivial on localhost either way.
 // This is a breaking wire-format change, not a backward-compatible one:
-// /api/dmx has exactly one caller (send.js, owned in this same change) plus
+// /api/dmx has exactly one caller (send.js then; console-tools.js since C7) plus
 // this package's own tests (updated alongside), so there is no external
 // caller to preserve compatibility for.
 type dmxRequest struct {
@@ -1421,14 +1412,8 @@ func (s *Server) handleDMX(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// handleDMXStart is retired (C3): the Send screen no longer starts output
-// on its own. It answers 410 with a sentence rather than 404, so a stale page
-// or script says why its START does nothing.
-func (s *Server) handleDMXStart(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusGone, fmt.Errorf("manual Send no longer starts output on its own: output follows the master Arm in the top strip."))
-}
-
-// handleDMXStop releases every frame the raw source (Send, /api/dmx) holds:
+// handleDMXStop releases every frame the raw source (the Console's Tools raw
+// universe levels, /api/dmx) holds:
 // those universes fall back to whatever Rig Check or the programmer drives
 // there, or leave the wire with zero frames. It does not disarm.
 func (s *Server) handleDMXStop(w http.ResponseWriter, r *http.Request) {

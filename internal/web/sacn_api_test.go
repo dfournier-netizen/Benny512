@@ -5,17 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
-	"time"
 )
-
-func decodeState(t *testing.T, body []byte) rigCheckStateJSON {
-	t.Helper()
-	var st rigCheckStateJSON
-	if err := json.Unmarshal(body, &st); err != nil {
-		t.Fatalf("unmarshal rig check state: %v\n%s", err, body)
-	}
-	return st
-}
 
 func errorText(t *testing.T, body []byte) string {
 	t.Helper()
@@ -24,57 +14,6 @@ func errorText(t *testing.T, body []byte) string {
 		t.Fatalf("unmarshal error body: %v\n%s", err, body)
 	}
 	return m["error"]
-}
-
-// TestRigCheckStartWithoutAProtocolFieldStillWorks: a start with no protocol
-// key behaves as before and, once the master output is armed, reaches the
-// Art-Net wire (a universe with no protocol row is Art-Net).
-func TestRigCheckStartWithoutAProtocolFieldStillWorks(t *testing.T) {
-	h := newHarness(t)
-	t.Cleanup(h.srv.RigCheck.Stop)
-	seedOneFixture(t, h, 0)
-	h.srv.DMX.Arm("test")
-
-	rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/start", map[string]any{
-		"scopeKind": "all", "mode": "all_channels", "level": 255,
-	})
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
-	}
-	st := decodeState(t, rr.Body.Bytes())
-	if !st.Running || st.Mode != "all_channels" || st.Level != 255 {
-		t.Fatalf("a protocol-less start behaved differently: %+v", st)
-	}
-	h.tport.TakeSent()
-	h.clock.Advance(250 * time.Millisecond)
-	if n := countArtDmx(t, h.tport.TakeSent(), 0); n == 0 {
-		t.Fatal("a protocol-less start put nothing on the Art-Net wire")
-	}
-}
-
-// TestRigCheckRefusesAProtocolField: since C3 Rig Check does not choose a
-// wire protocol (each universe's routing is a Setting). A request that still
-// names one — any value — is refused with a sentence that says where the
-// choice went, never silently run on Art-Net, on both endpoints.
-func TestRigCheckRefusesAProtocolField(t *testing.T) {
-	h := newHarness(t)
-	t.Cleanup(h.srv.RigCheck.Stop)
-	seedOneFixture(t, h, 0)
-	for _, p := range []string{"sacn", "artnet"} {
-		rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/start", map[string]any{
-			"scopeKind": "all", "mode": "all_channels", "level": 255, "protocol": p,
-		})
-		if rr.Code != http.StatusBadRequest || !strings.Contains(errorText(t, rr.Body.Bytes()), "Settings") {
-			t.Fatalf("rigcheck/start protocol %q: status=%d body=%s; want 400 pointing to Settings", p, rr.Code, rr.Body.String())
-		}
-		rr = doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/pattern/output", map[string]any{"enabled": true, "protocol": p})
-		if rr.Code != http.StatusBadRequest || !strings.Contains(errorText(t, rr.Body.Bytes()), "Settings") {
-			t.Fatalf("pattern/output protocol %q: status=%d body=%s; want 400 pointing to Settings", p, rr.Code, rr.Body.String())
-		}
-	}
-	if h.srv.RigCheck.State().Running {
-		t.Fatal("a refused start left the rig check running")
-	}
 }
 
 // --- GET/POST /api/sacn ---------------------------------------------------

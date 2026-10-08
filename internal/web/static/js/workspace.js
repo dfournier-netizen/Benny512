@@ -152,7 +152,7 @@ const Workspace = (() => {
       <p class="b5-caption">Cached observations. Discover and re-read for fresh evidence.</p>
       <div class="b5-workspace-list">${data.issues.map((i,n)=>`<div class="b5-workspace-item"><strong>${esc(i.name||i.entryId)}</strong> · ${esc(i.message)} <button class="b5-btn b5-btn--sm" data-issue="${n}">${i.action==='devices'?'Inspect':i.action==='entries'?'Edit entry':'Reconcile'}</button></div>`).join('') || '<p>No issues in the current evidence.</p>'}</div></section>
       <details><summary data-selection-count>Selection & groups · ${selected.length} selected</summary>
-      <div class="b5-row"><button class="b5-btn" data-save-group>Save selection as group</button><button class="b5-btn" data-test-selection>Use selection in Function check</button></div>
+      <div class="b5-row"><button class="b5-btn" data-save-group>Save selection as group</button><button class="b5-btn" data-test-selection>Use selection in the Console</button></div>
       <div class="b5-row">${data.groups.map((g,i)=>`<span><button class="b5-btn" data-group="${i}">${esc(g.name)} · ${g.entryIds.length}</button><button class="b5-btn b5-btn--sm" data-delete-group="${i}" aria-label="Delete group ${esc(g.name)}">Delete</button></span>`).join('')}</div>
       <div class="b5-workspace-list">${data.entries.map(e=>`<div class="b5-workspace-item"><label><input type="checkbox" data-entry="${esc(e.id)}" ${selected.includes(e.id)?'checked':''}>${esc(e.name||e.id)} · U${UI.formatUser(e.universe)} / ${e.startAddress}</label><span class="b5-caption">${e.phaseCount} phase slots · ${esc(e.phaseSource)}</span></div>`).join('')}</div></details>
       <details><summary>Test presets · ${data.presets.length}</summary><button class="b5-btn" data-save-preset>Save current function tests</button><p class="b5-caption">Loads the tests and exact fixture selection. They are live at once and reach the rig only while output is Armed.</p>
@@ -178,15 +178,18 @@ const Workspace = (() => {
       if(ids.some(id=>!data.entries.some(e=>e.id===id))) {status('Group contains removed fixtures; select a new group.');return;}
       selection(ids);render();dialog.querySelector('details').open=true;
     });
+    // C7: the Console replaces the retired Function check. The selection
+    // becomes the programmer selection (one per station), which the Console's
+    // Tests panel acts on when its scope is "Selection".
     dialog.querySelector('[data-test-selection]').onclick=()=>action(async()=>{
       if(!selected.length)throw new Error('Select at least one fixture.');
-      await Api.rigCheckStop();await Api.patternSetScope({scopeKind:'selection',entryIds:selected});
-      dialog.close();window.dispatchEvent(new CustomEvent('b5-navigate',{detail:'patch'}));await PatchScreen.openFunctionCheck();
+      await ProgrammerSync.act('select',{action:'set',targets:selected.map(id=>({entryId:id,cell:''}))});
+      dialog.close();window.dispatchEvent(new CustomEvent('b5-navigate',{detail:'console'}));
     },'Selection ready');
     dialog.querySelector('[data-save-preset]').onclick=()=>named('save-preset','Test preset saved');
     dialog.querySelectorAll('[data-preset]').forEach(b=>b.onclick=()=>action(async()=>{
       const p=data.presets[Number(b.dataset.preset)];await Api.workspaceAction('load-preset',{id:p.id});selection(p.entryIds);
-      dialog.close();window.dispatchEvent(new CustomEvent('b5-navigate',{detail:'patch'}));await PatchScreen.openFunctionCheck();
+      dialog.close();window.dispatchEvent(new CustomEvent('b5-navigate',{detail:'console'}));
     },'Preset loaded'));
     dialog.querySelector('[data-snapshot]').onclick=()=>named('snapshot','Baseline recorded');
     const rehearsal=dialog.querySelector('[data-rehearse]');

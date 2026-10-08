@@ -28,9 +28,9 @@
 //     in-app dialogs only.
 //
 // The presentation tables (test names, hints, which parameters a kind takes)
-// are the old Rig Check screen's (RigCheckPanel.labels), so a test reads the
-// same on both screens; a kind with no phrase still renders under the
-// server's own name, marked "name from file".
+// are the old Rig Check screen's, moved here when that screen was retired
+// (C7), so a test reads as it always has; a kind with no phrase still renders
+// under the server's own name, marked "name from file".
 const ConsoleTests = (() => {
   const FADES = [0, 250, 500, 1000, 2000, 3000, 5000, 10000, 30000];
   const SCOPES = [['selection', 'Selection'], ['group', 'Stored group'], ['layer', 'Layer'], ['all', 'All fixtures']];
@@ -138,17 +138,159 @@ const ConsoleTests = (() => {
   }
 
   // --- presentation tables ------------------------------------------------------
-  function L() { return (typeof RigCheckPanel !== 'undefined' && RigCheckPanel.labels) || null; }
-  function groups() { const l = L(); return l ? l.GROUPS : [{ id: 'other', label: 'Other' }]; }
-  function labelOf(a) {
-    const l = L();
-    if (l) return l.testLabel(a);
-    return { text: a.label || a.id || a.kind, fromFile: true };
+  // Moved here verbatim from the retired Rig Check screen (rigcheck.js, C7),
+  // so a test reads exactly as it did there.
+  const GROUPS = [
+    { id: 'dimmer', label: 'Dimmer' },
+    { id: 'position', label: 'Position' },
+    { id: 'colour', label: 'Colour' },
+    { id: 'beam', label: 'Beam' },
+    { id: 'focus', label: 'Focus' },
+    { id: 'shaper', label: 'Shaper' },
+    { id: 'other', label: 'Other' },
+  ];
+
+  // KIND_LABEL / TARGET_LABEL / KIND_HINT are PRESENTATION ONLY — a human
+  // phrase for a wire id the server already sent us. They never decide which
+  // tests exist (that is available[]); a kind missing from these tables still
+  // renders, using the server's own label, flagged as "name from file".
+  const KIND_LABEL = {
+    dimmer_sine: 'Dimmer',
+    dimmer_toggle: 'Dimmer on/off',
+    move_extreme: 'Move to',
+    ballyhoo: 'Ballyhoo',
+    colour_wheel_step: 'Colour wheel — step slots',
+    colour_mix_sweep: 'Colour mix — sweep',
+    colour_fade: 'Colour mix — fade hues',
+    frost: 'Frost',
+    gobo_step: 'Gobo wheel — step slots',
+    gobo_rotate: 'Gobo wheel — rotate',
+    prism_in_out: 'Prism in/out',
+    prism_spin: 'Prism spin',
+    animation_spin: 'Animation wheel spin',
+    manual_value: 'Hold',
+    shaper_individual: 'Shapers — one at a time',
+    shaper_all: 'Shapers — all together',
+    shaper_rotate: 'Shaper assembly rotate',
+  };
+
+  const TARGET_LABEL = {
+    pan_max: 'pan max', pan_min: 'pan min', pan_centre: 'pan centre',
+    tilt_max: 'tilt max', tilt_min: 'tilt min', tilt_centre: 'tilt centre',
+    focus_max: 'focus far', focus_min: 'focus near',
+    zoom_max: 'zoom wide', zoom_min: 'zoom narrow',
+    focus: 'focus', zoom: 'zoom',
+  };
+
+  const KIND_HINT = {
+    dimmer_sine: 'Drives the dimmer between min and max.',
+    dimmer_toggle: 'Holds the dimmer at max (on) or min (off). No cycle — flip it by hand.',
+    move_extreme: 'Parks one axis at a fixed point. Hold it there to check travel.',
+    ballyhoo: 'Continuous pan/tilt sweep.',
+    colour_wheel_step: 'Steps the colour wheel through its named slots.',
+    colour_mix_sweep: 'Sweeps the RGB mix channels together.',
+    colour_fade: 'Fades the RGB mix through a hue cycle.',
+    frost: 'Drives this frost flag between min and max.',
+    gobo_step: 'Steps this gobo wheel through its named slots.',
+    gobo_rotate: 'Rotates this gobo wheel continuously.',
+    prism_in_out: 'Swings the prism between out and in.',
+    prism_spin: 'Spins the prism continuously.',
+    animation_spin: 'Spins the animation wheel continuously.',
+    manual_value: 'Holds this channel at a fixed value you set.',
+    shaper_individual: 'Runs each shaper blade in turn, one at a time.',
+    shaper_all: 'Moves every shaper blade together.',
+    shaper_rotate: 'Rotates the whole shaper assembly.',
+  };
+
+  // ENUMERATED_KINDS produce one test per real GDTF function on the rig
+  // (one per frost flag, one per gobo wheel), so their label is the fixture
+  // file's own name for that function and must be shown, not replaced.
+  const ENUMERATED_KINDS = { frost: true, gobo_step: true, gobo_rotate: true };
+
+  // STATIC_KINDS mirrors isStaticPatternKind (testpattern.go): these have no
+  // cycle, so they take neither a waveform nor a rate, and the server
+  // REJECTS a non-zero phase on them with a 400. The phase and waveform
+  // controls are therefore not rendered for them at all — the owner is never
+  // shown a control whose only outcome is an error.
+  const STATIC_KINDS = { move_extreme: true, manual_value: true, dimmer_toggle: true };
+
+  // PARAMS_FOR: which parameter controls a kind actually uses, from the
+  // engine's own per-kind value computation (testpattern.go's patternValue
+  // switch). Anything not listed here is not rendered rather than rendered
+  // and silently ignored.
+  const PARAMS_FOR = {
+    dimmer_sine: { rate: true, range: true },
+    dimmer_toggle: { range: true, on: true },
+    move_extreme: {},
+    ballyhoo: { rate: true, range: true },
+    colour_wheel_step: { rate: true, range: true },
+    colour_mix_sweep: { rate: true, range: true },
+    colour_fade: { rate: true, range: true },
+    frost: { rate: true, range: true },
+    gobo_step: { rate: true, range: true },
+    gobo_rotate: { rate: true, range: true, direction: true },
+    prism_in_out: { rate: true, range: true },
+    prism_spin: { rate: true, range: true, direction: true },
+    animation_spin: { rate: true, range: true, direction: true },
+    manual_value: { value: true },
+    shaper_individual: { rate: true, range: true },
+    shaper_all: { rate: true, range: true },
+    shaper_rotate: { rate: true, range: true, direction: true },
+  };
+
+  // RATE_BOUNDS: the Rate slider's range, per kind. Every rate-bearing test
+  // shares DEFAULT_RATE_BOUNDS; a kind listed here overrides it.
+  //
+  // Ballyhoo is the one override, at Dom's instruction after a real gig: the
+  // shared minimum was still too fast to watch a moving head through, and the
+  // shared maximum threw fixtures around harder than a rig check ever needs
+  // to. So its minimum is a TENTH of the shared one and its maximum is HALF,
+  // giving 0.005-2.5 Hz -- a 200-second sweep at the slow end, 0.4 seconds at
+  // the fast end. The step drops with the minimum, because a 0.05 step cannot
+  // express 0.005 and a control whose smallest increment is ten times its
+  // minimum is a control that cannot reach its own low end.
+  //
+  // Deliberately per-kind and NOT a change to the shared bounds: every other
+  // rate-bearing test keeps the range it was tuned and signed off with.
+  const DEFAULT_RATE_BOUNDS = { min: 0.05, max: 5, step: 0.05 };
+  const RATE_BOUNDS = {
+    ballyhoo: { min: 0.005, max: 2.5, step: 0.005 },
+  };
+
+  function rateBoundsFor(kind) { return RATE_BOUNDS[kind] || DEFAULT_RATE_BOUNDS; }
+
+  function paramsFor(kind) { return PARAMS_FOR[kind] || { rate: true, range: true }; }
+  function isStatic(kind) { return !!STATIC_KINDS[kind]; }
+
+  // testLabel: the human phrase for one available[] row, plus whether that
+  // phrase is the app's own or a raw name repeated out of the fixture file.
+  // available[].labelFromGdtf false means the server fell back to the GDTF
+  // attribute name — the app is echoing the file, not naming the feature,
+  // and the tile says so rather than passing it off as a considered label.
+  function testLabel(a) {
+    const kindWord = KIND_LABEL[a.kind];
+    if (ENUMERATED_KINDS[a.kind]) {
+      const base = kindWord || a.kind;
+      // GDTF's own name for the function often already contains the kind
+      // word ("Frost Light" for a frost test), and "Frost — Frost Light"
+      // reads like a bug. Only prefix when the file's name does not already
+      // say what this is.
+      const same = a.label && a.label.toLowerCase().indexOf(String(base).toLowerCase().split(' ')[0]) === 0;
+      return { text: same ? a.label : `${base} — ${a.label}`, fromFile: !a.labelFromGdtf };
+    }
+    if (a.target && TARGET_LABEL[a.target] && kindWord) {
+      return { text: `${kindWord} ${TARGET_LABEL[a.target]}`, fromFile: false };
+    }
+    if (kindWord && !a.target) return { text: kindWord, fromFile: false };
+    // No phrase of our own for this kind/target combination: show what the
+    // server called it and mark it, rather than inventing a name.
+    return { text: a.label || a.id, fromFile: true };
   }
-  function paramsFor(kind) { const l = L(); return l ? l.paramsFor(kind) : { rate: true, range: true }; }
-  function isStatic(kind) { const l = L(); return l ? l.isStatic(kind) : false; }
-  function rateBounds(kind) { const l = L(); return l ? l.rateBoundsFor(kind) : { min: 0.05, max: 5, step: 0.05 }; }
-  function hint(kind) { const l = L(); return (l && l.KIND_HINT[kind]) || ''; }
+
+  function groups() { return GROUPS; }
+  function labelOf(a) { return testLabel(a); }
+  function rateBounds(kind) { return rateBoundsFor(kind); }
+  function hint(kind) { return KIND_HINT[kind] || ''; }
   function fadeWord(ms) { return ms === 0 ? 'Snap (0 s)' : (ms / 1000) + ' s'; }
 
   // --- spec helpers ---------------------------------------------------------------
@@ -297,7 +439,7 @@ const ConsoleTests = (() => {
       'Tests act on the scope below and sit under manual values: a channel you set by hand wins over a test. They reach the rig only while output is Armed.'));
     if (view.owner === 'rigcheck') {
       els.body.appendChild(h('p', { class: 'b5-note b5-ct-warn', 'data-tests-owner': '' }, ic('status-warning'),
-        'The old Rig Check screen is driving the tests right now. Turning a test on here, or running a sequence, takes them back.'));
+        'A test preset loaded from Show tools is driving the tests right now. Turning a test on here, or running a sequence, takes them back.'));
     }
     if (view.run && view.run.active) els.body.appendChild(renderRun());
     else if (view.run && view.run.endedReason) {
@@ -755,5 +897,5 @@ const ConsoleTests = (() => {
     window.addEventListener('b5-show-changed', () => { st.editor = null; st.catalogs = {}; st.expanded = {}; if (els.root) refresh(); });
   }
   init();
-  return { mount, refresh, _state: st };
+  return { mount, refresh, paramsFor, _state: st };
 })();

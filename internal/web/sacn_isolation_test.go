@@ -2,7 +2,6 @@ package web
 
 import (
 	"bytes"
-	"encoding/json"
 	"net"
 	"net/http"
 	"testing"
@@ -154,17 +153,16 @@ func seedOneFixture(t *testing.T, h *testHarness, universe uint16) {
 	}
 }
 
-func startRigCheck(t *testing.T, h *testHarness, protocol string) rigCheckStateJSON {
+// startTests turns one test on for every patched fixture through the
+// Console's Tests API, the way the Tests panel does (C7: the old Rig Check
+// start route is retired).
+func startTests(t *testing.T, h *testHarness, kind string) {
 	t.Helper()
-	rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/start", rigCheckStartRequest{
-		ScopeKind: "all", Mode: "all_channels", Level: 255, Protocol: protocol,
+	rr := doJSON(t, h.srv.Handler(), "POST", "/api/tests/set", map[string]any{
+		"tests": []map[string]any{{"kind": kind, "max": 255}},
+		"scope": map[string]any{"kind": "all"},
 	})
 	if rr.Code != http.StatusOK {
-		t.Fatalf("rigcheck start (protocol=%q): status=%d body=%s", protocol, rr.Code, rr.Body.String())
+		t.Fatalf("tests set %s: status=%d body=%s", kind, rr.Code, rr.Body.String())
 	}
-	var st rigCheckStateJSON
-	if err := json.Unmarshal(rr.Body.Bytes(), &st); err != nil {
-		t.Fatalf("unmarshal rig check state: %v", err)
-	}
-	return st
 }

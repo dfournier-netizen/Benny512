@@ -305,7 +305,7 @@ async function server(method, p, body) {
   const apiCalls = [];
   const fakeApi = new Proxy({}, { get: (t, k) => (...a) => { apiCalls.push(String(k)); return k === 'getSettings' ? Promise.resolve({ artnetStartUniverse: 0 }) : Promise.resolve({}); } });
   const extra = { Api: fakeApi, UI: { setArtnetStart() {} } };
-  ['NodesScreen', 'DevicesScreen', 'PatchScreen', 'AnalyzerScreen', 'SendScreen', 'WalkScreen', 'SettingsScreen', 'Workspace', 'ConsoleScreen'].forEach(n => { extra[n] = stub(n); });
+  ['NodesScreen', 'DevicesScreen', 'PatchScreen', 'AnalyzerScreen', 'WalkScreen', 'SettingsScreen', 'Workspace', 'ConsoleScreen'].forEach(n => { extra[n] = stub(n); });
   const A = browser([], extra);
   vm.runInContext(fs.readFileSync(path.join(jsDir, 'app.js'), 'utf8'), A.ctx, { filename: 'app.js' });
   await sleep(50);

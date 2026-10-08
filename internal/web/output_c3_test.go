@@ -147,10 +147,11 @@ func TestC3DisarmedSendsNoDMXFromAnyFeature(t *testing.T) {
 	h.tport.TakeSent()
 
 	c3Frame(t, h, 1, map[int]byte{1: 200})
-	doJSON(t, h.srv.Handler(), "POST", "/api/dmx/start", nil) // pre-C3 Send START (410 since C3)
-	c3Post(t, h, "/api/patch/rigcheck/start", map[string]any{"scopeKind": "all", "mode": "all_channels", "level": 255})
-	c3Post(t, h, "/api/patch/rigcheck/pattern/scope", map[string]any{"scopeKind": "all"})
-	c3Post(t, h, "/api/patch/rigcheck/pattern/select", map[string]any{"test": map[string]any{"kind": "dimmer_sine"}, "enabled": true})
+	// The Console's tests (C7: the old Rig Check routes are retired).
+	if rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", jdcLikeEntryRequest("JDC 1", 0, 10)); rr.Code != 200 {
+		t.Fatalf("create entry: %d %s", rr.Code, rr.Body.String())
+	}
+	startTests(t, h, "dimmer_sine")
 	b := c3Post(t, h, "/api/dmx/identify/arm", map[string]any{"protocol": "artnet", "from": 7, "to": 7})
 	var arm struct {
 		Token string `json:"token"`
@@ -161,7 +162,7 @@ func TestC3DisarmedSendsNoDMXFromAnyFeature(t *testing.T) {
 		h.clock.Advance(25 * time.Millisecond)
 	}
 	if n := c3AllArtDmx(h.tport.TakeSent()); n != 0 {
-		t.Errorf("disarmed: %d ArtDmx datagrams reached the wire from Send, Rig Check, the Function check and Universe Identify; want 0", n)
+		t.Errorf("disarmed: %d ArtDmx datagrams reached the wire from raw levels, the tests and Universe Identify; want 0", n)
 	}
 	if st := c3Output(t, h); st.State != "disarmed" {
 		t.Errorf("output state = %q, want disarmed", st.State)
@@ -321,20 +322,27 @@ func TestC3StopAllOutputDisarms(t *testing.T) {
 	}
 }
 
-// TestC3CompositionRawOverTests: Rig Check (tests) lights a fixture on
+// TestC3CompositionRawOverTests: the Console's tests light a fixture on
 // universe 0 and 2; a raw frame on universe 0 owns that whole universe, so
-// universe 0 carries the raw frame — even after Rig Check recomputes — and
+// universe 0 carries the raw frame — even after the tests recompute — and
 // universe 2 still carries the test.
 func TestC3CompositionRawOverTests(t *testing.T) {
 	h := newHarness(t)
-	seedOneFixture(t, h, 0)
-	seedOneFixture(t, h, 2)
+	for _, u := range []uint16{0, 2} {
+		if rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", jdcLikeEntryRequest("JDC", u, 1)); rr.Code != 200 {
+			t.Fatalf("create entry: %d %s", rr.Code, rr.Body.String())
+		}
+	}
 	c3Arm(t, h, "laptop")
-	c3Post(t, h, "/api/patch/rigcheck/start", map[string]any{"scopeKind": "all", "mode": "all_channels", "level": 255})
+	c3Post(t, h, "/api/tests/fade", map[string]any{"fadeMs": 0})
+	hold := func(level int) {
+		c3Post(t, h, "/api/tests/set", map[string]any{"tests": []map[string]any{{"kind": "dimmer_toggle", "max": level, "on": true}}, "scope": map[string]any{"kind": "all"}})
+	}
+	hold(255)
 	c3Frame(t, h, 0, map[int]byte{2: 10, 100: 7})
-	// Rig Check recomputes after the raw frame arrived (a level change) — in
+	// The tests recompute after the raw frame arrived (a level change) — in
 	// a single shared buffer the later writer would wipe the raw frame.
-	c3Post(t, h, "/api/patch/rigcheck/level", map[string]any{"level": 128})
+	hold(128)
 	h.tport.TakeSent()
 	h.clock.Advance(100 * time.Millisecond)
 	sent := h.tport.TakeSent()
@@ -347,8 +355,8 @@ func TestC3CompositionRawOverTests(t *testing.T) {
 	if last0[0] != 0 || last0[1] != 10 || last0[99] != 7 {
 		t.Errorf("universe 0 slots 1,2,100 = %d,%d,%d; want the raw frame 0,10,7 (raw outranks tests)", last0[0], last0[1], last0[99])
 	}
-	if last2[0] != 128 || last2[3] != 128 || last2[4] != 0 {
-		t.Errorf("universe 2 slots 1,4,5 = %d,%d,%d; want the Rig Check level 128,128,0 untouched by the raw frame on universe 0", last2[0], last2[3], last2[4])
+	if last2[0] != 128 {
+		t.Errorf("universe 2 slot 1 (dimmer) = %d; want the test's 128, untouched by the raw frame on universe 0", last2[0])
 	}
 }
 

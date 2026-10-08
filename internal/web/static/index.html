@@ -16,6 +16,8 @@
 <link rel="stylesheet" href="/css/screens-console.css">
 <link rel="stylesheet" href="/css/screens-console-controls.css">
 <link rel="stylesheet" href="/css/screens-console-tests.css">
+<link rel="stylesheet" href="/css/screens-console-tools.css">
+<link rel="stylesheet" href="/css/screens-console-midi.css">
 </head>
 <body>
 <div class="b5-app">
@@ -32,7 +34,6 @@
     <button class="b5-nav__item" data-tab="patch"><svg><use href="/icons/benny512-icons.svg#b5-icon-network-node"/></svg>Patch</button>
     <button class="b5-nav__item" data-tab="analyzer"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-analyzer"/></svg>Analyzer</button>
     <button class="b5-nav__item" data-tab="console"><svg><use href="/icons/benny512-icons.svg#b5-icon-filter"/></svg>Console</button>
-    <button class="b5-nav__item" data-tab="send"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-send"/></svg>Send</button>
     <button class="b5-nav__item" data-tab="walk"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-rig-walk"/></svg>Rig Walk</button>
     <button class="b5-nav__item" data-tab="settings"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-settings"/></svg>Settings</button>
   </nav>
@@ -43,7 +44,6 @@
     <button class="b5-nav__item" data-tab="console"><svg><use href="/icons/benny512-icons.svg#b5-icon-filter"/></svg>Console</button>
     <button class="b5-nav__item" data-tab="walk"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-rig-walk"/></svg>Walk</button>
     <button class="b5-nav__item" data-tab="analyzer"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-analyzer"/></svg>Analyzer</button>
-    <button class="b5-nav__item" data-tab="send"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-send"/></svg>Send</button>
     <button class="b5-nav__item" data-tab="settings"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-settings"/></svg>Settings</button>
   </nav>
 
@@ -233,33 +233,6 @@
       </div>
     </section>
 
-    <section id="screen-send" class="screen">
-      <div class="b5-page-header">
-        <h1 class="b5-page-header__title">Send</h1>
-        <span class="b5-page-header__meta">Manual DMX control</span>
-      </div>
-      <div class="b5-filterbar">
-        <div class="b5-filterbar__group">
-          <label class="b5-visually-hidden" for="sendUniverse">Universe (Port-Address)</label>
-          <input type="number" id="sendUniverse" class="b5-input" style="width:10em" min="0" max="32767" value="0" placeholder="Universe">
-        </div>
-        <div class="b5-row" style="margin-left:auto">
-          <button id="btnDmxStart" class="b5-btn b5-btn--primary"><svg><use href="/icons/benny512-icons.svg#b5-icon-status-ok"/></svg>Start</button>
-          <button id="btnDmxStop" class="b5-btn b5-btn--danger">Stop</button>
-          <button id="btnDmxAllOff" class="b5-btn">All off</button>
-        </div>
-      </div>
-      <div class="b5-alert b5-alert--caution" style="margin-bottom:var(--b5-space-4)">
-        <svg><use href="/icons/benny512-icons.svg#b5-icon-status-warning"/></svg>
-        <div><p class="b5-alert__title">Manual send overrides live console output</p><p class="b5-alert__body">Circuit values 0&ndash;255. Every channel transmits live while you drag, zeros included &mdash; a channel pulled down to 0 goes dark immediately, it does not hold its last value. Park a channel to freeze it and protect it from a stray drag; a parked channel still transmits at its frozen value, park does not hand it back to a console. Confirm no board is patched to this universe before sending.</p></div>
-      </div>
-      <div class="b5-panel">
-        <div class="b5-panel__body">
-          <div class="b5-dmx-grid" id="dmxGrid"></div>
-        </div>
-      </div>
-    </section>
-
     <section id="screen-console" class="screen">
       <div id="consoleRoot"></div>
     </section>
@@ -295,7 +268,7 @@
                 <option value="0">Art-Net native (0)</option>
                 <option value="1">Industry standard (1)</option>
               </select>
-              <span class="b5-field__hint">Display only &mdash; every universe number shown or typed anywhere in Benny512 (Patch, Send, Devices, Rig Check, import previews) is renumbered from this base. Nothing sent on the wire or stored in the patch ever changes: if this is set to 1 and you enter universe 1, Benny512 still addresses wire universe 0, matching Art-Net's own 0-based numbering (Obsidian EN4 and Vectorworks number from 1, hence the choice). Nodes' port configuration still shows Art-Net's own raw Net/Sub-Net/Universe addressing, unaffected by this setting &mdash; see the Phase A notes.</span>
+              <span class="b5-field__hint">Display only &mdash; every universe number shown or typed anywhere in Benny512 (Patch, the Console's Tools, Devices, import previews) is renumbered from this base. Nothing sent on the wire or stored in the patch ever changes: if this is set to 1 and you enter universe 1, Benny512 still addresses wire universe 0, matching Art-Net's own 0-based numbering (Obsidian EN4 and Vectorworks number from 1, hence the choice). Nodes' port configuration still shows Art-Net's own raw Net/Sub-Net/Universe addressing, unaffected by this setting &mdash; see the Phase A notes.</span>
             </div>
           </div>
         </div>
@@ -339,16 +312,16 @@
 <script src="/js/gdtfparse.js"></script>
 <script src="/js/mvrimport.js"></script>
 <script src="/js/patch.js"></script>
-<script src="/js/rigcheck.js"></script>
 <script src="/js/reconcile.js"></script>
 <script src="/js/analyzer.js"></script>
 <script src="/js/universeidentify.js"></script>
-<script src="/js/send.js"></script>
 <script src="/js/settings.js"></script>
 <script src="/js/walk.js"></script>
 <script src="/js/workspace.js"></script>
 <script src="/js/console-controls.js"></script>
 <script src="/js/console-tests.js"></script>
+<script src="/js/console-tools.js"></script>
+<script src="/js/console-midi.js"></script>
 <script src="/js/console.js"></script>
 <script src="/js/library.js"></script>
 <script src="/js/app.js"></script>

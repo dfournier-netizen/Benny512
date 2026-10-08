@@ -109,7 +109,7 @@ func TestSACNUniverseDisplayGoesThroughTheHelpers(t *testing.T) {
 		t.Error("ui.js re-introduced a bare formatUniverse")
 	}
 
-	for _, name := range []string{"patch.js", "settings.js", "rigcheck.js"} {
+	for _, name := range []string{"patch.js", "settings.js", "console-tests.js", "console-tools.js"} {
 		src := readJS(t, name)
 		if strings.Contains(src, "239.255.") && !strings.Contains(src, "UI.sacnMulticastAddress") {
 			t.Errorf("%s writes a 239.255 multicast address without going through UI.sacnMulticastAddress — "+

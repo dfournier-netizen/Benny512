@@ -265,6 +265,11 @@ const ConsoleScreen = (() => {
     els.tests = h('section', { class: 'b5-con-tests', 'data-tests-region': '', 'aria-label': 'Tests' });
     root.querySelector('.b5-con-pane--side').appendChild(els.tests);
     if (typeof ConsoleTests !== 'undefined') ConsoleTests.mount(els.tests, { layers: () => layers() });
+    // C7: the Tools panel (console-tools.js: raw universe levels, Universe
+    // Identify — the old Send screen's functions) sits under Tests.
+    els.tools = h('section', { class: 'b5-con-tests b5-con-tools', 'data-tools-region': '', 'aria-label': 'Tools' });
+    root.querySelector('.b5-con-pane--side').appendChild(els.tools);
+    if (typeof ConsoleTools !== 'undefined') ConsoleTools.mount(els.tools);
     els.grid.addEventListener('click', onGridClick);
     els.grid.addEventListener('pointerdown', onPointerDown);
     els.grid.addEventListener('pointermove', onPointerMove);
@@ -1078,6 +1083,7 @@ const ConsoleScreen = (() => {
     st.active = true;
     renderAll();
     load();
+    if (typeof ConsoleTools !== 'undefined') ConsoleTools.onEnter();
   }
   // Leaving changes nothing on the wire: no stop, no blackout, no deselect.
   // An unfinished drag is dropped (it was never sent).

@@ -360,64 +360,8 @@ const Api = (() => {
     // entry ids to scope the summary to (e.g. the current scope's
     // entries) — omit/empty for every entry in the patch.
     getPatchAttributes: (ids) => req('GET', '/api/patch/attributes' + (ids && ids.length ? '?ids=' + ids.map(encodeURIComponent).join(',') : '')),
-    // patternStart/patternAdjust/getPattern: the attribute-group pattern
-    // engine (a running pattern is exclusive with the classic per-entry
-    // rig check above and with a second pattern — see server 409s).
-    // patternAdjust is a whole-value replace of the tunable fields (rateHz/
-    // min/max/target/direction/value/on) — kind cannot change; the caller
-    // must stop+start to switch kind. getPattern is also this pattern's
-    // watchdog heartbeat: the engine blacks out and stops a running
-    // pattern after ~5s without a start/adjust/GET-pattern touch, so
-    // patch.js polls this well inside that window for as long as a
-    // pattern is running (see ensurePatternHeartbeat in patch.js).
-    patternStart: (body) => req('POST', '/api/patch/rigcheck/pattern/start', body),
-    patternAdjust: (body) => req('POST', '/api/patch/rigcheck/pattern/adjust', body),
-    getPattern: () => req('GET', '/api/patch/rigcheck/pattern'),
-
-    // --- stackable tests: one wrapper per engine mutator -----------------
-    // These five are the current surface; patternStart/patternAdjust above
-    // are the legacy multiplexed pair, still routed and still working.
-    // EVERY one of them (and getPattern) answers with the SAME full status
-    // snapshot — outputEnabled, selectedCount, tests[], available[],
-    // contested[], baseState, lastEndReason. Always re-render from the
-    // returned snapshot; never mutate a local copy of the selection, which
-    // is what made a newly picked test fail to appear until something else
-    // forced a refresh.
-    //
-    // Selection and output are independent: patternSetTests/patternSelect/
-    // patternSetScope/patternSetIsolate are all legal while output is
-    // flowing and none of them ever requires a stop first, and
-    // patternSetOutput(false) blacks out without deselecting anything.
-    //
-    // patternSetTests({scopeKind, universe, position, entryIds, tests, isolate})
-    // is the whole-state apply; tests: [] legitimately means "deselect all".
-    patternSetTests: (body) => req('POST', '/api/patch/rigcheck/pattern/tests', body),
-    // patternSelect({test, enabled}) toggles ONE test — a toggle-button
-    // press. `test` is {kind, target, rateHz, min, max, direction, value,
-    // on, waveform, offsetMin, offsetMax}; its id (kind, or "kind:target")
-    // is what status.tests[].id and status.available[].id report. `enabled`
-    // MUST be serialized even when false — omitting it means "select".
-    patternSelect: (test, enabled) => req('POST', '/api/patch/rigcheck/pattern/select', { test, enabled: enabled !== false }),
-    patternSetScope: (body) => req('POST', '/api/patch/rigcheck/pattern/scope', body),
-    patternSetIsolate: (isolate) => req('POST', '/api/patch/rigcheck/pattern/isolate', { isolate: !!isolate }),
-    patternSetFade: (fadeMs) => req('POST', '/api/patch/rigcheck/pattern/fade', { fadeMs }),
-    // patternSetOutput(true) resumes rendering the selected tests after a
-    // Channel check run or Blackout took over; (false) stops rendering,
-    // selection kept. Since C3 rendering otherwise follows the selection,
-    // and nothing reaches the wire unless the master output is armed. No
-    // protocol: each universe's protocol is a Setting.
-    patternSetOutput: (enabled) => req('POST', '/api/patch/rigcheck/pattern/output', { enabled: !!enabled }),
-
-    getRigCheckState: () => req('GET', '/api/patch/rigcheck'),
-    rigCheckStart: (body) => req('POST', '/api/patch/rigcheck/start', body),
-    rigCheckStop: () => req('POST', '/api/patch/rigcheck/stop'),
-    rigCheckBlackout: () => req('POST', '/api/patch/rigcheck/blackout'),
-    rigCheckNext: () => req('POST', '/api/patch/rigcheck/next'),
-    rigCheckPrevious: () => req('POST', '/api/patch/rigcheck/previous'),
-    rigCheckJump: (index) => req('POST', '/api/patch/rigcheck/jump', { index }),
-    rigCheckMode: (mode) => req('POST', '/api/patch/rigcheck/mode', { mode }),
-    rigCheckLevel: (level) => req('POST', '/api/patch/rigcheck/level', { level }),
-    rigCheckChannel: (delta) => req('POST', '/api/patch/rigcheck/channel', { delta }),
+    // The retired Rig Check screen's API wrappers were removed in C7; the
+    // Console's Tests panel uses the tests API (above).
 
     // --- Devices screen: clear discovered devices (internal/web/devicesclear.go) ---
     // Deliberately narrow (server-side doc comment): clears only the

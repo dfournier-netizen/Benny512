@@ -58,8 +58,10 @@ import (
 //     or deleted. Clear and run-stop release the layer.
 //   - Next/Back clamp at the ends. The last step's auto-advance ends the run
 //     (endedReason "finished") and releases the layer.
-//   - Using the old Rig Check screen's selection endpoints takes the layer
-//     back for it: a running sequence ends ("Rig Check screen took over").
+//   - Loading a saved test preset (Show tools, /api/patch/workspace/load-preset)
+//     drives the Rig Check engine directly and takes the layer back for it: a
+//     running sequence ends ("a loaded test preset took over"). (The retired
+//     Rig Check screen's endpoints did the same until C7.)
 
 const testsRevisionHeader = "X-Benny-Tests"
 
@@ -152,7 +154,7 @@ type testsRunJSON struct {
 	// manual step (there is no such time) and when no run is active.
 	RemainingMs *int64 `json:"remainingMs"`
 	// EndedReason is why the last run ended: "" (none yet), "stopped",
-	// "finished", "cleared", "show changed", "Rig Check screen took over".
+	// "finished", "cleared", "show changed", "a loaded test preset took over".
 	EndedReason string `json:"endedReason"`
 }
 
@@ -170,7 +172,8 @@ type testsViewJSON struct {
 	Revision uint64           `json:"revision"`
 	Output   patch.ProgOutput `json:"output"`
 	// Owner is "tests" while this API drives the tests layer, "rigcheck"
-	// while the old Rig Check screen does, "none" otherwise.
+	// while the Rig Check engine is driven directly (a loaded test preset;
+	// the retired Rig Check screen until C7), "none" otherwise.
 	Owner   string              `json:"owner"`
 	Scope   testScopeJSON       `json:"scope"`
 	Targets []testsTargetJSON   `json:"targets"`
@@ -444,8 +447,8 @@ func (s *Server) testsShowBoundary() {
 	s.broadcastTests(rev)
 }
 
-// testsLegacyTakeover: the old Rig Check screen changed the test selection
-// itself, so the Tests API no longer owns it.
+// testsLegacyTakeover: a loaded test preset (or a rehearsal) changed the
+// test selection itself, so the Tests API no longer owns it.
 func (s *Server) testsLegacyTakeover() {
 	st := s.tests
 	st.mu.Lock()
@@ -455,7 +458,7 @@ func (s *Server) testsLegacyTakeover() {
 	}
 	s.stopTestsTimerLocked()
 	if st.run != nil {
-		st.ended = "Rig Check screen took over"
+		st.ended = "a loaded test preset took over"
 	}
 	st.run, st.adHoc, st.adTests, st.owns, st.pushed = nil, false, nil, false, ""
 	st.revision++
@@ -471,17 +474,16 @@ func (s *Server) testsOwnLayer() bool {
 	return s.tests.owns
 }
 
-// isLegacyRigCheckWrite: an old Rig Check route that changes what Rig Check
-// tests or whether it outputs (the fade time alone does neither).
+// isLegacyRigCheckWrite: a route that drives the Rig Check engine directly,
+// changing what it tests or whether it outputs: loading a saved test preset,
+// or building a rehearsal. (The retired /api/patch/rigcheck/* routes were the
+// rest of this list until C7.)
 func isLegacyRigCheckWrite(r *http.Request) bool {
 	if r.Method == http.MethodGet {
 		return false
 	}
 	p := r.URL.Path
-	if p == "/api/patch/rigcheck/pattern/fade" {
-		return false
-	}
-	return strings.HasPrefix(p, "/api/patch/rigcheck/") || p == "/api/patch/workspace/load-preset" || p == "/api/patch/workspace/rehearse"
+	return p == "/api/patch/workspace/load-preset" || p == "/api/patch/workspace/rehearse"
 }
 
 // --- the run --------------------------------------------------------------------

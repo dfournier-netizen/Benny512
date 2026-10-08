@@ -1,6 +1,6 @@
 // console_c6c_test.js — Console-lite C6c run as the browser runs it: the
 // real index.html parsed into a small DOM (minidom.js) and the LITERAL
-// api.js, ws.js, programmer.js, ui.js, rigcheck.js, console-tests.js and
+// api.js, ws.js, programmer.js, ui.js, console-tests.js and
 // console.js against a real Benny512 server (started by
 // internal/web/console_c6c_test.go): real fetch, real WebSocket. Every
 // request the page makes is recorded on its way to the server.
@@ -75,7 +75,7 @@ async function server(method, p, body) {
   return t ? JSON.parse(t) : null;
 }
 
-const FILES = ['api.js', 'ws.js', 'programmer.js', 'ui.js', 'rigcheck.js', 'console-tests.js', 'console.js'];
+const FILES = ['api.js', 'ws.js', 'programmer.js', 'ui.js', 'console-tests.js', 'console.js'];
 
 (async () => {
   const A = browser(FILES);
@@ -190,7 +190,7 @@ const FILES = ['api.js', 'ws.js', 'programmer.js', 'ui.js', 'rigcheck.js', 'cons
   change(q('[data-step-fade="1"]'), 500);
   click(q('[data-seq-save]'));
   await until('sequence-save', () => posts(T + 'sequence-save').length === 1);
-  const spec = a => ({ kind: a.kind, rateHz: 0, min: 0, max: 255, target: a.target || '', direction: A.get('RigCheckPanel.labels').paramsFor(a.kind).direction ? 'cw' : '', value: 128, on: true, waveform: 'sine', offsetMin: 0, offsetMax: 0 });
+  const spec = a => ({ kind: a.kind, rateHz: 0, min: 0, max: 255, target: a.target || '', direction: A.get('ConsoleTests').paramsFor(a.kind).direction ? 'cw' : '', value: 128, on: true, waveform: 'sine', offsetMin: 0, offsetMax: 0 });
   const wantSeq = { name: 'Check', steps: [
     { name: 'Dimmers', tests: [remote], scope: { kind: 'selection', group: '', layer: '' }, fadeMs: null, advance: { mode: 'auto', seconds: 2 } },
     { name: 'Position', tests: [spec(avAll)], scope: { kind: 'all', group: '', layer: '' }, fadeMs: 500, advance: { mode: 'manual', seconds: 0 } },
@@ -211,7 +211,7 @@ const FILES = ['api.js', 'ws.js', 'programmer.js', 'ui.js', 'rigcheck.js', 'cons
   await until('the renamed sequence', () => /Rig check/.test(q('[data-seq="' + seq.id + '"]').textContent));
 
   // --- run controls -------------------------------------------------------------
-  const B = browser(['api.js', 'ws.js', 'programmer.js', 'ui.js', 'rigcheck.js', 'console-tests.js']);
+  const B = browser(['api.js', 'ws.js', 'programmer.js', 'ui.js', 'console-tests.js']);
   await until('browser B to connect', () => B.get('ProgrammerSync.state()'));
   const bRoot = B.document.getElementById('consoleRoot');
   B.get('ConsoleTests').mount(bRoot, { layers: () => [] });

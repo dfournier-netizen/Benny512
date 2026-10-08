@@ -35,15 +35,8 @@ func TestC3SettingsOutputUI(t *testing.T) { runNodeTest(t, "settings_output_test
 // output START/STOP, confirm() on output, protocol pickers, or stop-on-leave
 // beacons (owner decisions, 2026-10-06/07). Read from the literal sources.
 func TestC3ScreensNoLongerGateOutputThemselves(t *testing.T) {
-	rc := readJS(t, "rigcheck.js")
-	for _, banned := range []string{`id="rcpStart"`, `id="rcpStop"`, "confirm(`Let output flow", "UI.RC_PROTOCOLS"} {
-		if strings.Contains(rc, banned) {
-			t.Errorf("rigcheck.js still contains %q — Rig Check's own START/STOP, its confirm and its protocol picker go away; output follows the master Arm", banned)
-		}
-	}
-	if !strings.Contains(rc, "Output follows the master Arm") {
-		t.Errorf("rigcheck.js does not tell the user that output follows the master Arm")
-	}
+	// rigcheck.js and send.js were retired in C7; their functions are the
+	// Console's Tests and Tools panels, checked here and in console_c7_test.go.
 	pj := readJS(t, "patch.js")
 	if strings.Contains(pj, "UI.RC_PROTOCOLS") || strings.Contains(pj, "rigCheckStopBeacon") {
 		t.Errorf("patch.js still carries the Rig Check protocol picker or the stop-on-hide beacon")
@@ -51,11 +44,11 @@ func TestC3ScreensNoLongerGateOutputThemselves(t *testing.T) {
 	if regexp.MustCompile(`function onLeaveScreen\(\) \{[^}]*rigCheckStop\(`).MatchString(pj) {
 		t.Errorf("patch.js still stops Rig Check output when the tab is left; leaving a screen no longer stops output")
 	}
-	sj := readJS(t, "send.js")
-	if strings.Contains(sj, `id="btnDmxStart"`) || strings.Contains(sj, "Api.dmxStart(") {
-		t.Errorf("send.js still carries its own output START; Send follows the master Arm")
+	tj := readJS(t, "console-tools.js")
+	if strings.Contains(tj, "btnDmxStart") || strings.Contains(tj, "Api.dmxStart(") {
+		t.Errorf("console-tools.js carries its own output START; raw levels follow the master Arm")
 	}
-	if !strings.Contains(sj, "Output follows the master Arm") {
-		t.Errorf("send.js does not tell the user that output follows the master Arm")
+	if !strings.Contains(tj, "Output follows the master Arm") {
+		t.Errorf("console-tools.js does not tell the user that output follows the master Arm")
 	}
 }

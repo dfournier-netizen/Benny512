@@ -145,7 +145,8 @@ const (
 	// whole-universe override and has outranked everything the programmer
 	// does since C3 (and Identify stays above all).
 	SourceHighlight
-	// SourceRaw is the Send screen and POST /api/dmx: a full 512-slot frame,
+	// SourceRaw is the Console's Tools raw universe levels (the Send screen
+	// until C7) and POST /api/dmx: a full 512-slot frame,
 	// zeros included, so it claims the whole universe it sends.
 	SourceRaw
 	numSources

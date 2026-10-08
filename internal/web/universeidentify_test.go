@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"os/exec"
 	"strings"
 	"testing"
@@ -294,7 +295,7 @@ func TestUniverseIdentifyOwnershipAndStaleRequests(t *testing.T) {
 	seedOneFixture(t, h, 400)
 	h.srv.DMX.Arm("test")
 	lease := armIdentify(t, h, "artnet", 4, 5)
-	for _, path := range []string{"/api/dmx", "/api/patch/rigcheck/start", "/api/patch/rigcheck/pattern/output"} {
+	for _, path := range []string{"/api/dmx", "/api/tests/set", "/api/tests/clear"} {
 		if rr := doJSON(t, h.srv.Handler(), "POST", path, map[string]any{}); rr.Code == 409 {
 			t.Fatalf("Identify still refuses %s with 409: %s", path, rr.Body.String())
 		}
@@ -310,14 +311,16 @@ func TestUniverseIdentifyOwnershipAndStaleRequests(t *testing.T) {
 	checkIdentifyArtNet(t, inRange(h.tport.TakeSent(), 10, 10), 10, 10, false)
 }
 
-// TestUniverseIdentifyCoexistsWithOtherOutput: arming Identify while Rig
-// Check or Send output runs is no longer refused (C3).
+// TestUniverseIdentifyCoexistsWithOtherOutput: arming Identify while the
+// tests layer or the raw universe levels run is no longer refused (C3).
 func TestUniverseIdentifyCoexistsWithOtherOutput(t *testing.T) {
 	h := newHarness(t)
 	t.Cleanup(h.srv.Close)
 	h.srv.DMX.Arm("test")
-	seedOneFixture(t, h, 0)
-	startRigCheck(t, h, "")
+	if rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", jdcLikeEntryRequest("JDC 1", 0, 1)); rr.Code != http.StatusOK {
+		t.Fatalf("create entry: %d %s", rr.Code, rr.Body.String())
+	}
+	startTests(t, h, "dimmer_sine")
 	if err := h.srv.DMX.SetFrame(session.SourceRaw, 10, []byte{1}); err != nil {
 		t.Fatal(err)
 	}

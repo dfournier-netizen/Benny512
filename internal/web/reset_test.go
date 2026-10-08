@@ -163,33 +163,27 @@ func TestReset_ToleratesUnconfiguredStorePaths(t *testing.T) {
 	}
 }
 
-func TestReset_StopsRigCheck(t *testing.T) {
+// TestReset_StopsTests: a reset ends the Console's tests (C7: the Tests API
+// drives the Rig Check engine; the old /api/patch/rigcheck/start is retired)
+// and blacks out the universe they were driving.
+func TestReset_StopsTests(t *testing.T) {
 	h := newHarness(t)
 	pa := mustPort(t)
-	doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", entryRequest{Name: "A", Universe: pa.RawValue(), StartAddress: 1, Footprint: 4})
-
-	rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/rigcheck/start", rigCheckStartRequest{ScopeKind: "all", Mode: "highlight", Level: 200})
-	if rr.Code != http.StatusOK {
-		t.Fatalf("rigcheck start: status=%d body=%s", rr.Code, rr.Body.String())
-	}
-	var st rigCheckStateJSON
-	mustUnmarshal(t, rr, &st)
-	if !st.Running {
-		t.Fatal("rig check should be running before reset")
+	doJSON(t, h.srv.Handler(), "POST", "/api/patch/entries", jdcLikeEntryRequest("A", pa.RawValue(), 1))
+	startTests(t, h, "dimmer_sine")
+	if st := h.srv.RigCheck.PatternStatus(); !st.OutputEnabled || len(st.Tests) != 1 {
+		t.Fatalf("tests should be rendering before reset: outputEnabled=%v tests=%d", st.OutputEnabled, len(st.Tests))
 	}
 
-	rr = doJSON(t, h.srv.Handler(), "POST", "/api/reset", map[string]string{"confirm": "RESET"})
+	rr := doJSON(t, h.srv.Handler(), "POST", "/api/reset", map[string]string{"confirm": "RESET"})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("reset: status=%d body=%s", rr.Code, rr.Body.String())
 	}
-
-	rr = doJSON(t, h.srv.Handler(), "GET", "/api/patch/rigcheck", nil)
-	mustUnmarshal(t, rr, &st)
-	if st.Running {
-		t.Error("rig check should be stopped by reset")
+	if st := h.srv.RigCheck.PatternStatus(); st.OutputEnabled {
+		t.Error("the tests should be stopped by reset")
 	}
 
-	// The universe it was driving must be blacked out, not just marked
+	// The universe they were driving must be blacked out, not just marked
 	// stopped (task ask: "never leave the rig lit").
 	frame, ok := h.srv.DMX.Frame(pa)
 	if ok {

@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
-	"strings"
 	"testing"
 	"time"
 
@@ -461,7 +460,7 @@ func TestIdentifyUnknownFixture404(t *testing.T) {
 	}
 }
 
-func TestDMXStartStopAndSend(t *testing.T) {
+func TestDMXSendAndRelease(t *testing.T) {
 	h := newHarness(t)
 	rr := doJSON(t, h.srv.Handler(), "POST", "/api/dmx", dmxRequest{Universe: 0, Channels: dmxFrame(map[int]byte{1: 255, 2: 128})})
 	if rr.Code != http.StatusOK {
@@ -475,11 +474,9 @@ func TestDMXStartStopAndSend(t *testing.T) {
 		t.Errorf("frame[0:2] = %v, %v", frame[0], frame[1])
 	}
 
-	// C3: Send no longer starts output on its own (410 with a sentence);
-	// /api/dmx/stop releases Send's frames.
-	if rr := doJSON(t, h.srv.Handler(), "POST", "/api/dmx/start", nil); rr.Code != http.StatusGone || !strings.Contains(rr.Body.String(), "master Arm") {
-		t.Fatalf("dmx start status=%d body=%s, want 410 naming the master Arm", rr.Code, rr.Body.String())
-	}
+	// C3: raw levels follow the master Arm and have no START of their own
+	// (the 410 stub /api/dmx/start was removed in C7, see
+	// TestC7RetiredEndpointsAreGone); /api/dmx/stop releases the raw frames.
 	if rr := doJSON(t, h.srv.Handler(), "POST", "/api/dmx/stop", nil); rr.Code != http.StatusOK {
 		t.Fatalf("dmx stop status=%d", rr.Code)
 	}
@@ -523,7 +520,7 @@ func TestDMXRejectsShortFrame(t *testing.T) {
 
 // dmxFrame builds a full 512-byte DMX frame (all other slots 0) with the
 // given 1-based channel overrides, mirroring the always-send-everything
-// shape send.js now builds on every commit.
+// shape console-tools.js (send.js until C7) builds on every commit.
 func dmxFrame(overrides map[int]byte) []byte {
 	frame := make([]byte, session.DMXUniverseSize)
 	for ch, v := range overrides {

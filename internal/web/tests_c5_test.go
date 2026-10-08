@@ -198,25 +198,24 @@ func TestTestsCellScope(t *testing.T) {
 	wantSlots(t, "cell 3 untouched", u1, 117, 0, 0, 0, 0, 0, 0, 0, 0)
 }
 
-// TestTestsUnscopedFixtureShowsBaseDefault: Rig Check (here through its own
-// unchanged endpoints) claims only the channels of the fixtures it tests.
-// B2 shares universe 0 with the tested B1 but is not in scope, so it shows
-// its profile defaults (base source) instead of Rig Check's zeros.
+// TestTestsUnscopedFixtureShowsBaseDefault: the tests claim only the
+// channels of the fixtures they test. B2 shares universe 0 with the tested
+// B1 but is not in scope, so it shows its profile defaults (base source)
+// instead of the tests' zeros — and the other way round. (C7: the first half
+// ran through the retired /api/patch/rigcheck/pattern/tests.)
 func TestTestsUnscopedFixtureShowsBaseDefault(t *testing.T) {
 	r := newC4aRig(t)
 	r.arm(t)
-	r.post(t, "/api/patch/rigcheck/pattern/fade", map[string]any{"fadeMs": 0}, nil)
-	r.post(t, "/api/patch/rigcheck/pattern/tests", map[string]any{
-		"scopeKind": "selection", "entryIds": []string{r.ids["B1"]},
-		"tests": []any{map[string]any{"kind": "dimmer_toggle", "on": true}},
-	}, nil)
+	r.testsPost(t, "fade", map[string]any{"fadeMs": 0})
+	r.selectNames(t, "B1")
+	r.testsPost(t, "set", map[string]any{"tests": []any{map[string]any{"kind": "dimmer_toggle", "on": true}}})
 	u0 := r.wire(t, 0)
 	wantSlots(t, "tested B1 dimmer full", u0, 40, 255, 255)
 	wantSlots(t, "untested B2 Pan at its default", u0, 42, 128, 0)
 	wantSlots(t, "untested B2 Tilt at its default", u0, 44, 128, 0)
 	wantSlots(t, "untested B2 Shutter1 at its default", u0, 80, 32)
 
-	// The same through the Tests API.
+	// And with the selection moved to B2.
 	r.selectNames(t, "B2")
 	r.testsPost(t, "set", map[string]any{"tests": []any{map[string]any{"kind": "dimmer_toggle", "on": true}}})
 	u0 = r.wire(t, 0)

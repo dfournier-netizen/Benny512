@@ -190,6 +190,10 @@ func main() {
 		if err := srv.SetSettingsStorePath(settingsStorePath()); err != nil {
 			logf("warn", "settings: %v", err)
 		}
+		// C8: the MIDI encoder mapping, real mode only for the same reason.
+		if err := srv.SetMIDIStorePath(midiStorePath()); err != nil {
+			logf("warn", "MIDI mapping: %v", err)
+		}
 	}
 
 	// A saved Settings.LogRDMPath is OPENED here, not merely remembered.
@@ -550,6 +554,16 @@ func settingsStorePath() string {
 		return filepath.Join(filepath.Dir(exe), "benny512-settings.json")
 	}
 	return "benny512-settings.json"
+}
+
+// midiStorePath resolves the persisted MIDI encoder mapping (C8,
+// internal/web/midi.go) beside the running exe, like settingsStorePath: it
+// belongs to this station and its controller, not to any one show.
+func midiStorePath() string {
+	if exe, err := os.Executable(); err == nil {
+		return filepath.Join(filepath.Dir(exe), "benny512-midi.json")
+	}
+	return "benny512-midi.json"
 }
 
 func shouldLog(configured, level string) bool {

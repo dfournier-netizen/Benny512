@@ -503,13 +503,18 @@ func TestProgrammerMixedFlag(t *testing.T) {
 // TestProgrammerLayersOverRigCheckAndClearsBack: a running Rig Check test
 // shows on every channel the programmer has not touched; a touched channel
 // wins; clearing the group hands it back to the test, and on a universe no
-// test drives, back to the profile default.
+// test drives, back to the profile default. (C7: the test runs through the
+// Console's Tests API on a stored group holding B1, where it ran through the
+// retired /api/patch/rigcheck/pattern/start with an explicit B1 scope.)
 func TestProgrammerLayersOverRigCheckAndClearsBack(t *testing.T) {
 	r := newC4aRig(t)
 	r.arm(t)
-	r.post(t, "/api/patch/rigcheck/pattern/fade", map[string]any{"fadeMs": 0}, nil)
-	r.post(t, "/api/patch/rigcheck/pattern/start", map[string]any{"scopeKind": "selection", "entryIds": []string{r.ids["B1"]},
-		"tests": []any{map[string]any{"kind": "dimmer_toggle", "on": true, "max": 200}}}, nil)
+	r.selectNames(t, "B1")
+	var pv struct{ StoredGroups []struct{ ID string } }
+	r.post(t, "/api/programmer/groups/store", map[string]any{"name": "B1 only"}, &pv)
+	r.testsPost(t, "fade", map[string]any{"fadeMs": 0})
+	r.testsPost(t, "set", map[string]any{"tests": []any{map[string]any{"kind": "dimmer_toggle", "on": true, "max": 200}},
+		"scope": map[string]any{"kind": "group", "group": pv.StoredGroups[0].ID}})
 	before := r.wire(t, 0)
 	testDimmer := append([]byte(nil), slots(before, 40, 41)...)
 	if testDimmer[0] == 0 {

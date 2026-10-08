@@ -14,8 +14,8 @@ func (s *Server) showGuard(next http.Handler) http.Handler {
 		path := r.URL.Path
 		bound := strings.HasPrefix(path, "/api/patch") || path == "/api/reset" || path == "/api/library/reprofile" || path == "/api/library/from-patch" || path == "/api/workspace" || strings.HasPrefix(path, "/api/programmer") || strings.HasPrefix(path, "/api/tests")
 		stop := strings.HasSuffix(path, "/stop") || strings.HasSuffix(path, "/blackout")
-		// The old Rig Check screen taking the tests layer back ends the
-		// Tests API's hold on it (C5, tests.go).
+		// A loaded test preset (or a rehearsal) taking the tests layer back
+		// ends the Tests API's hold on it (C5, tests.go).
 		legacy := isLegacyRigCheckWrite(r)
 		if legacy {
 			s.testsLegacyTakeover()
