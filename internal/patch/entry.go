@@ -944,6 +944,29 @@ func (st *Store) Get() (Patch, bool) {
 	return clonePatch(*st.patch), true
 }
 
+// Token returns an opaque value identifying the active patch's current
+// version, compared with ==. Every mutation path installs a NEW *Patch
+// (Mutate, Replace, load, create, reset, recover, clear) and never edits the
+// installed one in place, so the pointer changes on every change; holding
+// the returned value keeps the old *Patch reachable, so its address cannot
+// be reused by a later one. The Console-lite programmer uses it to rebuild
+// its parameter models only when the show actually changed.
+func (st *Store) Token() any {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return st.patch
+}
+
+// GetWithToken is Get and Token read under one lock.
+func (st *Store) GetWithToken() (Patch, bool, any) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.patch == nil {
+		return Patch{}, false, st.patch
+	}
+	return clonePatch(*st.patch), true, st.patch
+}
+
 // EnsureActive returns the active patch, creating an empty one (stamped
 // with CreatedAt/ModifiedAt now) if none exists yet — the lazy-init path for
 // "add my first entry" without a separate explicit "create a patch" step.

@@ -158,6 +158,11 @@ check('LEDBeam red: two mode-mastered functions', safe(() => lcf[7].functions.ma
   [['ColorAdd_R', 'Head_Color1', true, 0, 0], ['NoFeature', 'Head_Color1', true, 1, 255]]);
 check('LEDBeam red: overlapping mode-mastered functions both span the channel', safe(() => lcf[7].functions.map(f => [f.dmxFrom, f.dmxTo])), [[0, 255], [0, 255]]);
 check('LEDBeam red: Highlight from DMXChannel Highlight="255/1"', safe(() => [lcf[7].functions[0].hasHighlight, lcf[7].functions[0].highlight]), [true, 255]);
+// C4b: the first-function fields carry the GDTF 1.0 channel-level Highlight
+// too (like C1b's Default), in raw "X/Y" units.
+check('LEDBeam red: top-level highlight from DMXChannel Highlight="255/1"',
+  safe(() => [lcf[7].hasHighlight, lcf[7].highlight, lcf[7].highlightByteCount]), [true, 255, 1]);
+check('LEDBeam Pan: DMXChannel Highlight="None" stays unknown', safe(() => lcf[1].hasHighlight), false);
 // <DMXChannel ... Default="255/1" Geometry="Head" Highlight="255/1" Offset="13"> (Shutter1)
 check('LEDBeam Shutter1 top-level default from GDTF 1.0 DMXChannel Default="255/1"',
   safe(() => [lcf[13].hasDefault, lcf[13].default, lcf[13].defaultByteCount]), [true, 255, 1]);

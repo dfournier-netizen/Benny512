@@ -269,8 +269,17 @@ func TestUniverseIdentifySACNRawNumbersCadenceAndTermination(t *testing.T) {
 			}
 		}
 		h.clock.Advance(time.Second)
-		if h.tport.SentCount() != 0 || len(drainE131(t, ln, time.Millisecond)) != 0 {
-			t.Fatal("sACN selection emitted Art-Net or disarm left sACN transmitting")
+		// Since C4a the armed engine's base source keeps the seeded
+		// fixture's universe (999) on Art-Net at its defaults; that is the
+		// only Art-Net allowed here. Identify on sACN must add none.
+		base, _ := artnet.PortAddressFromRaw(999)
+		for _, sp := range h.tport.TakeSent() {
+			if sp.Packet.Kind != artnet.KindDmx || sp.Packet.Dmx.Net != base.Net || sp.Packet.Dmx.SubUni != base.SubUni() {
+				t.Fatal("sACN selection emitted Art-Net beyond the patched universe's base state")
+			}
+		}
+		if len(drainE131(t, ln, time.Millisecond)) != 0 {
+			t.Fatal("disarm left sACN transmitting")
 		}
 	}
 }

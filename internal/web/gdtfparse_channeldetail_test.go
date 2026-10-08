@@ -221,7 +221,8 @@ var c1ChannelFunctionKeys = []string{"byteCount", "byteIndex", "functionsKnown",
 // hasDefault/default/defaultByteCount now carry it. The expected channel
 // default is read independently, with encoding/xml, from the vendor XML —
 // not from the parser under test. The Paladin Cube (DataVersion 1.2, its
-// defaults on ChannelFunctions) must not move at all.
+// defaults on ChannelFunctions) must not move at all. C4b sanctions the same
+// change for Highlight (<DMXChannel Highlight>), checked the same way.
 func TestGdtfChannelDetail_LegacyFieldsUnchanged(t *testing.T) {
 	type goldenMode struct {
 		Name             string                    `json:"name"`
@@ -242,7 +243,7 @@ func TestGdtfChannelDetail_LegacyFieldsUnchanged(t *testing.T) {
 			golden[k] = v
 		}
 	}
-	defaultKeys := []string{"hasDefault", "default", "defaultByteCount"}
+	defaultKeys := []string{"hasDefault", "default", "defaultByteCount", "hasHighlight", "highlight", "highlightByteCount"}
 	for file, modes := range golden {
 		var body struct {
 			Mode             string                    `json:"mode"`
@@ -254,6 +255,7 @@ func TestGdtfChannelDetail_LegacyFieldsUnchanged(t *testing.T) {
 		}
 		want := modes[0]
 		chDefaults := channelLevelDefaults(t, "static/js/testdata/"+file, want.Name)
+		chHighlights := channelLevelValues(t, "static/js/testdata/"+file, want.Name, "Highlight")
 		if body.Mode != want.Name || body.Footprint != want.Footprint {
 			t.Errorf("%s: mode/footprint %q/%d, golden %q/%d", file, body.Mode, body.Footprint, want.Name, want.Footprint)
 		}
@@ -274,6 +276,15 @@ func TestGdtfChannelDetail_LegacyFieldsUnchanged(t *testing.T) {
 			gotDefault := []any{gcf["hasDefault"], gcf["default"], gcf["defaultByteCount"]}
 			if !reflect.DeepEqual(gotDefault, wantDefault) {
 				t.Errorf("%s offset %s: hasDefault/default/defaultByteCount = %v, want %v", file, off, gotDefault, wantDefault)
+			}
+			wantHi := []any{wcf["hasHighlight"], wcf["highlight"], wcf["highlightByteCount"]}
+			if wcf["hasHighlight"] != true {
+				if d, ok := chHighlights[off]; ok {
+					wantHi = []any{true, float64(d[0]), float64(d[1])}
+				}
+			}
+			if gotHi := []any{gcf["hasHighlight"], gcf["highlight"], gcf["highlightByteCount"]}; !reflect.DeepEqual(gotHi, wantHi) {
+				t.Errorf("%s offset %s: hasHighlight/highlight/highlightByteCount = %v, want %v", file, off, gotHi, wantHi)
 			}
 			for _, k := range defaultKeys {
 				delete(gcf, k)
@@ -300,6 +311,13 @@ func TestGdtfChannelDetail_LegacyFieldsUnchanged(t *testing.T) {
 // Offset — no GeometryReference). "None"/absent are left out.
 func channelLevelDefaults(t *testing.T, path, mode string) map[string][2]int {
 	t.Helper()
+	return channelLevelValues(t, path, mode, "Default")
+}
+
+// channelLevelValues reads one "X/Y" attribute (Default or Highlight) of
+// every <DMXChannel> of one mode, the same way.
+func channelLevelValues(t *testing.T, path, mode, attr string) map[string][2]int {
+	t.Helper()
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -308,8 +326,9 @@ func channelLevelDefaults(t *testing.T, path, mode string) map[string][2]int {
 		Modes []struct {
 			Name     string `xml:"Name,attr"`
 			Channels []struct {
-				Offset  string `xml:"Offset,attr"`
-				Default string `xml:"Default,attr"`
+				Offset    string `xml:"Offset,attr"`
+				Default   string `xml:"Default,attr"`
+				Highlight string `xml:"Highlight,attr"`
 			} `xml:"DMXChannels>DMXChannel"`
 		} `xml:"FixtureType>DMXModes>DMXMode"`
 	}
@@ -322,7 +341,11 @@ func channelLevelDefaults(t *testing.T, path, mode string) map[string][2]int {
 			continue
 		}
 		for _, ch := range m.Channels {
-			parts := strings.Split(ch.Default, "/")
+			raw := ch.Default
+			if attr == "Highlight" {
+				raw = ch.Highlight
+			}
+			parts := strings.Split(raw, "/")
 			if len(parts) != 2 {
 				continue
 			}

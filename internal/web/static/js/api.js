@@ -17,8 +17,8 @@ const Api = (() => {
     return btoa(binary);
   }
 
-  async function req(method, path, body) {
-    const opts = { method, headers: {} };
+  async function req(method, path, body, headers) {
+    const opts = { method, headers: Object.assign({}, headers || {}) };
 	if (showToken && method !== 'GET') opts.headers['X-Benny-Show'] = showToken;
     if (body !== undefined) {
       opts.headers['Content-Type'] = 'application/json';
@@ -141,6 +141,15 @@ const Api = (() => {
         fetch('/api/output/goodbye', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client }) });
       } catch (e) { /* the 5 s lease is the backstop */ }
     },
+    // The Console-lite programmer (C4a, internal/web/programmer.go): one per
+    // station, shared by every browser. programmerAction sends the revision
+    // this browser last saw (X-Benny-Programmer) when it has one, so a write
+    // based on a view another browser has since changed is refused (409).
+    // programmer.js (ProgrammerSync) keeps that revision current.
+    getProgrammer: () => req('GET', '/api/programmer'),
+    getProgrammerFixtures: () => req('GET', '/api/programmer/fixtures'),
+    programmerAction: (action, body, revision) => req('POST', '/api/programmer/' + action, body,
+      (revision === null || revision === undefined) ? undefined : { 'X-Benny-Programmer': String(revision) }),
     getWorkspace: () => req('GET', '/api/workspace'),
     workspaceAction: (action, body) => req('POST', '/api/patch/workspace/' + action, body),
     resetActiveShow: () => req('POST', '/api/patch/reset-active', {confirm:'RESET SHOW'}),

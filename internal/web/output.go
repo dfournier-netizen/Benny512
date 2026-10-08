@@ -311,6 +311,10 @@ func (s *Server) handleOutputArm(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	// The base source must describe the show being armed (C4a): a show
+	// installed without a guarded request (the demo patch, a rehearsal)
+	// has not been synced yet.
+	s.syncProgrammer(false)
 	s.DMX.Arm(client)
 	writeJSON(w, http.StatusOK, s.outputStatus())
 }

@@ -1098,6 +1098,20 @@ const GdtfParse = (() => {
           defaultByteCount = chDef.byteCount;
         }
       }
+      // GDTF 1.0 channel-level Highlight (C4b), the same rule for the same
+      // reason: 1.0 states Highlight on <DMXChannel> (Table 58), a
+      // ChannelFunction Highlight wins when present, "None"/absent stays
+      // unknown. The full-detail functions already fall back this way.
+      let { hasHighlight, highlightValue, highlightByteCount } = resolved;
+      if (!hasHighlight) {
+        const chEl = channelElements.get(p.ch);
+        const chHi = parseDmxValueParts(chEl ? chEl.getAttribute('Highlight') : null);
+        if (chHi.present) {
+          hasHighlight = true;
+          highlightValue = chHi.value;
+          highlightByteCount = chHi.byteCount;
+        }
+      }
       channelFunctions[p.offset] = {
         geometryInstance: p.geometryInstance || '',
         source: 'gdtf',
@@ -1131,9 +1145,9 @@ const GdtfParse = (() => {
         hasDefault,
         default: defaultValue,
         defaultByteCount,
-        hasHighlight: resolved.hasHighlight,
-        highlight: resolved.highlightValue,
-        highlightByteCount: resolved.highlightByteCount,
+        hasHighlight,
+        highlight: highlightValue,
+        highlightByteCount,
         channelSets: resolved.channelSets,
         // Full channel detail — see channelDetail(). Same wire-contract
         // rule as above: these keys are patch.ChannelFunction's

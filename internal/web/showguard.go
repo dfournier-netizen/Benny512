@@ -12,7 +12,7 @@ import (
 func (s *Server) showGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		bound := strings.HasPrefix(path, "/api/patch") || path == "/api/reset" || path == "/api/library/reprofile" || path == "/api/library/from-patch" || path == "/api/workspace"
+		bound := strings.HasPrefix(path, "/api/patch") || path == "/api/reset" || path == "/api/library/reprofile" || path == "/api/library/from-patch" || path == "/api/workspace" || strings.HasPrefix(path, "/api/programmer")
 		stop := strings.HasSuffix(path, "/stop") || strings.HasSuffix(path, "/blackout")
 		if !bound || stop {
 			next.ServeHTTP(w, r)
@@ -20,12 +20,13 @@ func (s *Server) showGuard(next http.Handler) http.Handler {
 		}
 		s.showMu.Lock()
 		defer s.showMu.Unlock()
+		boundary := false
 		if r.Method != "GET" {
 			if token := r.Header.Get("X-Benny-Show"); token != "" && token != strconv.FormatUint(s.showRevision, 10) {
 				writeError(w, http.StatusConflict, fmt.Errorf("the active show changed; refresh before applying changes"))
 				return
 			}
-			boundary := path == "/api/patches" || strings.HasSuffix(path, "/load") || path == "/api/patch/new" || path == "/api/patch/reset-active" || path == "/api/patch/recover" || path == "/api/reset"
+			boundary = path == "/api/patches" || strings.HasSuffix(path, "/load") || path == "/api/patch/new" || path == "/api/patch/reset-active" || path == "/api/patch/recover" || path == "/api/reset"
 			structure := strings.HasPrefix(path, "/api/patch/entries") || strings.HasPrefix(path, "/api/patch/reconcile/") || path == "/api/patch/reorder" || path == "/api/patch/import" || path == "/api/patch/adopt" || path == "/api/library/reprofile"
 			if boundary || structure {
 				s.RigCheck.ResetSelection()
@@ -40,6 +41,12 @@ func (s *Server) showGuard(next http.Handler) http.Handler {
 		}
 		w.Header().Set("X-Benny-Show", strconv.FormatUint(s.showRevision, 10))
 		next.ServeHTTP(w, r)
+		// The programmer follows the show (C4a): cleared on a boundary,
+		// pruned after any other change. A no-op when the show did not
+		// change (programmer.go, syncProgrammer).
+		if r.Method != "GET" {
+			s.syncProgrammer(boundary)
+		}
 	})
 }
 

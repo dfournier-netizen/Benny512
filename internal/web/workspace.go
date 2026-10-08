@@ -20,6 +20,44 @@ type savedGroup struct {
 	ID       string   `json:"id"`
 	Name     string   `json:"name"`
 	EntryIDs []string `json:"entryIds"`
+	// Members (C4b) is the group in order, fixtures AND cells ({entryId,
+	// cell}, cell "" = the whole fixture). EntryIDs stays, for readers that
+	// predate Members, as the distinct fixtures in member order. A group
+	// stored before C4b has no members key and loads as its EntryIDs, whole
+	// fixtures (normalizeGroup). Saved Rig Check test presets embed this
+	// struct and never carry members, hence omitempty on this one field.
+	Members []patch.ProgTarget `json:"members,omitempty"`
+}
+
+// normalizeGroup fills Members from EntryIDs for a pre-C4b group, then
+// rewrites EntryIDs as the distinct fixtures of Members, in order.
+func normalizeGroup(g *savedGroup) {
+	if g.Members == nil {
+		g.Members = make([]patch.ProgTarget, 0, len(g.EntryIDs))
+		for _, id := range g.EntryIDs {
+			g.Members = append(g.Members, patch.ProgTarget{EntryID: id})
+		}
+	}
+	ids, seen := make([]string, 0, len(g.Members)), map[string]bool{}
+	for _, m := range g.Members {
+		if !seen[m.EntryID] {
+			seen[m.EntryID] = true
+			ids = append(ids, m.EntryID)
+		}
+	}
+	g.EntryIDs = ids
+}
+
+// programmerPreset is one per-family programmer preset (C4b), stored in the
+// show's workspace beside groups — so it shares their per-show isolation,
+// preceding-save .bak, Recover and Reset this show.
+type programmerPreset struct {
+	ID        string              `json:"id"`
+	Name      string              `json:"name"`
+	Family    string              `json:"family"`
+	CreatedAt time.Time           `json:"createdAt"`
+	UpdatedAt time.Time           `json:"updatedAt"`
+	Values    []patch.PresetValue `json:"values"`
 }
 type savedTestPreset struct {
 	savedGroup
@@ -54,6 +92,8 @@ type showWorkspace struct {
 	// Layout is the Console-lite grid (layout.go), stored here so it shares
 	// groups' per-show persistence, backup and recovery.
 	Layout showLayout `json:"layout"`
+	// ProgrammerPresets are the Console-lite per-family presets (C4b).
+	ProgrammerPresets []programmerPreset `json:"programmerPresets"`
 }
 
 func workspaceFor(p patch.Patch) showWorkspace {
@@ -61,6 +101,17 @@ func workspaceFor(p patch.Patch) showWorkspace {
 	_ = json.Unmarshal(p.Workspace, &w)
 	if w.Groups == nil {
 		w.Groups = []savedGroup{}
+	}
+	for i := range w.Groups {
+		normalizeGroup(&w.Groups[i])
+	}
+	if w.ProgrammerPresets == nil {
+		w.ProgrammerPresets = []programmerPreset{}
+	}
+	for i := range w.ProgrammerPresets {
+		if w.ProgrammerPresets[i].Values == nil {
+			w.ProgrammerPresets[i].Values = make([]patch.PresetValue, 0)
+		}
 	}
 	if w.Presets == nil {
 		w.Presets = []savedTestPreset{}
@@ -354,7 +405,9 @@ func (s *Server) handleWorkspaceAction(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, fmt.Errorf("100 group limit reached"))
 			return
 		}
-		data.Groups = append(data.Groups, savedGroup{ID: id, Name: name, EntryIDs: req.EntryIDs})
+		g := savedGroup{ID: id, Name: name, EntryIDs: req.EntryIDs}
+		normalizeGroup(&g)
+		data.Groups = append(data.Groups, g)
 	case "save-preset":
 		ids, specs, isolate, fadeMS := s.RigCheck.SavedPattern()
 		if len(specs) == 0 {

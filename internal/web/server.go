@@ -250,6 +250,11 @@ type Server struct {
 	// the server, same "one active run at a time" model as walkStore.
 	RigCheck *patch.RigCheck
 
+	// Programmer is the Console-lite programmer (chunk C4a, programmer.go):
+	// one per station, shared by every connected browser. It also owns the
+	// output engine's base source (every patched channel at its default).
+	Programmer *patch.Programmer
+
 	// patternScope is the semantic expression that resolved the RigCheck
 	// pattern's current entry list. The engine deliberately stores resolved
 	// entries only; this HTTP-layer companion lets a reconnecting client read
@@ -325,8 +330,11 @@ func New(nodes *session.ArtNetSession, rdmc *session.RDMController, dmx *session
 		// handler in library.go dereferences it unconditionally.
 		LibraryStore: library.NewStore(""),
 		RigCheck:     patch.NewRigCheck(dmx),
-		hub:          newHub(),
-		simSACN:      &simSACNLink{},
+		// Seeded from the clock in milliseconds (exact in a JS number) so a
+		// browser holding a revision from before a restart cannot match.
+		Programmer: patch.NewProgrammer(dmx, uint64(time.Now().UnixMilli())),
+		hub:        newHub(),
+		simSACN:    &simSACNLink{},
 	}
 	// The automatic identity read. Constructed here so s.AutoRead is never
 	// nil, and hooked to the registry immediately — but it sends nothing
@@ -351,6 +359,7 @@ func New(nodes *session.ArtNetSession, rdmc *session.RDMController, dmx *session
 	s.applyOutputSettings(s.settings)
 	s.mux = http.NewServeMux()
 	s.routes()
+	s.syncProgrammer(true)
 	return s
 }
 
@@ -407,6 +416,7 @@ func (s *Server) SetWalkStorePath(path string) {
 func (s *Server) SetPatchStorePath(path string) {
 	s.PatchStore = patch.NewStore(path)
 	s.patchStorePath = path
+	s.syncProgrammer(true)
 }
 
 // SetLibraryStorePath switches the fixture library's persistence to path (a
@@ -663,6 +673,18 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/fade", s.handlePatternFade)
 	s.mux.HandleFunc("POST /api/patch/rigcheck/pattern/output", s.handleRigCheckPatternOutput)
 	s.mux.HandleFunc("GET /api/patch/rigcheck/pattern", s.handleRigCheckPatternStatus)
+
+	s.mux.HandleFunc("GET /api/programmer", s.handleGetProgrammer)
+	s.mux.HandleFunc("GET /api/programmer/fixtures", s.handleGetProgrammerFixtures)
+	s.mux.HandleFunc("POST /api/programmer/select", s.handleProgrammerSelect)
+	s.mux.HandleFunc("POST /api/programmer/set", s.handleProgrammerSet)
+	s.mux.HandleFunc("POST /api/programmer/clear", s.handleProgrammerClear)
+	s.mux.HandleFunc("POST /api/programmer/raw", s.handleProgrammerRaw)
+	s.mux.HandleFunc("POST /api/programmer/highlight", s.handleProgrammerHighlight)
+	s.mux.HandleFunc("POST /api/programmer/locate", s.handleProgrammerLocate)
+	s.mux.HandleFunc("POST /api/programmer/fan", s.handleProgrammerFan)
+	s.mux.HandleFunc("POST /api/programmer/groups/{action}", s.handleProgrammerGroups)
+	s.mux.HandleFunc("POST /api/programmer/presets/{action}", s.handleProgrammerPresets)
 
 	s.mux.HandleFunc("GET /ws", s.handleWS)
 }
@@ -1771,6 +1793,8 @@ func (s *Server) pumpCapture(ctx context.Context) {
 //	"devices_cleared"      — Scope ("all"|"port") and Cleared (device-entry
 //	                         count) — a POST /api/devices/clear result,
 //	                         broadcast so every other open browser refreshes
+//	"programmer"           — Revision: the programmer changed (C4a); every
+//	                         browser re-reads GET /api/programmer
 type wsMessage struct {
 	Type        string                  `json:"type"`
 	Kind        string                  `json:"kind,omitempty"`
@@ -1789,7 +1813,10 @@ type wsMessage struct {
 	// "cleared":0 on every node/rdm/capture/... push.
 	Scope   string `json:"scope,omitempty"`
 	Cleared *int   `json:"cleared,omitempty"`
-	Err     string `json:"err,omitempty"`
+	// Revision is set only for Type=="programmer" (a pointer for the same
+	// reason as Cleared).
+	Revision *uint64 `json:"revision,omitempty"`
+	Err      string  `json:"err,omitempty"`
 }
 
 // introspectProgressJSON mirrors params.IntrospectProgress.

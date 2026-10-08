@@ -22,8 +22,13 @@ import (
 //   - COMPOSITION. Sources hold per-channel ownership on SHOW universes (the
 //     raw Art-Net Port-Address every stored universe already is). The
 //     transmitted frame starts all-zero and each source, in fixed priority
-//     order low→high — tests, programmer, raw — overwrites the channels it
-//     owns. A higher source wins on every channel it owns and nowhere else.
+//     order low→high — base, tests, programmer, highlight, raw — overwrites
+//     the channels it owns. A higher source wins on every channel it owns
+//     and nowhere else. Lowlight (C4b) is not a source: it scales listed
+//     channels of what base..programmer composed, just below highlight.
+//     Base (C4a) is every patched channel at its profile default, so a
+//     universe with patched fixtures is on the wire whenever the engine is
+//     armed.
 //     Universe Identify sits above all of them and works on WIRE streams,
 //     not show universes: while it runs it owns its whole stream exclusively.
 //   - ROUTING. Each show universe goes out on Art-Net, sACN, or both
@@ -117,14 +122,28 @@ type Source int
 // The layered sources, lowest priority first. Universe Identify is not one
 // of these: it owns whole wire streams exclusively (SetIdentify).
 const (
+	// SourceBase is the Console-lite base state (chunk C4a, orchestrator
+	// decision): every channel of every patched fixture at its profile
+	// default, written by patch.Programmer with ReplaceSource. A channel
+	// whose default the profile does not state is claimed at 0 and reported
+	// as unknown by the programmer, never given an invented value.
+	SourceBase Source = iota
 	// SourceTests is Rig Check: the Function check's test patterns and the
 	// classic channel walk. It claims every slot of every universe in its
 	// scope, which keeps its output identical to the pre-C3 whole-frame
-	// writes when it is the only source.
-	SourceTests Source = iota
+	// writes when it is the only source — and, because it claims whole
+	// universes, hides the base state on every universe it tests.
+	SourceTests
 	// SourceProgrammer is the Console-lite programmer (chunk C4). It claims
-	// exactly the channels it has set.
+	// exactly the channels the user has touched (ReplaceSource).
 	SourceProgrammer
+	// SourceHighlight is the programmer's Highlight overlay (C4b): the
+	// selected fixtures' highlight values while Highlight is on. Above the
+	// programmer, so it shows the selection whatever the programmed look;
+	// below raw, because Send / POST /api/dmx is the operator's explicit
+	// whole-universe override and has outranked everything the programmer
+	// does since C3 (and Identify stays above all).
+	SourceHighlight
 	// SourceRaw is the Send screen and POST /api/dmx: a full 512-slot frame,
 	// zeros included, so it claims the whole universe it sends.
 	SourceRaw
@@ -133,10 +152,14 @@ const (
 
 func (s Source) String() string {
 	switch s {
+	case SourceBase:
+		return "base"
 	case SourceTests:
 		return "tests"
 	case SourceProgrammer:
 		return "programmer"
+	case SourceHighlight:
+		return "highlight"
 	case SourceRaw:
 		return "raw"
 	}
@@ -274,9 +297,14 @@ func (u *showUniverse) empty() bool {
 	return true
 }
 
-func (u *showUniverse) compose() [DMXUniverseSize]byte {
+// compose builds the frame. scale (Lowlight) is applied to the composition
+// of every source below SourceHighlight, before highlight and raw write.
+func (u *showUniverse) compose(scale []ScaleGroup, percent int) [DMXUniverseSize]byte {
 	var out [DMXUniverseSize]byte
-	for _, l := range u.layers {
+	for s, l := range u.layers {
+		if Source(s) == SourceHighlight {
+			applyScale(&out, scale, percent)
+		}
 		if l == nil {
 			continue
 		}
@@ -332,6 +360,9 @@ type DMXOutputEngine struct {
 	errText     string
 	unmapped    map[uint16]bool
 	lastAdapter string
+
+	lowlight   map[uint16][]ScaleGroup
+	lowPercent int
 }
 
 // NewDMXOutputEngine builds a disarmed engine. Transport is required.
@@ -472,6 +503,146 @@ func (e *DMXOutputEngine) SetChannels(src Source, raw uint16, start int, values 
 		l.owned[start-1+i] = true
 	}
 	return nil
+}
+
+// ScaleGroup is one channel value Lowlight scales: its slot indices
+// (0-based), most significant byte first, so a 16-bit dimmer is scaled as
+// one 16-bit number, not as two bytes.
+type ScaleGroup struct {
+	Slots []int
+}
+
+// applyScale replaces each group's value v with floor(v x percent / 100).
+// percent is 0-100, so a value is never raised: a dark channel stays dark.
+func applyScale(out *[DMXUniverseSize]byte, groups []ScaleGroup, percent int) {
+	for _, g := range groups {
+		var v uint64
+		for _, s := range g.Slots {
+			v = v<<8 | uint64(out[s])
+		}
+		v = v * uint64(percent) / 100
+		for i := len(g.Slots) - 1; i >= 0; i-- {
+			out[g.Slots[i]] = byte(v)
+			v >>= 8
+		}
+	}
+}
+
+// SetLowlight replaces the Lowlight scale: groups per show universe and
+// one percentage (0-100). An empty map ends Lowlight. Affected universes
+// are transmitted at once.
+func (e *DMXOutputEngine) SetLowlight(groups map[uint16][]ScaleGroup, percent int) error {
+	if percent < 0 || percent > 100 {
+		return fmt.Errorf("session: lowlight percent %d is outside 0-100", percent)
+	}
+	for raw, gs := range groups {
+		if raw > 0x7FFF {
+			return fmt.Errorf("%w: %d", ErrUniverseOutOfRange, raw)
+		}
+		for _, g := range gs {
+			if len(g.Slots) == 0 || len(g.Slots) > 4 {
+				return fmt.Errorf("session: a lowlight group must cover 1-4 slots")
+			}
+			for _, sl := range g.Slots {
+				if sl < 0 || sl >= DMXUniverseSize {
+					return fmt.Errorf("%w: slot %d", ErrChannelOutOfRange, sl+1)
+				}
+			}
+		}
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	scope := map[uint16]bool{}
+	for raw := range e.lowlight {
+		scope[raw] = true
+	}
+	next := make(map[uint16][]ScaleGroup, len(groups))
+	for raw, gs := range groups {
+		if len(gs) == 0 {
+			continue
+		}
+		next[raw] = gs
+		scope[raw] = true
+	}
+	if percent == e.lowPercent && len(next) == 0 && len(e.lowlight) == 0 {
+		return nil
+	}
+	e.lowlight, e.lowPercent = next, percent
+	if len(scope) > 0 {
+		e.passLocked(passMode{shows: scope})
+	}
+	return nil
+}
+
+// LayerFrame is one source's whole contribution to one show universe: the
+// value of every slot and whether the source claims it.
+type LayerFrame struct {
+	Values [DMXUniverseSize]byte
+	Owned  [DMXUniverseSize]bool
+}
+
+// ReplaceSource atomically replaces every claim src holds with frames (show
+// universe -> frame) and transmits each universe whose composition this
+// changes at once. A universe src claimed before and frames omits is
+// released; a frame that owns no slot is the same as an omitted one. Doing
+// it in one locked step is the point: releasing and re-claiming separately
+// would let a pass in between retire a stream (three zero frames) that the
+// re-claim puts straight back.
+func (e *DMXOutputEngine) ReplaceSource(src Source, frames map[uint16]LayerFrame) error {
+	if !src.valid() {
+		return fmt.Errorf("session: unknown output source %d", int(src))
+	}
+	for raw := range frames {
+		if raw > 0x7FFF {
+			return fmt.Errorf("%w: %d", ErrUniverseOutOfRange, raw)
+		}
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	scope := map[uint16]bool{}
+	for raw, u := range e.shows {
+		if u.layers[src] == nil {
+			continue
+		}
+		if f, ok := frames[raw]; ok && ownsAny(&f) {
+			continue
+		}
+		u.layers[src] = nil
+		if u.empty() {
+			delete(e.shows, raw)
+		}
+		scope[raw] = true
+	}
+	for raw, f := range frames {
+		if !ownsAny(&f) {
+			continue
+		}
+		next := layer{owned: f.Owned}
+		for i, o := range f.Owned {
+			if o {
+				next.values[i] = f.Values[i]
+			}
+		}
+		if u := e.shows[raw]; u != nil && u.layers[src] != nil && *u.layers[src] == next {
+			continue
+		}
+		l := e.layerLocked(src, raw)
+		*l = next
+		scope[raw] = true
+	}
+	if len(scope) > 0 {
+		e.passLocked(passMode{shows: scope})
+	}
+	return nil
+}
+
+func ownsAny(f *LayerFrame) bool {
+	for _, o := range f.Owned {
+		if o {
+			return true
+		}
+	}
+	return false
 }
 
 // ReleaseChannels removes count channels from src's claim on raw, starting
@@ -811,7 +982,7 @@ func (e *DMXOutputEngine) desiredLocked() map[Stream]desiredStream {
 	}
 	e.unmapped = map[uint16]bool{}
 	for raw, u := range e.shows {
-		frame := u.compose()
+		frame := u.compose(e.lowlight[raw], e.lowPercent)
 		protos, ok := e.routing[raw]
 		if !ok {
 			protos = OutputArtNet
@@ -1160,7 +1331,7 @@ func (e *DMXOutputEngine) Frame(addr artnet.PortAddress) ([]byte, bool) {
 	if !ok {
 		return nil, false
 	}
-	f := u.compose()
+	f := u.compose(e.lowlight[addr.RawValue()], e.lowPercent)
 	return append([]byte(nil), f[:]...), true
 }
 
