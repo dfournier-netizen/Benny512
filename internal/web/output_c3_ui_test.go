@@ -1,6 +1,7 @@
 package web
 
 import (
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -50,5 +51,35 @@ func TestC3ScreensNoLongerGateOutputThemselves(t *testing.T) {
 	}
 	if !strings.Contains(tj, "Output follows the master Arm") {
 		t.Errorf("console-tools.js does not tell the user that output follows the master Arm")
+	}
+}
+
+// TestI2fPhoneStripHidesShowNameWhenArmed (owner 2026-10-09): at phone
+// widths, while armed, the strip's show name was squeezed to "D." by ARMED
+// · LIVE. The phone block of the literal workspace.css must hide it
+// visually while armed — clipped, not display:none, so assistive
+// technology still reads it (and Show tools names the show) — and only
+// while armed (output_strip_test.js checks workspace.js sets the state).
+func TestI2fPhoneStripHidesShowNameWhenArmed(t *testing.T) {
+	css, err := os.ReadFile("static/css/workspace.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(css)
+	at := strings.Index(src, "@media (max-width: 767px) {\n  .b5-header { position: relative; top: auto; }")
+	if at < 0 {
+		t.Fatal("the phone block of the strip is not where it was; update this test with it")
+	}
+	rule := regexp.MustCompile(`\.b5-show-context\[data-out-state="armed"\] \.b5-show-context__name \{([^}]*)\}`).FindStringSubmatch(src[at:])
+	if rule == nil {
+		t.Fatal(`no phone rule hides the show name while armed (.b5-show-context[data-out-state="armed"] .b5-show-context__name)`)
+	}
+	if strings.Contains(rule[1], "display: none") || strings.Contains(rule[1], "visibility: hidden") {
+		t.Errorf("the armed phone rule removes the name from assistive technology too: {%s}", rule[1])
+	}
+	for _, want := range []string{"position: absolute", "clip-path: inset(50%)", "width: 1px", "height: 1px", "overflow: hidden"} {
+		if !strings.Contains(rule[1], want) {
+			t.Errorf("the armed phone rule is not a visually-hidden clip (missing %q): {%s}", want, rule[1])
+		}
 	}
 }

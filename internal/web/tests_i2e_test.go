@@ -190,3 +190,76 @@ func TestDimmerTestVirtualFades(t *testing.T) {
 	r.advance(t, 100*time.Millisecond)
 	wantSlots(t, "released: still red 200", r.wire(t, 2), 201, 200, 0, 0)
 }
+
+// TestDimmerTestShowsWhiteWhereColourIsUnset (I2f, owner 2026-10-09): a
+// dimmer test on a fixture or cell whose colour is unset shows it at full
+// white for the test only — the batten selected whole (its master pulses,
+// its cells' colour is unset) and an LED par with a real dimmer and RGB.
+// Manual colour still wins; the white is released when the test ends and
+// is never written into the programmer.
+func TestDimmerTestShowsWhiteWhereColourIsUnset(t *testing.T) {
+	r := newI2eTestsRig(t)
+	ch := func(attr string) map[string]any {
+		return map[string]any{"source": "gdtf", "attribute": attr, "functionName": attr, "dmxFrom": 0, "dmxTo": 255, "channelSets": []any{}}
+	}
+	par := map[string]any{"name": "PAR", "fixtureType": "Spec-derived LED par", "footprint": 4, "universe": 2, "startAddress": 301,
+		"channelFunctions": map[string]any{"1": ch("Dimmer"), "2": ch("ColorAdd_R"), "3": ch("ColorAdd_G"), "4": ch("ColorAdd_B")}}
+	if rr := r.do(t, "POST", "/api/patch/import", map[string]any{"mode": "merge", "entries": []any{par}}, nil); rr.Code != http.StatusOK {
+		t.Fatalf("import PAR: %d %s", rr.Code, rr.Body.String())
+	}
+	var pr struct {
+		Patch struct{ Entries []struct{ ID, Name string } }
+	}
+	r.get(t, "/api/patch", &pr)
+	for _, e := range pr.Patch.Entries {
+		r.ids[e.Name] = e.ID
+	}
+	bt := r.ids["BT"]
+	r.arm(t)
+	// Cell 2 has a manual colour; the rest of the batten and the par have none.
+	r.set(t, map[string]any{"targets": []any{cellTarget(bt, "Pixel 2:0")}, "attribute": "ColorAdd_B", "dmx": 60})
+	r.selectNames(t, "BT", "PAR")
+	r.testsPost(t, "fade", map[string]any{"fadeMs": 0})
+	r.testsPost(t, "set", map[string]any{"tests": []any{map[string]any{"kind": "dimmer_toggle", "on": true, "max": 128}}})
+	f := r.wire(t, 2)
+	wantSlots(t, "BT master carries the test", f, 1, 128)
+	wantSlots(t, "BT cell 1: colour unset = white for the test", f, 2, 255, 255, 255)
+	wantSlots(t, "BT cell 2: manual blue wins over the test's white", f, 5, 0, 0, 60)
+	wantSlots(t, "BT cell 4: white", f, 11, 255, 255, 255)
+	wantSlots(t, "PAR: dimmer carries the test, colour unset = white", f, 301, 128, 255, 255, 255)
+
+	// Never written into the programmer.
+	var pv struct {
+		Touched int
+		Groups  []struct {
+			Attributes []struct {
+				Attribute string
+				Channels  []struct {
+					EntryID string
+					Cell    string
+					Touched bool
+				}
+			}
+		}
+	}
+	r.get(t, "/api/programmer", &pv)
+	if pv.Touched != 1 {
+		t.Errorf("the programmer holds %d channels, want 1 (cell 2's blue): the test's white must not be stored", pv.Touched)
+	}
+	for _, g := range pv.Groups {
+		for _, a := range g.Attributes {
+			for _, c := range a.Channels {
+				if c.Touched && (c.EntryID == r.ids["PAR"] || (c.EntryID == bt && c.Cell != "Pixel 2:0")) {
+					t.Errorf("the test's white was written into the programmer: %s %s %s", c.EntryID, c.Cell, a.Attribute)
+				}
+			}
+		}
+	}
+
+	// The test ends: the white is released.
+	r.testsPost(t, "clear", map[string]any{})
+	f = r.wire(t, 2)
+	wantSlots(t, "after the test: BT cell 1 back to its unset colour", f, 2, 0, 0, 0)
+	wantSlots(t, "after the test: BT cell 2 keeps its manual blue", f, 5, 0, 0, 60)
+	wantSlots(t, "after the test: PAR colour back to unset", f, 302, 0, 0, 0)
+}

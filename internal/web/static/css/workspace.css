@@ -93,6 +93,13 @@
   /* Row 1: show name | state word. Row 2: simulated tag, link, notices.
      Last row: Show tools, Fixture library, ARM, then the slab rightmost. */
   .b5-show-context__name { flex: 1 1 0; min-width: 0; max-width: none; align-self: center; }
+  /* I2f (owner 2026-10-09): while armed the name gave way to ARMED · LIVE
+     and was squeezed to "D.". It is hidden visually instead — clipped, so
+     assistive technology still reads it; Show tools names the show. */
+  .b5-show-context[data-out-state="armed"] .b5-show-context__name {
+    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+    overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; flex: none;
+  }
   .b5-show-context .b5-out { display: contents; }
   .b5-show-context .b5-out-state { flex: 0 1 auto; max-width: 62%; font-size: var(--b5-font-size-xs); }
   .b5-show-context .b5-out-sim, .b5-show-context .b5-out-link, .b5-show-context .b5-out-note { flex: 1 1 auto; }

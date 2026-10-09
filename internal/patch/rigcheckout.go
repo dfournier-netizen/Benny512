@@ -45,6 +45,8 @@ type rigOutput struct {
 	// virtual (I2e) is the virtual dimmer levels last set as SourceTests,
 	// by engine key — what a blackout zeroes and stopAll releases.
 	virtual map[string]byte
+	// isolated (I2f): the last setIsolate claimed something.
+	isolated bool
 }
 
 func newRigOutput(dmx *session.DMXOutputEngine) *rigOutput {
@@ -102,6 +104,35 @@ func (o *rigOutput) setVirtual(levels map[string]byte) {
 	}
 }
 
+// setIsolate (I2f) claims chans (per universe, absolute 1-512) at 0 on
+// session.SourceIsolate while the engine has Isolate on (StartIsolate); the
+// engine ignores it otherwise, and ends it itself on Disarm, lease loss and
+// when the browser that turned it on leaves.
+func (o *rigOutput) setIsolate(chans map[uint16][]int) {
+	if !o.dmx.Isolating() {
+		if o.isolated {
+			_ = o.dmx.SetIsolateFrames(nil)
+			o.isolated = false
+		}
+		return
+	}
+	out := make(map[uint16]session.LayerFrame, len(chans))
+	for raw, list := range chans {
+		if !o.live[raw] {
+			continue
+		}
+		var f session.LayerFrame
+		for _, ch := range list {
+			if ch >= 1 && ch <= session.DMXUniverseSize {
+				f.Owned[ch-1] = true
+			}
+		}
+		out[raw] = f
+	}
+	_ = o.dmx.SetIsolateFrames(out)
+	o.isolated = len(out) > 0
+}
+
 // blackout zeroes every slot of the current claim and every virtual dimmer
 // level the tests set, and pushes it at once.
 func (o *rigOutput) blackout() {
@@ -135,6 +166,10 @@ func (o *rigOutput) stopAll() {
 		o.virtual = nil
 	}
 	o.dmx.Release(session.SourceTests, raws...)
+	if o.isolated {
+		_ = o.dmx.SetIsolateFrames(nil)
+		o.isolated = false
+	}
 	o.live = map[uint16]bool{}
 	o.claim = map[uint16]*slotClaim{}
 }

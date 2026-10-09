@@ -1,6 +1,6 @@
 # Console-lite — decisions after the design hand-back
 
-**For the design agent.** Written 2026-10-09 00:46:57 -0400 (chunk I2d2), updated 2026-10-09 08:49:21 -0400 and 2026-10-09 09:40:15 -0400 (I2d3) 2026-10-09 10:01:46 -0400 (I2d4) and 2026-10-09 13:28:22 -0400 (I2e). Precedence is unchanged: owner answers > `docs/plans/console-lite.md` > this design package > the older UI brief. Each line names the spec section in `component-specs.md` and how the shipped UI now differs from it. Details and dates: the plan's Owner decisions and Progress rows I1–I2d2.
+**For the design agent.** Written 2026-10-09 00:46:57 -0400 (chunk I2d2), updated 2026-10-09 08:49:21 -0400 and 2026-10-09 09:40:15 -0400 (I2d3) 2026-10-09 10:01:46 -0400 (I2d4) 2026-10-09 13:28:22 -0400 (I2e) and 2026-10-09 15:00:06 -0400 (I2f). Precedence is unchanged: owner answers > `docs/plans/console-lite.md` > this design package > the older UI brief. Each line names the spec section in `component-specs.md` and how the shipped UI now differs from it. Details and dates: the plan's Owner decisions and Progress rows I1–I2d2.
 
 ## Owner decisions of 2026-10-09 (I2d2)
 
@@ -19,13 +19,21 @@
 
 ## I2e (2026-10-09)
 
-- **§16 Tests drive virtual dimmers (owner).** A dimmer test reaches a fixture or cell with colour mixing and no dimmer channel of its own through its virtual dimmer, by the I2d4 scope rule: a whole fixture through its master when it has one, a selected cell through its own virtual dimmer, an RGB-only fixture through its own (it is now offered dimmer tests). The per-fixture list says "through its virtual dimmer (scales colour)". Fill-in for the owner to confirm: when cells are tested, the tests' base state opens their fixture's master (as it already opens a whole fixture's dimmer) — otherwise nothing a cell test does can be seen; the programmer above still wins.
-- **§16 tiles:** glyph per test kind + ON/OFF word; Settings is its own `details`. Not built: masked-test "overridden by SET on n fixtures" and Isolate (the tests view carries no per-channel source data).
+- **§16 Tests drive virtual dimmers (owner).** A dimmer test reaches a fixture or cell with colour mixing and no dimmer channel of its own through its virtual dimmer, by the I2d4 scope rule: a whole fixture through its master when it has one, a selected cell through its own virtual dimmer, an RGB-only fixture through its own (it is now offered dimmer tests). The per-fixture list says "through its virtual dimmer (scales colour)". When cells are tested, the tests' base state opens their fixture's master (as it already opens a whole fixture's dimmer) — confirmed by the owner in I2f.
+- **§16 tiles:** glyph per test kind + ON/OFF word; Settings is its own `details`. (Masked-test note and Isolate: built in I2f, below.)
 - **§16 P:** on a phone the Tests panel is a sheet below the master strip with Close and Escape; Tests stays under More (C6c/I2d2), so closing the sheet returns focus to More when the menu has closed.
 - **§17:** Back / Next 60 px with glyphs, AUTO toggle "AUTO 8 s" (unavailable with the reason on a manual step), CURRENT word. The interval is the step's own (set in the editor), not an input on the transport. Edit is disabled while a sequence runs, so editing the running step does not arise. Editor rows: worded Move up / Move down / Add step after / Remove step, no drag handle (no drag at all).
 - **§18:** horizontal faders (like §6 T/D in I2c1); the desktop fader keeps the app-wide 28 px param height. "RDM only" means the patch has the fixture committed to an RDM device; slot labels say "not reported" (an RDM slot read makes the fixture profiled, so a raw bank never has labels).
 - **MIDI panel:** no layout in the package; restyled to the roles and glyphs only — link pill with midi-connected/disconnected glyph and a word, "Encoder n", fine glyph on Fine.
 - **§15 P count pill:** with cells selected the count wraps "· 4 cells" to a second line inside the pill (a rounded box, not a capsule) instead of being cut off.
+
+## I2f (owner answers, 2026-10-09)
+
+- **§16 Tests open a tested cell's master (owner decision, was the I2e fill-in):** as they open a whole fixture's dimmer — colour tests on cells too — or nothing a cell test does can be seen. The programmer above still wins.
+- **§16 dimmer test on unset colour = WHITE (owner):** wherever a dimmer test drives a fixture or cell whose colour is unset (a whole fixture with a master over cells at colour 0, the virtual-dimmer cases, a fixture with a real dimmer and RGB), that colour shows white for the test only — never written into the programmer, released when the test stops driving it; a programmer colour wins. Same rule as G1/I2d4 (a claimed virtual dimmer with no colour = white). The dimmer tests' Settings say so in words.
+- **§16 masked test (built):** a test a higher layer overrides stays ON with "Overridden by SET on 2 fixtures." under its tile (icon + words + dashed rule); other layers are worded "a group fader", "Highlight", "a fixture command", "raw universe levels", "Universe Identify"; fixtures and cells are counted apart ("on 1 fixture and 3 cells"). The per-fixture list says "overridden by SET (Dimmer)". The data is the output engine's own per-channel composition.
+- **§16 Isolate (built):** the kit's `.b5-choicecard--caution` card, "Isolate: drive only the tested channel — ON/OFF" with an explanation, below the test tiles (the mockup's place). Every channel of the tested fixtures that no test drives is held at 0; manual values still win. Choices where the spec is silent: a tested cell's master stays open under Isolate; a dimmer test's white still shows. Safety (owner): offered only while Armed with a test on (it says why otherwise); ends by itself on Disarm, on lease loss with either Settings choice (never held isolated) and when the browser that turned it on leaves, and with the tests; the card then says "Isolate ended by itself: output was disarmed." DISARM · BLACKOUT stays the strip's slab; the card is in flow, not a dialog.
+- **§1 P strip (owner):** at phone widths, while ARMED, the show name is hidden visually instead of being squeezed to "D." (still read by assistive technology; Show tools' heading names the show). Other states keep it.
 
 ## Deviations already recorded in I1–I2d
 

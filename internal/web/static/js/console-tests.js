@@ -45,6 +45,8 @@ const ConsoleTests = (() => {
     catalogs: {},      // scope key -> available[] (sequence editor)
     deadline: 0,       // Date.now() when the running auto step advances
     selKey: '',        // programmer selection signature last seen
+    progRev: null,     // programmer revision last seen (I2f masked note)
+    armed: null,       // master output state from the strip heartbeat (I2f Isolate)
   };
   const els = {};
   let opts = { layers: () => [] };
@@ -284,6 +286,7 @@ const ConsoleTests = (() => {
   const v = () => st.view;
   const runActive = () => !!(st.view && st.view.run && st.view.run.active);
   const adHoc = () => ((st.view && st.view.adHoc) || []).map(specOf);
+  function testsOn() { return !!(st.view && (st.view.tests || []).length); }
   function statusById() {
     const m = {};
     ((st.view && st.view.tests) || []).forEach(t => { m[t.id] = t; });
@@ -644,7 +647,43 @@ const ConsoleTests = (() => {
       byGroup[g.id].forEach(a => grid.appendChild(tile(a, onIds.has(a.id), status[a.id])));
       sec.appendChild(h('div', { class: 'b5-group b5-ct-group' }, h('h4', { class: 'b5-group__head', text: g.label }), grid));
     }
+    sec.appendChild(renderIsolate(onIds.size > 0 || runActive()));
     return sec;
+  }
+
+  // §16 Isolate (I2f): the old Rig Check caution choice card, now on the
+  // output engine's transient Isolate. It needs a test on and output Armed
+  // (never kept for a later Arm) and ends by itself on Disarm, lease loss
+  // or this browser leaving — the card says why in words. DISARM stays the
+  // strip's permanent slab; nothing here covers it.
+  function isArmed() {
+    if (st.armed) return st.armed === 'armed';
+    const o = v() && v().output;
+    return !!(o && o.live);
+  }
+  function renderIsolate(testsOn) {
+    const iso = (v() && v().isolate) || {};
+    const on = !!iso.on;
+    const armed = isArmed();
+    const why = on ? '' : !testsOn ? 'Turn a test on first: Isolate acts on the fixtures being tested.'
+      : !armed ? 'Output is not live: Arm first. Isolate is never kept to start at a later Arm.' : '';
+    const input = h('input', { type: 'checkbox', 'data-tests-isolate': '', 'aria-describedby': 'conTestsIsoBody' });
+    input.checked = on;
+    if (why) input.disabled = true;
+    input.addEventListener('change', () => {
+      const client = typeof Workspace !== 'undefined' && Workspace.client ? Workspace.client() : '';
+      act('isolate', { on: !on, client }, !on ? 'Isolate is on: only the tested channels are driven.' : 'Isolate is off.');
+    });
+    const card = h('label', { class: 'b5-choicecard b5-choicecard--caution b5-ct-isolate' + (on ? ' is-on' : '') + (why ? ' is-unavailable' : ''), 'data-tests-isolate-card': '' },
+      input,
+      h('span', { class: 'b5-choicecard__box', 'aria-hidden': 'true' }, on ? ic('status-warning') : null),
+      h('span', {},
+        h('span', { class: 'b5-choicecard__title', 'data-tests-isolate-word': '', text: 'Isolate: drive only the tested channel — ' + (on ? 'ON' : 'OFF') }),
+        h('span', { class: 'b5-choicecard__body', id: 'conTestsIsoBody' },
+          'Every other channel of the tested fixtures is held at zero, so you can prove which channel does what; the fixture will probably make no visible light. Manual values still win and a tested cell\'s master stays open. It ends by itself on Disarm, if output is lost, or when this browser leaves.'),
+        why ? h('span', { class: 'b5-choicecard__body b5-ct-isolate__why', 'data-tests-isolate-why': '', text: why }) : null,
+        !on && iso.endedReason ? h('span', { class: 'b5-choicecard__body', 'data-tests-isolate-ended': '' }, ic('status-pending'), 'Isolate ended by itself: ' + iso.endedReason + '.') : null));
+    return card;
   }
 
   function coverage(a, on, s) {
@@ -657,6 +696,23 @@ const ConsoleTests = (() => {
       return notes.join(' · ');
     }
     return a.fixtureCount + ' of ' + total + (total === 1 ? ' fixture has this' : ' fixtures have this');
+  }
+
+  // §16 (I2f): a test a higher layer overrides stays ON and says so — the
+  // server reports, per test, which layer shows on how many of its targets
+  // (the output engine's own composition, never worked out here).
+  const OVERRIDE_WORDS = { programmer: 'SET', 'group-faders': 'a group fader', highlight: 'Highlight', command: 'a fixture command', raw: 'raw universe levels', identify: 'Universe Identify' };
+  function overrideWord(src) { return OVERRIDE_WORDS[src] || src; }
+  function countWords(fixtures, cells) {
+    const parts = [];
+    if (fixtures) parts.push(fixtures + (fixtures === 1 ? ' fixture' : ' fixtures'));
+    if (cells) parts.push(cells + (cells === 1 ? ' cell' : ' cells'));
+    return parts.join(' and ');
+  }
+  function maskedWords(s) {
+    const list = (s && s.overridden) || [];
+    if (!list.length) return '';
+    return 'Overridden by ' + list.map(o => overrideWord(o.source) + ' on ' + countWords(o.fixtures, o.cells)).join(', and by ') + '.';
   }
 
   function toggleTest(a, on) {
@@ -701,6 +757,8 @@ const ConsoleTests = (() => {
     if (locked) toggle.disabled = true;
     toggle.addEventListener('click', () => toggleTest(a, !on));
     t.appendChild(toggle);
+    const masked = on ? maskedWords(s) : '';
+    if (masked) t.appendChild(h('p', { class: 'b5-caption b5-ct-masked', 'data-test-masked': a.id }, ic('status-warning'), masked));
     // §16: Settings is its own <details>, never a button nested in the
     // toggle. Its open state is kept here so a redraw does not shut it.
     const sum = h('summary', { class: 'b5-tile__more', 'data-test-more': a.id, 'aria-label': 'Settings for ' + lbl.text }, ic(open ? 'chevron-collapse' : 'chevron-expand'), h('span', { text: 'Settings' }));
@@ -730,6 +788,9 @@ const ConsoleTests = (() => {
       s.entries.forEach(e => {
         const words = [e.applied ? 'testing' : 'skipped — no such function on this fixture'];
         if (e.applied && e.virtual) words.push('through its virtual dimmer (scales colour)');
+        const over = {};
+        (e.channels || []).forEach(c => { if (OVERRIDE_WORDS[c.source]) (over[c.source] = over[c.source] || []).push(c.attribute); });
+        Object.keys(over).forEach(src => words.push('overridden by ' + overrideWord(src) + ' (' + over[src].join(', ') + ')'));
         if (e.applied && e.inferred) words.push('slots from RDM, not the profile');
         if (e.applied && e.detailMissing) words.push('no slot data');
         if (e.applied && e.phaseDegrees) words.push('phase ' + Math.round(e.phaseDegrees) + '°');
@@ -756,7 +817,9 @@ const ConsoleTests = (() => {
   }
   function params(id, t) {
     const p = paramsFor(t.kind);
-    const box = h('div', { class: 'b5-ct-params' }, h('p', { class: 'b5-caption', text: (hint(t.kind) + ' Changes apply at once.').trim() }));
+    // I2f (owner 2026-10-09): a dimmer test shows white where no colour is set.
+    const white = /^dimmer_/.test(t.kind) ? ' Where no colour is set, the test shows white (for the test only; a colour you set wins).' : '';
+    const box = h('div', { class: 'b5-ct-params' }, h('p', { class: 'b5-caption', 'data-test-hint': id, text: (hint(t.kind) + white + ' Changes apply at once.').trim() }));
     if (p.on) box.appendChild(choice(id, 'on', 'State', [[true, 'On (max)'], [false, 'Off (min)']], !!t.on));
     if (p.value) box.appendChild(slider(id, 'value', 'Value', t.value, 0, 255, 1));
     if (p.rate) { const rb = rateBounds(t.kind); box.appendChild(slider(id, 'rateHz', 'Rate', t.rateHz, rb.min, rb.max, rb.step, ' Hz')); }
@@ -994,6 +1057,8 @@ const ConsoleTests = (() => {
     if (typeof Live !== 'undefined') {
       Live.on('tests', onTests);
       Live.on('connected', () => { if (els.root) refresh(); });
+      // I2f: a group fader can mask a running test too.
+      Live.on('faders', () => { if (els.root && testsOn()) refresh(); });
       // A layer renamed elsewhere renames it here too.
       Live.on('layout', () => { if (els.root) render(); });
     }
@@ -1003,11 +1068,23 @@ const ConsoleTests = (() => {
     if (typeof ProgrammerSync !== 'undefined') {
       ProgrammerSync.onChange(p => {
         const key = JSON.stringify(((p && p.selection) || []).map(x => x.entryId + '/' + (x.cell || ''))) + '|' + JSON.stringify(((p && p.storedGroups) || []).map(g => g.id + g.name));
-        if (key === st.selKey) return;
+        // I2f: a programmer change (a SET, Highlight) can mask or unmask a
+        // running test, so while tests are on any new revision re-reads.
+        const rev = p && p.revision;
+        const moved = rev !== st.progRev;
+        st.progRev = rev;
+        if (key === st.selKey) { if (moved && testsOn() && els.root) refresh(); return; }
         st.selKey = key;
         if (els.root) refresh();
       });
     }
+    // I2f: Isolate is offered only while Armed; follow the strip heartbeat.
+    window.addEventListener('b5-output', e => {
+      const next = e.detail ? e.detail.state : null;
+      if (next === st.armed) return;
+      st.armed = next;
+      if (els.root && st.open && st.view) render();
+    });
     window.addEventListener('b5-show-changed', () => { st.editor = null; st.catalogs = {}; st.expanded = {}; if (els.root) refresh(); });
   }
   init();

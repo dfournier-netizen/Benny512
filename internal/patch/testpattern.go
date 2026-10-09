@@ -1475,6 +1475,19 @@ type PatternEntryStatus struct {
 	// Virtual (I2e) is true iff this test reaches this entry through an
 	// I2d4 virtual dimmer (it scales the colour; no DMX channel of its own).
 	Virtual bool
+	// Channels (I2f) is what this test drives on this entry, one per
+	// function: the absolute coarse channel, or the virtual dimmer's engine
+	// key. The web layer asks the output engine which source shows each.
+	Channels []TestedChannel
+}
+
+// TestedChannel (I2f) is one function a test drives on one entry: Channel
+// (1-512) on Universe, or VirtualKey (Channel 0) for a virtual dimmer.
+type TestedChannel struct {
+	Attribute  string
+	Universe   uint16
+	Channel    int
+	VirtualKey string
 }
 
 // TestStatus is one selected test's full state.
@@ -1585,6 +1598,9 @@ type patternSelection struct {
 	// the base state opens — see TestTarget.
 	virtual map[string][]string
 	masters map[string][]uint16
+	// whites (I2f): by scope entry ID, the colour keys a dimmer test shows
+	// at white while their colour is unset — see TestTarget.Whites.
+	whites map[string][]string
 
 	// resolved is rebuilt from scope+tests on every mutation, in canonical
 	// order.
@@ -1730,7 +1746,7 @@ func (r *RigCheck) SetPatternScope(entries []Entry) (PatternStatus, error) {
 	}
 	r.selection.scope = append([]Entry(nil), entries...)
 	r.selection.owned, r.selection.scopeOrder, r.testsLayer = nil, false, false
-	r.selection.virtual, r.selection.masters = nil, nil
+	r.selection.virtual, r.selection.masters, r.selection.whites = nil, nil, nil
 	r.selection.rebuild()
 	r.afterSelectionChangeLocked()
 	return r.patternStatusLocked(), nil
@@ -1782,7 +1798,7 @@ func (r *RigCheck) SetPatternTests(entries []Entry, specs []PatternSpec, isolate
 	}
 	r.selection.scope = append([]Entry(nil), entries...)
 	r.selection.owned, r.selection.scopeOrder, r.testsLayer = nil, false, false
-	r.selection.virtual, r.selection.masters = nil, nil
+	r.selection.virtual, r.selection.masters, r.selection.whites = nil, nil, nil
 	r.selection.tests = make(map[TestID]PatternSpec, len(normalized))
 	for _, spec := range normalized {
 		r.selection.tests[spec.TestID()] = spec
@@ -2007,13 +2023,21 @@ func (r *RigCheck) patternStatusLocked() PatternStatus {
 		for _, e := range sel.scope {
 			t, applied := byID[e.ID]
 			virtual := false
+			chans := make([]TestedChannel, 0, len(t.functions))
 			for _, ft := range t.functions {
 				virtual = virtual || ft.virtualKey != ""
+				if ft.virtualKey != "" {
+					chans = append(chans, TestedChannel{Attribute: ft.attribute, Universe: t.universe, VirtualKey: ft.virtualKey})
+				} else if len(ft.offsets) > 0 {
+					if ch := int(t.startAddr) + int(ft.offsets[0]) - 1; ch >= 1 && ch <= session.DMXUniverseSize {
+						chans = append(chans, TestedChannel{Attribute: ft.attribute, Universe: t.universe, Channel: ch})
+					}
+				}
 			}
 			ts.Entries = append(ts.Entries, PatternEntryStatus{
 				EntryID: e.ID, Applied: applied,
 				Inferred: applied && t.inferred, DetailMissing: applied && t.detailMissing,
-				PhaseDegrees: t.phase * 360, Virtual: applied && virtual,
+				PhaseDegrees: t.phase * 360, Virtual: applied && virtual, Channels: chans,
 			})
 		}
 		st.Tests = append(st.Tests, ts)
@@ -2047,12 +2071,18 @@ type patternComposition struct {
 	// virtual (I2e): the level of every virtual dimmer a test drives, by
 	// engine key, with the source that set it (for fades).
 	virtual map[string]virtualUnit
+	// isolate (I2f) is, per universe, every channel the base state wrote
+	// except a tested cell's opened master: what Isolate holds at 0.
+	isolate map[uint16][]int
 }
 
-// virtualUnit is one virtual dimmer level a test sets (I2e).
+// virtualUnit is one virtual dimmer level a test sets (I2e). fill (I2f)
+// marks a white claim (level 255, the G1 fill rule only): it never fades
+// and is released as soon as no dimmer test drives its scope.
 type virtualUnit struct {
 	level  byte
 	source patternSource
+	fill   bool
 }
 
 func slotKey(universe uint16, ch int) uint32 { return uint32(universe)<<16 | uint32(uint16(ch)) }
@@ -2071,6 +2101,7 @@ func (r *RigCheck) composePatternLocked(elapsed float64) patternComposition {
 		contested: make([]ContestedOffset, 0),
 		base:      BaseStateStatus{Isolate: sel.isolate, ShutterUnknownEntries: make([]string, 0)},
 		virtual:   map[string]virtualUnit{},
+		isolate:   map[uint16][]int{},
 	}
 	for _, e := range sel.scope {
 		if _, ok := comp.frames[e.Universe]; !ok {
@@ -2106,6 +2137,14 @@ func (r *RigCheck) composePatternLocked(elapsed float64) patternComposition {
 			if !ok {
 				continue
 			}
+			if isDimmerPatternKind(pt.spec.Kind) {
+				// I2f: unset colour shows white while a dimmer test drives it.
+				for _, k := range sel.whites[et.entryID] {
+					if _, set := comp.virtual[k]; !set {
+						comp.virtual[k] = virtualUnit{level: 255, source: patternSource{entry: et.entryID}, fill: true}
+					}
+				}
+			}
 			for _, ft := range et.functions {
 				raw, nbytes := patternValueForFunc(pt.spec, ft, elapsed, et.phase)
 				if ft.virtualKey != "" {
@@ -2132,6 +2171,7 @@ func (r *RigCheck) composePatternLocked(elapsed float64) patternComposition {
 			}
 			comp.base.DefaultsKnownCount += bs.knownCount
 			comp.base.DefaultsUnknownCount += bs.unknownCount
+			isolated := true // I2f: base writes Isolate holds at 0
 			apply := func(w baseWrite) bool {
 				// "only when no active test already drives that channel":
 				// ownership of ANY of the function's offsets means the test
@@ -2144,7 +2184,10 @@ func (r *RigCheck) composePatternLocked(elapsed float64) patternComposition {
 						return false
 					}
 				}
-				writeFuncValue(frame, bs.startAddr, w.offsets, w.nbytes, w.raw)
+				written := writeFuncValue(frame, bs.startAddr, w.offsets, w.nbytes, w.raw)
+				if isolated {
+					comp.isolate[bs.universe] = append(comp.isolate[bs.universe], written...)
+				}
 				comp.noteUnit(bs.universe, bs.startAddr, w.offsets, w.nbytes, patternSource{entry: bs.entryID, baseValue: w.raw}, continuousPatternAttribute(w.attribute))
 				return true
 			}
@@ -2166,6 +2209,9 @@ func (r *RigCheck) composePatternLocked(elapsed float64) patternComposition {
 			for _, w := range bs.position {
 				apply(w)
 			}
+			// A tested cell's master stays open under Isolate too (owner
+			// 2026-10-09: tests open it, or nothing a cell test does shows).
+			isolated = false
 			for _, w := range bs.master {
 				apply(w)
 			}
@@ -2242,6 +2288,11 @@ func (r *RigCheck) recomputePatternLocked(elapsed float64) {
 	// stale level.
 	r.out.setVirtual(r.patternVirtual)
 	r.out.setFrames(comp.frames, claim, false)
+	// I2f Isolate: the Tests layer's untested channels held at 0 on the
+	// engine's own transient source, only while the engine has Isolate on.
+	if r.testsLayer {
+		r.out.setIsolate(comp.isolate)
+	}
 }
 
 // armPatternTickLocked (re)schedules the next patternTick, ticking at the

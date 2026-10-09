@@ -33,6 +33,13 @@
 .b5-ct-params { display: flex; flex-direction: column; gap: var(--b5-space-2); min-width: 0; }
 .b5-ct-params .b5-segmented--sm > .b5-seg { min-width: 0; }
 .b5-ct-fixtures { margin-top: var(--b5-space-2); }
+/* I2f §16 Isolate: the kit's caution choice card (amber + explanation, not error styling). */
+.b5-ct-isolate { position: relative; }
+.b5-ct-isolate.is-unavailable { cursor: not-allowed; border-style: dashed; }
+.b5-ct-isolate__why { color: var(--b5-color-text-primary); font-weight: var(--b5-font-weight-bold); }
+/* I2f §16: a masked test stays ON and says what overrides it (words + icon + a dashed rule, never colour alone). */
+.b5-ct-masked { display: flex; gap: var(--b5-space-1); align-items: flex-start; margin: 0; padding: var(--b5-space-1) var(--b5-space-2);
+  border-left: var(--b5-border-width-thick) dashed var(--b5-color-text-warning); overflow-wrap: anywhere; }
 .b5-ct-fixlist { list-style: none; margin: var(--b5-space-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--b5-space-1); overflow-wrap: anywhere; }
 .b5-ct-fixlist li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-1); }
 .b5-ct-warnings { border-left: var(--b5-border-width-thick) dashed var(--b5-color-text-warning); padding-left: var(--b5-space-2); }

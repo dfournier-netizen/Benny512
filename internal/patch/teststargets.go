@@ -39,6 +39,11 @@ type TestTarget struct {
 	// cell can be seen. Both come from Programmer.TestDimmers.
 	VirtualDimmers []string
 	Master         []uint16
+	// Whites (I2f) are the engine keys of the colour scopes in this
+	// target that a dimmer test shows at white while their colour is unset
+	// (claimed at 255: the G1 fill rule), beyond VirtualDimmers. From
+	// Programmer.TestDimmers.
+	Whites []string
 }
 
 // CellTestTarget narrows e to one cell whose channels are offsets: a copy of
@@ -92,6 +97,7 @@ func (r *RigCheck) SetTests(targets []TestTarget, specs []PatternSpec, fade *tim
 	owned := map[string][]uint16{}
 	virtual := map[string][]string{}
 	masters := map[string][]uint16{}
+	whites := map[string][]string{}
 	for _, t := range targets {
 		entries = append(entries, t.Entry)
 		if t.Offsets != nil {
@@ -102,6 +108,9 @@ func (r *RigCheck) SetTests(targets []TestTarget, specs []PatternSpec, fade *tim
 		}
 		if len(t.Master) > 0 {
 			masters[t.Entry.ID] = append([]uint16(nil), t.Master...)
+		}
+		if len(t.Whites) > 0 {
+			whites[t.Entry.ID] = append([]string(nil), t.Whites...)
 		}
 	}
 	r.mu.Lock()
@@ -119,7 +128,7 @@ func (r *RigCheck) SetTests(targets []TestTarget, specs []PatternSpec, fade *tim
 	}
 	r.selection.scope = entries
 	r.selection.owned, r.selection.scopeOrder, r.selection.isolate = owned, true, false
-	r.selection.virtual, r.selection.masters = virtual, masters
+	r.selection.virtual, r.selection.masters, r.selection.whites = virtual, masters, whites
 	r.selection.tests = make(map[TestID]PatternSpec, len(normalized))
 	for _, spec := range normalized {
 		r.selection.tests[spec.TestID()] = spec
@@ -137,7 +146,7 @@ func (r *RigCheck) ReleaseTests() PatternStatus {
 	r.testsLayer = true
 	r.selection.scope = nil
 	r.selection.owned, r.selection.scopeOrder, r.selection.isolate = nil, true, false
-	r.selection.virtual, r.selection.masters = nil, nil
+	r.selection.virtual, r.selection.masters, r.selection.whites = nil, nil, nil
 	r.selection.tests = map[TestID]PatternSpec{}
 	r.selection.rebuild()
 	r.stopLocked("manual")
@@ -175,19 +184,37 @@ func (pg *Programmer) CellOffsets(entryID, cell string) ([]uint16, bool) {
 //     (a real channel), so none; a cell, its own virtual dimmer.
 //   - master: for a cell target of a fixture with a real master Dimmer, the
 //     master's offsets (coarse first). The master is the cell's output on
-//     top of its colour, so the base state opens it.
+//     top of its colour, so the base state opens it (owner, 2026-10-09).
+//   - whites (I2f, owner 2026-10-09): every other colour scope in t — its
+//     virtual dimmer key, or its ColourFillKey when it has a real dimmer —
+//     which a dimmer test shows at white while its colour is unset.
 //
 // Unknown fixture or cell: nothing.
-func (pg *Programmer) TestDimmers(t ProgTarget) (virtual []string, master []uint16) {
+func (pg *Programmer) TestDimmers(t ProgTarget) (virtual []string, master []uint16, whites []string) {
 	pg.mu.Lock()
 	defer pg.mu.Unlock()
 	m := pg.models[t.EntryID]
 	if m == nil || (t.Cell != "" && !m.HasCell(t.Cell)) {
-		return nil, nil
+		return nil, nil, nil
 	}
+	pulsed := map[string]bool{}
 	for _, p := range dimmersOf(m, t) {
 		if p.Virtual {
-			virtual = append(virtual, VirtualDimmerKey(t.EntryID, p.Offset))
+			k := VirtualDimmerKey(t.EntryID, p.Offset)
+			virtual = append(virtual, k)
+			pulsed[k] = true
+		}
+	}
+	for _, cs := range colourScopesOf(m) {
+		if t.Cell != "" && cs.cell != t.Cell {
+			continue
+		}
+		k := ColourFillKey(t.EntryID, cs.cell)
+		if cs.virtual != nil {
+			k = VirtualDimmerKey(t.EntryID, cs.virtual.Offset)
+		}
+		if !pulsed[k] {
+			whites = append(whites, k)
 		}
 	}
 	if t.Cell != "" {
@@ -199,7 +226,7 @@ func (pg *Programmer) TestDimmers(t ProgTarget) (virtual []string, master []uint
 			}
 		}
 	}
-	return virtual, master
+	return virtual, master, whites
 }
 
 // AvailableTestsForTargets is AvailableTests over targets (I2e): a target

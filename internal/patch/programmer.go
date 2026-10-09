@@ -243,13 +243,90 @@ func VirtualDimmerKey(entryID string, off uint16) string {
 	return fmt.Sprintf("%s#%d", entryID, off)
 }
 
+// ColourFillKey (I2f) is the engine key of the colour fill of one colour
+// scope (cell "" = the fixture's own channels) that has a real Dimmer of its
+// own and so no virtual dimmer: a source claiming it at 255 changes nothing
+// but the G1 fill rule — a colour that composed to all zero shows white.
+// The Tests layer claims it while a dimmer test drives that scope, so a
+// dimmer test on unset colour shows white (owner 2026-10-09).
+func ColourFillKey(entryID, cell string) string { return entryID + "#fill#" + cell }
+
+// colourScope is one scope (cell "" = the fixture's own channels) with red,
+// green and blue additive emitters; virtual is its virtual dimmer, if any.
+type colourScope struct {
+	cell     string
+	additive []uint16
+	virtual  *ProgParameter
+}
+
+// colourScopesOf lists m's colour scopes, fixture first then cells in order.
+func colourScopesOf(m *FixtureModel) []colourScope {
+	type acc struct {
+		r, g, b  bool
+		additive []uint16
+	}
+	scopes := map[string]*acc{"": {}}
+	order := []string{""}
+	for _, c := range m.Cells {
+		scopes[c.ID] = &acc{}
+		order = append(order, c.ID)
+	}
+	for _, p := range m.Parameters {
+		a := scopes[p.Cell]
+		if a == nil || p.Virtual {
+			continue
+		}
+		switch p.Attribute {
+		case "ColorAdd_R", "ColorRGB_Red":
+			a.r = true
+		case "ColorAdd_G", "ColorRGB_Green":
+			a.g = true
+		case "ColorAdd_B", "ColorRGB_Blue":
+			a.b = true
+		}
+		if isAdditiveColour(p.Attribute) {
+			a.additive = append(a.additive, p.Offset)
+		}
+	}
+	out := make([]colourScope, 0)
+	for _, cell := range order {
+		a := scopes[cell]
+		if !a.r || !a.g || !a.b {
+			continue
+		}
+		cs := colourScope{cell: cell, additive: a.additive}
+		for i := range m.Parameters {
+			if p := &m.Parameters[i]; p.Virtual && p.Cell == cell {
+				cs.virtual = p
+			}
+		}
+		out = append(out, cs)
+	}
+	return out
+}
+
 // virtualDefsLocked: every virtual dimmer of every patched entry, with the
 // slots of the additive channels it scales (a channel with a byte that
-// cannot be written is left out).
+// cannot be written is left out) — and (I2f) the colour fill of every colour
+// scope that has a real dimmer instead (ColourFillKey).
 func (pg *Programmer) virtualDefsLocked() map[uint16][]session.VirtualDimmer {
 	defs := map[uint16][]session.VirtualDimmer{}
 	for _, id := range pg.order {
 		e, m := pg.entries[id], pg.models[id]
+		for _, cs := range colourScopesOf(m) {
+			if cs.virtual != nil {
+				continue
+			}
+			vd := session.VirtualDimmer{Key: ColourFillKey(id, cs.cell)}
+			for _, off := range cs.additive {
+				if g, ok := scaleGroupOf(e, m.paramAt(off)); ok {
+					vd.Channels = append(vd.Channels, g)
+				}
+			}
+			if len(vd.Channels) > 0 {
+				defs[e.Universe] = append(defs[e.Universe], vd)
+			}
+		}
 		for _, p := range m.Parameters {
 			if !p.Virtual {
 				continue

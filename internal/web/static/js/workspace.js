@@ -82,6 +82,10 @@ const Workspace = (() => {
     if (!box || !slot) return;
     // An acknowledgement covers one lease loss: a different one (blackout vs
     // held), or one after a new Arm, needs its own.
+    // I2f: the state on the strip itself — on a phone, the show name gives
+    // way to ARMED · LIVE while armed (workspace.css).
+    const st = out ? out.state : 'unknown';
+    if (root.getAttribute('data-out-state') !== st) root.setAttribute('data-out-state', st);
     const key = out ? out.state + '|' + out.lastDisarm : '';
     if (out && out.state === 'armed') ackedKey = '';
     const acked = key !== '' && key === ackedKey;
@@ -247,5 +251,7 @@ const Workspace = (() => {
     dialog.querySelector('[data-recover]').onclick=async()=>{if(await ask('Replace this show with its preceding save? Output stops.'))action(async()=>{await Api.recoverShow();UI.showPanel(dialog,'[data-close]');},'Preceding save restored');};
     dialog.querySelector('[data-reset]').onclick=async()=>{if(await ask(`Empty “${data.name}” only? Other shows and the Fixture Library stay. Output stops.`))action(async()=>{await Api.resetActiveShow();UI.showPanel(dialog,'[data-close]');},'Active show emptied; preceding save available for recovery');};
   }
-  return {init,open,selection,ask};
+  // client: this page's lease id — the Tests' Isolate (I2f) is tied to it,
+  // so Isolate ends when this browser leaves.
+  return {init,open,selection,ask,client:()=>CLIENT};
 })();

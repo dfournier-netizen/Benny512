@@ -33,6 +33,7 @@ import (
 //	POST /api/tests/run-start        {id, step?}
 //	POST /api/tests/run-next | run-back | run-pause | run-resume | run-stop  {}
 //	POST /api/tests/run-jump         {step}
+//	POST /api/tests/isolate          {on, client}  (I2f; see testsIsolateJSON)
 //
 // test = Rig Check's test shape (patternTestRequest: kind, rateHz, min, max,
 // target, direction, value, on, waveform, offsetMin, offsetMax).
@@ -129,11 +130,101 @@ type testsEntryJSON struct {
 	// Virtual (I2e): the test reaches this target through its virtual
 	// dimmer (scales the colour).
 	Virtual bool `json:"virtual"`
+	// Channels (I2f): what the test drives on this target, each with the
+	// layer whose value the output shows there now (testChannelSource).
+	Channels []testsChannelJSON `json:"channels"`
+}
+
+// testsChannelJSON (I2f) is one tested function: address 1-512 (0 for a
+// virtual dimmer) and source — "tests" (the test shows), or the layer that
+// overrides it: "group-faders", "programmer" (SET), "highlight",
+// "command", "raw", "identify"; "base"/"none" when the tests layer is not
+// on the output at all.
+type testsChannelJSON struct {
+	Attribute string `json:"attribute"`
+	Address   int    `json:"address"`
+	Virtual   bool   `json:"virtual"`
+	Source    string `json:"source"`
+}
+
+// testsOverrideJSON (I2f): one layer that overrides this test, and on how
+// many of its targets (fixtures and cells counted apart), so a masked test
+// can say "overridden by SET on 2 fixtures".
+type testsOverrideJSON struct {
+	Source   string `json:"source"`
+	Fixtures int    `json:"fixtures"`
+	Cells    int    `json:"cells"`
 }
 
 type testsTestJSON struct {
 	patternTestStatusJSON
 	Entries []testsEntryJSON `json:"entries"`
+	// Overridden (I2f): the layers above the tests that own any channel
+	// this test drives, in priority order (Identify last). Empty: the test
+	// shows everywhere it applies.
+	Overridden []testsOverrideJSON `json:"overridden"`
+}
+
+// testChannelSources (I2f) asks the output engine which layer shows each
+// channel in chans — the engine's own composition order, not a second copy
+// of it here.
+func (s *Server) testChannelSources(chans []patch.TestedChannel) []testsChannelJSON {
+	out := make([]testsChannelJSON, 0, len(chans))
+	for _, c := range chans {
+		j := testsChannelJSON{Attribute: c.Attribute, Address: c.Channel, Virtual: c.VirtualKey != "", Source: "none"}
+		if c.VirtualKey != "" {
+			if src, ok := s.DMX.VirtualSource(c.VirtualKey); ok {
+				j.Source = src.String()
+			}
+		} else {
+			cs := s.DMX.ChannelSources(c.Universe, []int{c.Channel})[0]
+			if cs.Owned {
+				j.Source = cs.Source.String()
+			}
+			if cs.Identify {
+				j.Source = "identify"
+			}
+		}
+		out = append(out, j)
+	}
+	return out
+}
+
+// testOverrides (I2f) counts, per overriding layer, the applied targets with
+// at least one tested channel that layer shows instead of the test.
+func testOverrides(entries []testsEntryJSON) []testsOverrideJSON {
+	order := []string{session.SourceGroupFaders.String(), session.SourceProgrammer.String(), session.SourceHighlight.String(),
+		session.SourceCommand.String(), session.SourceRaw.String(), "identify"}
+	counts := map[string]*testsOverrideJSON{}
+	for _, e := range entries {
+		if !e.Applied {
+			continue
+		}
+		seen := map[string]bool{}
+		for _, c := range e.Channels {
+			if seen[c.Source] {
+				continue
+			}
+			seen[c.Source] = true
+			o := counts[c.Source]
+			if o == nil {
+				o = &testsOverrideJSON{Source: c.Source}
+				counts[c.Source] = o
+			}
+			if e.Cell != "" {
+				o.Cells++
+			} else {
+				o.Fixtures++
+			}
+		}
+	}
+	out := make([]testsOverrideJSON, 0)
+	for _, src := range order {
+		if o := counts[src]; o != nil {
+			out = append(out, *o)
+		}
+	}
+	return out
 }
 
 type testsContestedJSON struct {
@@ -171,6 +262,20 @@ type testsLimitsJSON struct {
 	NameLength     int     `json:"nameLength"`
 }
 
+// testsIsolateJSON (I2f, component-specs §16): Isolate holds every channel
+// of the tested fixtures that no test drives at 0 (manual values still
+// win; a tested cell's master stays open). It is the output engine's
+// transient SourceIsolate: on only while output is Armed and a test is on;
+// it ends by itself on Disarm, on lease loss (Blackout or Hold last look —
+// never held isolated) and when the browser that turned it on leaves, and
+// with the tests (clear, a sequence ending, a show change). EndedReason
+// says why it last ended by itself ("" after it is turned on or off by
+// hand).
+type testsIsolateJSON struct {
+	On          bool   `json:"on"`
+	EndedReason string `json:"endedReason"`
+}
+
 type testsViewJSON struct {
 	Revision uint64           `json:"revision"`
 	Output   patch.ProgOutput `json:"output"`
@@ -195,6 +300,7 @@ type testsViewJSON struct {
 	Sequences     []testSequenceJSON   `json:"sequences"`
 	Run           testsRunJSON         `json:"run"`
 	Limits        testsLimitsJSON      `json:"limits"`
+	Isolate       testsIsolateJSON     `json:"isolate"`
 }
 
 // testRun is the one running sequence.
@@ -230,6 +336,7 @@ type testsState struct {
 	ignored  []programmerIgnored
 	note     string
 	scope    testScopeJSON
+	isoEnded string // why Isolate last ended by itself (I2f)
 }
 
 func newTestsState() *testsState {
@@ -333,8 +440,9 @@ func (s *Server) resolveTestScope(sc testScopeJSON) ([]resolvedTarget, []program
 			rt.target = patch.CellTestTarget(e, t.Cell, offs)
 		}
 		// I2e: virtual dimmers a dimmer test drives, and a cell's master the
-		// base state opens (the programmer's scope rule).
-		rt.target.VirtualDimmers, rt.target.Master = s.Programmer.TestDimmers(t)
+		// base state opens (the programmer's scope rule); I2f: the colour
+		// scopes a dimmer test shows at white while their colour is unset.
+		rt.target.VirtualDimmers, rt.target.Master, rt.target.Whites = s.Programmer.TestDimmers(t)
 		out = append(out, rt)
 	}
 	return out, ignored, note
@@ -392,6 +500,7 @@ func (s *Server) applyTestsLocked(fade *time.Duration, force bool) bool {
 	}
 	st.pushed = key
 	if !on {
+		s.DMX.EndIsolate() // I2f: Isolate lives only while a test is on
 		if st.owns {
 			s.RigCheck.ReleaseTests()
 		}
@@ -410,6 +519,18 @@ func (s *Server) applyTestsLocked(fade *time.Duration, force bool) bool {
 	_, _ = s.RigCheck.SetTests(tt, specs, fade)
 	st.owns = true
 	return true
+}
+
+// isolateEnded (I2f) is the engine's end callback for Isolate (Disarm,
+// lease loss, its browser leaving): the view says so in words, everywhere.
+func (s *Server) isolateEnded(reason string) {
+	st := s.tests
+	st.mu.Lock()
+	st.isoEnded = reason
+	st.revision++
+	rev := st.revision
+	st.mu.Unlock()
+	s.broadcastTests(rev)
 }
 
 func (s *Server) broadcastTests(rev uint64) {
@@ -442,6 +563,7 @@ func (s *Server) testsShowBoundary() {
 	st := s.tests
 	st.mu.Lock()
 	s.stopTestsTimerLocked()
+	s.DMX.EndIsolate()
 	if st.run != nil {
 		st.ended = "show changed"
 	}
@@ -463,6 +585,7 @@ func (s *Server) testsLegacyTakeover() {
 		return
 	}
 	s.stopTestsTimerLocked()
+	s.DMX.EndIsolate()
 	if st.run != nil {
 		st.ended = "a loaded test preset took over"
 	}
@@ -646,6 +769,7 @@ func (s *Server) testsViewLocked(query testScopeJSON, haveQuery bool) testsViewJ
 		BaseState: patternBaseStateJSON{ShutterUnknownEntries: make([]string, 0)},
 		Sequences: ws.TestSequences,
 		Run:       testsRunJSON{EndedReason: st.ended},
+		Isolate:   testsIsolateJSON{On: s.DMX.Isolating(), EndedReason: st.isoEnded},
 		Limits: testsLimitsJSON{Sequences: maxTestSequences, Steps: maxTestSteps, TestsPerStep: maxTestsPerStep,
 			MinAutoSeconds: minAutoAdvanceSecs, MaxAutoSeconds: maxAutoAdvanceSecs, MaxFadeMs: patch.MaxPatternFade.Milliseconds(), NameLength: maxTestNameLen},
 	}
@@ -692,8 +816,10 @@ func (s *Server) testsViewLocked(query testScopeJSON, haveQuery bool) testsViewJ
 			for _, e := range ps.Tests[i].Entries {
 				tgt := byID[e.EntryID]
 				tj.Entries = append(tj.Entries, testsEntryJSON{EntryID: tgt.EntryID, Cell: tgt.Cell, Applied: e.Applied,
-					Inferred: e.Inferred, DetailMissing: e.DetailMissing, PhaseDegrees: e.PhaseDegrees, Virtual: e.Virtual})
+					Inferred: e.Inferred, DetailMissing: e.DetailMissing, PhaseDegrees: e.PhaseDegrees, Virtual: e.Virtual,
+					Channels: s.testChannelSources(e.Channels)})
 			}
+			tj.Overridden = testOverrides(tj.Entries)
 			v.Tests = append(v.Tests, tj)
 		}
 		for _, c := range js.Contested {
@@ -765,6 +891,9 @@ type testsRequest struct {
 	Name   string               `json:"name"`
 	Steps  []testStepJSON       `json:"steps"`
 	Step   *int                 `json:"step"`
+	// On and Client (I2f): POST /api/tests/isolate.
+	On     *bool  `json:"on"`
+	Client string `json:"client"`
 }
 
 // testsHTTPError carries a status out of a tests action.
@@ -916,6 +1045,27 @@ func (s *Server) testsActionLocked(action string, req testsRequest, seq *testSeq
 			return nil
 		}
 		st.adHoc, st.adTests = false, nil
+		s.applyTestsLocked(nil, true)
+	case "isolate":
+		if req.On == nil {
+			return testsErr(http.StatusBadRequest, "Say whether Isolate is to be on or off (on: true or false).")
+		}
+		st.isoEnded = ""
+		if !*req.On {
+			s.DMX.EndIsolate()
+			return nil
+		}
+		if st.run == nil && !st.adHoc {
+			return testsErr(http.StatusConflict, "Turn a test on first: Isolate acts on the fixtures being tested.")
+		}
+		switch err := s.DMX.StartIsolate(req.Client, s.isolateEnded); {
+		case errors.Is(err, session.ErrOutputNotLive):
+			return testsErr(http.StatusPreconditionFailed, "Output is not live: Arm first. Isolate is never kept to start at a later Arm.")
+		case errors.Is(err, session.ErrIsolateClient):
+			return testsErr(http.StatusBadRequest, "Isolate needs this browser's client id, so it ends if the browser leaves.")
+		case err != nil:
+			return err
+		}
 		s.applyTestsLocked(nil, true)
 	case "fade":
 		if req.FadeMS == nil || *req.FadeMS < 0 || *req.FadeMS > patch.MaxPatternFade.Milliseconds() {

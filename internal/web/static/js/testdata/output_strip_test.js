@@ -181,6 +181,11 @@ const outWord = () => root.querySelector('[data-output]');
     const stop = root.querySelector('[data-stop]');
     check(!!stop && !stop.disabled && /DISARM<br>BLACKOUT/.test(root.innerHTML), `state ${JSON.stringify(st)}: the DISARM · BLACKOUT slab is present and enabled`);
     check(/Shared control · link OK/.test(boxHtml), `state ${JSON.stringify(st)}: "Shared control · link OK"`, boxHtml);
+    // I2f (owner 2026-10-09): the strip carries its state for the phone
+    // rule that hides the show name while armed (CSS), and the name stays
+    // in the strip for assistive technology.
+    check(root.getAttribute('data-out-state') === st.state, `state ${JSON.stringify(st)}: the strip carries data-out-state="${st.state}"`, root.getAttribute('data-out-state'));
+    check(!!root.querySelector('[data-show]'), `state ${JSON.stringify(st)}: the show name is still in the strip`);
   }
   // Simulated: its own words, beside the state.
   serverState = Object.assign({}, base, { state: 'armed', simulated: true });

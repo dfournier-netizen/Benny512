@@ -22,8 +22,8 @@ import (
 //   - COMPOSITION. Sources hold per-channel ownership on SHOW universes (the
 //     raw Art-Net Port-Address every stored universe already is). The
 //     transmitted frame starts all-zero and each source, in fixed priority
-//     order low→high — base, tests, group faders, programmer, highlight,
-//     raw — overwrites
+//     order low→high — base, tests, isolate (I2f), group faders,
+//     programmer, highlight, command, raw — overwrites
 //     the channels it owns. A higher source wins on every channel it owns
 //     and nowhere else. Lowlight (C4b) is not a source: it scales listed
 //     channels of what base..programmer composed, just below highlight.
@@ -143,6 +143,14 @@ const (
 	// of a tested universe; within its claim its output is identical to the
 	// pre-C3 whole-frame writes.
 	SourceTests
+	// SourceIsolate is the Tests' Isolate (chunk I2f, component-specs §16):
+	// while it is on, every channel of the tested fixtures that no test
+	// drives is held at 0 here, just above the tests and below everything
+	// manual, so a manual value still wins. It is transient by rule
+	// (StartIsolate): only while armed, ended by Disarm, by lease loss
+	// (both choices — dropped before a held look is taken) and when the
+	// browser that turned it on leaves; it is never resumed at Arm.
+	SourceIsolate
 	// SourceGroupFaders is the Console-lite group faders (chunk G2, owner
 	// decision 2026-10-08): a moved fader claims its fixtures' dimmer
 	// channels (and virtual dimmers) at its level. Above tests, below the
@@ -180,6 +188,8 @@ func (s Source) String() string {
 		return "base"
 	case SourceTests:
 		return "tests"
+	case SourceIsolate:
+		return "isolate"
 	case SourceGroupFaders:
 		return "group-faders"
 	case SourceProgrammer:
@@ -347,6 +357,18 @@ func (u *showUniverse) compose(vd []resolvedVirtual, scale []ScaleGroup, percent
 	return out
 }
 
+// owner (I2f) is the source compose takes slot i from: compose writes the
+// layers lowest priority first, so the highest-priority layer owning the
+// slot is the one whose value shows. ok is false when no layer owns it.
+func (u *showUniverse) owner(i int) (Source, bool) {
+	for s := numSources - 1; s >= 0; s-- {
+		if l := u.layers[s]; l != nil && l.owned[i] {
+			return Source(s), true
+		}
+	}
+	return 0, false
+}
+
 // wireStream is the transmit state of one Stream while it is on the wire.
 type wireStream struct {
 	key      Stream
@@ -404,6 +426,12 @@ type DMXOutputEngine struct {
 	commands map[uint64]map[uint16]LayerFrame
 	cmdDone  map[uint64]func(finished bool)
 	cmdSeq   uint64
+
+	// I2f Isolate (StartIsolate): on, the browser that turned it on, and
+	// the end callback.
+	isolateOn     bool
+	isolateClient string
+	isolateEnd    func(reason string)
 }
 
 // NewDMXOutputEngine builds a disarmed engine. Transport is required.
@@ -628,14 +656,88 @@ func (e *DMXOutputEngine) virtualLocked(raw uint16) []resolvedVirtual {
 	}
 	out := make([]resolvedVirtual, 0, len(defs))
 	for _, d := range defs {
-		for s := numSources - 1; s >= 0; s-- {
-			if lv, ok := e.vdLevels[s][d.Key]; ok {
-				out = append(out, resolvedVirtual{channels: d.Channels, level: lv})
-				break
-			}
+		if _, lv, ok := e.virtualClaimLocked(d.Key); ok {
+			out = append(out, resolvedVirtual{channels: d.Channels, level: lv})
 		}
 	}
 	return out
+}
+
+// virtualClaimLocked is the one resolution of a virtual dimmer's level:
+// the level set by the highest-priority source that has set one for key.
+// ok is false when no source claims it (untouched).
+func (e *DMXOutputEngine) virtualClaimLocked(key string) (Source, byte, bool) {
+	for s := numSources - 1; s >= 0; s-- {
+		if lv, ok := e.vdLevels[s][key]; ok {
+			return Source(s), lv, true
+		}
+	}
+	return 0, 0, false
+}
+
+// ChannelSource (I2f) is where the composed value of one channel comes
+// from: Source is the highest-priority source owning it (Owned false: no
+// source owns it, the slot is 0), and Identify is true while Universe
+// Identify replaces the wire stream of its universe.
+type ChannelSource struct {
+	Source   Source
+	Owned    bool
+	Identify bool
+}
+
+// ChannelSources (I2f) reports, for each 1-based channel of show universe
+// raw, where its composed value comes from — by the same layer order
+// compose applies (showUniverse.owner). A channel outside 1-512 reports
+// not owned. It is what is composed, armed or not; Lowlight and virtual
+// dimmers scale values but own nothing, so they are not reported.
+func (e *DMXOutputEngine) ChannelSources(raw uint16, channels []int) []ChannelSource {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	identify := e.identifyCoversLocked(raw)
+	u := e.shows[raw]
+	out := make([]ChannelSource, len(channels))
+	for i, ch := range channels {
+		out[i].Identify = identify
+		if u == nil || ch < 1 || ch > DMXUniverseSize {
+			continue
+		}
+		out[i].Source, out[i].Owned = u.owner(ch - 1)
+	}
+	return out
+}
+
+// VirtualSource (I2f) reports which source's level virtual dimmer key
+// resolves to (virtualClaimLocked); ok false: no source claims it.
+func (e *DMXOutputEngine) VirtualSource(key string) (Source, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	s, _, ok := e.virtualClaimLocked(key)
+	return s, ok
+}
+
+// identifyCoversLocked: Universe Identify owns a wire stream show universe
+// raw goes out on (by its routing, as desiredLocked maps it).
+func (e *DMXOutputEngine) identifyCoversLocked(raw uint16) bool {
+	if len(e.identify) == 0 {
+		return false
+	}
+	protos, ok := e.routing[raw]
+	if !ok {
+		protos = OutputArtNet
+	}
+	if protos&OutputArtNet != 0 {
+		if _, on := e.identify[Stream{WireArtNet, raw}]; on {
+			return true
+		}
+	}
+	if protos&OutputSACN != 0 && e.cfg.SACN.Universe != nil {
+		if su, err := e.cfg.SACN.Universe(raw); err == nil {
+			if _, on := e.identify[Stream{WireSACN, su}]; on {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // SetVirtualDimmers replaces every virtual dimmer definition (per show
@@ -923,6 +1025,112 @@ func (e *DMXOutputEngine) dropCommandsLocked() {
 	}
 }
 
+// Isolate end reasons (StartIsolate's end callback).
+const (
+	IsolateEndDisarm      = "output was disarmed"
+	IsolateEndLease       = "every browser went quiet (lease lost)"
+	IsolateEndBrowserLeft = "the browser that turned it on left"
+)
+
+// ErrIsolateClient: StartIsolate without the browser's client id.
+var ErrIsolateClient = errors.New("session: Isolate needs the browser's client id")
+
+// StartIsolate (I2f) turns Isolate on for client, the browser asking. It
+// refuses with ErrOutputNotLive unless the engine is armed — Isolate is
+// never kept to start at a later Arm — and with ErrIsolateClient without a
+// client id. While on, SetIsolateFrames' frames are claimed on
+// SourceIsolate. It ends — layer released, end called once with the reason,
+// never under the engine's lock — on Disarm, on lease loss (Blackout or Hold
+// last look; dropped before the held look is taken, so the hold is never an
+// isolated look), and when client says goodbye or goes silent for the lease.
+// EndIsolate ends it without calling end. Asking again while on moves it to
+// the new client and end. It counts as a heartbeat from client.
+func (e *DMXOutputEngine) StartIsolate(client string, end func(reason string)) error {
+	if client == "" {
+		return ErrIsolateClient
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.state != StateArmed {
+		return ErrOutputNotLive
+	}
+	e.clients[client] = e.cfg.Clock.Now() // it counts as a heartbeat, as Arm does
+	e.isolateOn, e.isolateClient, e.isolateEnd = true, client, end
+	return nil
+}
+
+// EndIsolate (I2f) turns Isolate off and releases its layer at once; its end
+// callback is not called. Safe when it is not on.
+func (e *DMXOutputEngine) EndIsolate() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.isolateEnd = nil
+	e.dropIsolateLocked("", true)
+}
+
+// Isolating (I2f) reports whether Isolate is on.
+func (e *DMXOutputEngine) Isolating() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.isolateOn
+}
+
+// SetIsolateFrames (I2f) replaces SourceIsolate's claim with frames while
+// Isolate is on; while it is off the frames are ignored (nothing is kept to
+// apply later). It is the only way onto SourceIsolate.
+func (e *DMXOutputEngine) SetIsolateFrames(frames map[uint16]LayerFrame) error {
+	for raw := range frames {
+		if raw > 0x7FFF {
+			return fmt.Errorf("%w: %d", ErrUniverseOutOfRange, raw)
+		}
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !e.isolateOn {
+		return nil
+	}
+	e.replaceSourceLocked(SourceIsolate, frames)
+	return nil
+}
+
+// dropIsolateLocked ends Isolate: its layer is released (pass: transmit the
+// change now — not when the caller is about to black out or hold), and its
+// end callback, if any, runs on its own goroutine with reason.
+func (e *DMXOutputEngine) dropIsolateLocked(reason string, pass bool) {
+	if !e.isolateOn {
+		return
+	}
+	e.isolateOn, e.isolateClient = false, ""
+	if cb := e.isolateEnd; cb != nil && reason != "" {
+		go cb(reason)
+	}
+	e.isolateEnd = nil
+	scope := map[uint16]bool{}
+	for raw, u := range e.shows {
+		if u.layers[SourceIsolate] == nil {
+			continue
+		}
+		u.layers[SourceIsolate] = nil
+		scope[raw] = true
+		if u.empty() {
+			delete(e.shows, raw)
+		}
+	}
+	if pass && len(scope) > 0 {
+		e.passLocked(passMode{shows: scope})
+	}
+}
+
+// isolateClientGoneLocked: the browser that turned Isolate on has not been
+// heard within the lease (it may be gone without a goodbye).
+func (e *DMXOutputEngine) isolateClientGoneLocked(now time.Time) bool {
+	if !e.isolateOn || e.lease < 0 {
+		return false
+	}
+	t, ok := e.clients[e.isolateClient]
+	return !ok || now.Sub(t) >= e.lease
+}
+
 // PublishSource is ReplaceSource with Rig Check's push discipline (chunk
 // C5): it atomically replaces every claim src holds with frames and then
 // transmits every universe src claimed before OR claims now — changed or not
@@ -1156,6 +1364,9 @@ func (e *DMXOutputEngine) Heartbeat(client string) {
 	now := e.cfg.Clock.Now()
 	e.clients[client] = now
 	e.pruneClientsLocked(now)
+	if e.isolateClientGoneLocked(now) {
+		e.dropIsolateLocked(IsolateEndBrowserLeft, true)
+	}
 }
 
 // Goodbye drops client from the lease at once (a page unload). If no other
@@ -1167,6 +1378,10 @@ func (e *DMXOutputEngine) Goodbye(client string) {
 	delete(e.clients, client)
 	if e.state == StateArmed && !e.leaseAliveLocked(e.cfg.Clock.Now()) {
 		e.leaseLostLocked()
+		return
+	}
+	if e.isolateOn && client == e.isolateClient {
+		e.dropIsolateLocked(IsolateEndBrowserLeft, true)
 	}
 }
 
@@ -1205,13 +1420,21 @@ func (e *DMXOutputEngine) leaseLostLocked() {
 	// first, and each of its channels holds what it would have returned to
 	// (the sources below it), so a Reset or Lamp off is never frozen on the
 	// wire for the whole hold.
+	// I2f: the same for Isolate — its slots hold what they show without it.
 	cmdSlots := map[uint16][DMXUniverseSize]bool{}
 	for raw, u := range e.shows {
-		if l := u.layers[SourceCommand]; l != nil {
-			cmdSlots[raw] = l.owned
+		for _, src := range []Source{SourceCommand, SourceIsolate} {
+			if l := u.layers[src]; l != nil {
+				m := cmdSlots[raw]
+				for i, o := range l.owned {
+					m[i] = m[i] || o
+				}
+				cmdSlots[raw] = m
+			}
 		}
 	}
 	e.dropCommandsLocked()
+	e.dropIsolateLocked(IsolateEndLease, false)
 	desired := e.desiredLocked()
 	e.hold = map[Stream][DMXUniverseSize]byte{}
 	for k, ws := range e.active {
@@ -1282,6 +1505,11 @@ func (e *DMXOutputEngine) disarmLocked(reason string) {
 	e.active = map[Stream]*wireStream{}
 	e.hold = nil
 	e.dropCommandsLocked()
+	if reason == "lease" {
+		e.dropIsolateLocked(IsolateEndLease, false)
+	} else {
+		e.dropIsolateLocked(IsolateEndDisarm, false)
+	}
 	e.closeLinkLocked()
 	if e.timer != nil {
 		e.timer.Stop()
@@ -1312,6 +1540,9 @@ func (e *DMXOutputEngine) tick() {
 		if e.state == StateDisarmed {
 			return
 		}
+	}
+	if e.isolateClientGoneLocked(e.cfg.Clock.Now()) {
+		e.dropIsolateLocked(IsolateEndBrowserLeft, false) // this tick's pass sends it
 	}
 	e.passLocked(passMode{tick: true})
 	e.scheduleLocked()

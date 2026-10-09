@@ -236,8 +236,8 @@ func (r *RigCheck) fadeVirtualLocked(comp patternComposition, now time.Time, pre
 		units[k] = u
 	}
 	for k, old := range r.virtualUnits {
-		if _, ok := units[k]; ok {
-			continue
+		if _, ok := units[k]; ok || old.fill {
+			continue // a white claim is released at once
 		}
 		if _, fading := r.virtualFades[k]; old.source.removed && !fading {
 			continue
@@ -246,9 +246,9 @@ func (r *RigCheck) fadeVirtualLocked(comp patternComposition, now time.Time, pre
 	}
 	out := make(map[string]byte, len(units))
 	for k, u := range units {
-		if old, exists := r.virtualUnits[k]; !exists || old.source != u.source {
+		if old, exists := r.virtualUnits[k]; !exists || old.source != u.source || old.fill != u.fill {
 			delete(r.virtualFades, k)
-			if r.patternFadeTime > 0 {
+			if r.patternFadeTime > 0 && !u.fill {
 				from, shown := r.patternVirtual[k]
 				if !shown {
 					from = 255
