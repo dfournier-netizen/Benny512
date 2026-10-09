@@ -65,7 +65,10 @@
 .b5-cc-fader { min-width: 0; }
 .b5-cc-faderhead { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-1) var(--b5-space-2); min-width: 0; }
 .b5-cc-faderhead .b5-param__label { flex: 1 1 10em; min-width: 0; overflow-wrap: anywhere; }
-.b5-cc-faderhead .b5-caption { white-space: nowrap; }
+/* name, then DMX / physical range: the caption wraps to its own line before
+   the name is ever broken mid-word */
+.b5-cc-faderhead .b5-param__label { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--b5-space-2); }
+.b5-cc-faderhead .b5-caption { white-space: normal; }
 .b5-cc-exact { width: 6.5em; }
 .b5-cc-faderrow { display: flex; align-items: center; gap: var(--b5-space-2); min-width: 0; }
 .b5-cc-track { position: relative; flex: 1 1 auto; min-width: 0; display: flex; align-items: center; }
@@ -105,6 +108,8 @@
 .b5-cc-slot.is-unreported { border-style: dashed; }
 .b5-cc-slot.is-on, .b5-cc-sets .b5-btn.is-on, .b5-cc-seglabel.is-on { border: var(--b5-size-state-border) solid var(--b5-color-accent-border); background: var(--b5-color-bg-selected); }
 .b5-cc-slot.is-partial, .b5-cc-sets .b5-btn.is-partial { border: var(--b5-size-state-border) dashed var(--b5-color-accent-border); }
+/* set and function-label buttons are pressable: 44 px on every pointer type (specs §7) */
+.b5-cc-sets .b5-btn, .b5-cc-seglabel { min-height: var(--b5-size-touch-min); min-width: var(--b5-size-touch-min); }
 .b5-cc-in { font-weight: var(--b5-font-weight-bold); color: var(--b5-color-text-primary); }
 .b5-cc-in:empty { display: none; }
 .b5-cc-slot__glyph { display: inline-flex; }
@@ -226,3 +231,34 @@
 .b5-cc-rawhead { margin: 0; }
 .b5-cc-rawbank { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: var(--b5-space-2); max-height: 60vh; overflow: auto; min-width: 0; }
 .b5-cc-rawch { border: var(--b5-border-width-thin) solid var(--b5-color-border-strong); border-radius: var(--b5-radius-sm); padding: var(--b5-space-2); min-width: 0; }
+
+/* I2d §12 fixture commands: one caution section at the end of the panel,
+   amber (not red), each command a 44 px button that opens a NON-modal
+   confirmation dialog placed below the master strip so Disarm stays
+   visible and operable. */
+.b5-cc-cmdzone { margin-top: var(--b5-space-4); padding: var(--b5-space-3); border: var(--b5-border-width-thick) solid var(--b5-color-warn-border); border-radius: var(--b5-radius-md); }
+.b5-cc-cmdzone h4 { display: flex; align-items: center; gap: var(--b5-space-2); margin: 0 0 var(--b5-space-2); color: var(--b5-color-text-warning); }
+.b5-cc-cmdrow { flex-wrap: wrap; gap: var(--b5-space-2); }
+.b5-cc-cmd { min-height: var(--b5-size-touch-min); border-color: var(--b5-color-warn-border); color: var(--b5-color-text-warning); }
+.b5-cc-cmd:hover:not(:disabled) { background: var(--b5-color-warn-fill); border-color: var(--b5-color-warn-border); }
+.b5-cc-seglabel--cmd { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-1); padding: var(--b5-space-1) var(--b5-space-2); border: var(--b5-border-width-thin) dashed var(--b5-color-warn-border); border-radius: var(--b5-radius-sm); }
+.b5-cc-cmddialog {
+  position: fixed; top: max(30vh, 180px); left: var(--b5-space-4); right: var(--b5-space-4);
+  margin: 0 auto; width: auto; max-width: 440px; max-height: calc(100dvh - max(30vh, 180px) - var(--b5-space-4)); overflow: auto;
+  z-index: var(--b5-z-overlay); padding: var(--b5-space-5);
+  background: var(--b5-color-bg-surface-overlay); color: var(--b5-color-text-primary);
+  border: var(--b5-border-width-thick) solid var(--b5-color-warn-border); border-radius: var(--b5-radius-md); box-shadow: var(--b5-shadow-lg);
+}
+.b5-cc-cmddialog h3 { margin: 0 0 var(--b5-space-2); }
+.b5-cc-cmdlist { margin: var(--b5-space-2) 0; padding-left: var(--b5-space-5); }
+.b5-cc-cmdchanged:not(:empty) { color: var(--b5-color-text-warning); font-weight: var(--b5-font-weight-bold); }
+.b5-cc-cmddialog .b5-btn { min-height: var(--b5-size-touch-min); }
+/* §12 optional hold component: a 60 px target for the remaining holds */
+.b5-cc-hold { min-height: var(--b5-size-control-lg); }
+
+/* I2d §14 presets: family glyph + name, "applies to n of m selected" when
+   partial; T/D wrap, P scrolls in its own box. */
+.b5-cc-presets { display: flex; flex-wrap: wrap; gap: var(--b5-space-2); }
+.b5-cc-preset { min-height: var(--b5-size-touch-min); flex-wrap: wrap; justify-content: flex-start; text-align: left; }
+.b5-cc-preset__applies { flex-basis: 100%; }
+@media (max-width: 767px) { .b5-cc-presets { flex-wrap: nowrap; overflow-x: auto; padding-bottom: var(--b5-space-1); } .b5-cc-preset { flex: none; } }

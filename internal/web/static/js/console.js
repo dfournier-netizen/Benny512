@@ -147,6 +147,25 @@ const ConsoleScreen = (() => {
   }
 
   // --- status line ------------------------------------------------------------
+  // choose (I2d §14): a NON-modal choice dialog (Disarm stays operable);
+  // resolves to the picked value, or null on Cancel / Escape. Cancel has
+  // focus first: a destructive choice is never the default.
+  function choose(o) {
+    return new Promise(resolve => {
+      let done = false;
+      const cancel = btn('Cancel', { attrs: { 'data-choice': 'cancel' } });
+      const dlg = h('dialog', { class: 'b5-con-floatdialog', 'data-choose': '', 'aria-label': o.title }, h('h3', { text: o.title }),
+        o.body ? h('p', { class: 'b5-note', text: o.body }) : null,
+        h('div', { class: 'b5-row b5-con-dialog__actions' }, cancel,
+          o.choices.map(c => btn(c.label, { cls: c.cls, attrs: { 'data-choice': c.value } }, () => finish(c.value)))));
+      const finish = v => { if (done) return; done = true; try { if (dlg.open) dlg.close(); } catch (_) { /* closed */ } dlg.remove(); resolve(v); };
+      cancel.addEventListener('click', () => finish(null));
+      dlg.addEventListener('keydown', ev => { if (ev.key === 'Escape') { if (ev.preventDefault) ev.preventDefault(); finish(null); } });
+      document.body.appendChild(dlg);
+      dlg.show();
+      cancel.focus();
+    });
+  }
   function status(msg, tone) {
     if (!els.status) return;
     clear(els.status);
@@ -315,6 +334,11 @@ const ConsoleScreen = (() => {
     els.lassoBox = h('div', { class: 'b5-con-lassobox', 'data-lasso-box': '', 'aria-hidden': 'true', hidden: true }, h('span', { class: 'b5-con-lassobox__word', text: 'Lasso' }));
     els.edit = h('div', { class: 'b5-con-edit', 'data-editpanel': '', hidden: true });
     els.summary = h('section', { class: 'b5-actionbar b5-con-summary', 'aria-label': 'Selection', 'data-summary': '' });
+    // I2d §15: the action bar's Clear / Fan / Lowlight-level panel. Built
+    // once and kept OUT of the summary, which redraws on every programmer
+    // broadcast — a half-typed fan must survive another browser's write.
+    els.actPanel = h('section', { class: 'b5-con-actpanel', id: 'conActPanel', 'data-act-panel': '', hidden: true });
+    els.actPanel.addEventListener('keydown', ev => { if (ev.key === 'Escape' && st.pop) { if (ev.preventDefault) ev.preventDefault(); closePop(true); } });
     append(root, [
       h('div', { class: 'b5-page-header' },
         h('h1', { class: 'b5-page-header__title', text: 'Console' }),
@@ -331,6 +355,7 @@ const ConsoleScreen = (() => {
       // of the grid whenever the page was taller than the room left by the
       // strip and the fader bar (1440x900 with the bar open).
       els.summary,
+      els.actPanel,
       h('div', { class: 'b5-con-main' },
         h('section', { class: 'b5-con-pane b5-con-pane--grid', 'aria-labelledby': 'conGridHead' },
           h('h2', { class: 'b5-board__head', id: 'conGridHead' },
@@ -1260,18 +1285,34 @@ const ConsoleScreen = (() => {
         })));
   }
 
-  // --- summary bar ---------------------------------------------------------------
+  // --- summary bar = the action bar (I2d, component-specs §15) -----------------
+  // Status (count + names) then: Clear… (scope chooser), More (phone), and
+  // the tools — Highlight ON/OFF with Previous/Next through the selection,
+  // Lowlight, Locate, Fan…, Tests, Store group. On a phone the bar stays one
+  // line (C6c): count, Clear…, More; the tools sit in More.
+  // The bar redraws on every broadcast, so the focused control is found
+  // again by its data-* key afterwards (Next can be pressed repeatedly).
+  const BAR_KEYS = ['data-hl-prev', 'data-hl-next', 'data-hl-all', 'data-highlight', 'data-lowlight', 'data-lowlight-level-open', 'data-locate',
+    'data-clear-open', 'data-fan-open', 'data-tests-jump', 'data-store-group', 'data-summary-more-toggle'];
+  function focusKey() {
+    const a = document.activeElement;
+    if (!a || !els.summary.contains(a)) return null;
+    const k = BAR_KEYS.find(x => a.hasAttribute(x));
+    return k ? [k, a.getAttribute(k)] : null;
+  }
   function renderSummary() {
     if (!els.summary) return;
+    const fk = focusKey();
     clear(els.summary);
     const p = prog();
     const s = selection();
     const cells = s.filter(x => x.cell).length;
-    const hl = !!(p && p.highlight && p.highlight.on);
+    const hv = (p && p.highlight) || {};
+    const hl = !!hv.on;
     const label = x => (x.name || 'Unnamed fixture') + (x.cell ? ' cell ' + (x.cellIndex || '?') + (x.cellName ? ' (' + x.cellName + ')' : '') : '');
     const shown = s.slice(0, 8).map((x, i) => (i + 1) + ' ' + label(x));
     const names = s.length ? shown.join(' · ') + (s.length > 8 ? ' · +' + (s.length - 8) + ' more' : '') : 'Tap a fixture, a cell, a group or a layer to select it.';
-    const more = summaryTools(s, hl);
+    const more = summaryTools(s, hv, label);
     append(els.summary, [
       h('div', { class: 'b5-actionbar__status b5-con-summary__status' },
         h('span', { class: 'b5-actionbar__title', text: 'Selection' }),
@@ -1280,15 +1321,17 @@ const ConsoleScreen = (() => {
           s.length ? s.length + ' selected' + (cells ? ' · ' + cells + (cells === 1 ? ' cell' : ' cells') : '') : 'Nothing selected'),
         h('span', { class: 'b5-con-summary__names', 'data-sel-names': '', title: s.map((x, i) => (i + 1) + ' ' + label(x)).join(', ') }, names)),
       h('div', { class: 'b5-actionbar__buttons b5-con-summary__buttons' },
-        btn(h('span', {}, 'Clear', h('span', { class: 'b5-con-summary__long', text: ' selection' })), { attrs: { 'data-clear-selection': '' }, disabled: !s.length }, () => sel({ action: 'none' })),
-        // C6c: on a phone the bar is one line — count, Clear and this More
-        // button; Store group, Highlight and Locate sit in its menu. Wider
-        // screens hide the button and show the three inline (CSS).
+        btn('Clear…', { icon: 'clear', cls: 'b5-con-act' + (st.pop === 'clear' ? ' is-on' : ''), attrs: { 'data-clear-open': '', 'aria-expanded': st.pop === 'clear' ? 'true' : 'false', 'aria-controls': 'conActPanel' } }, () => togglePop('clear')),
         btn(hl ? 'More · Highlight ON' : 'More', { cls: 'b5-con-summary__morebtn', attrs: { 'data-summary-more-toggle': '', 'aria-expanded': st.moreOpen ? 'true' : 'false', 'aria-controls': 'conSummaryMore' } },
           () => { st.moreOpen = !st.moreOpen; renderSummary(); }),
         more),
     ]);
+    if (fk) {
+      const back = els.summary.querySelector('[' + fk[0] + ']');
+      if (back && !back.disabled) back.focus();
+    }
   }
+
   // --- selection order list (I2b §3) ---------------------------------------------
   // The visible text list of the selection in order — the order Fan uses.
   // The total line is a polite live region; it is rewritten only when the
@@ -1308,25 +1351,64 @@ const ConsoleScreen = (() => {
     els.orderList.hidden = !s.length;
   }
 
-  // summaryTools: the three tools behind More on a phone.
-  function summaryTools(s, hl) {
+  // summaryTools: the tools inline on wide screens, behind More on a phone.
+  function summaryTools(s, hv, label) {
+    const hl = !!hv.on;
+    const n = s.length;
+    const step = hl && typeof hv.step === 'number' && hv.step < n ? hv.step : null;
+    const hlAct = async (body, words) => {
+      try { await ProgrammerSync.act('highlight', body); status(words || ''); }
+      catch (e) { status(e.message, 'error'); }
+    };
+    // §15: Previous/Next follow selection order and do not wrap; the step
+    // line says where Highlight is and "last of n" at the end.
+    const stepWords = step === null ? 'Highlight: whole selection (' + n + ')'
+      : 'Highlight: ' + (step + 1) + ' of ' + n + ' · ' + label(s[step]) + (step === n - 1 ? ' · last of ' + n : step === 0 ? ' · first' : '');
+    const stepping = hl ? h('div', { class: 'b5-con-hlstep', role: 'group', 'aria-label': 'Highlight one at a time' },
+      btn('Previous', { icon: 'seq-back', attrs: { 'data-hl-prev': '' }, disabled: !n }, () => hlAct({ step: 'previous' })),
+      btn('Next', { icon: 'seq-next', attrs: { 'data-hl-next': '' }, disabled: !n }, () => hlAct({ step: 'next' })),
+      step !== null ? btn('All', { attrs: { 'data-hl-all': '', title: 'Highlight the whole selection again' } }, () => hlAct({ step: 'all' })) : null,
+      h('span', { class: 'b5-caption b5-con-hlstep__words', role: 'status', 'data-hl-step': '' }, stepWords)) : null;
+    const pct = hv.lowlightPercent !== undefined ? hv.lowlightPercent : 20;
     const more = h('div', { class: 'b5-con-summary__more' + (st.moreOpen ? ' is-open' : ''), id: 'conSummaryMore', 'data-summary-more': '' },
-        btn('Store group…', { attrs: { 'data-store-group': '' }, disabled: !s.length }, async () => {
-          const name = await ask({ title: 'Store the selection as a group', body: 'The group keeps the fixtures and cells in this selection order.', field: { label: 'Group name', value: '', maxLength: 80 }, ok: 'Store group' });
-          if (name === null) return;
-          try { await ProgrammerSync.act('groups/store', { name }); status('Stored group ' + name + '.'); }
-          catch (e) { status(e.message, 'error'); }
-        }),
-        seg(hl ? 'Highlight: ON' : 'Highlight: OFF', hl, { 'data-highlight': '' }, async () => {
-          try { await ProgrammerSync.act('highlight', { highlight: !hl }); status(''); }
-          catch (e) { status(e.message, 'error'); }
-        }),
-        btn('Locate', { attrs: { 'data-locate': '' }, disabled: !s.length, icon: 'identify' }, async () => {
+        seg([ic('highlight'), hl ? 'Highlight: ON' : 'Highlight: OFF'], hl, { 'data-highlight': '' }, () => hlAct({ highlight: !hl })),
+        stepping,
+        seg([ic('lowlight'), hv.lowlight ? 'Lowlight: ON · ' + pct + ' %' : 'Lowlight: OFF'], !!hv.lowlight, { 'data-lowlight': '', title: 'Lowlight dims every fixture that is not highlighted, while Highlight is ON' },
+          () => hlAct({ lowlight: !hv.lowlight })),
+        btn('Level ' + pct + ' %…', { cls: 'b5-con-act' + (st.pop === 'lowlight' ? ' is-on' : ''), attrs: { 'data-lowlight-level-open': '', 'aria-expanded': st.pop === 'lowlight' ? 'true' : 'false', 'aria-controls': 'conActPanel' } }, () => togglePop('lowlight')),
+        btn('Locate', { attrs: { 'data-locate': '' }, disabled: !n, icon: 'locate' }, async () => {
           try { await ProgrammerSync.act('locate', {}); status('Located the selection: open white, centred (reaches the rig only while output is armed).'); }
           catch (e) { status(e.message, 'error'); }
+        }),
+        btn('Fan…', { icon: 'fan-linear', cls: 'b5-con-act' + (st.pop === 'fan' ? ' is-on' : ''), attrs: { 'data-fan-open': '', 'aria-expanded': st.pop === 'fan' ? 'true' : 'false', 'aria-controls': 'conActPanel' }, disabled: n < 2 }, () => togglePop('fan')),
+        btn('Tests', { icon: 'test', attrs: { 'data-tests-jump': '', title: 'Go to the Tests panel' } }, () => {
+          if (!els.tests) return;
+          if (els.tests.scrollIntoView) els.tests.scrollIntoView({ block: 'start' });
+          const f = els.tests.querySelector('button, summary, [tabindex]');
+          if (f) f.focus();
+        }),
+        btn('Store group…', { icon: 'store-group', attrs: { 'data-store-group': '' }, disabled: !n }, async () => {
+          const name = await ask({ title: 'Store the selection as a group', body: 'The group keeps the fixtures and cells in this selection order.', field: { label: 'Group name', value: '', maxLength: 80 }, ok: 'Store group' });
+          if (name === null) return;
+          // §14: an existing name asks Replace / Merge / Save as new.
+          const same = (((prog() || {}).storedGroups) || []).find(g => g.name.toLowerCase() === name.toLowerCase());
+          let action = 'groups/store', body = { name }, words = 'Stored group ' + name + '.';
+          if (same) {
+            const c = await choose({ title: 'A group named "' + same.name + '" exists', body: 'Merge adds this selection after its members; Replace makes it exactly this selection; Save as new keeps it.',
+              choices: [{ label: 'Save as new', value: 'new' }, { label: 'Merge into "' + same.name + '"', value: 'merge' }, { label: 'Replace "' + same.name + '"', value: 'replace', cls: 'b5-con-caution' }] });
+            if (c === null) return;
+            if (c === 'merge') { action = 'groups/merge'; body = { id: same.id }; words = 'Merged the selection into ' + same.name + '.'; }
+            if (c === 'replace') { action = 'groups/update'; body = { id: same.id }; words = 'Replaced ' + same.name + ' with the selection.'; }
+          }
+          try { await ProgrammerSync.act(action, body); status(words); }
+          catch (e) { status(e.message, 'error'); }
         }));
-    // Picking a tool closes the menu.
-    more.addEventListener('click', () => { st.moreOpen = false; more.classList.remove('is-open'); });
+    // Picking a tool closes the phone menu — except stepping, which is
+    // pressed again and again.
+    more.addEventListener('click', ev => {
+      if (ev.target && ev.target.closest && ev.target.closest('[data-hl-prev], [data-hl-next], [data-hl-all]')) return;
+      st.moreOpen = false; more.classList.remove('is-open');
+    });
     more.addEventListener('keydown', ev => {
       if (ev.key !== 'Escape' || !st.moreOpen) return;
       st.moreOpen = false;
@@ -1336,6 +1418,53 @@ const ConsoleScreen = (() => {
     });
     return more;
   }
+
+  // --- the action panel (Clear scopes, Fan, Lowlight level) --------------------
+  function togglePop(kind) {
+    // The phone's More menu closes when a tool opens its panel. Set here,
+    // before the bar redraws: the menu's own click listener runs after this
+    // handler, on the element the redraw just replaced.
+    st.moreOpen = false;
+    if (st.pop === kind) return closePop(true);
+    st.pop = kind;
+    renderPop();
+    renderSummary();
+    const f = els.actPanel.querySelector('[data-act-first]') || els.actPanel.querySelector('button, select, input');
+    if (f) f.focus();
+  }
+  function closePop(refocus) {
+    const kind = st.pop;
+    st.pop = null;
+    renderPop();
+    renderSummary();
+    if (!refocus) return;
+    const opener = { clear: '[data-clear-open]', fan: '[data-fan-open]', lowlight: '[data-lowlight-level-open]' }[kind];
+    const o = opener && els.summary.querySelector(opener);
+    if (o && !(o.offsetParent === null && o.getClientRects && !o.getClientRects().length)) o.focus();
+    else { const m = els.summary.querySelector('[data-summary-more-toggle]'); if (m) m.focus(); }
+  }
+  function renderPop() {
+    if (!els.actPanel) return;
+    clear(els.actPanel);
+    const A = typeof ConsoleControls !== 'undefined' && ConsoleControls.actions;
+    if (!st.pop || !A || !selection().length) { st.pop = st.pop && selection().length ? st.pop : null; els.actPanel.hidden = true; return; }
+    els.actPanel.hidden = false;
+    const done = () => closePop(false);
+    const close = btn('Close', { attrs: { 'data-act-close': '' } }, () => closePop(true));
+    const fam = A.label();
+    const content = {
+      clear: () => [h('h3', { id: 'conActHead', text: 'Clear programmer values' }),
+        h('p', { class: 'b5-caption', text: 'Clearing hands each channel back to what is underneath: a group fader, a running test, or the profile default. Nothing else to apply.' }),
+        A.clearScopes(done)],
+      fan: () => [h('h3', { id: 'conActHead', text: 'Fan ' + (fam ? fam + ' ' : '') + 'in selection order' }), A.fanForm(done)],
+      lowlight: () => [h('h3', { id: 'conActHead', text: 'Lowlight level' }), A.lowlightForm(done)],
+    }[st.pop];
+    els.actPanel.setAttribute('aria-labelledby', 'conActHead');
+    append(els.actPanel, [...content(), h('div', { class: 'b5-row b5-con-actpanel__close' }, close)]);
+  }
+  // ConsoleControls calls this after it redraws (the family or the
+  // selection's attributes may have changed under an open panel).
+  function actionsChanged() { if (st.pop && st.pop !== 'lowlight' && !(els.actPanel && els.actPanel.contains(document.activeElement) && st.pop === 'fan')) renderPop(); }
 
   // --- phone layout: keep the sticky summary above the fixed bottom nav ------
   // The mobile nav is position:fixed at the bottom; a sticky bottom:0 bar sits
@@ -1393,5 +1522,5 @@ const ConsoleScreen = (() => {
     lassoEnd();
   }
 
-  return { init, onEnterScreen, onLeaveScreen, load, _state: st };
+  return { init, onEnterScreen, onLeaveScreen, load, actionsChanged, _state: st };
 })();

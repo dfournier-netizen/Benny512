@@ -34,9 +34,11 @@ func TestI2aConsoleNavIcon(t *testing.T) {
 // before the grid and is never sticky.
 func TestI2aSelectionSummaryAboveGrid(t *testing.T) {
 	js := readJS(t, "console.js")
-	sum := strings.Index(js, "      els.summary,\n      h('div', { class: 'b5-con-main' },")
+	// I2d: the action bar's panel (Clear scopes / Fan / Lowlight level)
+	// sits in flow between the bar and the panes.
+	sum := strings.Index(js, "      els.summary,\n      els.actPanel,\n      h('div', { class: 'b5-con-main' },")
 	if sum < 0 {
-		t.Errorf("console.js does not place els.summary directly before the b5-con-main panes")
+		t.Errorf("console.js does not place els.summary (then its action panel) directly before the b5-con-main panes")
 	}
 	css, err := os.ReadFile("static/css/screens-console.css")
 	if err != nil {

@@ -472,8 +472,12 @@ const ConsoleControls = (() => {
     const stop = () => { if (timer) { clearTimeout(timer); timer = null; } b.classList.remove('is-holding'); };
     b.addEventListener('pointerdown', start);
     ['pointerup', 'pointerleave', 'pointercancel'].forEach(t => b.addEventListener(t, stop));
-    b.addEventListener('keydown', ev => { if ((ev.key === ' ' || ev.key === 'Enter') && !ev.repeat) start(ev); });
+    b.addEventListener('keydown', ev => {
+      if (ev.key === 'Escape') return stop();
+      if ((ev.key === ' ' || ev.key === 'Enter') && !ev.repeat) start(ev);
+    });
     b.addEventListener('keyup', ev => { if (ev.key === ' ' || ev.key === 'Enter') stop(); });
+    b.addEventListener('blur', stop);
     b.addEventListener('click', ev => { if (ev && ev.preventDefault) ev.preventDefault(); });
     return b;
   }
@@ -509,9 +513,164 @@ const ConsoleControls = (() => {
   }
   function inWord(n, m) { return !m || !n ? '' : n === m ? 'IN' : 'IN on ' + n + ' of ' + m; }
   // A function whose attribute is a reset or lamp command never fires on a
-  // single tap (§7: control commands route through confirmation — I2d
-  // replaces this hold with the dialog).
+  // single tap (§7: control commands route through confirmation).
   const COMMAND_FN = /Reset|^Lamp/;
+
+  // --- §12 fixture commands: Reset and Lamp off ask first -------------------
+  // Owner (2026-10-08): a confirmation dialog for Lamp off and Reset,
+  // superseding the 0.75 s hold for those two. Every other Control
+  // function keeps the hold (§12 "optional hold component ... for existing
+  // non-Reset/Lamp-off controls"). Reset: the function's attribute says so
+  // (GDTF FixtureGlobalReset, PanReset, ...) or its name does. Lamp off:
+  // the NAME says lamp and off — LampControl also carries "Lamp On" and
+  // "Home position off", which are not lamp-off commands.
+  function commandKind(attribute, name) {
+    if (/Reset/.test(attribute || '') || /\breset\b/i.test(name || '')) return 'reset';
+    if (/\blamp\b/i.test(name || '') && /\boff\b/i.test(name || '')) return 'lampoff';
+    return null;
+  }
+  // cmds collects the commands met while a panel renders; render() draws
+  // them in one caution section at the end of the panel, away from the
+  // frequent controls.
+  let cmds = [];
+  const cmdDialogs = new Map(); // command key -> its open dialog (one each)
+  let cmdSeq = 0;
+  // resolveCmd re-reads a command against the CURRENT programmer view: the
+  // attribute, its channel layout, the function (by index AND name) and
+  // the set/slot must still exist; the targets are that layout's channels
+  // now. null when the command no longer applies.
+  function resolveCmd(c) {
+    const a = findAttr(c.attr);
+    if (!a || !a.variants[c.vi]) return null;
+    const av = vview(a, c.vi);
+    const f = v0(av).functions[c.fi];
+    if (!f || f.name !== c.fnName) return null;
+    if (c.extra.set !== undefined && !f.sets.some(s => !s.hasWheelSlot && s.name === c.extra.set)) return null;
+    if (c.extra.slot !== undefined && !f.sets.some(s => s.hasWheelSlot && s.wheelSlot === c.extra.slot)) return null;
+    const targets = tgt(av);
+    if (!targets.length) return null;
+    return { targets, key: targets.map(t => t.entryId + '/' + t.cell).join(',') };
+  }
+  function targetName(t) {
+    const x = sel().find(s => s.entryId === t.entryId && (s.cell || '') === (t.cell || ''))
+      || sel().find(s => s.entryId === t.entryId);
+    const name = (x && x.name) || 'Unnamed fixture';
+    return t.cell ? name + ' · cell ' + ((x && x.cellIndex) || t.cell) : name;
+  }
+  function cmdButton(c) {
+    const b = h('button', { type: 'button', class: 'b5-btn b5-cc-cmd', 'aria-haspopup': 'dialog', 'data-cmd': c.key, title: c.label + ' — ' + c.attr },
+      ic(c.kind === 'reset' ? 'reset' : 'lamp'), h('span', {}, h('span', { class: 'b5-fromfile', text: c.label }), '…'));
+    b.addEventListener('click', () => confirmCommand(c, b));
+    return b;
+  }
+  function cmdZone(list) {
+    const seen = new Map();
+    list.forEach(c => seen.set(c.label, (seen.get(c.label) || 0) + 1));
+    return h('section', { class: 'b5-cc-cmdzone', 'data-cmd-zone': '', 'aria-labelledby': 'b5-cc-cmdzone-head' },
+      h('h4', { id: 'b5-cc-cmdzone-head' }, ic('status-warning'), 'Fixture commands'),
+      h('p', { class: 'b5-caption', text: 'Reset temporarily interrupts fixture control; Lamp off puts the lamp out.' }),
+      h('div', { class: 'b5-row b5-cc-cmdrow' }, list.map(c => {
+        const b = cmdButton(c);
+        if (seen.get(c.label) > 1) b.appendChild(h('span', { class: 'b5-caption', text: ' · ' + c.attr }));
+        return b;
+      })),
+      h('p', { class: 'b5-caption', text: 'Each command asks for confirmation. The selection is checked again before anything is sent.' }));
+  }
+  // confirmCommand (§12): a NON-modal dialog — the master strip and Disarm
+  // stay operable — naming the actual targets and the consequence, Cancel
+  // focused, an explicit action word, Escape cancels, focus goes back to
+  // the trigger. On confirm it re-reads the programmer and re-resolves the
+  // command; if the targets or the command changed it redraws and asks
+  // again. The write names its targets explicitly and carries this
+  // browser's revision, so a change that lands in between is refused by
+  // the server (409) and also asks again — never a silent retry.
+  function confirmCommand(c, trigger) {
+    const open = cmdDialogs.get(c.key);
+    if (open) { const cancel0 = open.querySelector('[data-cmd-cancel]'); if (cancel0) cancel0.focus(); return; }
+    const id = 'b5-cc-cmd-' + (++cmdSeq);
+    const title = h('h3', { id: id + '-t' });
+    const list = h('ul', { class: 'b5-cc-cmdlist', 'data-cmd-targets': '' });
+    const what = h('p', { id: id + '-d' });
+    const outNote = h('p', { class: 'b5-caption', 'data-cmd-output': '' });
+    const changed = h('p', { class: 'b5-cc-cmdchanged', role: 'alert', 'data-cmd-changed': '' });
+    const cancel = btn('Cancel', { 'data-cmd-cancel': '' });
+    const go = btn(c.kind === 'reset' ? 'Reset fixtures' : 'Switch off lamps', { 'data-cmd-confirm': '' }, null, 'b5-cc-cmd');
+    const dlg = h('dialog', { class: 'b5-cc-cmddialog', 'data-cmd-dialog': c.key, 'aria-labelledby': id + '-t', 'aria-describedby': id + '-d' },
+      title, what, list, outNote, changed, h('div', { class: 'b5-row b5-con-dialog__actions' }, cancel, go));
+    let shown = null;
+    let busy = false;
+    let repeatKey = false;
+    const draw = () => {
+      shown = resolveCmd(c);
+      clear(list);
+      if (!shown) {
+        title.textContent = c.label + ' — not available';
+        what.textContent = 'The selection no longer has ' + c.label + ' on ' + c.attr + '. Nothing will be sent.';
+        go.disabled = true;
+        return;
+      }
+      const n = new Set(shown.targets.map(t => t.entryId)).size;
+      title.textContent = c.kind === 'reset' ? 'Reset ' + n + (n === 1 ? ' fixture?' : ' fixtures?') : 'Switch off ' + n + (n === 1 ? ' lamp?' : ' lamps?');
+      shown.targets.forEach(t => list.appendChild(h('li', { text: targetName(t) })));
+      what.textContent = (c.kind === 'reset'
+        ? (n === 1 ? 'This fixture will reset' : 'These fixtures will reset') + ' (' + c.label + '). Their light and movement may stop while they restart.'
+        : (n === 1 ? 'This lamp will go out' : 'These lamps will go out') + ' (' + c.label + '). Some lamps need time before they can restart.');
+      const p = prog();
+      outNote.textContent = p && p.output && !p.output.live
+        ? 'Output is not live: nothing reaches the fixtures now. The programmer keeps the value and sends it when output is armed.' : '';
+      go.disabled = false;
+    };
+    const close = () => {
+      if (!cmdDialogs.has(c.key)) return;
+      cmdDialogs.delete(c.key);
+      try { if (dlg.open) dlg.close(); } catch (_) { /* closed */ }
+      dlg.remove();
+      // The panel may have redrawn while the dialog was open: the trigger
+      // is then a new element with the same key.
+      const back = trigger && trigger.isConnected !== false && document.body.contains(trigger) ? trigger
+        : (els.body && els.body.querySelector('[data-cmd="' + c.key + '"]'));
+      if (back) back.focus();
+    };
+    cancel.addEventListener('click', close);
+    dlg.addEventListener('keydown', ev => {
+      if (ev.key === 'Escape') { if (ev.preventDefault) ev.preventDefault(); close(); return; }
+      repeatKey = !!ev.repeat;
+    });
+    dlg.addEventListener('cancel', ev => { if (ev.preventDefault) ev.preventDefault(); close(); });
+    go.addEventListener('click', async () => {
+      // A held key auto-repeating onto this button is not a decision.
+      if (busy || go.disabled || repeatKey) return;
+      busy = true;
+      try {
+        const before = shown;
+        await ProgrammerSync.refresh();
+        const now = resolveCmd(c);
+        if (!now || !before || now.key !== before.key) {
+          draw();
+          changed.textContent = 'The selection changed since this opened. Check the list and confirm again.';
+          if (go.disabled) cancel.focus();
+          return;
+        }
+        const body = Object.assign({ targets: now.targets, attribute: c.attr, functionIndex: c.fi }, c.extra);
+        try {
+          const res = await ProgrammerSync.act('set', body);
+          close();
+          say('Sent ' + c.label + ' to ' + now.targets.length + ' target(s).');
+          report(res);
+        } catch (e) {
+          if (/another browser/.test(e.message)) {
+            draw();
+            changed.textContent = 'The programmer changed while sending, so nothing was sent. Check the list and confirm again.';
+          } else changed.textContent = e.message;
+        }
+      } finally { busy = false; }
+    });
+    draw();
+    cmdDialogs.set(c.key, dlg);
+    document.body.appendChild(dlg);
+    dlg.show();
+    cancel.focus();
+  }
 
   // rangeRail (§7): the channel's functions as proportional segments on
   // the channel's whole DMX span (overlapping functions — mode-master
@@ -541,7 +700,10 @@ const ConsoleControls = (() => {
       const state = h('span', { class: 'b5-cc-in', 'data-seg-state': k(i) });
       const words = [fnIcon(f) ? ic(fnIcon(f)) : null, h('span', { class: 'b5-cc-seg__name b5-fromfile', text: f.name }),
         h('span', { class: 'b5-cc-seg__range', text: 'DMX ' + num(f.dmxFrom) + '–' + num(f.dmxTo) + (f.modeMaster ? ' · needs ' + f.modeMaster : '') }), state];
-      const b = COMMAND_FN.test(f.attribute) ? holdButton(f.name, { 'data-seg': k(i), title: f.name }, () => write('set', body, 'Sent ' + f.name + '.'))
+      const kind = COMMAND_FN.test(f.attribute) ? commandKind(f.attribute, f.name) : null;
+      if (kind) cmds.push({ kind, key: k(i), label: f.name, attr: a.attribute, vi, fi: i, fnName: f.name, extra: { dmx: at } });
+      const b = kind ? h('span', { class: 'b5-cc-seglabel b5-cc-seglabel--cmd', 'data-seg': k(i) }, words, h('span', { class: 'b5-caption', text: ' · in Fixture commands' }))
+        : COMMAND_FN.test(f.attribute) ? holdButton(f.name, { 'data-seg': k(i), title: f.name }, () => write('set', body, 'Sent ' + f.name + '.'))
         : h('button', { type: 'button', class: 'b5-btn b5-btn--sm b5-cc-seglabel', 'data-seg': k(i), title: f.name + ' — jumps to DMX ' + at, 'aria-pressed': 'false' }, words);
       if (!COMMAND_FN.test(f.attribute)) b.addEventListener('click', () => write('set', body));
       labels.appendChild(b);
@@ -669,7 +831,7 @@ const ConsoleControls = (() => {
       if (sh) into.appendChild(sh.el);
       functionControls(av, vi, control, into, sh ? sh.covers : null);
     });
-    if (control) body.appendChild(h('p', { class: 'b5-note', text: 'Control channels have no faders: a sweep would pass through reset and lamp ranges. Hold a button for 0.75 s to send it.' }));
+    if (control) body.appendChild(h('p', { class: 'b5-note', text: 'Control channels have no faders: a sweep would pass through reset and lamp ranges. Hold a button for 0.75 s to send it; Reset and Lamp off are under Fixture commands and ask first.' }));
     const card = h('details', { class: 'b5-cc-attr', 'data-attr': a.attribute }, head, body);
     card.open = st.open[a.attribute] !== false;
     card.addEventListener('toggle', () => { st.open[a.attribute] = card.open; });
@@ -741,6 +903,8 @@ const ConsoleControls = (() => {
         const row = h('div', { class: 'b5-cc-slots', role: 'group', 'aria-label': f.name + ' slots' });
         slots.forEach(s => {
           const body0 = Object.assign({ targets: tgt(a), attribute: a.attribute }, ref, { slot: s.wheelSlot });
+          const kind = control ? commandKind(f.attribute, slotLabel(s)) : null;
+          if (kind) { cmds.push({ kind, key: k(i) + '#' + s.wheelSlot, label: slotLabel(s), attr: a.attribute, vi, fi: i, fnName: f.name, extra: { slot: s.wheelSlot } }); return; }
           if (control) {
             const b = holdButton(slotLabel(s), { 'data-slot': k(i) + '#' + s.wheelSlot }, () => write('set', body0, 'Sent ' + slotLabel(s) + '.'));
             mark(b, i, s);
@@ -765,6 +929,8 @@ const ConsoleControls = (() => {
         const row = h('div', { class: 'b5-cc-sets', role: 'group', 'aria-label': f.name + ' states' });
         named.forEach(s => {
           const body0 = Object.assign({ targets: tgt(a), attribute: a.attribute }, ref, { set: s.name });
+          const kind = control ? commandKind(f.attribute, s.name) : null;
+          if (kind) { cmds.push({ kind, key: k(i) + '#' + s.name, label: s.name, attr: a.attribute, vi, fi: i, fnName: f.name, extra: { set: s.name } }); return; }
           if (control) {
             const b = holdButton(s.name, { 'data-set': k(i) + '#' + s.name }, () => write('set', body0, 'Sent ' + s.name + '.'));
             mark(b, i, s);
@@ -782,7 +948,9 @@ const ConsoleControls = (() => {
       if (control) {
         if (!slots.length && !named.length) {
           const body0 = Object.assign({ targets: tgt(a), attribute: a.attribute }, ref, { fraction: 0 });
-          box.appendChild(holdButton(f.name, { 'data-hold-fn': k(i) }, () => write('set', body0, 'Sent ' + f.name + '.')));
+          const kind = commandKind(f.attribute, f.name);
+          if (kind) cmds.push({ kind, key: k(i), label: f.name, attr: a.attribute, vi, fi: i, fnName: f.name, extra: { fraction: 0 } });
+          else box.appendChild(holdButton(f.name, { 'data-hold-fn': k(i) }, () => write('set', body0, 'Sent ' + f.name + '.')));
         }
       } else if (single && !slots.length && !named.length) {
         box.appendChild(btn(f.name, { 'data-fn-button': k(i) }, () => write('set', Object.assign({ targets: tgt(a), attribute: a.attribute }, ref, { fraction: 0 }))));
@@ -1231,8 +1399,10 @@ const ConsoleControls = (() => {
       const mixed = (b.A && b.A.mixed) || (b.B && b.B.mixed);
       // drawn for the top side, then rotated to its side
       const pts = [[edge, edge], [230 - edge, edge], [230 - edge, edge + db], [edge, edge + da]].map(p => p.join(',')).join(' ');
-      svg += '<g transform="rotate(' + idx * 90 + ' 115 115)"><polygon class="b5-cc-shaper__blade' + (mixed ? ' is-mixed' : '') + '" points="' + pts + '"/>' +
-        '<text class="b5-cc-shaper__ab" x="' + (edge + 4) + '" y="' + (edge - 4) + '">A</text><text class="b5-cc-shaper__ab" x="' + (230 - edge - 12) + '" y="' + (edge - 4) + '">B</text></g>';
+      svg += '<g transform="rotate(' + idx * 90 + ' 115 115)"><polygon class="b5-cc-shaper__blade' + (mixed ? ' is-mixed' : '') + '" points="' + pts + '"/></g>';
+      // A / B letters stay upright: their spots are rotated, the text is not.
+      const rot = (x, y) => { const t = idx * Math.PI / 2, c = Math.round(Math.cos(t)), s = Math.round(Math.sin(t)); return [115 + (x - 115) * c - (y - 115) * s, 115 + (x - 115) * s + (y - 115) * c]; };
+      [['A', edge + 8], ['B', 230 - edge - 8]].forEach(([w, x]) => { const p = rot(x, edge - 9); svg += '<text class="b5-cc-shaper__ab" x="' + p[0] + '" y="' + (p[1] + 4) + '" text-anchor="middle">' + w + '</text>'; });
       const lx = [115, 222, 115, 8][idx], ly = [16, 120, 226, 120][idx];
       svg += '<text class="b5-cc-shaper__num" x="' + lx + '" y="' + ly + '" text-anchor="middle">' + b.n + '</text>';
       said.push('Blade ' + b.n + ' (drawn ' + side + '): A ' + pctOf(b.A) + ', B ' + pctOf(b.B) + (b.R ? ', angle ' + pctOf(b.R) : '') + (mixed ? ' — MIXED, dashed' : ''));
@@ -1310,27 +1480,38 @@ const ConsoleControls = (() => {
       (input || ok).focus();
     });
   }
-  function toolbar(group) {
-    const p = prog();
-    const hl = (p && p.highlight) || {};
-    const label = GROUP_LABEL[group] || group;
-    const clearRow = h('div', { class: 'b5-row', role: 'group', 'aria-label': 'Clear the programmer' },
-      h('span', { class: 'b5-cc-rowlabel', text: 'Clear' }),
-      btn(label + ' on selection', { 'data-clear-group': group }, () => write('clear', { scope: 'selection', group }, r => 'Cleared ' + r.released + ' ' + label + ' channel(s) of the selection.')),
-      btn('Selection values', { 'data-clear-selection-values': '' }, () => write('clear', { scope: 'selection' }, r => 'Cleared ' + r.released + ' channel(s) of the selection.')),
-      btn('Everything', { 'data-clear-all': '' }, () => write('clear', { scope: 'all' }, r => 'Cleared the whole programmer (' + r.released + ' channel(s)) and the selection.')));
+  // --- §15 action-bar parts (drawn by console.js in the selection bar) -------
+  // Clear scopes, the Fan form and the Lowlight level are family-aware, so
+  // they are built here and handed to the action bar. done() closes the
+  // bar's panel after a write.
+  function clearScopes(done) {
+    const group = st.tab;
+    const label = GROUP_LABEL[group] || group || 'Family';
+    const fin = r => { if (done) done(); return r; };
+    const scope = (b, words) => h('div', { class: 'b5-con-scope' }, b, h('span', { class: 'b5-caption', text: words }));
+    return h('div', { class: 'b5-con-scopes', role: 'group', 'aria-label': 'Clear scope' },
+      group ? scope(btn(label + ' on selection', { 'data-clear-group': group }, () => write('clear', { scope: 'selection', group }, r => fin('Cleared ' + r.released + ' ' + label + ' channel(s) of the selection.'))),
+        'Only the ' + label + ' values of the selected fixtures.') : null,
+      scope(btn('Selection values', { 'data-clear-selection-values': '' }, () => write('clear', { scope: 'selection' }, r => fin('Cleared ' + r.released + ' channel(s) of the selection.'))),
+        'Every value of the selected fixtures, all families.'),
+      scope(btn('Everything', { 'data-clear-all': '' }, () => write('clear', { scope: 'all' }, r => fin('Cleared the whole programmer (' + r.released + ' channel(s)) and the selection.'))),
+        'The whole programmer, every fixture — and the selection is emptied.'));
+  }
+  function lowlightForm(done) {
+    const hl = (prog() && prog().highlight) || {};
     const pctIn = h('input', { type: 'number', class: 'b5-input b5-cc-num', min: 0, max: 100, step: 1, 'data-lowlight-percent': '', 'aria-label': 'Lowlight level in percent' });
     pctIn.value = hl.lowlightPercent !== undefined ? hl.lowlightPercent : 20;
-    const lowRow = h('div', { class: 'b5-row', role: 'group', 'aria-label': 'Lowlight' },
-      h('button', { type: 'button', class: 'b5-seg' + (hl.lowlight ? ' is-on' : ''), 'aria-pressed': hl.lowlight ? 'true' : 'false', 'data-lowlight': '',
-        onclick: () => write('highlight', { lowlight: !hl.lowlight }) }, hl.lowlight ? 'Lowlight: ON' : 'Lowlight: OFF'),
-      h('label', { class: 'b5-row' }, pctIn, h('span', { text: '%' })),
+    return h('div', { class: 'b5-row', role: 'group', 'aria-label': 'Lowlight level' },
+      h('label', { class: 'b5-row' }, h('span', { text: 'Level' }), pctIn, h('span', { text: '%' })),
       btn('Set level', { 'data-lowlight-set': '' }, () => {
         const v = Number(pctIn.value);
         if (!(v >= 0 && v <= 100) || v !== Math.round(v)) return say('The lowlight level is a whole percentage from 0 to 100.', 'error');
-        write('highlight', { lowlightPercent: v }, 'Lowlight level set to ' + v + ' %.');
+        write('highlight', { lowlightPercent: v }, 'Lowlight level set to ' + v + ' %.').then(r => { if (r && done) done(); });
       }),
-      h('span', { class: 'b5-caption', text: 'Lowlight dims everything not selected, only while Highlight (summary bar) is ON.' }));
+      h('p', { class: 'b5-caption', text: 'While Highlight is ON, Lowlight dims every fixture that is not highlighted to this level.' }));
+  }
+
+  function toolbar(group) {
     // Fine (contract K, owner-confirmed): 1:10 travel over the whole value.
     const fineWords = () => st.fine ? 'Fine: ON · 1:10' : 'Fine: OFF';
     const fine = h('button', { type: 'button', class: 'b5-seg' + (st.fine ? ' is-on' : ''), 'aria-pressed': st.fine ? 'true' : 'false', 'data-fine': '',
@@ -1351,13 +1532,23 @@ const ConsoleControls = (() => {
     });
     const valueRow = h('div', { class: 'b5-row b5-cc-valuebar', role: 'group', 'aria-label': 'Value controls' },
       fine, h('label', { class: 'b5-row' }, h('span', { text: 'Readout' }), units));
-    const low = h('details', { class: 'b5-cc-tool', 'data-lowlight-tool': '' }, h('summary', { text: 'Lowlight · ' + (hl.lowlight ? 'ON ' + hl.lowlightPercent + ' %' : 'OFF') }), lowRow);
-    low.open = !!st.open['#low'];
-    low.addEventListener('toggle', () => { st.open['#low'] = low.open; });
-    return { top: h('div', { class: 'b5-cc-toolbar' }, valueRow, clearRow), bottom: h('div', { class: 'b5-cc-toolbar b5-cc-toolbar--tools' }, presetPanel(group), fanPanel(group), low) };
+    return { top: h('div', { class: 'b5-cc-toolbar' }, valueRow), bottom: h('div', { class: 'b5-cc-toolbar b5-cc-toolbar--tools' }, presetPanel(group)) };
   }
-  function fanPanel(group) {
+  // §15 fan chooser: four shapes, each a glyph AND a word, as a radio group;
+  // every shape is mapped to a server shape explicitly (centre out is the
+  // server's "mirror"; edges-in its own shape, never reinterpreted).
+  const FAN_SHAPES = [
+    ['linear', 'Linear', 'fan-linear', 'first → last', 'linear'],
+    ['reverse', 'Reverse', 'fan-reverse', 'last → first', 'reverse'],
+    ['centre-out', 'Centre out', 'fan-center-out', 'centre = From, ends = To', 'mirror'],
+    ['edges-in', 'Edges in', 'fan-edges-in', 'ends = From, centre = To', 'edges-in'],
+  ];
+  function fanForm(done) {
+    const group = st.tab;
     const attrs = attrsOf(group);
+    const ff = st.fanForm || (st.fanForm = { shape: 'linear', attr: '', fn: '', from: '0', to: '100' });
+    if (!attrs.length) return h('p', { class: 'b5-note', text: 'Nothing to fan in ' + (GROUP_LABEL[group] || 'this family') + '.' });
+    if (!attrs.some(a => a.attribute === ff.attr)) { ff.attr = attrs[0].attribute; ff.fn = ''; }
     const aSel = h('select', { class: 'b5-select', 'data-fan-attr': '' });
     attrs.forEach(a => aSel.appendChild(h('option', { value: a.attribute, text: a.attribute })));
     const fSel = h('select', { class: 'b5-select', 'data-fan-fn': '' });
@@ -1366,35 +1557,80 @@ const ConsoleControls = (() => {
       const a = attrs.find(x => x.attribute === aSel.value);
       fSel.appendChild(h('option', { value: '', text: 'whole channel' }));
       if (a) v0(a).functions.forEach((f, i) => { if (!HIDDEN_FN.test(f.attribute) && fnRef(a, i)) fSel.appendChild(h('option', { value: String(i), text: f.name + ' (' + f.dmxFrom + '–' + f.dmxTo + ')' })); });
-      fSel.value = '';
     };
-    aSel.addEventListener('change', fill);
-    if (attrs.length) aSel.value = attrs[0].attribute;
+    aSel.value = ff.attr;
     fill();
-    const from = h('input', { type: 'number', class: 'b5-input b5-cc-num', min: 0, max: 100, step: 1, value: 0, 'data-fan-from': '', 'aria-label': 'Fan from, percent' });
-    const to = h('input', { type: 'number', class: 'b5-input b5-cc-num', min: 0, max: 100, step: 1, value: 100, 'data-fan-to': '', 'aria-label': 'Fan to, percent' });
-    from.value = '0'; to.value = '100';
-    const shape = h('select', { class: 'b5-select', 'data-fan-shape': '' },
-      h('option', { value: 'linear', text: 'Linear: first → last' }), h('option', { value: 'reverse', text: 'Reverse: last → first' }), h('option', { value: 'mirror', text: 'Mirror: centre out' }));
-    shape.value = 'linear';
+    fSel.value = ff.fn;
+    aSel.addEventListener('change', () => { ff.attr = aSel.value; ff.fn = ''; fill(); fSel.value = ''; });
+    fSel.addEventListener('change', () => { ff.fn = fSel.value; });
+    const from = h('input', { type: 'number', class: 'b5-input b5-cc-num', min: 0, max: 100, step: 1, 'data-fan-from': '', 'aria-label': 'Fan start, percent' });
+    const to = h('input', { type: 'number', class: 'b5-input b5-cc-num', min: 0, max: 100, step: 1, 'data-fan-to': '', 'aria-label': 'Fan end, percent' });
+    from.value = ff.from; to.value = ff.to;
+    from.addEventListener('input', () => { ff.from = from.value; });
+    to.addEventListener('input', () => { ff.to = to.value; });
+    const radios = h('div', { class: 'b5-con-fanshapes', role: 'radiogroup', 'aria-label': 'Fan shape', 'data-fan-shape': '' });
+    const opts = FAN_SHAPES.map(([k, word, icon, how]) => {
+      const on = ff.shape === k;
+      const b = h('button', { type: 'button', role: 'radio', class: 'b5-seg b5-con-fanshape' + (on ? ' is-on' : ''), 'aria-checked': on ? 'true' : 'false', tabindex: on ? '0' : '-1', 'data-fan-shape-opt': k },
+        ic(icon), h('span', { class: 'b5-con-fanshape__word', text: word }), h('span', { class: 'b5-caption', text: how }));
+      b.addEventListener('click', () => pickShape(k, false));
+      b.addEventListener('keydown', ev => {
+        const i = FAN_SHAPES.findIndex(x => x[0] === ff.shape);
+        const n = { ArrowRight: i + 1, ArrowDown: i + 1, ArrowLeft: i - 1, ArrowUp: i - 1 }[ev.key];
+        if (n === undefined) return;
+        if (ev.preventDefault) ev.preventDefault();
+        pickShape(FAN_SHAPES[(n + FAN_SHAPES.length) % FAN_SHAPES.length][0], true);
+      });
+      radios.appendChild(b);
+      return b;
+    });
+    function pickShape(k, focus) {
+      ff.shape = k;
+      opts.forEach(b => {
+        const on = b.getAttribute('data-fan-shape-opt') === k;
+        b.classList.toggle('is-on', on); b.setAttribute('aria-checked', on ? 'true' : 'false'); b.setAttribute('tabindex', on ? '0' : '-1');
+        if (on && focus) b.focus();
+      });
+    }
+    const order = sel().map((x, i) => (i + 1) + ' ' + (x.name || 'Unnamed fixture') + (x.cell ? ' cell ' + (x.cellIndex || '?') : ''));
     const go = () => {
       const a = attrs.find(x => x.attribute === aSel.value);
       if (!a) return say('Pick an attribute to fan.', 'error');
+      const shape = FAN_SHAPES.find(x => x[0] === ff.shape);
       const body = { attribute: a.attribute };
       if (fSel.value !== '') Object.assign(body, fnRef(a, Number(fSel.value)));
-      Object.assign(body, { shape: shape.value, from: { fraction: Number(from.value) / 100 }, to: { fraction: Number(to.value) / 100 } });
-      write('fan', body, r => 'Fanned ' + a.attribute + ' over ' + ((r && r.applied) || []).length + ' channel(s) in selection order.');
+      Object.assign(body, { shape: shape[4], from: { fraction: Number(from.value) / 100 }, to: { fraction: Number(to.value) / 100 } });
+      write('fan', body, r => 'Fanned ' + a.attribute + ' (' + shape[1] + ') over ' + ((r && r.applied) || []).length + ' channel(s) in selection order.').then(r => { if (r && done) done(); });
     };
-    const d = h('details', { class: 'b5-cc-tool', 'data-fan': '' }, h('summary', { text: 'Fan' }),
-      attrs.length ? h('div', { class: 'b5-cc-fanform' },
+    return h('div', { class: 'b5-cc-fanform', 'data-fan': '' },
+      radios,
+      h('div', { class: 'b5-row b5-con-fanfields' },
         h('label', { class: 'b5-row' }, h('span', { text: 'Attribute' }), aSel), h('label', { class: 'b5-row' }, h('span', { text: 'Function' }), fSel),
-        h('label', { class: 'b5-row' }, h('span', { text: 'From %' }), from), h('label', { class: 'b5-row' }, h('span', { text: 'To %' }), to),
-        h('label', { class: 'b5-row' }, h('span', { text: 'Shape' }), shape), btn('Fan', { 'data-fan-go': '' }, go, 'b5-btn--primary'),
-        h('p', { class: 'b5-caption', text: 'Spreads values across the selection in its selection order (the numbers on the grid).' })) : h('p', { class: 'b5-note', text: 'Nothing to fan in this group.' }));
-    d.open = !!st.open['#fan'];
-    d.addEventListener('toggle', () => { st.open['#fan'] = d.open; });
-    return d;
+        h('label', { class: 'b5-row' }, h('span', { text: 'Start %' }), from), h('label', { class: 'b5-row' }, h('span', { text: 'End %' }), to)),
+      h('p', { class: 'b5-caption', 'data-fan-order': '' }, 'Order: ' + (order.length ? order.join(' → ') : 'nothing selected')),
+      h('p', { class: 'b5-caption', text: 'Centre out and Edges in need at least 3 in the selection.' }),
+      btn('Apply fan', { 'data-fan-go': '' }, go, 'b5-btn--primary'));
   }
+  // choose (I2d §14): a NON-modal choice dialog — Disarm stays operable —
+  // resolving to the picked choice's value, or null on Cancel / Escape.
+  // Cancel has focus first: a destructive choice is never the default.
+  function choose(o) {
+    return new Promise(resolve => {
+      let done = false;
+      const cancel = btn('Cancel', { 'data-choice': 'cancel' });
+      const dlg = h('dialog', { class: 'b5-con-floatdialog', 'data-choose': '', 'aria-label': o.title }, h('h3', { text: o.title }),
+        o.body ? h('p', { class: 'b5-note', text: o.body }) : null,
+        h('div', { class: 'b5-row b5-con-dialog__actions' }, cancel,
+          o.choices.map(c => btn(c.label, { 'data-choice': c.value }, () => finish(c.value), c.cls))));
+      const finish = v => { if (done) return; done = true; try { if (dlg.open) dlg.close(); } catch (_) { /* closed */ } dlg.remove(); resolve(v); };
+      cancel.addEventListener('click', () => finish(null));
+      dlg.addEventListener('keydown', ev => { if (ev.key === 'Escape') { if (ev.preventDefault) ev.preventDefault(); finish(null); } });
+      document.body.appendChild(dlg);
+      dlg.show();
+      cancel.focus();
+    });
+  }
+  const PRESET_ICON = { dimmer: 'preset-dimmer', position: 'preset-position', colour: 'preset-colour', beam: 'preset-beam', focus: 'preset-focus', shaper: 'preset-shaper', other: 'preset-control' };
   function presetPanel(group) {
     const label = GROUP_LABEL[group] || group;
     const list = ((prog() && prog().presets) || []).filter(x => x.family === group);
@@ -1405,7 +1641,18 @@ const ConsoleControls = (() => {
       return lines.join(' ');
     };
     const row = h('div', { class: 'b5-cc-presets', role: 'group', 'aria-label': label + ' presets' });
-    list.forEach(pr => row.appendChild(btn(pr.name, { 'data-preset': pr.id, title: pr.fixtures + ' fixture(s), ' + pr.channels + ' channel(s)' }, () => write('presets/recall', { id: pr.id }, recallReport))));
+    // §14: family glyph + name; "applies to n of m selected" when partial;
+    // a preset that applies to none of the selection is disabled and says so.
+    const m = sel().length;
+    list.forEach(pr => {
+      const n = typeof pr.applies === 'number' ? pr.applies : m;
+      const words = n === 0 ? 'applies to none of the selection' : n < m ? 'applies to ' + n + ' of ' + m + ' selected' : '';
+      const b = btn([ic(PRESET_ICON[group] || 'store-preset'), h('span', { class: 'b5-cc-preset__name', text: pr.name }),
+        words ? h('span', { class: 'b5-caption b5-cc-preset__applies', 'data-preset-applies': pr.id, text: words }) : null],
+        { 'data-preset': pr.id, title: pr.fixtures + ' fixture(s), ' + pr.channels + ' channel(s)' }, () => write('presets/recall', { id: pr.id }, recallReport), 'b5-cc-preset');
+      if (n === 0) b.disabled = true;
+      row.appendChild(b);
+    });
     if (!list.length) row.appendChild(h('span', { class: 'b5-caption', text: 'No ' + label + ' presets yet.' }));
     const manage = h('div', { class: 'b5-cc-presetmanage' });
     list.forEach(pr => manage.appendChild(h('div', { class: 'b5-row', 'data-preset-row': pr.id }, h('strong', { text: pr.name }),
@@ -1414,9 +1661,19 @@ const ConsoleControls = (() => {
       btn('Delete…', { 'data-preset-delete': pr.id }, async () => { if (await ask({ title: 'Delete preset ' + pr.name + '?', ok: 'Delete', danger: true })) write('presets/delete', { id: pr.id }, 'Deleted ' + pr.name + '.'); }, 'b5-btn--danger'))));
     const d = h('details', { class: 'b5-cc-tool', 'data-presets': group }, h('summary', { text: label + ' presets · ' + list.length }),
       row,
-      h('div', { class: 'b5-row' }, btn('Store ' + label + ' preset…', { 'data-preset-store': group }, async () => {
-        const n = await ask({ title: 'Store a ' + label + ' preset', body: 'Stores the ' + label + ' values the programmer holds for the selection.', field: { label: 'Preset name' }, ok: 'Store' });
-        if (n) write('presets/store', { name: n, family: group }, 'Stored ' + label + ' preset ' + n + '.');
+      h('div', { class: 'b5-row' }, btn([ic('store-preset'), 'Store ' + label + ' preset…'], { 'data-preset-store': group }, async () => {
+        const n = await ask({ title: 'Store a ' + label + ' preset', body: 'Stores only the ' + label + ' values the programmer holds for the selection.', field: { label: 'Preset name' }, ok: 'Store' });
+        if (!n) return;
+        // §14: an existing name asks Replace / Save as new; replacing is
+        // destructive and must be chosen explicitly.
+        const same = ((prog() && prog().presets) || []).find(x => x.family === group && x.name.toLowerCase() === n.toLowerCase());
+        if (same) {
+          const c = await choose({ title: 'A ' + label + ' preset named "' + same.name + '" exists', body: 'Replace it with the selection\'s ' + label + ' values, or keep it and save this as a new preset.',
+            choices: [{ label: 'Save as new', value: 'new' }, { label: 'Replace "' + same.name + '"', value: 'replace', cls: 'b5-cc-cmd' }] });
+          if (c === 'replace') return write('presets/overwrite', { id: same.id }, 'Replaced ' + same.name + ' with the selection\'s ' + label + ' values.');
+          if (c !== 'new') return;
+        }
+        write('presets/store', { name: n, family: group }, 'Stored ' + label + ' preset ' + n + '.');
       })), manage);
     d.open = st.open['#presets'] !== false;
     d.addEventListener('toggle', () => { st.open['#presets'] = d.open; });
@@ -1443,6 +1700,7 @@ const ConsoleControls = (() => {
 
   function render() {
     reg.clear();
+    cmds = [];
     clear(els.body);
     const p = prog();
     const groups = groupsOf();
@@ -1520,9 +1778,12 @@ const ConsoleControls = (() => {
       } else if (st.tab !== 'position') {
         attrs.forEach(a => panel.appendChild(attributeCard(a, st.tab)));
       }
+      if (cmds.length) panel.appendChild(cmdZone(cmds));
       panel.appendChild(tools.bottom);
       els.body.appendChild(panel);
     }
+    // §15: the action bar's Clear / Fan panels are family-aware.
+    if (typeof ConsoleScreen !== 'undefined' && ConsoleScreen.actionsChanged) ConsoleScreen.actionsChanged();
     const unprofiled = raw.filter(r => st.models[r.entryId] && st.models[r.entryId].profiled === false);
     const partial = raw.filter(r => !unprofiled.includes(r));
     if (unprofiled.length) {
@@ -1593,5 +1854,6 @@ const ConsoleControls = (() => {
   // colourOrder: the colour attributes the Colour tab draws, in order (null
   // before it has drawn), so the MIDI encoders follow the open mode.
   const colourOrder = () => st.colourCards || null;
-  return { mount, refresh, colourWrites, colourOrder, _state: st, lane };
+  const actions = { family: () => st.tab, label: () => GROUP_LABEL[st.tab] || st.tab || '', clearScopes, fanForm, lowlightForm };
+  return { mount, refresh, colourWrites, colourOrder, actions, _state: st, lane };
 })();

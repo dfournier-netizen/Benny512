@@ -135,6 +135,9 @@ type programmerPresetSum struct {
 	Fixtures  int       `json:"fixtures"`
 	Channels  int       `json:"channels"`
 	UpdatedAt time.Time `json:"updatedAt"`
+	// Applies (I2d §14): how many of the current selection's targets a
+	// recall would set something on (0 is an answer, not an absence).
+	Applies int `json:"applies"`
 }
 
 func (s *Server) programmerView() programmerViewJSON {
@@ -146,7 +149,8 @@ func (s *Server) programmerView() programmerViewJSON {
 		for _, v := range pr.Values {
 			ids[v.EntryID] = true
 		}
-		out.Presets = append(out.Presets, programmerPresetSum{ID: pr.ID, Name: pr.Name, Family: pr.Family, Fixtures: len(ids), Channels: len(pr.Values), UpdatedAt: pr.UpdatedAt})
+		out.Presets = append(out.Presets, programmerPresetSum{ID: pr.ID, Name: pr.Name, Family: pr.Family, Fixtures: len(ids), Channels: len(pr.Values), UpdatedAt: pr.UpdatedAt,
+			Applies: s.Programmer.PresetApplies(patch.AttributeGroup(pr.Family), pr.Values)})
 	}
 	return out
 }

@@ -265,11 +265,13 @@ const settled = async () => { await sleep(120); await until('writes to settle', 
   // --- toolbar: clear, fan, presets, lowlight ----------------------------------------
   await select('B1', 'B2');
   await tab('position');
-  q('[data-fan]').open = true;
+  // I2d §15: Fan lives in the action bar's panel (Fan… opens it).
+  click(q('[data-fan-open]'));
+  await until('the fan panel', () => q('[data-fan-attr]'));
   const fa = q('[data-fan-attr]'), ff = q('[data-fan-fn]');
   fa.value = 'Pan'; fa.dispatchEvent(new Event('change', { bubbles: true }));
   ff.value = '';
-  q('[data-fan-from]').value = '0'; q('[data-fan-to]').value = '100'; q('[data-fan-shape]').value = 'linear';
+  q('[data-fan-from]').value = '0'; q('[data-fan-to]').value = '100'; // shape: Linear is the default choice
   click(q('[data-fan-go]'));
   await settled();
   check(same(last('/api/programmer/fan').body, { attribute: 'Pan', shape: 'linear', from: { fraction: 0 }, to: { fraction: 1 } }), 'Fan posts {attribute, shape, from, to}', last('/api/programmer/fan').body);
@@ -294,6 +296,8 @@ const settled = async () => { await sleep(120); await until('writes to settle', 
   check(/Recalled \d+ channel/.test(q('[data-cc-status]').textContent), 'the recall report is shown', q('[data-cc-status]').textContent);
   await until('the recalled fan', () => attr('Pan').mixed);
 
+  click(q('[data-clear-open]')); // I2d §15: Clear… opens the scope chooser
+  await until('the clear scopes', () => q('[data-clear-group="position"]'));
   click(q('[data-clear-group="position"]'));
   await settled();
   check(same(last('/api/programmer/clear').body, { scope: 'selection', group: 'position' }), 'Clear Position on selection posts {scope:selection, group:position}');
@@ -301,6 +305,8 @@ const settled = async () => { await sleep(120); await until('writes to settle', 
   await settled();
   check(same(last('/api/programmer/highlight').body, { lowlight: true }), 'Lowlight toggle posts {lowlight:true}');
   await until('Lowlight ON', () => /ON/.test(q('[data-lowlight]').textContent));
+  click(q('[data-lowlight-level-open]')); // I2d §15: the level sits in the action bar's panel
+  await until('the lowlight level', () => q('[data-lowlight-percent]'));
   q('[data-lowlight-percent]').value = '35';
   click(q('[data-lowlight-set]'));
   await settled();

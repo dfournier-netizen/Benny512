@@ -305,7 +305,7 @@ const FILES = ['api.js', 'ws.js', 'programmer.js', 'ui.js', 'console-tests.js', 
   const more = document.querySelector('[data-summary-more]');
   check(!!moreBtn && moreBtn.getAttribute('aria-expanded') === 'false', 'the selection bar has a More toggle (collapsed)');
   check(!!more.querySelector('[data-store-group]') && !!more.querySelector('[data-highlight]') && !!more.querySelector('[data-locate]'), 'Store group, Highlight and Locate sit inside the More menu');
-  check(!!document.querySelector('[data-summary] [data-clear-selection]') && !more.querySelector('[data-clear-selection]'), 'Clear stays on the bar itself');
+  check(!!document.querySelector('[data-summary] [data-clear-open]') && !more.querySelector('[data-clear-open]'), 'Clear… stays on the bar itself (I2d §15: it opens the scope chooser)');
   click(moreBtn);
   await until('More open', () => document.querySelector('[data-summary-more-toggle]').getAttribute('aria-expanded') === 'true');
   check(document.querySelector('[data-summary-more]').classList.contains('is-open'), 'More opens the menu (aria-expanded=true)');

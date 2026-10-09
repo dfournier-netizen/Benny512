@@ -16,11 +16,11 @@ import (
 // guard like every /api/programmer route; X-Benny-Programmer optional, 409
 // when stale; every change bumps the revision and broadcasts).
 //
-//	POST /api/programmer/highlight        {highlight?, lowlight?, lowlightPercent?}
+//	POST /api/programmer/highlight        {highlight?, lowlight?, lowlightPercent?, step?: next|previous|all}
 //	POST /api/programmer/locate           {targets?}
 //	POST /api/programmer/fan              {targets?, attribute, function|functionName|functionIndex?,
-//	                                       shape: linear|reverse|mirror, from: {value}, to: {value}}
-//	POST /api/programmer/groups/{action}  store {name} | update {id} | rename {id, name} | delete {id}
+//	                                       shape: linear|reverse|mirror|edges-in, from: {value}, to: {value}}
+//	POST /api/programmer/groups/{action}  store {name} | update {id} | merge {id} | rename {id, name} | delete {id}
 //	POST /api/programmer/presets/{action} store {name, family} | overwrite {id} | rename {id, name}
 //	                                      | delete {id} | recall {id}
 //
@@ -38,6 +38,9 @@ type programmerHighlightRequest struct {
 	Highlight       *bool `json:"highlight"`
 	Lowlight        *bool `json:"lowlight"`
 	LowlightPercent *int  `json:"lowlightPercent"`
+	// Step (I2d): "next" | "previous" | "all" — Highlight Previous/Next
+	// through the selection in its order (component-specs §15).
+	Step string `json:"step"`
 }
 
 func (s *Server) handleProgrammerHighlight(w http.ResponseWriter, r *http.Request) {
@@ -52,7 +55,7 @@ func (s *Server) handleProgrammerHighlight(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	s.syncProgrammer(false)
-	if _, err := s.Programmer.SetHighlight(req.Highlight, req.Lowlight, req.LowlightPercent, expected); err != nil {
+	if _, err := s.Programmer.SetHighlight(req.Highlight, req.Lowlight, req.LowlightPercent, req.Step, expected); err != nil {
 		s.writeProgrammerError(w, err)
 		return
 	}
@@ -253,6 +256,27 @@ func (s *Server) handleProgrammerGroups(w http.ResponseWriter, r *http.Request) 
 			}
 			ws.Groups[i].Members = members
 			normalizeGroup(&ws.Groups[i])
+		case "merge":
+			// I2d §14: add the selection to a stored group, after its own
+			// members, in selection order, without duplicates.
+			i, err := find()
+			if err != nil {
+				return err
+			}
+			if err := needSelection(); err != nil {
+				return err
+			}
+			have := map[patch.ProgTarget]bool{}
+			for _, m := range ws.Groups[i].Members {
+				have[m] = true
+			}
+			for _, m := range members {
+				if !have[m] {
+					have[m] = true
+					ws.Groups[i].Members = append(ws.Groups[i].Members, m)
+				}
+			}
+			normalizeGroup(&ws.Groups[i])
 		case "rename":
 			i, err := find()
 			if err != nil {
@@ -278,7 +302,7 @@ func (s *Server) handleProgrammerGroups(w http.ResponseWriter, r *http.Request) 
 			}
 			ws.Layout.Items = kept
 		default:
-			return storeErr(http.StatusNotFound, "Unknown group action %q; use store, update, rename or delete.", action)
+			return storeErr(http.StatusNotFound, "Unknown group action %q; use store, update, merge, rename or delete.", action)
 		}
 		return nil
 	})

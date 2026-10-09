@@ -274,7 +274,50 @@
   .b5-con-summary__more .b5-btn, .b5-con-summary__more .b5-seg { min-height: var(--b5-size-touch-min); width: 100%; justify-content: flex-start; }
 }
 
+/* ---- I2d §15 action bar: 44 px controls, 8 px gaps; Highlight stepping;
+   the Clear / Fan / Lowlight-level panel in flow under the bar. ---- */
+.b5-con-summary__buttons { gap: var(--b5-space-2); align-items: flex-start; }
+.b5-con-actpanel .b5-cc-fanform { display: block; }
+.b5-con-actpanel .b5-btn { min-height: var(--b5-size-touch-min); }
+.b5-con-summary__buttons .b5-btn, .b5-con-summary__buttons .b5-seg { min-height: var(--b5-size-touch-min); }
+.b5-con-act.is-on { border-color: var(--b5-color-accent-border); background: var(--b5-color-bg-selected); }
+.b5-con-hlstep { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2); }
+.b5-con-hlstep__words { flex: 1 1 12em; min-width: 0; overflow-wrap: anywhere; }
+.b5-con-actpanel { margin-top: var(--b5-space-2); padding: var(--b5-space-3) var(--b5-space-4); min-width: 0;
+  background: var(--b5-color-bg-surface-raised); border: var(--b5-border-width-thick) solid var(--b5-color-border-strong); border-radius: var(--b5-radius-md); }
+.b5-con-actpanel h3 { margin: 0 0 var(--b5-space-2); font-size: var(--b5-font-size-md); }
+.b5-con-actpanel__close { justify-content: flex-end; margin-top: var(--b5-space-3); }
+.b5-con-scopes { display: grid; gap: var(--b5-space-2); }
+.b5-con-scope { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-1) var(--b5-space-3); }
+.b5-con-scope .b5-btn { min-height: var(--b5-size-touch-min); min-width: 12em; justify-content: flex-start; }
+.b5-con-scope .b5-caption { flex: 1 1 14em; min-width: 0; }
+.b5-con-fanshapes { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 9.5em), 1fr)); gap: var(--b5-space-2); margin-bottom: var(--b5-space-3); }
+.b5-con-fanshape { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: var(--b5-size-touch-min); padding: var(--b5-space-2); text-align: left; }
+.b5-con-fanshape .b5-con-ic svg { width: var(--b5-size-icon-lg, 24px); height: var(--b5-size-icon-lg, 24px); }
+.b5-con-fanshape__word { font-weight: var(--b5-font-weight-bold); }
+.b5-con-fanshape.is-on { border-width: var(--b5-size-state-border); }
+.b5-con-fanfields { flex-wrap: wrap; gap: var(--b5-space-2) var(--b5-space-4); }
+@media (max-width: 767px) {
+  .b5-con-hlstep { display: flex; flex-direction: column; align-items: stretch; }
+  .b5-con-hlstep .b5-btn { width: 100%; justify-content: flex-start; }
+  .b5-con-hlstep__words { flex: none; }
+  .b5-con-summary__more.is-open { max-height: 70vh; overflow: auto; }
+}
+
 .b5-con-dialog__actions { justify-content: flex-end; margin-top: var(--b5-space-3); }
+/* I2d §14 Replace / Merge / Save-as-new: NON-modal, below the master strip
+   so Disarm stays visible and operable. */
+.b5-con-floatdialog {
+  position: fixed; top: max(30vh, 180px); left: var(--b5-space-4); right: var(--b5-space-4);
+  margin: 0 auto; width: auto; max-width: 480px; max-height: calc(100dvh - max(30vh, 180px) - var(--b5-space-4)); overflow: auto;
+  z-index: var(--b5-z-overlay); padding: var(--b5-space-5);
+  background: var(--b5-color-bg-surface-overlay); color: var(--b5-color-text-primary);
+  border: var(--b5-border-width-thick) solid var(--b5-color-border-strong); border-radius: var(--b5-radius-md); box-shadow: var(--b5-shadow-lg);
+}
+.b5-con-floatdialog h3 { margin: 0 0 var(--b5-space-2); }
+.b5-con-floatdialog .b5-con-dialog__actions { flex-wrap: wrap; }
+.b5-con-floatdialog .b5-btn { min-height: var(--b5-size-touch-min); }
+.b5-con-caution { border-color: var(--b5-color-warn-border); color: var(--b5-color-text-warning); }
 .b5-con-dialog .b5-input { width: 100%; }
 
 /* Phone: eight tabs share the bottom bar; let labels shrink rather than push

@@ -101,3 +101,29 @@ func TestConsoleControls_I2c2(t *testing.T) {
 		t.Fatalf("console_i2c2_test.js failed: %v", err)
 	}
 }
+
+// TestI2c2PolishCSS pins two layout rules a DOM-only harness cannot see:
+// set and function-label buttons are pressable at 44 px on EVERY pointer
+// type (component-specs §7; the kit's .b5-btn--sm is 32 px on a mouse),
+// and a fader caption wraps to its own line instead of squeezing the
+// function name into one letter per line at 390 px.
+func TestI2c2PolishCSS(t *testing.T) {
+	css := i1bCommentRE.ReplaceAllString(i1Embedded(t, "static/css/screens-console-controls.css"), "")
+	touch, wraps := false, false
+	for _, m := range i1bRuleRE.FindAllStringSubmatch(css, -1) {
+		sel := strings.Join(strings.Fields(m[1]), " ")
+		if strings.Contains(sel, ".b5-cc-sets .b5-btn") && strings.Contains(sel, ".b5-cc-seglabel") &&
+			strings.Contains(m[2], "min-height: var(--b5-size-touch-min)") {
+			touch = true
+		}
+		if sel == ".b5-cc-faderhead .b5-caption" && strings.Contains(m[2], "white-space: normal") {
+			wraps = true
+		}
+	}
+	if !touch {
+		t.Error("set and function-label buttons have no unconditional 44 px minimum (component-specs §7)")
+	}
+	if !wraps {
+		t.Error("the fader caption is still nowrap: at 390 px the function name breaks one letter per line")
+	}
+}

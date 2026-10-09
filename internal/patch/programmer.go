@@ -75,7 +75,12 @@ type Programmer struct {
 	highlight bool
 	lowlight  bool
 	lowPct    int
-	wsDigest  string
+	// I2d: Highlight stepping (Previous/Next through the selection, §15).
+	// stepping false = the whole selection is highlighted; otherwise only
+	// selection[step]. Any selection change ends stepping.
+	stepping bool
+	step     int
+	wsDigest string
 	// G2 group faders (faders.go).
 	faderRev    uint64
 	faderSeq    uint64
@@ -143,6 +148,7 @@ func (pg *Programmer) Sync(token any, entries []Entry, clear bool) bool {
 	}
 	if clear {
 		pg.selection = nil
+		pg.stepping = false
 		pg.values = map[progKey]uint32{}
 		if pg.highlight {
 			pg.highlight = false
@@ -154,6 +160,9 @@ func (pg *Programmer) Sync(token any, entries []Entry, clear bool) bool {
 			if m := models[t.EntryID]; m != nil && (t.Cell == "" || m.HasCell(t.Cell)) {
 				kept = append(kept, t)
 			}
+		}
+		if len(kept) != len(pg.selection) {
+			pg.stepping = false
 		}
 		pg.selection = kept
 		for k := range pg.values {
@@ -439,6 +448,7 @@ func (pg *Programmer) Select(action string, targets []ProgTarget, expected *uint
 		return nil, reqErr("The selection action must be set, add, remove, toggle, all or none; %q is not one of them.", action)
 	}
 	pg.selection = next
+	pg.stepping = false
 	// Highlight and Lowlight follow the selection (C4b).
 	pg.applyOverlayLocked()
 	pg.revision++
@@ -1159,6 +1169,7 @@ func (pg *Programmer) Clear(scope string, group AttributeGroup, expected *uint64
 	}
 	if scope == ClearAll && group == "" {
 		pg.selection = nil
+		pg.stepping = false
 	}
 	pg.applyLocked()
 	pg.revision++

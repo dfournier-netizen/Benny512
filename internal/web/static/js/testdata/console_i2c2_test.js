@@ -244,6 +244,7 @@ const iconOf = el => (el ? el.querySelectorAll('.b5-con-ic').map(i => i.innerHTM
     const lab = d ? d.getAttribute('aria-label') : '';
     check(/geometry not reported/.test(lab) && /Blade 1 \(drawn top\): A 100 %, B 0 %/.test(lab) && /Blade 2 \(drawn right\): A 0 %, B MIXED/.test(lab), 'its words name each blade, its side and both ends; a split end says MIXED', lab);
     check(d && />1<\/text>/.test(d.innerHTML) && />2<\/text>/.test(d.innerHTML) && />A<\/text>/.test(d.innerHTML) && />B<\/text>/.test(d.innerHTML) && /is-mixed/.test(d.innerHTML), 'blades are numbered outside the beam with A/B ends (never fill alone); the mixed blade is dashed');
+    check(d && !/<g transform="rotate[^>]*>(?:(?!<\/g>)[\s\S])*b5-cc-shaper__ab/.test(d.innerHTML), 'A/B letters stay upright: never inside a rotated blade group (blade 2 read sideways, blade 3 upside down)');
     const names = qa('[data-panel="shaper"] .b5-cc-attrname').map(n => n.textContent);
     check(['Blade 1 · end A', 'Blade 1 · end B', 'Blade 2 · end A', 'Blade 2 · end B', 'Assembly rotate'].every(n => names.includes(n)), 'every end has a labelled A/B fader (the same information as the diagram)', names);
     const f = q('[data-fader="Blade1A#0"]');
