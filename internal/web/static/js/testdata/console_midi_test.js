@@ -243,16 +243,20 @@ function browser(opts) {
   w = await turn(CC(18, 64));
   check(w === null, 'signbit: value 64 (minus zero) writes nothing', w);
 
-  // absolute and 14-bit on the Colour tab: enc 4 = ColorSub_M, enc 5 = ColorSub_Y.
+  // absolute and 14-bit on the Colour tab: enc 4 = ColorMacro1, enc 5 = ColorMixMSpeed.
+  // I2c2 (§9): the Colour tab draws its open mode's cards (Mix on a BMFL: C, M, Y)
+  // then the other colour channels, and the encoders follow exactly that order,
+  // so enc 4 / 5 are ColorMacro1 / ColorMixMSpeed (8-bit, one function each: the
+  // same 3-count steps the CMY checks used).
   await tab('colour');
-  await until('the strip to follow the Colour tab', () => encAttr(1) === 'Color1');
+  await until('the strip to follow the Colour tab', () => encAttr(1) === 'ColorSub_C');
   const cards = qa('[data-panel="colour"] [data-attr]').map(c => c.getAttribute('data-attr'));
-  check(same([1, 2, 3, 4, 5, 6, 7, 8].map(encAttr), cards.slice(0, 8)), 'Colour: the encoders take the tab\'s attributes in the order the cards are drawn', [[1, 2, 3, 4, 5, 6, 7, 8].map(encAttr), cards]);
-  check(encAttr(4) === 'ColorSub_M' && encAttr(5) === 'ColorSub_Y', 'Colour on a BMFL: encoder 4 = ColorSub_M, 5 = ColorSub_Y');
+  check(cards.length > 0 && same([1, 2, 3, 4, 5, 6, 7, 8].map(encAttr).slice(0, cards.length), cards.slice(0, 8)), 'Colour: the encoders take the tab\'s attributes in the order the cards are drawn', [[1, 2, 3, 4, 5, 6, 7, 8].map(encAttr), cards]);
+  check(encAttr(4) === 'ColorMacro1' && encAttr(5) === 'ColorMixMSpeed', 'Colour on a BMFL: encoder 4 = ColorMacro1, 5 = ColorMixMSpeed');
   w = await turn(CC(19, 50));
   check(w === null, 'absolute: the first value only says where the control is (no write)', w);
   w = await turn(CC(19, 53));
-  check(same(w, { targets: [T('B1'), T('B2')], attribute: 'ColorSub_M', functionIndex: 0, dmx: 9 }), 'absolute: 50 → 53 = +3 steps (ColorSub_M 9)', w);
+  check(same(w, { targets: [T('B1'), T('B2')], attribute: 'ColorMacro1', functionIndex: 0, dmx: 9 }), 'absolute: 50 → 53 = +3 steps (ColorMacro1 9)', w);
   w = await turn(CC(19, 51));
   check(w && w.dmx === 3, 'absolute: 53 → 51 = −2 steps (3)', w);
   w = await turn(CC(19, 120));
@@ -268,7 +272,7 @@ function browser(opts) {
   // 14-bit: 128 fine values = one step (3 on an 8-bit channel).
   send(CC(1, 64)); send(CC(33, 0)); await settled();
   w = await turn(CC(33, 64));
-  check(same(w, { targets: [T('B1'), T('B2')], attribute: 'ColorSub_Y', functionIndex: 0, dmx: 2 }), '14-bit: baseline 64/0, then LSB 64 alone = +64/128 step → ColorSub_Y 1.5 → 2', w);
+  check(same(w, { targets: [T('B1'), T('B2')], attribute: 'ColorMixMSpeed', functionIndex: 0, dmx: 2 }), '14-bit: baseline 64/0, then LSB 64 alone = +64/128 step → ColorMixMSpeed 1.5 → 2', w);
   let before = posts(SET).length;
   send(CC(1, 65)); send(CC(33, 0)); await settled();
   w = posts(SET).slice(before);
@@ -280,7 +284,7 @@ function browser(opts) {
   send(CC(1, 66)); await sleep(60); await settled();
   w = posts(SET).slice(before);
   check(w.length === 1 && w[0].body.dmx === 6, '14-bit: a lone MSB 66 is read after 20 ms with LSB 0 (8448 = +129/128 step) → 6', w.map(x => x.body));
-  await until('the server to hold ColorSub_Y 6', async () => (await held('ColorSub_Y', 'B2')) === 6);
+  await until('the server to hold ColorMixMSpeed 6', async () => (await held('ColorMixMSpeed', 'B2')) === 6);
 
   // --- push toggles fine for that encoder ----------------------------------------------------
   await tab('position');
@@ -290,7 +294,9 @@ function browser(opts) {
     'pushing encoder 1 (Note On 32) turns FINE on for encoder 1 only; the Note Off changes nothing');
   await sleep(650); // a new gesture: read Pan from the programmer again
   w = await turn(CC(16, 1));
-  check(w && w.dmx === 34078 + 16, 'fine: one step on a 16-bit Pan is 16 (34094)', w);
+  // I2c: fine is 1:10 of a normal step over the whole value (owner rule,
+  // 2026-10-08), superseding 1/4096 (16): 655 / 10 -> 66.
+  check(w && w.dmx === 34078 + 66, 'fine: one step on a 16-bit Pan is a tenth of 655 = 66 (34144)', w);
   send([0x90, 32, 127]); await settled();
   check(q('[data-enc-fine="1"]').getAttribute('aria-pressed') === 'false', 'pushing again turns fine off');
   click(q('[data-enc-fine="2"]'));

@@ -27,6 +27,13 @@
 // and objects. Every edit is one POST /api/patch/layout/{action} whose
 // answer is the whole new layout. Layout edits change no DMX.
 //
+// I2b (component-specs §3, §4): sprite fixture glyphs chosen from the
+// fixture's capabilities with flag words, parent outline vs cell tab, a
+// visible text order list, layer chips as a multi-layer filter (Select
+// all / Invert respect it; Ghosts draws hidden layers as dashed words) and
+// a Lasso mode toggle, so a finger drag still scrolls the plan unless
+// Lasso is ON.
+//
 // Leaving this screen changes nothing on the wire (C3 rule): output, the
 // programmer and the selection all carry on.
 const ConsoleScreen = (() => {
@@ -36,7 +43,12 @@ const ConsoleScreen = (() => {
     built: false, active: false, stale: true, loading: false,
     layout: null,          // last GET/POST /api/patch/layout body
     cells: {},             // entryId -> [{id, name, index}] (GET /api/programmer/fixtures)
-    view: 'all',           // 'all' or a layer id
+    models: {},            // entryId -> FixtureModel (same read): glyph class, flags (I2b)
+    // I2b: the layer filter. Empty = every layer shown; otherwise only the
+    // layer ids in the set are drawn and selectable (component-specs §4).
+    shown: new Set(),
+    ghosts: false,         // draw filtered-out layers as dashed, unselectable ghosts
+    lasso: false,          // Lasso ON: a drag on the grid draws a selection box
     zoom: 1,               // index into ZOOMS
     addMode: false,
     edit: false,
@@ -189,9 +201,15 @@ const ConsoleScreen = (() => {
     return (t ? t.label : it.objectType) + (it.text ? ' · ' + it.text : '');
   }
   function objectType(name) { return ((st.layout && st.layout.objectTypes) || []).find(t => t.type === name) || null; }
-  // The layer new things land on: the shown layer, else the first one.
+  // I2b layer filter helpers. filtered() = some layers are hidden.
+  function pruneShown() { [...st.shown].forEach(id => { if (!layerById(id)) st.shown.delete(id); }); }
+  function filtered() { return st.shown.size > 0; }
+  function isShown(layerId) { return !filtered() || st.shown.has(layerId); }
+  function shownLayers() { return layers().filter(l => isShown(l.id)); }
+  // The layer new things land on: the first layer shown, else the first one.
   function targetLayer() {
-    if (st.view !== 'all' && layerById(st.view)) return st.view;
+    const s = shownLayers();
+    if (filtered() && s.length) return s[0].id;
     return layers().length ? layers()[0].id : '';
   }
   // bounds of the items on one layer, in cells (objects by the cells their
@@ -208,6 +226,58 @@ const ConsoleScreen = (() => {
     return { c0, r0, c1: Math.max(c1, c0 + 4), r1 };
   }
   function fmtM(mm) { return (mm / 1000).toFixed(1) + ' m'; }
+  // Layer height in words (§4: a chip names its z-height; unset = "height
+  // unknown"). The Unplaced layer has no height by definition.
+  function heightWords(ly) {
+    if (ly.system) return 'no position';
+    if (!ly.zKnown) return 'height unknown';
+    return ly.zMin === ly.zMax ? 'height ' + fmtM(ly.zMin) : 'height ' + fmtM(ly.zMin) + ' to ' + fmtM(ly.zMax);
+  }
+
+  // --- fixture class and flags (I2b, component-specs §3) ------------------------
+  // The glyph comes from what the fixture's channel map can DO, never from
+  // its type name: a class the capabilities do not show is fx-unknown, not
+  // a guessed head. First match wins:
+  //   Pan/Tilt (position group)        -> moving head
+  //   two or more cells                -> multi-cell (pixel bar glyph)
+  //   shaper group, or a gobo          -> profile
+  //   colour group                     -> wash
+  //   shutter/strobe                   -> strobe
+  //   dimmer group                     -> dimmer
+  //   anything else, or no channel map -> unknown
+  const CLASS_WORD = { 'moving-head': 'moving head', wash: 'wash', profile: 'profile', 'pixel-bar': 'multi-cell', strobe: 'strobe', dimmer: 'dimmer', unknown: 'type not known' };
+  function fixtureClass(entryId) {
+    const m = st.models[entryId];
+    const params = ((m && m.parameters) || []).filter(p => !p.virtual);
+    const groups = new Set(params.map(p => p.group));
+    const attr = re => params.some(p => re.test(p.attribute || ''));
+    let g = 'unknown';
+    if (groups.has('position')) g = 'moving-head';
+    else if (((m && m.cells) || []).length >= 2) g = 'pixel-bar';
+    else if (groups.has('shaper') || attr(/^(Gobo|StaticGobo)/)) g = 'profile';
+    else if (groups.has('colour')) g = 'wash';
+    else if (attr(/^(Shutter|Strobe)/)) g = 'strobe';
+    else if (groups.has('dimmer')) g = 'dimmer';
+    return { glyph: g, word: CLASS_WORD[g] };
+  }
+  // flags: the words that go with a dashed or struck body. "No profile" =
+  // no channel map at all (raw DMX only); "RDM labels" = every function was
+  // inferred from RDM slot labels, not read from a profile; "Not on wire" =
+  // not one of its bytes can be sent (no footprint, no start address, or
+  // the footprint lies past the end of the universe).
+  function fixtureFlags(entryId) {
+    const m = st.models[entryId];
+    if (!m) return [];
+    const out = [];
+    const params = (m.parameters || []).filter(p => !p.virtual);
+    if (!m.profiled) out.push('No profile');
+    else if (params.length && params.every(p => p.source === 'rdm-inferred')) out.push('RDM labels');
+    const un = new Set(m.unaddressable || []);
+    let reach = 0;
+    for (let o = 1; o <= (m.footprint || 0); o++) if (!un.has(o)) reach++;
+    if (!reach) out.push('Not on wire');
+    return out;
+  }
 
   // --- building the screen ----------------------------------------------------
   function build() {
@@ -218,8 +288,13 @@ const ConsoleScreen = (() => {
     els.layers = h('div', { class: 'b5-con-chips', role: 'group', 'aria-label': 'Layers shown' });
     els.groups = h('div', { class: 'b5-con-chips', role: 'group', 'aria-label': 'Stored groups' });
     els.add = seg('', false, { 'data-add-mode': '', title: 'Add mode: taps add to the selection or take out of it' }, () => { st.addMode = !st.addMode; renderTools(); });
-    els.selAll = btn('Select all', { cls: 'b5-btn--sm', attrs: { 'data-select-all': '' } }, () => selectAll());
-    els.selNone = btn('Select none', { cls: 'b5-btn--sm', attrs: { 'data-select-none': '' } }, () => sel({ action: 'none' }));
+    // I2b §4: Lasso is a mode toggle, so an ordinary touch drag still
+    // scrolls the plan; with Lasso ON a one-finger drag draws the box.
+    els.lassoBtn = seg('', false, { 'data-lasso-toggle': '', title: 'Lasso: drag on the plan to select every fixture inside the box. Escape turns it off.' }, () => setLasso(!st.lasso));
+    els.selAll = btn('Select all', { cls: 'b5-btn--sm', icon: 'select-all', attrs: { 'data-select-all': '' } }, () => selectAll());
+    els.selNone = btn('Select none', { cls: 'b5-btn--sm', icon: 'select-none', attrs: { 'data-select-none': '' } }, () => sel({ action: 'none' }));
+    els.invert = btn('Invert', { cls: 'b5-btn--sm', icon: 'select-invert', attrs: { 'data-select-invert': '', title: 'Invert the selection of the fixtures on the layers shown' } }, () => selectInvert());
+    els.ghostBtn = seg('', false, { 'data-ghost-toggle': '', title: 'Ghosts: draw the layers not shown as dashed outlines. They cannot be selected.' }, () => { st.ghosts = !st.ghosts; renderTools(); renderGrid(); });
     els.zoomOut = btn('Zoom out', { cls: 'b5-btn--sm', attrs: { 'data-zoom-out': '' } }, () => zoom(-1));
     els.zoomIn = btn('Zoom in', { cls: 'b5-btn--sm', attrs: { 'data-zoom-in': '' } }, () => zoom(1));
     els.reload = btn('Reload layout', { cls: 'b5-btn--sm', icon: 'refresh', attrs: { 'data-reload': '' } }, () => load());
@@ -231,6 +306,13 @@ const ConsoleScreen = (() => {
       btn('Done editing', { cls: 'b5-btn--primary', attrs: { 'data-edit-done': '' } }, () => setEdit(false)));
     els.grid = h('div', { class: 'b5-con-gridbox', 'data-gridbox': '', tabindex: '-1' });
     els.picker = h('div', { class: 'b5-con-picker', 'data-cellpicker': '', hidden: true });
+    // I2b §3: the visible text order list (selection order is what Fan
+    // uses); the total line is a polite live region.
+    els.orderTotal = h('p', { class: 'b5-caption b5-con-order__total', role: 'status', 'data-order-total': '' });
+    els.orderList = h('ol', { class: 'b5-con-order__list', 'data-order-list': '' });
+    els.order = h('section', { class: 'b5-con-order', 'aria-labelledby': 'conOrderHead' },
+      h('h3', { class: 'b5-con-layername', id: 'conOrderHead', text: 'Selection order' }), els.orderTotal, els.orderList);
+    els.lassoBox = h('div', { class: 'b5-con-lassobox', 'data-lasso-box': '', 'aria-hidden': 'true', hidden: true }, h('span', { class: 'b5-con-lassobox__word', text: 'Lasso' }));
     els.edit = h('div', { class: 'b5-con-edit', 'data-editpanel': '', hidden: true });
     els.summary = h('section', { class: 'b5-actionbar b5-con-summary', 'aria-label': 'Selection', 'data-summary': '' });
     append(root, [
@@ -238,18 +320,23 @@ const ConsoleScreen = (() => {
         h('h1', { class: 'b5-page-header__title', text: 'Console' }),
         h('span', { class: 'b5-page-header__meta b5-caption', text: 'Select fixtures on the plan. Leaving this screen keeps output, the programmer and the selection as they are.' })),
       h('section', { class: 'b5-toolbar b5-con-toolbar', 'aria-label': 'Selection tools' },
-        h('div', { class: 'b5-toolbar__row b5-con-row' }, h('span', { class: 'b5-con-rowlabel', text: 'Layers' }), els.layers),
-        h('div', { class: 'b5-toolbar__row b5-con-row' }, els.add, els.selAll, els.selNone,
+        h('div', { class: 'b5-toolbar__row b5-con-row' }, h('span', { class: 'b5-con-rowlabel', text: 'Layers' }), els.layers, els.ghostBtn),
+        h('div', { class: 'b5-toolbar__row b5-con-row b5-con-tools', role: 'group', 'aria-label': 'Select' }, els.add, els.lassoBtn, els.selAll, els.selNone, els.invert,
           h('span', { class: 'b5-con-sep', 'aria-hidden': 'true' }), els.zoomOut, els.zoomIn, els.reload, els.editToggle),
         h('div', { class: 'b5-toolbar__row b5-con-row' }, h('span', { class: 'b5-con-rowlabel', text: 'Groups' }), els.groups)),
       els.status,
       els.modebar,
+      // I2a: the selection summary sits in flow ABOVE the grid. It was a
+      // sticky bottom bar after the panes, so at rest it covered the top
+      // of the grid whenever the page was taller than the room left by the
+      // strip and the fader bar (1440x900 with the bar open).
+      els.summary,
       h('div', { class: 'b5-con-main' },
         h('section', { class: 'b5-con-pane b5-con-pane--grid', 'aria-labelledby': 'conGridHead' },
           h('h2', { class: 'b5-board__head', id: 'conGridHead' },
             h('span', { class: 'b5-board__title', text: 'Selection grid' }),
             h('span', { class: 'b5-board__sub', text: 'the rig seen from above, one plan per height layer' })),
-          els.grid, els.picker),
+          els.grid, els.picker, els.order, els.lassoBox),
         h('section', { class: 'b5-con-pane b5-con-pane--side', 'aria-label': 'Layout editing and controls' },
           els.edit,
           h('div', { class: 'b5-con-controls', 'data-controls-region': '' },
@@ -259,7 +346,6 @@ const ConsoleScreen = (() => {
             h('div', { class: 'b5-empty b5-con-placeholder' },
               h('span', { class: 'b5-empty__title', text: 'Attribute controls arrive next' }),
               h('span', { class: 'b5-empty__body', text: 'This area is reserved for the attribute controls (chunk C6b). The selection you make on the grid is already live in the programmer.' }))))),
-      els.summary,
     ]);
     // C6c: the Tests panel (console-tests.js) sits under the Controls region.
     els.tests = h('section', { class: 'b5-con-tests', 'data-tests-region': '', 'aria-label': 'Tests' });
@@ -276,6 +362,7 @@ const ConsoleScreen = (() => {
     els.grid.addEventListener('pointerup', onPointerUp);
     els.grid.addEventListener('pointercancel', onPointerCancel);
     els.grid.addEventListener('keydown', onGridKey);
+    root.addEventListener('keydown', onLassoKey);
     els.picker.addEventListener('click', onGridClick);
     // C6b: the attribute controls live in console-controls.js and take
     // over the reserved region.
@@ -296,9 +383,10 @@ const ConsoleScreen = (() => {
       const [layout, fx] = await Promise.all([Api.getLayout(), Api.getProgrammerFixtures().catch(() => null)]);
       st.layout = layout;
       st.cells = {};
-      if (fx && fx.fixtures) fx.fixtures.forEach(f => { st.cells[f.entryId] = f.cells || []; });
+      st.models = {};
+      if (fx && fx.fixtures) fx.fixtures.forEach(f => { st.cells[f.entryId] = f.cells || []; st.models[f.entryId] = f; });
       st.stale = false;
-      if (st.view !== 'all' && !layerById(st.view)) st.view = 'all';
+      pruneShown();
       if (typeof ProgrammerSync !== 'undefined') ProgrammerSync.refresh().catch(() => {});
       renderAll();
     } catch (e) {
@@ -337,6 +425,7 @@ const ConsoleScreen = (() => {
     renderPicker();
     renderEdit();
     renderSummary();
+    renderOrder();
   }
 
   function renderTools() {
@@ -347,26 +436,51 @@ const ConsoleScreen = (() => {
     els.editToggle.className = 'b5-seg' + (st.edit ? ' is-on' : '');
     els.editToggle.setAttribute('aria-pressed', st.edit ? 'true' : 'false');
     els.editToggle.textContent = st.edit ? 'Edit layout: ON' : 'Edit layout: OFF';
-    const ly = st.view !== 'all' ? layerById(st.view) : null;
-    els.selAll.textContent = ly ? 'Select all on ' + ly.name : 'Select all fixtures';
+    toggleWords(els.lassoBtn, st.lasso, 'lasso', 'Lasso');
+    els.lassoBtn.disabled = st.edit;
+    toggleWords(els.ghostBtn, st.ghosts, null, 'Ghosts');
+    const s = shownLayers();
+    const label = !filtered() ? 'Select all fixtures' : s.length === 1 ? 'Select all on ' + s[0].name : 'Select all on ' + s.length + ' layers';
+    clear(els.selAll);
+    append(els.selAll, [ic('select-all'), label]);
     els.zoomOut.disabled = st.zoom === 0;
     els.zoomIn.disabled = st.zoom === ZOOMS.length - 1;
     els.modebar.hidden = !st.edit;
     els.root.classList.toggle('is-editing', st.edit);
+    els.root.classList.toggle('is-lasso', st.lasso && !st.edit);
+  }
+  // A mode toggle says its state in words: "Lasso: ON".
+  function toggleWords(b, on, icon, word) {
+    b.className = 'b5-seg' + (on ? ' is-on' : '');
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    clear(b);
+    append(b, [icon ? ic(icon) : null, word + (on ? ': ON' : ': OFF')]);
   }
 
   function countOn(layerId) {
     return items().filter(it => it.layer === layerId && it.kind !== 'object').length;
   }
+  // I2b §4: each layer chip is a 44 px toggle naming its height. "All
+  // layers" clears the filter; a layer chip adds that layer to the filter
+  // or takes it out (taking the last one out shows every layer again).
   function renderLayers() {
     clear(els.layers);
     if (!st.layout) return;
-    els.layers.appendChild(seg('All layers', st.view === 'all', { 'data-layer-chip': 'all' }, () => setView('all')));
+    els.layers.appendChild(seg('', !filtered(), { 'data-layer-chip': 'all' }, () => setView('all')));
+    append(els.layers.lastChild, [ic('layers'), 'All layers']);
     for (const l of layers()) {
-      els.layers.appendChild(seg(l.name + ' · ' + countOn(l.id), st.view === l.id, { 'data-layer-chip': l.id }, () => setView(l.id)));
+      const b = seg('', st.shown.has(l.id), { 'data-layer-chip': l.id }, () => setView(l.id));
+      append(b, [h('span', { text: l.name + ' · ' + countOn(l.id) }), h('span', { class: 'b5-con-chipnote', text: ' · ' + heightWords(l) })]);
+      els.layers.appendChild(b);
     }
   }
-  function setView(v) { st.view = v; st.picker = null; renderTools(); renderLayers(); renderGrid(); renderPicker(); renderEdit(); }
+  function setView(v) {
+    if (v === 'all') st.shown.clear();
+    else if (st.shown.has(v)) st.shown.delete(v);
+    else st.shown.add(v);
+    st.picker = null;
+    renderTools(); renderLayers(); renderGrid(); renderPicker(); renderEdit();
+  }
   function zoom(d) {
     st.zoom = Math.max(0, Math.min(ZOOMS.length - 1, st.zoom + d));
     renderTools();
@@ -392,7 +506,8 @@ const ConsoleScreen = (() => {
     for (const g of gs) {
       const s = groupState(g);
       const b = seg('', s.total > 0 && s.n === s.total, { 'data-group-chip': g.id }, ev => selectGroup(g.id, ev));
-      append(b, [h('span', { text: g.name }), h('span', { class: 'b5-con-chipnote', text: ' · ' + s.word })]);
+      // I2b §4: icon, name and count, then the state in words.
+      append(b, [ic('group'), h('span', { text: g.name + ' · ' + s.total }), h('span', { class: 'b5-con-chipnote', text: ' · ' + s.word })]);
       els.groups.appendChild(b);
     }
   }
@@ -414,14 +529,23 @@ const ConsoleScreen = (() => {
     }
     const cell = cellPx();
     els.grid.style.setProperty('--b5-con-cell', cell + 'px');
+    // Fixture glyph: 32 px at the two small zooms, 48 px (the design's
+    // size) once a cell is 128 px (§3 permits 32-64).
+    els.grid.style.setProperty('--b5-con-glyph', (cell >= 128 ? 48 : 32) + 'px');
+    // At the smallest zoom a 64 px tile cannot hold a 32 px glyph AND the
+    // name and words, so the glyph (decorative) gives way to the words.
+    els.grid.classList.toggle('is-compact', cell < 96);
     const stale = staleIds();
-    const shown = st.view === 'all' ? layers() : layers().filter(l => l.id === st.view);
-    const colFrom = Math.min(...items().filter(it => !stale.has(it.id) && shown.some(l => l.id === it.layer)).map(it => it.col), 0);
-    for (const ly of shown) {
+    // I2b: filtered-out layers are not drawn — or, with Ghosts ON, drawn as
+    // dashed outlines with words that cannot be selected.
+    const drawn = layers().filter(l => isShown(l.id) || st.ghosts);
+    const colFrom = Math.min(...items().filter(it => !stale.has(it.id) && drawn.some(l => l.id === it.layer)).map(it => it.col), 0);
+    for (const ly of drawn) {
       const list = items().filter(it => it.layer === ly.id && !stale.has(it.id));
       const b = bounds(list, colFrom);
       const n = list.filter(it => it.kind !== 'object').length;
-      const height = ly.system ? 'fixtures with no place on the plan yet' : (ly.zKnown ? 'height ' + fmtM(ly.zMin) + ' to ' + fmtM(ly.zMax) : 'height not set');
+      if (!isShown(ly.id)) { els.grid.appendChild(ghostLayer(ly, list, b, cell, n)); continue; }
+      const height = ly.system ? 'fixtures with no place on the plan yet' : heightWords(ly);
       const canvas = h('div', { class: 'b5-con-canvas', 'data-canvas': ly.id,
         style: { width: ((b.c1 - b.c0) * cell) + 'px', height: ((b.r1 - b.r0) * cell) + 'px',
           'background-position': (-b.c0 * cell) + 'px ' + (-b.r0 * cell) + 'px' } });
@@ -435,8 +559,35 @@ const ConsoleScreen = (() => {
           btn('Select this layer', { cls: 'b5-btn--sm', attrs: { 'data-select-layer': ly.id } })),
         h('div', { class: 'b5-con-canvaswrap' }, canvas)));
     }
+    if (filtered() && !st.ghosts) {
+      const hid = layers().length - drawn.length;
+      if (hid) els.grid.appendChild(h('p', { class: 'b5-caption b5-con-hiddennote', 'data-hidden-note': '', text: hid + (hid === 1 ? ' layer is' : ' layers are') + ' not shown. Turn Ghosts on to see them as outlines, or tap All layers.' }));
+    }
     if (stale.size) els.grid.appendChild(h('p', { class: 'b5-note', text: stale.size + ' layout item(s) point at something no longer in the show and are not drawn; remove them in edit mode or rebuild the layout.' }));
     applySelection();
+  }
+
+  // ghostLayer: a filtered-out layer drawn as full-contrast dashed outlines
+  // plus words (§3/§4; never faded — the design rejected opacity ghosts on
+  // boundary contrast). Nothing in it is a button: ghosts are not
+  // selectable while filtered.
+  function ghostLayer(ly, list, b, cell, n) {
+    const canvas = h('div', { class: 'b5-con-canvas b5-con-canvas--ghost', 'data-ghost-canvas': ly.id,
+      style: { width: ((b.c1 - b.c0) * cell) + 'px', height: ((b.r1 - b.r0) * cell) + 'px',
+        'background-position': (-b.c0 * cell) + 'px ' + (-b.r0 * cell) + 'px' } });
+    for (const it of list.filter(x => x.kind !== 'object')) {
+      const isGroup = it.kind === 'group';
+      const glyph = isGroup ? 'group' : fixtureClass(it.ref).glyph;
+      canvas.appendChild(h('div', { class: 'b5-con-tile b5-con-tile--ghost', 'data-ghost-item': it.id, style: place(it, b, cell) },
+        h('div', { class: 'b5-con-tile__main' },
+          h('span', { class: 'b5-con-tile__top' }, h('span', { class: 'b5-con-glyph', 'aria-hidden': 'true', icon: 'fx-' + glyph }),
+            h('span', { class: 'b5-con-flags b5-con-ghostword', text: 'Outside layer' })),
+          h('span', { class: 'b5-con-tile__name', text: itemName(it) }))));
+    }
+    return h('section', { class: 'b5-con-layer b5-con-layer--ghost', 'data-ghost-layer': ly.id, 'aria-label': 'Layer ' + ly.name + ', not shown: ghosts, not selectable' },
+      h('div', { class: 'b5-con-layerhead' },
+        h('h3', { class: 'b5-con-layername' }, ly.name, h('span', { class: 'b5-caption', text: ' · ' + n + (n === 1 ? ' item' : ' items') + ' · outside the layers shown · not selectable' }))),
+      h('div', { class: 'b5-con-canvaswrap' }, canvas));
   }
 
   function place(it, b, cell) {
@@ -452,23 +603,36 @@ const ConsoleScreen = (() => {
       const r = unplacedReason(it.ref);
       markers.push(r === 'no-location' ? 'no position' : r === 'not-derived' ? 'not derived' : 'unplaced');
     }
-    const main = h('button', { type: 'button', class: 'b5-con-tile__main', 'data-select-entry': it.ref, 'aria-pressed': 'false' },
-      // Fixture class glyph: a placeholder until the class is derived from
-      // the profile (UI brief 4.2: never a guessed class) — "?".
-      h('span', { class: 'b5-con-glyph', 'aria-hidden': 'true', title: e.fixtureType || 'fixture type not known', style: { transform: 'rotate(' + (it.rot || 0) + 'deg)' }, text: '?' }),
+    // I2b §3: the class glyph from capabilities (fixtureClass), the order
+    // badge in the glyph's reserved top-left corner, and the flag words
+    // that go with a dashed (no profile, RDM labels) or struck (not on
+    // wire) body. The button's accessible name is set in applySelection.
+    const cls = fixtureClass(it.ref);
+    const flags = fixtureFlags(it.ref);
+    // Meta is one line on the tile: the unplaced words lead so they are
+    // never the part cut off; the full text is in the accessible name.
+    const unplacedWords = markers.filter(m => m !== 'auto');
+    const metaText = unplacedWords.concat([e.fixtureNumber ? '#' + e.fixtureNumber : 'no number'], markers.filter(m => m === 'auto')).join(' · ');
+    const main = h('button', { type: 'button', class: 'b5-con-tile__main', 'data-select-entry': it.ref, 'aria-pressed': 'false',
+      'data-glyph': cls.glyph, 'data-class-word': cls.word, 'data-meta': metaText, 'data-flags': flags.join(', ') },
+      h('span', { class: 'b5-con-tile__top' },
+        h('span', { class: 'b5-con-glyph b5-con-glyph--' + cls.glyph, 'aria-hidden': 'true', title: (e.fixtureType || 'fixture type not known') + ' · ' + cls.word, icon: 'fx-' + cls.glyph,
+          style: { transform: 'rotate(' + (it.rot || 0) + 'deg)' } }),
+        h('span', { class: 'b5-con-badge', 'data-badge': '', 'aria-hidden': 'true', hidden: true }),
+        flags.length ? h('span', { class: 'b5-con-flags', 'aria-hidden': 'true', 'data-flag-words': '', text: flags.join(' · ') }) : null),
       h('span', { class: 'b5-con-tile__name', text: e.name || 'Unnamed fixture' }),
-      h('span', { class: 'b5-con-tile__meta' },
-        h('span', { class: 'b5-con-badge', 'data-badge': '', hidden: true }),
-        h('span', { text: (e.fixtureNumber ? '#' + e.fixtureNumber : 'no number') + (markers.length ? ' · ' + markers.join(' · ') : '') })),
+      h('span', { class: 'b5-con-tile__meta b5-con-tile__meta--line', title: metaText }, h('span', { text: metaText })),
       h('span', { class: 'b5-visually-hidden', 'data-selword': '' }));
-    const tile = h('div', { class: 'b5-con-tile b5-con-tile--entry' + (cells.length ? ' has-cells' : ''), 'data-item-id': it.id, 'data-kind': 'entry', 'data-entry-id': it.ref, style: place(it, b, cell) }, main);
+    const flagCls = (flags.includes('No profile') || flags.includes('RDM labels') ? ' is-unprofiled' : '') + (flags.includes('Not on wire') ? ' is-offwire' : '') + (it.layer === 'unplaced' ? ' is-unplaced' : '');
+    const tile = h('div', { class: 'b5-con-tile b5-con-tile--entry' + (cells.length ? ' has-cells' : '') + flagCls, 'data-item-id': it.id, 'data-kind': 'entry', 'data-entry-id': it.ref, style: place(it, b, cell) }, main);
     if (cells.length) {
       const tm = touchMin();
       const w = it.w * cell - 8, hgt = it.h * cell;
       if (hgt >= 2 * tm && cells.length * tm <= w) {
         const strip = h('div', { class: 'b5-con-cells', role: 'group', 'aria-label': 'Cells of ' + (e.name || 'fixture') });
-        cells.forEach(c => strip.appendChild(h('button', { type: 'button', class: 'b5-con-cell', 'data-select-cell': c.id, 'data-entry-id': it.ref, 'aria-pressed': 'false', 'aria-label': (e.name || 'fixture') + ' cell ' + c.index + ' (' + c.name + ')' },
-          h('span', { class: 'b5-con-cell__n', text: String(c.index) }), h('span', { class: 'b5-con-badge b5-con-badge--cell', 'data-badge': '', hidden: true }))));
+        cells.forEach(c => strip.appendChild(h('button', { type: 'button', class: 'b5-con-cell', 'data-select-cell': c.id, 'data-entry-id': it.ref, 'aria-pressed': 'false',
+          'data-cell-name': (e.name || 'fixture') + ', cell ' + c.index + ' of ' + cells.length + (c.name ? ' (' + c.name + ')' : '') },
+          h('span', { class: 'b5-con-cell__n', text: String(c.index) }), h('span', { class: 'b5-con-badge b5-con-badge--cell', 'data-badge': '', 'aria-hidden': 'true', hidden: true }))));
         tile.appendChild(strip);
       } else if (hgt >= 2 * tm) {
         tile.appendChild(h('button', { type: 'button', class: 'b5-con-cellsbtn', 'data-open-cells': it.ref, 'aria-expanded': st.picker === it.ref ? 'true' : 'false' },
@@ -483,12 +647,12 @@ const ConsoleScreen = (() => {
   function groupTile(it, b, cell) {
     const g = groupById(it.ref);
     const n = groupMembers(g).length;
+    // I2b §3: the group glyph carries its member count as HTML text.
     const main = h('button', { type: 'button', class: 'b5-con-tile__main', 'data-select-group': it.ref, 'aria-pressed': 'false' },
-      h('span', { class: 'b5-con-glyph b5-con-glyph--group', 'aria-hidden': 'true', text: 'GRP' }),
+      h('span', { class: 'b5-con-tile__top' },
+        h('span', { class: 'b5-con-glyph b5-con-glyph--group', 'aria-hidden': 'true', icon: 'fx-group' }),
+        h('span', { class: 'b5-con-glyph__count', 'aria-hidden': 'true', text: String(n) })),
       h('span', { class: 'b5-con-tile__name', text: g ? g.name : 'Group no longer stored' }),
-      h('span', { class: 'b5-con-tile__meta' },
-        h('span', { class: 'b5-con-badge', 'data-badge': '', hidden: true }),
-        h('span', { text: 'group · ' + n + (n === 1 ? ' member' : ' members') })),
       h('span', { class: 'b5-con-tile__meta', 'data-group-word': '', text: '' }));
     return h('div', { class: 'b5-con-tile b5-con-tile--group', 'data-item-id': it.id, 'data-kind': 'group', 'data-group-id': it.ref, style: place(it, b, cell) }, main);
   }
@@ -528,29 +692,42 @@ const ConsoleScreen = (() => {
   function applySelection() {
     if (!els.grid) return;
     const order = selOrder();
-    const word = n => 'selected, number ' + n;
+    const p = prog();
+    // Highlight acts on the selection (C4b): selected marks gain a double
+    // outline and the word "highlight" in their accessible name.
+    const hl = !!(p && p.highlight && p.highlight.on);
+    const word = n => 'selected, order ' + n + (hl ? ', highlight' : '');
     els.grid.querySelectorAll('[data-select-entry]').forEach(b => {
-      const n = order.get(key(b.getAttribute('data-select-entry'), '')) || 0;
+      const id = b.getAttribute('data-select-entry');
+      const n = order.get(key(id, '')) || 0;
       const tile = b.closest('[data-item-id]');
-      const cellsSel = (st.cells[b.getAttribute('data-select-entry')] || []).filter(c => order.has(key(b.getAttribute('data-select-entry'), c.id))).length;
+      const total = (st.cells[id] || []).length;
+      const cellsSel = (st.cells[id] || []).filter(c => order.has(key(id, c.id))).length;
       b.setAttribute('aria-pressed', n ? 'true' : 'false');
       tile.classList.toggle('is-selected', !!n);
+      tile.classList.toggle('is-highlight', hl && !!n);
       tile.classList.toggle('has-cells-selected', !!cellsSel);
       tile.classList.toggle('is-edit-target', st.edit && st.editId === tile.getAttribute('data-item-id'));
       setBadge(b.querySelector('[data-badge]'), n);
+      const selText = n ? word(n) : 'not selected';
+      const cellText = cellsSel ? cellsSel + ' of ' + total + ' cells selected' : '';
       const sw = b.querySelector('[data-selword]');
-      if (sw) sw.textContent = n ? ', ' + word(n) : (cellsSel ? ', ' + cellsSel + ' cells selected' : ', not selected');
+      if (sw) sw.textContent = ', ' + selText + (cellText ? ', ' + cellText : '');
+      // §3 accessible name: "Pixel bar 07, multi-cell, selected, order 4,
+      // #7 · auto, RDM labels" — the visible name first.
+      const name = (tile.querySelector('.b5-con-tile__name') || {}).textContent || '';
+      b.setAttribute('aria-label', [name, b.getAttribute('data-class-word'), selText, cellText, b.getAttribute('data-meta'), b.getAttribute('data-flags')].filter(Boolean).join(', '));
       const lbl = tile.querySelector('[data-cells-label]');
-      if (lbl) {
-        const total = (st.cells[b.getAttribute('data-select-entry')] || []).length;
-        lbl.textContent = cellsSel ? cellsSel + ' of ' + total + ' cells selected' : total + ' cells';
-      }
+      if (lbl) lbl.textContent = cellsSel ? cellsSel + ' of ' + total + ' cells selected' : total + ' cells';
     });
     els.grid.querySelectorAll('[data-select-cell]').forEach(b => {
       const n = order.get(key(b.getAttribute('data-entry-id'), b.getAttribute('data-select-cell'))) || 0;
       b.setAttribute('aria-pressed', n ? 'true' : 'false');
       b.classList.toggle('is-selected', !!n);
+      b.classList.toggle('is-highlight', hl && !!n);
       setBadge(b.querySelector('[data-badge]'), n);
+      // "Pixel bar 07, cell 2 of 4 (Red), selected, order 4"
+      b.setAttribute('aria-label', b.getAttribute('data-cell-name') + ', ' + (n ? word(n) : 'not selected'));
     });
     els.grid.querySelectorAll('[data-select-group]').forEach(b => {
       const s = groupState(groupById(b.getAttribute('data-select-group')));
@@ -561,15 +738,17 @@ const ConsoleScreen = (() => {
       tile.classList.toggle('is-partial', s.n > 0 && !all);
       tile.classList.toggle('is-edit-target', st.edit && st.editId === tile.getAttribute('data-item-id'));
       const gw = b.querySelector('[data-group-word]');
-      if (gw) gw.textContent = s.word;
-      setBadge(b.querySelector('[data-badge]'), 0);
+      if (gw) gw.textContent = 'group · ' + s.word;
+      const name = (tile.querySelector('.b5-con-tile__name') || {}).textContent || '';
+      b.setAttribute('aria-label', name + ', group of ' + s.total + ', ' + s.word);
     });
   }
+  // The order badge is decorative text (§3): the accessible name already
+  // says "order n"; the 3 px outline, not the badge's colour, says selected.
   function setBadge(el, n) {
     if (!el) return;
     el.hidden = !n;
-    clear(el);
-    if (n) append(el, [ic('status-ok'), String(n)]);
+    el.textContent = n ? String(n) : '';
   }
 
   // --- cell picker ------------------------------------------------------------
@@ -608,17 +787,115 @@ const ConsoleScreen = (() => {
     return sel({ action: adding(ev) ? 'toggle' : 'set', targets: [{ entryId, cell: cell || '' }] });
   }
   function selectGroup(id, ev) {
-    if (!adding(ev)) return sel({ action: 'set', group: id });
-    const s = groupState(groupById(id));
-    return sel({ action: s.total > 0 && s.n === s.total ? 'remove' : 'add', group: id });
+    const g = groupById(id);
+    const s = groupState(g);
+    const removing = adding(ev) && s.total > 0 && s.n === s.total;
+    const done = adding(ev) ? sel({ action: removing ? 'remove' : 'add', group: id }) : sel({ action: 'set', group: id });
+    // §4: selecting a group shows any members the layer filter hides.
+    if (removing || !filtered()) return done;
+    return done.then(() => {
+      const out = groupMembers(g).filter(m => { const e = entryById(m.entryId); const it = e && itemById(e.itemId); return it && !isShown(it.layer); });
+      if (out.length) status(out.length + ' of ' + s.total + ' members of ' + g.name + ' are on layers not shown; they are selected too: ' +
+        out.map(m => { const e = entryById(m.entryId); return (e && e.name) || 'fixture'; }).join(', ') + '.');
+    });
   }
   function selectLayer(id, ev) { return sel({ action: adding(ev) ? 'add' : 'set', layer: id }); }
+  // visibleTargets: what a layer selection would give for every layer shown,
+  // in layer order — the same reading order (row, column, stacking) and
+  // group expansion the server uses for one layer (programmer.go
+  // layerTargets) — so Select all and Invert respect the filter (§4).
+  function visibleTargets(entriesOnly) {
+    const out = [], seen = new Set();
+    const add = t => { const k = key(t.entryId, t.cell); if (!seen.has(k)) { seen.add(k); out.push({ entryId: t.entryId, cell: t.cell || '' }); } };
+    const stale = staleIds();
+    for (const ly of shownLayers()) {
+      const list = items().filter(it => it.layer === ly.id && it.kind !== 'object' && !stale.has(it.id))
+        .sort((a, c) => a.row - c.row || a.col - c.col || a.order - c.order);
+      for (const it of list) {
+        if (it.kind === 'entry') add({ entryId: it.ref, cell: '' });
+        else if (!entriesOnly) groupMembers(groupById(it.ref)).forEach(add);
+      }
+    }
+    return out;
+  }
   function selectAll() {
-    if (st.view !== 'all' && layerById(st.view)) return selectLayer(st.view);
-    return sel({ action: 'all' });
+    if (!filtered()) return sel({ action: 'all' });
+    const s = shownLayers();
+    if (s.length === 1) return selectLayer(s[0].id);
+    return sel({ action: 'set', targets: visibleTargets(false) });
+  }
+  // Invert: every fixture on the layers shown goes in or out (§4).
+  function selectInvert() {
+    const t = visibleTargets(true);
+    if (!t.length) return status('There are no fixtures on the layers shown.', 'error');
+    return sel({ action: 'toggle', targets: t });
+  }
+
+  // --- lasso (I2b §4) -----------------------------------------------------------
+  // With Lasso ON a drag on the grid (any pointer: one finger, pen, mouse)
+  // draws a box; on release every fixture tile on a layer shown that the
+  // box touches is selected (Add mode or Shift/Ctrl/Cmd: added), in reading
+  // order. The grid is touch-action:none only while Lasso is ON (CSS), so
+  // with it OFF a finger drag scrolls the plan as before. Escape, or a
+  // pointer cancel, drops the box; Escape also turns Lasso off.
+  let lasso = null;
+  let swallowClick = false;
+  function setLasso(on) {
+    st.lasso = !!on && !st.edit;
+    lassoEnd();
+    renderTools();
+  }
+  function lassoEnd() {
+    lasso = null;
+    if (els.lassoBox) els.lassoBox.hidden = true;
+  }
+  function lassoDown(ev) {
+    if (ev.button !== undefined && ev.button !== 0) return;
+    lasso = { pointerId: ev.pointerId, x0: ev.clientX, y0: ev.clientY, x1: ev.clientX, y1: ev.clientY, moved: false };
+    try { els.grid.setPointerCapture(ev.pointerId); } catch (_) { /* not capturable (tests) */ }
+  }
+  function lassoRect() {
+    return { left: Math.min(lasso.x0, lasso.x1), top: Math.min(lasso.y0, lasso.y1), right: Math.max(lasso.x0, lasso.x1), bottom: Math.max(lasso.y0, lasso.y1) };
+  }
+  function lassoMove(ev) {
+    if (!lasso || ev.pointerId !== lasso.pointerId) return;
+    lasso.x1 = ev.clientX; lasso.y1 = ev.clientY;
+    if (!lasso.moved && Math.hypot(lasso.x1 - lasso.x0, lasso.y1 - lasso.y0) < DRAG_SLOP) return;
+    lasso.moved = true;
+    if (ev.preventDefault) ev.preventDefault();
+    const r = lassoRect();
+    els.lassoBox.hidden = false;
+    ['left', 'top'].forEach(k => els.lassoBox.style.setProperty(k, r[k] + 'px'));
+    els.lassoBox.style.setProperty('width', (r.right - r.left) + 'px');
+    els.lassoBox.style.setProperty('height', (r.bottom - r.top) + 'px');
+  }
+  function lassoUp(ev) {
+    if (!lasso || ev.pointerId !== lasso.pointerId) return;
+    lasso.x1 = ev.clientX; lasso.y1 = ev.clientY;
+    const moved = lasso.moved || Math.hypot(lasso.x1 - lasso.x0, lasso.y1 - lasso.y0) >= DRAG_SLOP;
+    const r = lassoRect();
+    lassoEnd();
+    try { els.grid.releasePointerCapture(ev.pointerId); } catch (_) { /* fine */ }
+    if (!moved) return; // a tap: the click selects as usual
+    // The click that follows a drag must not also select the tile it ends on.
+    swallowClick = true;
+    setTimeout(() => { swallowClick = false; }, 0);
+    const hit = new Set();
+    els.grid.querySelectorAll('[data-layer-block] [data-kind="entry"]').forEach(t => {
+      const b = t.getBoundingClientRect();
+      if (b.width && b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top) hit.add(t.getAttribute('data-entry-id'));
+    });
+    const targets = visibleTargets(true).filter(t => hit.has(t.entryId));
+    if (!targets.length) return status('The lasso box touched no fixtures on the layers shown.', 'error');
+    return sel({ action: adding(ev) ? 'add' : 'set', targets });
+  }
+  function onLassoKey(ev) {
+    if (ev.key !== 'Escape' || !st.lasso) return;
+    setLasso(false);
   }
 
   function onGridClick(ev) {
+    if (swallowClick) { swallowClick = false; return; }
     const t = ev.target && ev.target.closest ? ev.target.closest('button') : null;
     if (!t) return;
     if (t.hasAttribute('data-select-layer')) return selectLayer(t.getAttribute('data-select-layer'), ev);
@@ -647,6 +924,7 @@ const ConsoleScreen = (() => {
     if (!st.edit) st.editId = null;
     st.picker = null;
     drag = null;
+    if (st.edit) { st.lasso = false; lassoEnd(); } // edit drags move items, never lasso
     renderTools();
     renderGrid();
     renderPicker();
@@ -667,7 +945,7 @@ const ConsoleScreen = (() => {
     return tile ? { id: tile.getAttribute('data-item-id'), el: tile } : null;
   }
   function onPointerDown(ev) {
-    if (!st.edit) return;
+    if (!st.edit) { if (st.lasso) lassoDown(ev); return; }
     if (ev.button !== undefined && ev.button !== 0) return;
     const hold = dragHolder(ev);
     if (!hold) return;
@@ -677,6 +955,7 @@ const ConsoleScreen = (() => {
     try { els.grid.setPointerCapture(ev.pointerId); } catch (_) { /* not capturable (tests) */ }
   }
   function onPointerMove(ev) {
+    if (lasso) return lassoMove(ev);
     if (!drag || !st.edit || ev.pointerId !== drag.pointerId) return;
     const dx = ev.clientX - drag.x0, dy = ev.clientY - drag.y0;
     if (!drag.moved && Math.hypot(dx, dy) < DRAG_SLOP) return;
@@ -689,8 +968,9 @@ const ConsoleScreen = (() => {
     if (drag && drag.el) { drag.el.style.removeProperty('transform'); drag.el.classList.remove('is-dragging'); }
     drag = null;
   }
-  function onPointerCancel() { endDrag(); }
+  function onPointerCancel() { endDrag(); lassoEnd(); }
   function onPointerUp(ev) {
+    if (lasso) return lassoUp(ev);
     if (!drag || ev.pointerId !== drag.pointerId) return;
     const d = drag;
     const dx = ev.clientX - d.x0, dy = ev.clientY - d.y0;
@@ -744,7 +1024,7 @@ const ConsoleScreen = (() => {
       const resp = await Api.layoutAction(action, body);
       st.layout = resp;
       if (st.editId && !itemById(st.editId)) st.editId = null;
-      if (st.view !== 'all' && !layerById(st.view)) st.view = 'all';
+      pruneShown();
       renderAll();
       status(typeof done === 'function' ? done(resp) : done);
       return resp;
@@ -1009,6 +1289,25 @@ const ConsoleScreen = (() => {
         more),
     ]);
   }
+  // --- selection order list (I2b §3) ---------------------------------------------
+  // The visible text list of the selection in order — the order Fan uses.
+  // The total line is a polite live region; it is rewritten only when the
+  // words change, so programmer broadcasts do not repeat the announcement.
+  function renderOrder() {
+    if (!els.orderList) return;
+    const s = selection();
+    const cells = s.filter(x => x.cell).length;
+    const fixtures = s.length - cells;
+    const total = !s.length ? 'Nothing selected. Tap a fixture, a cell, a group or a layer.'
+      : [fixtures ? fixtures + (fixtures === 1 ? ' fixture' : ' fixtures') : '', cells ? cells + (cells === 1 ? ' cell' : ' cells') : ''].filter(Boolean).join(' · ') + ' selected, in this order';
+    if (els.orderTotal.textContent !== total) els.orderTotal.textContent = total;
+    clear(els.orderList);
+    s.forEach((x, i) => els.orderList.appendChild(h('li', { class: 'b5-con-order__item', 'data-order-item': x.entryId + (x.cell ? '/' + x.cell : '') },
+      h('span', { class: 'b5-con-order__n', text: String(i + 1) }),
+      h('span', { text: (x.name || 'Unnamed fixture') + (x.cell ? ' · cell ' + (x.cellIndex || '?') + (x.cellName ? ' (' + x.cellName + ')' : '') : '') }))));
+    els.orderList.hidden = !s.length;
+  }
+
   // summaryTools: the three tools behind More on a phone.
   function summaryTools(s, hl) {
     const more = h('div', { class: 'b5-con-summary__more' + (st.moreOpen ? ' is-open' : ''), id: 'conSummaryMore', 'data-summary-more': '' },
@@ -1068,6 +1367,7 @@ const ConsoleScreen = (() => {
         renderGroups();
         renderPicker();
         renderSummary();
+        renderOrder();
         if (st.edit) renderEdit();
         if (typeof ConsoleControls !== 'undefined') ConsoleControls.refresh();
       });
@@ -1090,6 +1390,7 @@ const ConsoleScreen = (() => {
   function onLeaveScreen() {
     st.active = false;
     endDrag();
+    lassoEnd();
   }
 
   return { init, onEnterScreen, onLeaveScreen, load, _state: st };

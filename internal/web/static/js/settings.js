@@ -204,7 +204,7 @@ const SettingsScreen = (() => {
             <option value="blackout">Blackout &mdash; disarm and black out</option>
             <option value="hold">Hold last look &mdash; keep sending what is on the rig</option>
           </select>
-          <span class="b5-field__hint">Any open Benny512 page (laptop, phone, tablet) keeps ARM alive. When all of them have been silent for 5 seconds &mdash; or the last one is closed &mdash; Benny512 does this. <strong>Default: Blackout.</strong> Hold last look keeps the rig exactly as it was and shows <em>Lease lost &mdash; holding</em>; nothing you change reaches the rig until someone presses ARM again. DISARM and Stop all output always black out, whatever is chosen here.</span>
+          <span class="b5-field__hint">Any open Benny512 page (laptop, phone, tablet) keeps ARM alive. When all of them have been silent for 5 seconds &mdash; or the last one is closed &mdash; Benny512 does this. <strong>Default: Blackout.</strong> Hold last look keeps the rig exactly as it was and shows <em>LEASE LOST &middot; LOOK HELD</em>; nothing you change reaches the rig until someone presses ARM again. Blackout shows <em>DISARMED &middot; LEASE LOST</em>. DISARM &middot; BLACKOUT always blacks out, whatever is chosen here.</span>
         </div>
         <div class="b5-group">
           <h3 class="b5-group__head">Protocol per universe</h3>

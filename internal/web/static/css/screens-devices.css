@@ -69,11 +69,11 @@
    still identify it.
    --------------------------------------------------------------------------- */
 .b5-statecard.is-current {
-  border-color: var(--b5-color-accent-500);
+  border-color: var(--b5-color-accent-border);
   border-width: var(--b5-border-width-thick);
   border-left-width: 10px;
-  border-left-color: var(--b5-color-accent-500);
-  background: var(--b5-color-accent-500-a15);
+  border-left-color: var(--b5-color-accent-border);
+  background: var(--b5-color-bg-selected);
 }
 
 /* ---------------------------------------------------------------------------
@@ -209,7 +209,7 @@
   width: min(34rem, calc(100vw - (var(--b5-space-4) * 2)));
   overflow: auto;
   padding: var(--b5-space-4);
-  border: var(--b5-border-width-thick) solid var(--b5-color-accent-500);
+  border: var(--b5-border-width-thick) solid var(--b5-color-accent-border);
   border-radius: var(--b5-radius-lg);
   background: var(--b5-color-bg-surface-raised);
   box-shadow: var(--b5-shadow-lg);

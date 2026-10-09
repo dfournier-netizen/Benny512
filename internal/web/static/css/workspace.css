@@ -11,26 +11,55 @@
   background: var(--b5-color-bg-surface); border-bottom: 1px solid var(--b5-color-border-strong);
 }
 .b5-show-context__name { overflow: hidden; text-overflow: ellipsis; max-width: 35vw; white-space: nowrap; }
-/* Master output control (C3). The state is a WORD and an icon; the border
-   style (solid for Armed, dashed for Disarmed/holding) is a second, non-hue
-   signal. ARM / DISARM are full touch targets on every pointer. */
-.b5-out { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2); }
+/* Master output control (C3; restyled I2a per component-specs.md §1). The
+   state is a WORD and an icon; the border repeats it without hue: 3 px solid
+   when ARMED · LIVE, 3 px dashed when a lease or link is lost, thin dashed
+   when disarmed. ARM is a pill in its own slot; DISARM · BLACKOUT is a
+   square 60 px slab, rightmost, present in every state. */
+/* The state group takes the free width and wraps INSIDE itself, so ARM and
+   the slab stay on the strip's first line on wide screens. */
+.b5-out { display: inline-flex; flex: 1 1 12em; flex-wrap: wrap; align-items: center; gap: var(--b5-space-1) var(--b5-space-2); min-width: 0; }
+.b5-show-context > .b5-btn { min-height: var(--b5-size-touch-min); }
+.b5-out-state, .b5-out-sim, .b5-out-link { white-space: nowrap; }
+@media (max-width: 1299px) { .b5-show-context [data-out-note] { display: none; } }
+/* Tablets: state on the first line; Show tools and Fixture library start the
+   second, with ARM beside the slab at its right end. */
+@media (min-width: 768px) and (max-width: 1299px) {
+  .b5-show-context::before { content: ''; order: 9; flex-basis: 100%; height: 0; }
+  .b5-show-context [data-tools], .b5-show-context [data-library], .b5-show-context .b5-out-armslot, .b5-show-context [data-stop] { order: 10; }
+  .b5-show-context .b5-out-armslot { margin-left: auto; }
+  .b5-show-context > .b5-out-stop { margin-left: 0; }
+  .b5-show-context .b5-out-armslot:empty + .b5-out-stop { margin-left: auto; }
+}
 .b5-out-state { display: inline-flex; align-items: center; gap: var(--b5-space-1); font-weight: 700; padding: 2px var(--b5-space-2);
-  border: 2px dashed var(--b5-color-border-strong); border-radius: var(--b5-radius-sm, 4px); }
-.b5-out-state .b5-icon, .b5-out-state svg { width: 1em; height: 1em; }
-.b5-out-state--ok { border-style: solid; border-color: var(--b5-color-success-500); color: var(--b5-color-text-success); }
-.b5-out-state--warn { border-color: var(--b5-color-warning-700); color: var(--b5-color-text-warning); }
-.b5-out-state--error { border-style: solid; border-color: var(--b5-color-danger-500); color: var(--b5-color-text-danger); }
-.b5-out-arm { min-height: var(--b5-size-touch-min, 44px); min-width: 6.5em; font-weight: 700; letter-spacing: 0.04em; }
-.b5-out-arm--go { border: 2px solid var(--b5-color-success-500); color: var(--b5-color-text-success); }
-.b5-out-arm--stop { border: 2px solid var(--b5-color-danger-500); color: var(--b5-color-text-danger); }
-.b5-show-context [data-stop] { min-height: var(--b5-size-touch-min, 44px); }
+  border: var(--b5-border-width-thin) dashed var(--b5-color-border-strong); border-radius: var(--b5-radius-sm); letter-spacing: 0.02em; }
+.b5-out-state .b5-icon, .b5-out-state svg, .b5-out-sim svg, .b5-out-link svg { width: 1em; height: 1em; flex: none; }
+.b5-out-state--ok { border: var(--b5-size-state-border) solid var(--b5-color-ok-border); color: var(--b5-color-text-success); }
+.b5-out-state--lost { border: var(--b5-size-state-border) dashed var(--b5-color-warn-border); color: var(--b5-color-text-warning); }
+.b5-out-state--error { border: var(--b5-size-state-border) solid var(--b5-color-danger-border); color: var(--b5-color-text-danger); }
+/* Simulated: hatch always visible beside the words (never the only signal). */
+.b5-out-sim { display: inline-flex; align-items: center; gap: var(--b5-space-1); font-size: var(--b5-font-size-xs); font-weight: 700;
+  padding: 2px var(--b5-space-2); border: var(--b5-border-width-thin) solid var(--b5-color-info-border); border-radius: var(--b5-radius-sm);
+  color: var(--b5-color-text-primary);
+  background: repeating-linear-gradient(135deg, var(--b5-color-info-fill) 0 6px, transparent 6px 12px); }
+.b5-out-link { display: inline-flex; align-items: center; gap: var(--b5-space-1); font-size: var(--b5-font-size-xs); color: var(--b5-color-text-secondary); }
+.b5-out-note { font-size: var(--b5-font-size-xs); color: var(--b5-color-text-secondary); }
+.b5-out-note--alert { color: var(--b5-color-text-warning); font-weight: 700; flex: 1 1 18em; min-width: 0; }
+.b5-out-ack { min-height: var(--b5-size-touch-min); }
+.b5-out-armslot { display: inline-flex; }
+.b5-out-armslot:empty { display: none; }
+.b5-out-arm { min-height: var(--b5-size-touch-min); min-width: 6.5em; font-weight: 700; letter-spacing: 0.04em; border-radius: var(--b5-radius-full); }
+.b5-out-arm--go { border: var(--b5-border-width-thick) solid var(--b5-color-ok-border); color: var(--b5-color-text-success); }
+.b5-out-stop { min-height: var(--b5-size-control-lg); min-width: var(--b5-size-control-lg); padding-inline: var(--b5-space-3);
+  border: var(--b5-size-state-border) solid var(--b5-color-danger-border); border-radius: var(--b5-radius-none);
+  color: var(--b5-color-text-danger); font-weight: 700; line-height: 1.1; letter-spacing: 0.04em; text-align: left; }
+.b5-show-context > .b5-out-stop { min-height: var(--b5-size-control-lg); margin-left: auto; } /* rightmost, even when it wraps */
 .b5-workspace-dialog {
   color: var(--b5-color-text-primary); background: var(--b5-color-bg-surface); border: 1px solid var(--b5-color-border-strong);
   width: min(960px, 94vw); max-width: 94vw; max-height: 88dvh;
   padding: var(--b5-space-4); border-radius: var(--b5-radius-md);
 }
-.b5-workspace-dialog::backdrop { background: #000b; }
+.b5-workspace-dialog::backdrop { background: var(--b5-color-scrim); }
 .b5-workspace-dialog .b5-row { flex-wrap: wrap; }
 .b5-workspace-dialog section, .b5-workspace-dialog details { margin-top: var(--b5-space-4); min-width: 0; }
 .b5-workspace-list { display: grid; gap: var(--b5-space-2); max-height: 42dvh; overflow: auto; }
@@ -51,27 +80,35 @@
    sticks just below the header, at its measured height (--b5-header-height,
    app.js; the fallback is the header's own minimum). Phones: the header
    scrolls away with the page and only the strip sticks, compact, so ARM and
-   Stop all output are always on screen. */
+   DISARM · BLACKOUT are always on screen. */
 .b5-show-context { top: var(--b5-header-height, calc(var(--b5-size-touch-min) + 2 * var(--b5-space-3) + 1px)); }
 @media (max-width: 767px) {
   .b5-header { position: relative; top: auto; }
   .b5-show-context {
     top: 0;
-    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--b5-space-1) var(--b5-space-2);
+    display: flex; flex-wrap: wrap; gap: var(--b5-space-1) var(--b5-space-2);
     padding: var(--b5-space-1) var(--b5-space-2);
   }
   .b5-show-context__nic { display: none; }
-  .b5-show-context__name { grid-column: 1 / 3; grid-row: 1; max-width: none; align-self: center; }
+  /* Row 1: show name | state word. Row 2: simulated tag, link, notices.
+     Last row: Show tools, Fixture library, ARM, then the slab rightmost. */
+  .b5-show-context__name { flex: 1 1 0; min-width: 0; max-width: none; align-self: center; }
   .b5-show-context .b5-out { display: contents; }
-  .b5-show-context .b5-out-state { grid-column: 3 / 5; grid-row: 1; justify-self: end; max-width: 100%; font-size: var(--b5-font-size-xs); }
-  .b5-show-context .b5-out-arm { grid-column: 1; grid-row: 2; }
-  .b5-show-context [data-stop] { grid-column: 2; grid-row: 2; }
-  .b5-show-context [data-tools] { grid-column: 3; grid-row: 2; }
-  .b5-show-context [data-library] { grid-column: 4; grid-row: 2; }
+  .b5-show-context .b5-out-state { flex: 0 1 auto; max-width: 62%; font-size: var(--b5-font-size-xs); }
+  .b5-show-context .b5-out-sim, .b5-show-context .b5-out-link, .b5-show-context .b5-out-note { flex: 1 1 auto; }
+  .b5-show-context .b5-out-note--alert { flex: 1 1 12em; }
+  .b5-show-context .b5-out-state { white-space: normal; }
+  .b5-show-context [data-out-note] { display: none; }
+  .b5-show-context .b5-out-armslot { display: contents; }
+  .b5-show-context [data-tools], .b5-show-context [data-library], .b5-show-context .b5-out-arm, .b5-show-context [data-stop] {
+    order: 10; flex: 1 1 0; margin: 0;
+  }
+  .b5-show-context::before { content: ''; order: 9; flex-basis: 100%; height: 0; } /* line break before the buttons */
   .b5-show-context > .b5-btn, .b5-show-context .b5-out-arm {
     min-width: 0; min-height: var(--b5-size-touch-min); padding-inline: var(--b5-space-1);
     white-space: normal; line-height: 1.15; font-size: var(--b5-font-size-xs); justify-content: center; text-align: center;
   }
+  .b5-show-context > .b5-out-stop { min-height: var(--b5-size-control-lg); flex-direction: column; gap: 2px; letter-spacing: 0; padding-inline: 2px; }
 
   /* Every sticky bottom bar (Send's and Rig Check's output bars, the
      Console's selection summary) sits ABOVE the fixed bottom nav, at its

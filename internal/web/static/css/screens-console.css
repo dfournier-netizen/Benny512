@@ -16,6 +16,15 @@
 .b5-con-chips { display: flex; gap: var(--b5-space-2); overflow-x: auto; flex: 1 1 0; min-width: 0; padding-bottom: var(--b5-space-1); }
 .b5-con-chips > .b5-seg { flex: none; white-space: nowrap; }
 .b5-con-chipnote { font-weight: var(--b5-font-weight-regular); color: var(--b5-color-text-secondary); }
+/* I2b §4: every toolbar control is a full 44 px target on every pointer
+   type (the kit's --sm button is 32 px on a mouse). */
+.b5-con-toolbar .b5-btn, .b5-con-toolbar .b5-seg { min-height: var(--b5-size-touch-min); }
+.b5-con-toolbar .b5-seg { display: inline-flex; align-items: center; gap: var(--b5-space-1); }
+/* Phone: the select tools scroll inside their own row, never the page. */
+@media (max-width: 767px) {
+  .b5-con-tools { flex-wrap: nowrap; overflow-x: auto; padding-bottom: var(--b5-space-1); }
+  .b5-con-tools > * { flex: none; }
+}
 
 .b5-con-status { min-height: 1.5em; margin: var(--b5-space-2) 0; display: flex; align-items: center; gap: var(--b5-space-2); flex-wrap: wrap; }
 .b5-con-status--error { color: var(--b5-color-text-danger); border-left: var(--b5-border-width-thick) solid var(--b5-color-border-danger); padding-left: var(--b5-space-2); }
@@ -44,6 +53,7 @@
 .b5-con-layer + .b5-con-layer { margin-top: var(--b5-space-4); }
 .b5-con-layerhead { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2); justify-content: space-between; margin-bottom: var(--b5-space-2); position: sticky; left: 0; }
 .b5-con-layername { margin: 0; font-size: var(--b5-font-size-md); }
+.b5-con-layerhead .b5-btn { min-height: var(--b5-size-touch-min); }
 .b5-con-canvaswrap { display: inline-block; }
 .b5-con-canvas {
   position: relative;
@@ -71,52 +81,97 @@
   cursor: pointer;
 }
 .b5-con-tile__main:focus-visible, .b5-con-cell:focus-visible, .b5-con-cellsbtn:focus-visible, .b5-con-obj__handle:focus-visible { outline: 3px solid var(--b5-color-border-focus); outline-offset: 1px; }
-.b5-con-tile__name { font-weight: var(--b5-font-weight-bold); font-size: var(--b5-font-size-sm); max-width: calc(100% - 1.6em);
+.b5-con-tile__name { min-width: 0; line-height: 1.15; font-weight: var(--b5-font-weight-bold); font-size: var(--b5-font-size-sm); max-width: 100%;
   overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .b5-con-tile__meta { color: var(--b5-color-text-secondary); max-width: 100%; overflow: hidden; overflow-wrap: anywhere; }
-.b5-con-tile__meta > .b5-con-badge { margin-right: 3px; }
+.b5-con-tile__meta--line { white-space: nowrap; text-overflow: ellipsis; }
+/* A multi-cell tile is at least as wide as its cells: glyph beside the
+   name, so the name survives the short main button above the cell strip. */
+.b5-con-tile.has-cells > .b5-con-tile__main { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--b5-space-1); align-content: start; }
+.b5-con-tile.has-cells .b5-con-tile__top { grid-row: 1 / span 2; }
 /* A tile that also carries a cell control keeps its name to one line. */
 .b5-con-tile.has-cells .b5-con-tile__name { -webkit-line-clamp: 1; }
 .b5-con-tile.has-cells .b5-con-tile__meta { white-space: nowrap; text-overflow: ellipsis; }
-.b5-con-tile.has-cells .b5-con-tile__main { gap: 0; }
+.b5-con-tile.has-cells .b5-con-tile__main { gap: 0 var(--b5-space-1); }
+/* I2b §3: fixture glyph (sprite fx-*, chosen from capabilities) with the
+   order badge in its reserved top-left corner and the flag words beside
+   it. 32 px at small zooms, 48 px from 128 px cells (--b5-con-glyph). */
+.b5-con-tile__top { position: relative; display: flex; align-items: flex-start; gap: var(--b5-space-1); min-height: var(--b5-con-glyph, 32px); max-width: 100%; }
 .b5-con-glyph {
-  position: absolute; top: 4px; right: 4px;
-  display: inline-flex; align-items: center; justify-content: center;
-  min-width: 1.5em; height: 1.5em; padding: 0 2px; border: var(--b5-border-width-thin) dashed var(--b5-color-text-muted);
-  border-radius: var(--b5-radius-full); font-size: var(--b5-font-size-xs); color: var(--b5-color-text-secondary);
+  flex: none; display: inline-flex; width: var(--b5-con-glyph, 32px); height: var(--b5-con-glyph, 32px);
+  color: var(--b5-color-fixture-idle);
 }
-.b5-con-glyph--group { border-style: double; border-width: 3px; border-radius: var(--b5-radius-sm); font-weight: var(--b5-font-weight-bold); }
+.b5-con-glyph svg { width: 100%; height: 100%; }
+.b5-con-glyph__count {
+  position: absolute; left: calc(var(--b5-con-glyph, 32px) * 0.1875); top: calc(var(--b5-con-glyph, 32px) * 0.333);
+  width: calc(var(--b5-con-glyph, 32px) * 0.5625); height: calc(var(--b5-con-glyph, 32px) * 0.479);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--b5-font-mono); font-weight: var(--b5-font-weight-bold); font-size: var(--b5-font-size-xs); color: var(--b5-color-text-primary);
+}
+.b5-con-glyph__count::before { content: ''; position: absolute; inset: 2px; z-index: -1; background: var(--b5-color-bg-surface-overlay); }
+.b5-con-glyph__count { z-index: 0; isolation: isolate; }
+.b5-con-flags { align-self: center; min-width: 0; font-size: var(--b5-font-size-xs); font-weight: var(--b5-font-weight-bold); color: var(--b5-color-text-primary); overflow-wrap: anywhere; line-height: 1.15; }
 .b5-con-badge {
-  display: inline-flex; align-items: center; gap: 2px; padding: 0 4px;
-  font-family: var(--b5-font-mono); font-weight: var(--b5-font-weight-bold);
-  color: var(--b5-color-text-on-accent); background: var(--b5-color-text-accent); border-radius: var(--b5-radius-sm);
+  display: inline-flex; align-items: center; justify-content: center; min-width: 1.5em; padding: 0 3px;
+  font-family: var(--b5-font-mono); font-weight: var(--b5-font-weight-bold); font-size: var(--b5-font-size-xs); line-height: 1.4;
+  color: var(--b5-color-text-on-accent); background: var(--b5-color-fixture-selected); border-radius: var(--b5-radius-sm);
 }
+.b5-con-tile__top > .b5-con-badge { position: absolute; left: 0; top: 0; z-index: 1; }
+.b5-con-gridbox.is-compact .b5-con-glyph, .b5-con-gridbox.is-compact .b5-con-glyph__count { display: none; }
+.b5-con-gridbox.is-compact .b5-con-tile__top { min-height: 0; }
+.b5-con-gridbox.is-compact .b5-con-tile__top > .b5-con-badge { position: static; }
+.b5-con-gridbox.is-compact .b5-con-flags { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .b5-con-badge[hidden] { display: none; }
-.b5-con-badge .b5-con-ic svg { width: 14px; height: 14px; }
+/* Parent selected: 3 px outline + order badge. Highlight adds a second,
+   outer ring (double outline) and the word in the accessible name. */
 .b5-con-tile.is-selected > .b5-con-tile__main {
-  border: 4px double var(--b5-color-text-accent); background: var(--b5-color-bg-selected);
+  border: var(--b5-size-state-border) solid var(--b5-color-fixture-selected); background: var(--b5-color-bg-selected);
 }
-.b5-con-tile.has-cells-selected > .b5-con-tile__main { border-left: 6px solid var(--b5-color-text-accent); }
-.b5-con-tile--group.is-partial > .b5-con-tile__main { border: 3px dashed var(--b5-color-text-accent); }
+.b5-con-tile.is-selected .b5-con-glyph { color: var(--b5-color-fixture-selected); }
+.b5-con-tile.is-highlight { z-index: 1; }
+.b5-con-tile.is-highlight > .b5-con-tile__main { box-shadow: 0 0 0 2px var(--b5-color-bg-canvas), 0 0 0 5px var(--b5-color-fixture-highlight); }
+.b5-con-tile.has-cells-selected > .b5-con-tile__main { border-left: 6px solid var(--b5-color-fixture-cell-selected); }
+.b5-con-tile--group.is-partial > .b5-con-tile__main { border: var(--b5-size-state-border) dashed var(--b5-color-fixture-selected); }
 .b5-con-tile--group > .b5-con-tile__main { background: var(--b5-color-bg-surface-overlay); }
+/* No profile / RDM labels: dashed body. Not on wire: hatched body. Each
+   also carries its words (.b5-con-flags), never the line style alone. */
+.b5-con-tile.is-unprofiled > .b5-con-tile__main { border-style: dashed; }
+.b5-con-tile.is-unprofiled:not(.is-selected) > .b5-con-tile__main { border-color: var(--b5-color-fixture-unprofiled); }
+.b5-con-tile.is-offwire > .b5-con-tile__main {
+  background-image: repeating-linear-gradient(135deg, transparent 0 7px, var(--b5-color-border-strong) 7px 8px);
+}
+.b5-con-tile.is-offwire:not(.is-selected) > .b5-con-tile__main { border-color: var(--b5-color-fixture-offline); }
+/* Unplaced: full-contrast dashed outline plus its words ("no position"). */
+.b5-con-tile.is-unplaced > .b5-con-tile__main { border-style: dashed; }
+.b5-con-tile.is-unplaced:not(.is-selected) > .b5-con-tile__main { border-width: 2px; border-color: var(--b5-color-fixture-ghost); }
+/* Ghosts: layers outside the filter, drawn as dashed outlines with words,
+   never faded, never buttons. */
+.b5-con-tile--ghost > .b5-con-tile__main { cursor: default; background: transparent; border: 2px dashed var(--b5-color-fixture-ghost); }
+.b5-con-ghostword { font-weight: var(--b5-font-weight-bold); color: var(--b5-color-text-primary); }
+.b5-con-canvas--ghost { background-color: var(--b5-color-bg-inset); }
+.b5-con-layer--ghost .b5-con-layername { color: var(--b5-color-text-secondary); }
+.b5-con-hiddennote { margin: var(--b5-space-3) 0 0; }
 
 /* cell strip: direct cell buttons when they fit at full touch size */
 .b5-con-cells { display: flex; gap: 2px; min-height: var(--b5-size-touch-min); }
 .b5-con-cell {
-  flex: 1 1 0; min-width: var(--b5-size-touch-min); min-height: var(--b5-size-touch-min);
+  position: relative; flex: 1 1 0; min-width: var(--b5-size-touch-min); min-height: var(--b5-size-touch-min);
   display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
   font: inherit; font-size: var(--b5-font-size-xs); color: var(--b5-color-text-primary);
   background: var(--b5-color-bg-surface-raised); border: var(--b5-border-width-thin) solid var(--b5-color-text-muted);
   border-radius: var(--b5-radius-sm); cursor: pointer; padding: 0;
 }
-.b5-con-cell.is-selected { border: 3px solid var(--b5-color-text-accent); background: var(--b5-color-bg-selected); }
+.b5-con-cell.is-selected { border: var(--b5-size-state-border) solid var(--b5-color-fixture-cell-selected); background: var(--b5-color-bg-selected); }
+/* Cell selected: 3 px cell outline + filled top tab + cell order (§3). */
+.b5-con-cell.is-selected::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 6px; background: var(--b5-color-fixture-cell-selected); }
+.b5-con-cell.is-highlight { box-shadow: 0 0 0 2px var(--b5-color-bg-canvas), 0 0 0 5px var(--b5-color-fixture-highlight); }
 .b5-con-cellsbtn {
   min-height: var(--b5-size-touch-min); width: 100%; line-height: 1.1; text-align: left; display: inline-flex; align-items: center; justify-content: space-between; gap: 2px;
   font: inherit; font-size: var(--b5-font-size-xs); color: var(--b5-color-text-primary);
   background: var(--b5-color-bg-surface); border: var(--b5-border-width-thin) dashed var(--b5-color-text-muted); border-radius: var(--b5-radius-sm);
   padding: 0 var(--b5-space-1); cursor: pointer; overflow: hidden;
 }
-.b5-con-tile.has-cells-selected .b5-con-cellsbtn { border-style: solid; border-width: 3px; border-color: var(--b5-color-text-accent); }
+.b5-con-tile.has-cells-selected .b5-con-cellsbtn { border-style: solid; border-width: var(--b5-size-state-border); border-color: var(--b5-color-fixture-cell-selected); }
 .b5-con-cellsbtn__label { flex: 1 1 auto; min-width: 0; }
 .b5-con-cellsnote { font-size: var(--b5-font-size-xs); color: var(--b5-color-text-secondary); }
 
@@ -126,6 +181,22 @@
 .b5-con-pickhead { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--b5-space-2); }
 .b5-con-pickrow { display: flex; flex-wrap: wrap; gap: var(--b5-space-2); max-height: 40vh; overflow: auto; }
 .b5-con-pickn { font-family: var(--b5-font-mono); }
+
+/* ---- selection order list (I2b §3) ---- */
+.b5-con-order { min-width: 0; border: var(--b5-border-width-thin) solid var(--b5-color-border-strong); border-radius: var(--b5-radius-md); padding: var(--b5-space-2) var(--b5-space-3); }
+.b5-con-order__total { margin: var(--b5-space-1) 0; }
+.b5-con-order__list { list-style: none; margin: 0; padding: 0; max-height: 30vh; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+.b5-con-order__list[hidden] { display: none; }
+.b5-con-order__item { display: flex; gap: var(--b5-space-2); align-items: baseline; overflow-wrap: anywhere; min-width: 0; }
+.b5-con-order__n { flex: none; min-width: 2.5ch; text-align: right; font-family: var(--b5-font-mono); font-weight: var(--b5-font-weight-bold); color: var(--b5-color-text-accent); }
+
+/* ---- lasso (I2b §4): only while Lasso is ON does a finger drag stop
+   scrolling the plan. ---- */
+#consoleRoot.is-lasso .b5-con-gridbox { touch-action: none; cursor: crosshair; border: var(--b5-size-state-border) dashed var(--b5-color-fixture-selected); }
+.b5-con-lassobox { position: fixed; z-index: var(--b5-z-dropdown); pointer-events: none; box-sizing: border-box; border: 2px dashed var(--b5-color-fixture-selected); }
+.b5-con-lassobox[hidden] { display: none; }
+.b5-con-lassobox__word { position: absolute; left: 2px; top: 2px; padding: 0 4px; font-size: var(--b5-font-size-xs); font-weight: var(--b5-font-weight-bold);
+  color: var(--b5-color-text-on-accent); background: var(--b5-color-fixture-selected); border-radius: var(--b5-radius-sm); }
 
 /* ---- objects: drawn, never selectable outside edit mode ---- */
 .b5-con-obj { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; }
@@ -168,9 +239,11 @@
 /* ---- C6b placeholder ---- */
 .b5-con-controls { border: var(--b5-border-width-thin) dashed var(--b5-color-border-strong); border-radius: var(--b5-radius-md); padding: var(--b5-space-3); min-width: 0; }
 
-/* ---- selection summary: sticky bottom, ABOVE the phone's fixed bottom
-   nav (its measured height is --b5-con-nav-reserve, set by console.js) ---- */
-.b5-con-summary { margin-top: var(--b5-space-4); min-width: 0; }
+/* ---- selection summary (I2a): in flow above the grid, never sticky, so it
+   can never sit over the grid or the controls. The phone's More menu hangs
+   from the buttons, downward. ---- */
+.b5-con-summary { position: static; margin-top: var(--b5-space-2); min-width: 0; }
+.b5-con-summary__buttons { position: relative; }
 .b5-con-summary__status { min-width: 0; flex: 1 1 20em; }
 .b5-con-summary__names { flex: 1 1 100%; min-width: 0; color: var(--b5-color-text-secondary); font-size: var(--b5-font-size-sm);
   overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
@@ -182,7 +255,7 @@
 .b5-con-summary__more { display: contents; }
 @media (max-width: 767px) {
   .b5-con-summary .b5-actionbar__title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-  .b5-con-summary { bottom: var(--b5-con-nav-reserve, calc(var(--b5-size-touch-min) + var(--b5-space-6)));
+  .b5-con-summary {
     flex-wrap: nowrap; padding: var(--b5-space-1) var(--b5-space-2); gap: var(--b5-space-2); margin-top: var(--b5-space-3); }
   .b5-con-summary__status { flex: 1 1 auto; flex-wrap: nowrap; gap: var(--b5-space-2); min-width: 0; }
   .b5-con-summary__status .b5-pill { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
@@ -193,7 +266,7 @@
   .b5-con-summary__more { display: none; }
   .b5-con-summary__more.is-open {
     display: flex; flex-direction: column; gap: var(--b5-space-2);
-    position: absolute; right: var(--b5-space-2); bottom: calc(100% + var(--b5-space-1)); z-index: var(--b5-z-dropdown);
+    position: absolute; right: 0; top: calc(100% + var(--b5-space-1)); z-index: var(--b5-z-dropdown);
     min-width: 12rem; padding: var(--b5-space-2);
     background: var(--b5-color-bg-surface-raised); border: var(--b5-border-width-thick) solid var(--b5-color-border-strong);
     border-radius: var(--b5-radius-md); box-shadow: var(--b5-shadow-lg);

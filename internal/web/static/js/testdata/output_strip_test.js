@@ -4,10 +4,13 @@
 //
 // WHAT IT PROTECTS (owner decisions, Dom 2026-10-06/07)
 //  1. The master control is always in the strip, and its state is carried by
-//     a WORD and an icon, never colour alone: Disarmed, Armed,
-//     Lease lost — holding, Simulated, Output error.
-//  2. Arm is the confirm step: one press, no confirm() dialog. Disarm and
-//     Stop all output both disarm (and black out, server-side).
+//     a WORD and an icon, never colour alone (I2a words, component-specs.md
+//     §1): ARMED · LIVE, DISARMED · no output, DISARMED · LEASE LOST (Settings
+//     Blackout), LEASE LOST · LOOK HELD (Settings Hold), LINK LOST (this
+//     page's link; never claims a blackout), SIMULATED, OUTPUT ERROR. The
+//     lease-loss notice stays until Acknowledge, which never Arms.
+//  2. Arm is the confirm step: one press, no confirm() dialog. The DISARM ·
+//     BLACKOUT slab is always present and enabled, and disarms (blackout).
 //  3. Every connected browser heartbeats the lease, with a stable per-page
 //     client id, comfortably inside the server's 5 s window.
 //  4. A page unload says goodbye with a keepalive request, so the server can
@@ -76,7 +79,7 @@ let serverState = { state: 'disarmed', simulated: false, error: '', leaseLossAct
 
 function respond(url, method, body) {
   if (url === '/api/context') return { active: true, name: 'Show A', nic: 'eth0', output: false, simulation: false };
-  if (url === '/api/output' || url === '/api/output/heartbeat') return serverState;
+  if (url === '/api/output' || url === '/api/output/heartbeat') { if (serverState === null) throw new Error('link lost'); return serverState; }
   if (url === '/api/output/arm') { serverState = Object.assign({}, serverState, { state: 'armed' }); return serverState; }
   if (url === '/api/output/disarm' || url === '/api/output/stop') { serverState = Object.assign({}, serverState, { state: 'disarmed', lastDisarm: 'operator' }); return url === '/api/output/stop' ? { stopped: true } : serverState; }
   if (url === '/api/output/goodbye') return serverState;
@@ -142,7 +145,7 @@ const outWord = () => root.querySelector('[data-output]');
   await settle(); await settle();
 
   check(!!armBtn(), 'the strip carries a master [data-arm] control');
-  check(!!root.querySelector('[data-stop]'), 'the strip still carries Stop all output');
+  check(!!root.querySelector('[data-stop]'), 'the strip carries the DISARM · BLACKOUT slab');
 
   // Heartbeat cadence and identity.
   const beat = timers.find(t => t.repeat && t.ms <= 1000);
@@ -156,44 +159,75 @@ const outWord = () => root.querySelector('[data-output]');
     'every heartbeat carries the same non-empty per-page client id', JSON.stringify(beats.map(b => b.body)));
   const client = beats.length ? beats[0].body.client : '';
 
-  // State words, each with an icon.
+  // State words, each with an icon (I2a, component-specs.md §1). The Arm
+  // slot is offered only when not armed; the DISARM · BLACKOUT slab is
+  // always there.
+  const base = { simulated: false, error: '', leaseLossAction: 'blackout', browsers: 2, lastDisarm: '' };
   const words = [
-    [{ state: 'disarmed' }, 'Disarmed', 'ARM'],
-    [{ state: 'armed' }, 'Armed', 'DISARM'],
-    [{ state: 'holding' }, 'Lease lost — holding', 'ARM'],
-    [{ state: 'armed', simulated: true }, 'Simulated', 'DISARM'],
-    [{ state: 'armed', error: 'sACN socket failed.' }, 'Output error', 'DISARM'],
+    [{ state: 'disarmed' }, 'DISARMED · no output', 'disarm', true],
+    [{ state: 'armed' }, 'ARMED · LIVE', 'armed-lock', false],
+    [{ state: 'holding', leaseLossAction: 'hold' }, 'LEASE LOST · LOOK HELD', 'lease-lost', true],
+    [{ state: 'disarmed', lastDisarm: 'lease' }, 'DISARMED · LEASE LOST', 'lease-lost', true],
+    [{ state: 'armed', error: 'sACN socket failed.' }, 'ARMED · OUTPUT ERROR', 'status-error', false],
   ];
-  for (const [st, word, btn] of words) {
-    serverState = Object.assign({ simulated: false, error: '', leaseLossAction: 'blackout', browsers: 1, lastDisarm: '' }, st);
+  for (const [st, word, icon, arm] of words) {
+    serverState = Object.assign({}, base, st);
     await fireTimers(t => t === beat);
-    const text = stripText();
-    check(text.includes(word), `state ${JSON.stringify(st)} reads "${word}" in words`, text);
-    const box = outbox();
-    const boxHtml = box ? box.innerHTML : '';
-    const word_ = /<span[^>]*data-output[^>]*>(.*?)<\/span>(?=<button|$)/.exec(boxHtml);
-    check(!!word_ && /data-icon=/.test(word_[1]), `state ${JSON.stringify(st)} carries an icon beside the word`, boxHtml);
-    const b = armBtn();
-    check(!!b && (boxHtml.includes('>' + btn + '<') || boxHtml.includes('</svg>' + btn)), `state ${JSON.stringify(st)}: the master control offers ${btn}`, boxHtml);
+    const w = outWord();
+    const boxHtml = outbox() ? outbox().innerHTML : '';
+    check(!!w && w.getAttribute('role') === 'status' && boxHtml.includes(word), `state ${JSON.stringify(st)} reads "${word}" in words`, boxHtml);
+    check(new RegExp('<span[^>]*data-output[^>]*><svg data-icon="' + icon + '"').test(boxHtml), `state ${JSON.stringify(st)} carries the ${icon} icon beside the word`, boxHtml);
+    check(!!armBtn() === arm, `state ${JSON.stringify(st)}: the Arm slot is ${arm ? 'offered' : 'empty'}`, root.querySelector('[data-armslot]') && root.querySelector('[data-armslot]').innerHTML);
+    const stop = root.querySelector('[data-stop]');
+    check(!!stop && !stop.disabled && /DISARM<br>BLACKOUT/.test(root.innerHTML), `state ${JSON.stringify(st)}: the DISARM · BLACKOUT slab is present and enabled`);
+    check(/Shared control · link OK/.test(boxHtml), `state ${JSON.stringify(st)}: "Shared control · link OK"`, boxHtml);
   }
+  // Simulated: its own words, beside the state.
+  serverState = Object.assign({}, base, { state: 'armed', simulated: true });
+  await fireTimers(t => t === beat);
+  check(/SIMULATED · not a real rig/.test(outbox().innerHTML) && /ARMED · LIVE/.test(outbox().innerHTML), 'simulated: "SIMULATED · not a real rig" beside ARMED · LIVE', outbox().innerHTML);
+
+  // Lease lost, blackout vs hold: distinct words and sentences, an alert,
+  // and Acknowledge (which never Arms).
+  serverState = Object.assign({}, base, { state: 'disarmed', lastDisarm: 'lease' });
+  await fireTimers(t => t === beat);
+  let alert = root.querySelector('[data-out-alert]');
+  check(!!alert && alert.getAttribute('role') === 'alert' && /Rig blacked out/.test(alert.textContent), 'lease lost (Blackout): role=alert "…Rig blacked out…"', outbox().innerHTML);
+  check(!/held/i.test(outbox().innerHTML), 'lease lost (Blackout) never says held', outbox().innerHTML);
+  const before = outbox().children.slice();
+  await fireTimers(t => t === beat);
+  check(outbox().children[0] === before[0], 'an unchanged heartbeat does not re-render (no repeated announcements)');
+  calls.length = 0;
+  await root.querySelector('[data-out-ack]').click(); await settle();
+  check(!calls.some(c => /arm/.test(c.url)), 'Acknowledge never Arms', JSON.stringify(calls));
+  check(!root.querySelector('[data-out-alert]') && /DISARMED · no output/.test(outbox().innerHTML), 'after Acknowledge: notice gone, DISARMED · no output', outbox().innerHTML);
+  serverState = Object.assign({}, base, { state: 'holding', leaseLossAction: 'hold' });
+  await fireTimers(t => t === beat);
+  alert = root.querySelector('[data-out-alert]');
+  check(!!alert && /Last look held/.test(alert.textContent) && !/blacked out/i.test(outbox().innerHTML), 'lease lost (Hold): "Last look held", never "blacked out"', outbox().innerHTML);
+
+  // Local link lost: the server's state is unknown; never claim a blackout.
+  serverState = null;
+  await fireTimers(t => t === beat);
+  const lostHtml = outbox().innerHTML;
+  check(/LINK LOST · output state unknown/.test(lostHtml) && /Another connected browser may still be keeping output live/.test(lostHtml), 'link lost: "LINK LOST · output state unknown" + another browser may keep output live', lostHtml);
+  check(!/blacked out|BLACKOUT/i.test(lostHtml), 'link lost never claims the rig blacked out', lostHtml);
+  check(!!armBtn() && armBtn().attrs.disabled !== undefined, 'link lost: ARM unavailable (needs the link)');
+  check(!!root.querySelector('[data-stop]') && !root.querySelector('[data-stop]').disabled, 'link lost: DISARM · BLACKOUT still pressable');
 
   // Arm: one press, no confirm dialog.
-  serverState = { state: 'disarmed', simulated: false, error: '', leaseLossAction: 'blackout', browsers: 1, lastDisarm: '' };
+  serverState = Object.assign({}, base, { state: 'disarmed' });
   await fireTimers(t => t === beat);
   calls.length = 0;
   await armBtn().click(); await settle(); await settle();
   const armCall = calls.find(c => c.url === '/api/output/arm');
   check(!!armCall && armCall.body && armCall.body.client === client, 'ARM posts /api/output/arm with this page\'s client id', JSON.stringify(calls));
   check(confirms === 0, 'ARM asks no confirm() — Arm IS the confirm step');
-  check(stripText().includes('Armed'), 'after ARM the strip reads Armed');
-
-  calls.length = 0;
-  await armBtn().click(); await settle(); await settle();
-  check(calls.some(c => c.url === '/api/output/disarm' && c.body && c.body.client === client), 'DISARM posts /api/output/disarm', JSON.stringify(calls));
+  check(stripText().includes('ARMED · LIVE') && !armBtn(), 'after ARM the strip reads ARMED · LIVE and the Arm slot is empty');
 
   calls.length = 0;
   await root.querySelector('[data-stop]').click(); await settle(); await settle();
-  check(calls.some(c => c.url === '/api/output/stop'), 'Stop all output posts /api/output/stop (which disarms)');
+  check(calls.some(c => c.url === '/api/output/stop'), 'DISARM · BLACKOUT posts /api/output/stop (which disarms)');
 
   // Unload: a keepalive goodbye, nothing else.
   calls.length = 0;

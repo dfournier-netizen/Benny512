@@ -118,10 +118,14 @@ const settled = async () => { await sleep(120); await until('writes to settle', 
 
   // --- tabs follow the selection ----------------------------------------------
   await select('B1', 'L1');
-  const tabs = qa('[data-tab-group]').map(t => t.getAttribute('data-tab-group'));
+  // I2c (component-specs §14) supersedes "tabs are exactly the groups the
+  // selection has": all seven families are drawn; the ones the selection
+  // lacks say "— not on these fixtures" and are aria-disabled. The owner
+  // named the other group "Control" (was "Control / Other").
+  const tabs = qa('[data-tab-group]').filter(t => t.getAttribute('aria-disabled') !== 'true').map(t => t.getAttribute('data-tab-group'));
   const groups = PS().state().groups.map(g => g.group);
-  check(same(tabs, groups) && !tabs.includes('shaper'), 'tabs are exactly the groups the selection has (no Shaper on a BMFL Spot + LEDBeam)', tabs);
-  check(/Control \/ Other/.test(q('[data-tab-group="other"]').textContent), 'the other group is labelled Control / Other');
+  check(same(tabs, groups) && !tabs.includes('shaper') && q('[data-tab-group="shaper"]').getAttribute('aria-disabled') === 'true', 'the usable tabs are exactly the groups the selection has (Shaper drawn but not on a BMFL Spot + LEDBeam)', tabs);
+  check(/^Control/.test(q('[data-tab-group="other"]').textContent), 'the other group is labelled Control');
 
   // --- position: XY pad in tandem with the faders ---------------------------------
   await tab('position');
@@ -131,7 +135,7 @@ const settled = async () => { await sleep(120); await until('writes to settle', 
   const setsBefore = posts(SET).length;
   pad.dispatchEvent(new Event('pointerdown', { bubbles: true, clientX: 50, clientY: 150, pointerId: 3, button: 0 }));
   pad.dispatchEvent(new Event('pointerup', { bubbles: true, clientX: 50, clientY: 150, pointerId: 3 }));
-  check(/25 %/.test(q('[data-fader-value="Pan#0"]').textContent) && /25 %/.test(q('[data-fader-value="Tilt#0"]').textContent), 'tandem: a pad tap moves the Pan and Tilt faders at once (25 %), before the server answers',
+  check(/25\u00a0%/.test(q('[data-fader-value="Pan#0"]').textContent) && /25\u00a0%/.test(q('[data-fader-value="Tilt#0"]').textContent), 'tandem: a pad tap moves the Pan and Tilt faders at once (25 %), before the server answers',
     [q('[data-fader-value="Pan#0"]').textContent, q('[data-fader-value="Tilt#0"]').textContent]);
   await settled();
   const padWrites = posts(SET).slice(setsBefore).map(c => c.body);
@@ -141,11 +145,11 @@ const settled = async () => { await sleep(120); await until('writes to settle', 
   ]), 'the pad writes Pan and Tilt as fractions of their own function, to the fixtures that have them (Pan by name: the two types list different functions)', padWrites);
   await until('the server to hold pan/tilt at 25 %', () => attr('Pan') && attr('Pan').value === 16384 && attr('Tilt').value === 16384);
   check(attr('Pan').value === 16384 && attr('Tilt').value === 16384 && attr('Pan').allTouched, 'the server holds Pan = Tilt = 16384 on both fixtures, touched');
-  check(/SET/.test(q('[data-markers="Pan"]').textContent) && /16384 \/ 65535/.test(q('[data-readout="Pan"]').textContent), 'the Pan card says SET and reads 16384 / 65535', q('[data-readout="Pan"]').textContent);
+  check(/SET/.test(q('[data-markers="Pan"]').textContent) && /16\u00a0384 \/ 65\u00a0535/.test(q('[data-readout="Pan"]').textContent), 'the Pan card says SET and reads 16 384 / 65 535 (I2c grouped digits)', q('[data-readout="Pan"]').textContent);
   check(/°/.test(q('[data-pad-readout]').textContent), 'the pad reads out degrees where the profile gives a physical range', q('[data-pad-readout]').textContent);
 
   input(q('[data-fader="Pan#0"]'), 49152);
-  check(/Pan 49152 \(75 %/.test(q('[data-pad-readout]').textContent), 'tandem: moving the Pan fader moves the pad', q('[data-pad-readout]').textContent);
+  check(/Pan 75\u00a0% · 49\u00a0152 \/ 65\u00a0535/.test(q('[data-pad-readout]').textContent), 'tandem: moving the Pan fader moves the pad', q('[data-pad-readout]').textContent);
   await settled();
 
   // Rate limit on a drag, and the final value always last.
@@ -229,7 +233,9 @@ const settled = async () => { await sleep(120); await until('writes to settle', 
   // Two fixture types, two Shutter1 layouts: each gets its own section, and
   // its buttons write to that type only, by its own function index.
   check(!!q('[data-variant="Shutter1#0"]') && !!q('[data-variant="Shutter1#1"]') && /LEDBeam/i.test(q('[data-variant="Shutter1#1"]').textContent), 'a mixed-type attribute is split per channel layout, each named by its fixture type', q('[data-variant="Shutter1#1"]') && q('[data-variant="Shutter1#1"] h5').textContent);
-  click(q('[data-set="Shutter1#v1:0#Shutter closed"]'));
+  // I2c2 (§10): the file's "Shutter closed" / "Shutter Open" sets are now the
+  // OPEN / CLOSED radio group of the shutter, not plain set buttons.
+  click(q('[data-shutter="Shutter1#1#closed"]'));
   await settled();
   check(same(last(SET).body, { targets: [T('L1')], attribute: 'Shutter1', functionIndex: 0, set: 'Shutter closed' }), 'the LEDBeam\'s "Shutter closed" posts to the LEDBeam only, by its own function index', last(SET).body);
   await until('L1 shutter closed', () => { const c = attr('Shutter1').channels.find(x => x.entryId === ids.L1); return c.value <= 31 && c.touched; });

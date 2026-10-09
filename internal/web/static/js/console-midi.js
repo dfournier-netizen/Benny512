@@ -40,10 +40,11 @@
 // 6× (strength 5) as the gap shrinks to 5 ms.
 //
 // HOW FAR ONE STEP MOVES. Normal: 1 % of the channel's full range (8-bit:
-// 3 values; 16-bit: 655). Fine: 1/4096 of the range, at least one value
-// (8-bit: 1; 16-bit: 16). That is the fader's ± step in normal mode; fine
-// is coarser than the fader's 1-value fine on a 16-bit channel so a fine
-// turn still visibly moves a beam.
+// 3 values; 16-bit: 655). Fine: a tenth of that, at least one value
+// (8-bit: 1; 16-bit: 66) — the owner's fine rule (2026-10-08 design
+// hand-back): 1:10 travel over the WHOLE value, never the fine byte on its
+// own. The write is the complete value, so it carries across the coarse/
+// fine byte boundary. (Was 1/4096 = 16 on a 16-bit channel until I2c.)
 //
 // HOW A TURN IS WRITTEN. A turn is a NUDGE of the value the programmer
 // already holds, sent as absolute DMX values through the Console's own
@@ -357,6 +358,13 @@ const ConsoleMIDI = (() => {
       list.forEach(a => { const b = bladeOf(a.attribute); by.set(b, (by.get(b) || []).concat([a])); });
       list = [].concat(...by.values());
     }
+    // Colour (I2c2, §9): the tab draws the cards of its open mode (Mix /
+    // Wheel / CTO-CTB) then the other colour channels; the encoders take
+    // exactly those, never an attribute that is not on screen.
+    if (tab === 'colour' && typeof ConsoleControls !== 'undefined' && ConsoleControls.colourOrder) {
+      const order = ConsoleControls.colourOrder();
+      if (order) list = order.map(n => list.find(a => a.attribute === n)).filter(Boolean);
+    }
     out.list = list;
     out.pages = Math.max(1, Math.ceil(list.length / N));
     out.bank = Math.max(0, Math.min(st.bank[tab] || 0, out.pages - 1));
@@ -382,7 +390,7 @@ const ConsoleMIDI = (() => {
   function globalFine() { return !!(typeof ConsoleControls !== 'undefined' && ConsoleControls._state && ConsoleControls._state.fine); }
   function fineFor(i) { return rt(i).fine || globalFine(); }
   const normalStep = max => Math.max(1, Math.round(max / 100));
-  const fineStep = max => Math.max(1, Math.round(max / 4096));
+  const fineStep = max => Math.max(1, Math.round(normalStep(max) / 10));
 
   // --- nudging ---------------------------------------------------------------------------
   function selSig() { const p = prog(); return p ? p.selection.map(s => s.entryId + '/' + s.cell).join(',') : ''; }
@@ -776,7 +784,7 @@ const ConsoleMIDI = (() => {
         p.acceleration = { enabled: en.checked, thresholdMs: ms, strength: Number(str.value) };
         save('Acceleration ' + (en.checked ? 'ON (faster than ' + ms + ' ms per click, up to ' + ACCEL_MAX[Number(str.value)] + '×).' : 'OFF.'));
       })));
-    body.appendChild(h('p', { class: 'b5-caption', text: 'One click = 1 % of the channel (fine: 1/4096). A mixed selection moves together by the same number of steps from each fixture’s own value, each stopping at the edge of the function it is in. ' + PLUG_WORDS }));
+    body.appendChild(h('p', { class: 'b5-caption', text: 'One click = 1 % of the channel (fine: a tenth of that, at least one DMX value). A mixed selection moves together by the same number of steps from each fixture’s own value, each stopping at the edge of the function it is in. ' + PLUG_WORDS }));
     d.appendChild(body);
   }
 

@@ -2,9 +2,11 @@
 //
 // MASTER ARM / DISARM (C3, owner decisions 2026-10-06/07). One control,
 // always in the strip on every screen, governs ALL DMX data Benny512 sends.
-// Its state is a word plus an icon, never colour alone: Disarmed, Armed,
-// Lease lost — holding, Simulated, Output error. ARM is the confirm step
-// (one press, no dialog); DISARM and Stop all output black out.
+// Its state is a word plus an icon, never colour alone (I2a restyle,
+// docs/design/console-lite/component-specs.md §1): ARMED · LIVE, DISARMED ·
+// no output, DISARMED · LEASE LOST, LEASE LOST · LOOK HELD, LINK LOST,
+// SIMULATED, OUTPUT ERROR. ARM is the confirm step (one press, no dialog);
+// the permanent DISARM · BLACKOUT slab blacks out.
 //
 // THE LEASE. Every open page heartbeats POST /api/output/heartbeat every
 // second with its own client id, and that is what keeps an armed output
@@ -46,40 +48,77 @@ const Workspace = (() => {
       root.querySelector('[data-nic]').textContent = c.nic || 'Interface not reported';
     } catch (_) { /* the heartbeat reports a lost connection */ }
   }
-  // outputWords: the strip's state in words, and the icon and button that go
-  // with it. Disarmed/holding offer ARM; armed offers DISARM.
-  function outputWords(o) {
-    if (!o) return { word: 'Connection lost — output unknown', icon: 'status-warning', tone: 'warn', arm: true };
-    const sim = o.simulated ? 'Simulated · ' : '';
+  // outputWords: the strip's state in words and the icon that goes with it
+  // (I2a, component-specs.md §1). Every state is a WORD; the icon and the
+  // border (solid armed, dashed lost/held) repeat it, never colour alone.
+  //  - LINK LOST is this page's own link: the server's state is unknown, so
+  //    it never claims a blackout (another browser may keep output live).
+  //  - LEASE LOST is the server's: every browser went quiet. The Settings
+  //    lease-loss action decides the words: Blackout -> "DISARMED · LEASE
+  //    LOST" (rig blacked out); Hold last look -> "LEASE LOST · LOOK HELD".
+  //    The notice stays until Acknowledge, which never Arms.
+  // arm: the Arm slot is offered (disarmed, held, link lost). The DISARM ·
+  // BLACKOUT slab is not here: it is permanent and never re-rendered.
+  function outputWords(o, acked) {
+    if (!o) return { word: 'LINK LOST · output state unknown', icon: 'status-warning', tone: 'lost', arm: true, armOff: true,
+      why: 'This browser lost its link to Benny512. Another connected browser may still be keeping output live.' };
     if (o.state === 'armed') {
-      if (o.error) return { word: sim + 'Output error · Armed', icon: 'status-error', tone: 'error', arm: false };
-      return { word: sim + 'Armed', icon: 'status-ok', tone: 'ok', arm: false };
+      if (o.error) return { word: 'ARMED · OUTPUT ERROR', icon: 'status-error', tone: 'error', arm: false, alert: 'Output error: ' + o.error };
+      return { word: 'ARMED · LIVE', icon: 'armed-lock', tone: 'ok', arm: false };
     }
-    if (o.state === 'holding') return { word: sim + 'Lease lost — holding', icon: 'status-warning', tone: 'warn', arm: true };
-    return { word: sim + 'Disarmed' + (o.lastDisarm === 'lease' ? ' · browser heartbeat lost' : ''), icon: 'status-pending', tone: 'off', arm: true };
+    if (o.state === 'holding') return { word: 'LEASE LOST · LOOK HELD', icon: 'lease-lost', tone: 'lost', arm: true,
+      alert: acked ? '' : 'All browsers went quiet. Last look held. Restore the link and re-arm to control.' };
+    if (o.lastDisarm === 'lease' && !acked) return { word: 'DISARMED · LEASE LOST', icon: 'lease-lost', tone: 'lost', arm: true,
+      alert: 'All browsers went quiet. Rig blacked out. Restore the link and re-arm to resume.' };
+    return { word: 'DISARMED · no output', icon: 'disarm', tone: 'off', arm: true, note: 'Values retained · Arm resumes them' };
   }
+  let ackedKey = '', lastHTML = ''; // ackedKey: the lease-loss notice this browser acknowledged
   function renderOutput() {
     // G3: the fader bar's disarmed hint follows this heartbeat (no second poll).
     window.dispatchEvent(new CustomEvent('b5-output', { detail: out }));
     const root = document.getElementById('showContext');
     const box = root && root.querySelector('[data-outbox]');
-    if (!box) return;
-    const w = outputWords(out);
-    const title = out && out.error ? esc(out.error) : (out && out.state === 'holding' ? 'Every browser went silent for 5 s. The last look is still being sent; changes do not reach the rig until someone presses ARM.' : '');
-    box.innerHTML = `<span data-output role="status" class="b5-out-state b5-out-state--${w.tone}" title="${title}">${UI.icon(w.icon)}${esc(w.word)}</span>` +
-      (w.arm
-        ? `<button type="button" class="b5-btn b5-btn--sm b5-out-arm b5-out-arm--go" data-arm aria-label="ARM: let DMX output reach the rig">${UI.icon('status-ok')}ARM</button>`
-        : `<button type="button" class="b5-btn b5-btn--sm b5-out-arm b5-out-arm--stop" data-arm aria-label="DISARM: black out and stop all DMX output">${UI.icon('status-error')}DISARM</button>`);
-    const btn = box.querySelector('[data-arm]');
-    if (btn) {
-      btn.disabled = outBusy;
-      btn.onclick = async () => {
-        if (outBusy) return;
-        outBusy = true;
-        try { out = await (w.arm ? Api.outputArm(CLIENT) : Api.outputDisarm(CLIENT)); }
-        catch (e) { out = null; }
-        finally { outBusy = false; renderOutput(); }
-      };
+    const slot = root && root.querySelector('[data-armslot]');
+    if (!box || !slot) return;
+    // An acknowledgement covers one lease loss: a different one (blackout vs
+    // held), or one after a new Arm, needs its own.
+    const key = out ? out.state + '|' + out.lastDisarm : '';
+    if (out && out.state === 'armed') ackedKey = '';
+    const acked = key !== '' && key === ackedKey;
+    const w = outputWords(out, acked);
+    const n = out ? out.browsers : 0;
+    const html = `<span data-output role="status" class="b5-out-state b5-out-state--${w.tone}">${UI.icon(w.icon)}${esc(w.word)}</span>` +
+      (out && out.simulated ? `<span data-sim class="b5-out-sim">${UI.icon('simulated')}SIMULATED · not a real rig</span>` : '') +
+      (out ? `<span data-link class="b5-out-link" title="${n} browser${n === 1 ? '' : 's'} connected. Every connected browser operates the same programmer.">${UI.icon('link-ok')}Shared control · link OK</span>` : '') +
+      (w.alert ? `<span data-out-alert role="alert" class="b5-out-note b5-out-note--alert">${esc(w.alert)}</span>` +
+        (out && !acked && (out.state === 'holding' || out.lastDisarm === 'lease') ? `<button type="button" class="b5-btn b5-btn--sm b5-out-ack" data-out-ack>Acknowledge</button>` : '') : '') +
+      (w.why ? `<span data-out-why class="b5-out-note b5-out-note--alert">${esc(w.why)}</span>` : '') +
+      (w.note ? `<span data-out-note class="b5-out-note">${esc(w.note)}</span>` : '');
+    // Re-render only on a change: the heartbeat runs every second and a
+    // role=status / role=alert node replaced each time would be re-announced.
+    if (html !== lastHTML) {
+      lastHTML = html;
+      box.innerHTML = html;
+      const ack = box.querySelector('[data-out-ack]');
+      if (ack) ack.onclick = () => { ackedKey = key; renderOutput(); };
+    }
+    const slotHTML = w.arm
+      ? `<button type="button" class="b5-btn b5-out-arm b5-out-arm--go" data-arm aria-label="ARM: let DMX output reach the rig"${w.armOff ? ' disabled title="ARM needs the link to Benny512."' : ''}>${UI.icon('arm')}ARM</button>`
+      : '';
+    if (slot.innerHTML !== slotHTML || (slot._armBusy !== outBusy)) {
+      slot.innerHTML = slotHTML;
+      slot._armBusy = outBusy;
+      const btn = slot.querySelector('[data-arm]');
+      if (btn) {
+        if (outBusy) btn.disabled = true;
+        btn.onclick = async () => {
+          if (outBusy || w.armOff) return;
+          outBusy = true;
+          try { out = await Api.outputArm(CLIENT); }
+          catch (e) { out = null; }
+          finally { outBusy = false; renderOutput(); }
+        };
+      }
     }
   }
   async function heartbeat() {
@@ -88,10 +127,12 @@ const Workspace = (() => {
   }
   function init() {
     const root = document.getElementById('showContext');
-    root.innerHTML = `<strong data-show class="b5-show-context__name">Loading show…</strong><span data-nic class="b5-show-context__nic b5-text-sm"></span><span data-outbox class="b5-out"></span><button class="b5-btn b5-btn--sm" data-tools>Show tools</button><button class="b5-btn b5-btn--sm" data-library>Fixture library</button><button class="b5-btn b5-btn--sm b5-btn--danger" data-stop>Stop all output</button>`;
+    // The DISARM · BLACKOUT slab is written once and never re-rendered: it is
+    // always present, rightmost, enabled, in every state (specs §1).
+    root.innerHTML = `<strong data-show class="b5-show-context__name">Loading show…</strong><span data-nic class="b5-show-context__nic b5-text-sm"></span><span data-outbox class="b5-out"></span><button class="b5-btn b5-btn--sm" data-tools>Show tools</button><button class="b5-btn b5-btn--sm" data-library>Fixture library</button><span data-armslot class="b5-out-armslot"></span><button type="button" class="b5-btn b5-out-stop" data-stop aria-label="DISARM and BLACKOUT: stop all DMX output">${UI.icon('disarm')}<span>DISARM<br>BLACKOUT</span></button>`;
     root.querySelector('[data-tools]').onclick = open;
     root.querySelector('[data-library]').onclick = LibraryPanel.open;
-    // Stop all output = DISARM (blackout), from any screen.
+    // DISARM · BLACKOUT, from any screen; repeating it is safe.
     root.querySelector('[data-stop]').onclick = async () => {
       try { await Api.stopAllOutput(); } catch (_) { /* the heartbeat shows the truth */ }
       await heartbeat();

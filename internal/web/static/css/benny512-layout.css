@@ -72,11 +72,11 @@ html, body {
   width: 8px;
   height: 8px;
   border-radius: var(--b5-radius-full);
-  background: var(--b5-color-success-400);
+  background: var(--b5-color-ok-border);
   flex: none;
 }
-.b5-connection--offline .b5-connection__dot { background: var(--b5-color-danger-400); }
-.b5-connection--stale .b5-connection__dot { background: var(--b5-color-warning-400); }
+.b5-connection--offline .b5-connection__dot { background: var(--b5-color-danger-border); }
+.b5-connection--stale .b5-connection__dot { background: var(--b5-color-warn-border); }
 
 /* ---- Primary nav (desktop: horizontal bar) ---- */
 .b5-nav {
@@ -108,7 +108,7 @@ html, body {
 .b5-nav__item:focus-visible { outline: 2px solid var(--b5-color-border-focus); outline-offset: -2px; }
 .b5-nav__item.is-active {
   color: var(--b5-color-text-primary);
-  border-bottom-color: var(--b5-color-accent-500);
+  border-bottom-color: var(--b5-color-accent-border);
 }
 
 /* ---- Mobile bottom nav (thumb-reachable) ---- */
@@ -139,7 +139,7 @@ html, body {
     border-top: var(--b5-border-width-thick) solid transparent;
     min-height: var(--b5-size-touch-min);
   }
-  .b5-nav--mobile .b5-nav__item.is-active { border-top-color: var(--b5-color-accent-500); }
+  .b5-nav--mobile .b5-nav__item.is-active { border-top-color: var(--b5-color-accent-border); }
   .b5-app__body { padding-bottom: calc(var(--b5-size-touch-min) + var(--b5-space-6)); }
 }
 

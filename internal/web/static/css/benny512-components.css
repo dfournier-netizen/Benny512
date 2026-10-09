@@ -13,7 +13,7 @@
   min-height: var(--b5-size-touch-min);
   padding: var(--b5-space-2) var(--b5-space-4);
   border-radius: var(--b5-radius-md);
-  border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
+  border: var(--b5-border-width-thin) solid var(--b5-color-border-control);
   background: var(--b5-color-bg-surface-raised);
   color: var(--b5-color-text-primary);
   font: inherit;
@@ -24,26 +24,26 @@
 }
 .b5-btn svg { width: 18px; height: 18px; flex: none; }
 .b5-btn:hover { background: var(--b5-color-bg-hover); border-color: var(--b5-color-border-strong); }
-.b5-btn:active { background: var(--b5-color-neutral-600); }
+.b5-btn:active { background: var(--b5-color-bg-pressed); }
 .b5-btn:disabled, .b5-btn[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; }
 
 .b5-btn--primary {
   background: transparent;
-  border-color: var(--b5-color-accent-500);
+  border-color: var(--b5-color-accent-border);
   color: var(--b5-color-text-accent);
 }
-.b5-btn--primary:hover { background: var(--b5-color-accent-500-a15); border-color: var(--b5-color-accent-400); }
-.b5-btn--primary:active { background: var(--b5-color-accent-500-a30); }
+.b5-btn--primary:hover { background: var(--b5-color-accent-fill); border-color: var(--b5-color-accent-border); }
+.b5-btn--primary:active { background: var(--b5-color-bg-selected); }
 
 .b5-btn--secondary { background: transparent; }
 
 .b5-btn--danger {
   background: transparent;
-  border-color: var(--b5-color-danger-500);
+  border-color: var(--b5-color-danger-border);
   color: var(--b5-color-text-danger);
 }
-.b5-btn--danger:hover { background: rgba(200, 1, 0, 0.12); border-color: var(--b5-color-danger-400); }
-.b5-btn--danger:active { background: rgba(200, 1, 0, 0.22); }
+.b5-btn--danger:hover { background: var(--b5-color-danger-fill); border-color: var(--b5-color-danger-border); }
+.b5-btn--danger:active { background: var(--b5-color-danger-fill); }
 
 .b5-btn--ghost { background: transparent; border-color: transparent; }
 .b5-btn--ghost:hover { background: var(--b5-color-bg-hover); }
@@ -78,9 +78,9 @@
 }
 .b5-badge svg { width: 14px; height: 14px; flex: none; }
 
-.b5-badge--ok { color: var(--b5-color-success-400); border-color: var(--b5-color-success-700); background: rgba(47, 138, 78, 0.14); }
-.b5-badge--warning { color: var(--b5-color-text-warning); border-color: var(--b5-color-warning-700); background: rgba(184, 121, 15, 0.14); }
-.b5-badge--error { color: var(--b5-color-text-danger); border-color: var(--b5-color-danger-700); background: rgba(200, 1, 0, 0.14); }
+.b5-badge--ok { color: var(--b5-color-text-success); border-color: var(--b5-color-ok-border); background: var(--b5-color-ok-fill); }
+.b5-badge--warning { color: var(--b5-color-text-warning); border-color: var(--b5-color-warn-border); background: var(--b5-color-warn-fill); }
+.b5-badge--error { color: var(--b5-color-text-danger); border-color: var(--b5-color-danger-border); background: var(--b5-color-danger-fill); }
 .b5-badge--pending { color: var(--b5-color-text-muted); border-color: var(--b5-color-border-default); background: var(--b5-color-bg-surface-raised); }
 .b5-badge--stale { color: var(--b5-color-text-muted); border-color: var(--b5-color-border-default); background: var(--b5-color-bg-stale); background-size: 12px 12px; }
 .b5-badge--unknown { color: var(--b5-color-text-disabled); border-color: var(--b5-color-border-subtle); border-style: dashed; }
@@ -97,7 +97,7 @@
   color: var(--b5-color-text-secondary);
   border: var(--b5-border-width-thin) solid var(--b5-color-border-subtle);
 }
-.b5-tag--info { color: var(--b5-color-text-info); border-color: var(--b5-color-info-700); background: rgba(42, 77, 133, 0.16); }
+.b5-tag--info { color: var(--b5-color-text-info); border-color: var(--b5-color-info-border); background: var(--b5-color-info-fill); }
 
 /* =========================================================
    Data table
@@ -138,12 +138,12 @@
   min-height: 32px;
 }
 .b5-table__sort svg { width: 14px; height: 14px; opacity: 0.5; }
-.b5-table__sort.is-active svg { opacity: 1; color: var(--b5-color-accent-400); }
+.b5-table__sort.is-active svg { opacity: 1; color: var(--b5-color-text-accent); }
 .b5-table__sort:hover { color: var(--b5-color-text-primary); }
 
 .b5-table tbody tr { cursor: pointer; }
 .b5-table tbody tr:hover { background: var(--b5-color-bg-hover); }
-.b5-table tbody tr.is-selected { background: var(--b5-color-bg-selected); box-shadow: inset 2px 0 0 var(--b5-color-accent-500); }
+.b5-table tbody tr.is-selected { background: var(--b5-color-bg-selected); box-shadow: inset 2px 0 0 var(--b5-color-accent-border); }
 .b5-table tbody tr.is-stale { background: var(--b5-color-bg-stale); background-size: 14px 14px; color: var(--b5-color-text-muted); }
 .b5-table td.b5-table__mono, .b5-table th.b5-table__mono { font-family: var(--b5-font-mono); }
 
@@ -202,10 +202,10 @@
   gap: var(--b5-space-1);
   padding: var(--b5-space-1) var(--b5-space-2);
   border-radius: var(--b5-radius-full);
-  background: var(--b5-color-accent-500-a15);
+  background: var(--b5-color-bg-selected);
   color: var(--b5-color-text-accent);
   font-size: var(--b5-font-size-xs);
-  border: var(--b5-border-width-thin) solid var(--b5-color-accent-700);
+  border: var(--b5-border-width-thin) solid var(--b5-color-accent-border);
 }
 .b5-filterbar__chip button { background: none; border: none; color: inherit; cursor: pointer; padding: 0; display: flex; }
 .b5-filterbar__chip svg { width: 12px; height: 12px; }
@@ -243,13 +243,13 @@
 
 /* Dirty / pending / applying / success / error field states — applied to .b5-field */
 .b5-field--dirty .b5-input,
-.b5-field--dirty .b5-select { border-color: var(--b5-color-warning-500); box-shadow: inset 0 0 0 1px var(--b5-color-warning-700); }
+.b5-field--dirty .b5-select { border-color: var(--b5-color-warn-border); box-shadow: inset 0 0 0 1px var(--b5-color-warn-border); }
 .b5-field--applying .b5-input,
-.b5-field--applying .b5-select { border-color: var(--b5-color-info-400); opacity: 0.8; }
+.b5-field--applying .b5-select { border-color: var(--b5-color-info-border); opacity: 0.8; }
 .b5-field--success .b5-input,
-.b5-field--success .b5-select { border-color: var(--b5-color-success-500); }
+.b5-field--success .b5-select { border-color: var(--b5-color-ok-border); }
 .b5-field--error .b5-input,
-.b5-field--error .b5-select { border-color: var(--b5-color-danger-500); }
+.b5-field--error .b5-select { border-color: var(--b5-color-danger-border); }
 .b5-field--readonly .b5-input { background: transparent; border-style: dashed; color: var(--b5-color-text-secondary); }
 
 .b5-field__status {
@@ -290,8 +290,8 @@
 .b5-toggle__track {
   width: 40px; height: 22px;
   border-radius: var(--b5-radius-full);
-  background: var(--b5-color-neutral-600);
-  border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
+  background: var(--b5-color-track);
+  border: var(--b5-border-width-thin) solid var(--b5-color-track-border);
   position: relative;
   flex: none;
   transition: background var(--b5-motion-base) var(--b5-motion-ease);
@@ -302,18 +302,18 @@
   top: 2px; left: 2px;
   width: 16px; height: 16px;
   border-radius: var(--b5-radius-full);
-  background: var(--b5-color-neutral-100);
+  background: var(--b5-color-thumb);
   transition: transform var(--b5-motion-base) var(--b5-motion-ease);
 }
 .b5-toggle input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-.b5-toggle input:checked + .b5-toggle__track { background: var(--b5-color-accent-700); border-color: var(--b5-color-accent-500); }
-.b5-toggle input:checked + .b5-toggle__track::after { transform: translateX(18px); background: var(--b5-color-accent-200); }
+.b5-toggle input:checked + .b5-toggle__track { background: var(--b5-color-accent-fill); border-color: var(--b5-color-accent-border); }
+.b5-toggle input:checked + .b5-toggle__track::after { transform: translateX(18px); background: var(--b5-color-accent-border); }
 .b5-toggle input:focus-visible + .b5-toggle__track { box-shadow: var(--b5-shadow-focus); }
 
 .b5-checkbox { display: inline-flex; align-items: center; gap: var(--b5-space-2); min-height: var(--b5-size-touch-min); cursor: pointer; }
 .b5-checkbox input {
   width: 20px; height: 20px;
-  accent-color: var(--b5-color-accent-500);
+  accent-color: var(--b5-color-accent-border);
   background: var(--b5-color-bg-inset);
 }
 
@@ -336,9 +336,9 @@
 .b5-gauge__band {
   position: absolute;
   top: 0; bottom: 0;
-  background: var(--b5-color-accent-500-a15);
-  border-left: var(--b5-border-width-thin) solid var(--b5-color-accent-700);
-  border-right: var(--b5-border-width-thin) solid var(--b5-color-accent-700);
+  background: var(--b5-color-bg-selected);
+  border-left: var(--b5-border-width-thin) solid var(--b5-color-accent-border);
+  border-right: var(--b5-border-width-thin) solid var(--b5-color-accent-border);
 }
 .b5-gauge__tick {
   position: absolute;
@@ -353,12 +353,12 @@
   width: 4px;
   height: 24px;
   border-radius: var(--b5-radius-sm);
-  background: var(--b5-color-accent-400);
+  background: var(--b5-color-accent-border);
   transform: translateX(-50%);
 }
 .b5-gauge--out-of-range .b5-gauge__marker {
-  background: var(--b5-color-danger-400);
-  box-shadow: 0 0 0 3px rgba(226, 56, 47, 0.25);
+  background: var(--b5-color-danger-border);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--b5-color-danger-border) 25%, transparent);
 }
 .b5-gauge__scale { display: flex; justify-content: space-between; font-size: var(--b5-font-size-xs); color: var(--b5-color-text-muted); font-family: var(--b5-font-mono); }
 .b5-gauge__flag {
@@ -390,7 +390,7 @@
   white-space: nowrap;
 }
 .b5-tabs__tab:hover { color: var(--b5-color-text-primary); }
-.b5-tabs__tab.is-active { color: var(--b5-color-text-primary); border-bottom-color: var(--b5-color-accent-500); }
+.b5-tabs__tab.is-active { color: var(--b5-color-text-primary); border-bottom-color: var(--b5-color-accent-border); }
 .b5-tabs__panel { padding: var(--b5-space-4) 0; }
 
 .b5-accordion__item { border-bottom: var(--b5-border-width-thin) solid var(--b5-color-border-subtle); }
@@ -430,7 +430,7 @@
 .b5-counter__label { font-size: var(--b5-font-size-sm); color: var(--b5-color-text-muted); margin-top: var(--b5-space-1); }
 
 .b5-progress { height: 8px; border-radius: var(--b5-radius-full); background: var(--b5-color-bg-inset); overflow: hidden; }
-.b5-progress__fill { height: 100%; background: var(--b5-color-accent-500); }
+.b5-progress__fill { height: 100%; background: var(--b5-color-accent-border); }
 
 .b5-tally { display: flex; gap: var(--b5-space-4); justify-content: center; margin-top: var(--b5-space-3); }
 .b5-tally__item { display: flex; flex-direction: column; align-items: center; gap: var(--b5-space-1); }
@@ -468,15 +468,15 @@
 .b5-alert__title { font-weight: var(--b5-font-weight-medium); margin: 0 0 var(--b5-space-1); }
 .b5-alert__body { color: var(--b5-color-text-secondary); margin: 0; }
 
-.b5-alert--info { border-color: var(--b5-color-info-700); color: var(--b5-color-text-info); }
+.b5-alert--info { border-color: var(--b5-color-info-border); color: var(--b5-color-text-info); }
 .b5-alert--info .b5-alert__body { color: var(--b5-color-text-secondary); }
-.b5-alert--success { border-color: var(--b5-color-success-700); color: var(--b5-color-text-success); }
-.b5-alert--warning { border-color: var(--b5-color-warning-700); color: var(--b5-color-text-warning); }
-.b5-alert--danger { border-color: var(--b5-color-danger-700); color: var(--b5-color-text-danger); }
+.b5-alert--success { border-color: var(--b5-color-ok-border); color: var(--b5-color-text-success); }
+.b5-alert--warning { border-color: var(--b5-color-warn-border); color: var(--b5-color-text-warning); }
+.b5-alert--danger { border-color: var(--b5-color-danger-border); color: var(--b5-color-text-danger); }
 
 .b5-alert--caution {
-  border-color: var(--b5-color-warning-500);
-  background: repeating-linear-gradient(135deg, var(--b5-color-bg-surface-raised) 0 10px, rgba(184, 121, 15, 0.10) 10px 20px);
+  border-color: var(--b5-color-warn-border);
+  background: repeating-linear-gradient(135deg, var(--b5-color-bg-surface-raised) 0 10px, var(--b5-color-warn-fill) 10px 20px);
 }
 
 .b5-toast-region { position: fixed; right: var(--b5-space-4); bottom: var(--b5-space-4); display: flex; flex-direction: column; gap: var(--b5-space-2); z-index: var(--b5-z-toast); max-width: 360px; }
@@ -505,7 +505,7 @@
   width: 18px; height: 18px;
   border-radius: var(--b5-radius-full);
   border: 2px solid var(--b5-color-border-default);
-  border-top-color: var(--b5-color-accent-400);
+  border-top-color: var(--b5-color-accent-border);
   animation: b5-spin 800ms linear infinite;
   flex: none;
 }
@@ -603,7 +603,7 @@
   font-family: var(--b5-font-mono);
   min-height: 36px;
 }
-.b5-dmx-cell.is-active { border-color: var(--b5-color-accent-500); background: var(--b5-color-bg-selected); }
+.b5-dmx-cell.is-active { border-color: var(--b5-color-accent-border); background: var(--b5-color-bg-selected); }
 
 .b5-fader {
   display: flex;
@@ -611,14 +611,14 @@
   align-items: center;
   gap: var(--b5-space-2);
 }
-.b5-fader input[type="range"] { writing-mode: vertical-lr; direction: rtl; width: 32px; height: 160px; accent-color: var(--b5-color-accent-500); }
+.b5-fader input[type="range"] { writing-mode: vertical-lr; direction: rtl; width: 32px; height: 160px; accent-color: var(--b5-color-accent-border); }
 
 /* =========================================================
    Dialog (used sparingly — e.g. confirm destructive IP change)
    ========================================================= */
 .b5-dialog-backdrop {
   position: fixed; inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--b5-color-scrim);
   display: flex; align-items: center; justify-content: center;
   z-index: var(--b5-z-modal);
   padding: var(--b5-space-4);
@@ -769,12 +769,12 @@
 .b5-segmented--sm > .b5-seg { min-height: var(--b5-size-touch-min); min-width: 96px; font-size: var(--b5-font-size-sm); }
 .b5-seg:hover { background: var(--b5-color-bg-hover); }
 .b5-seg.is-on {
-  background: var(--b5-color-accent-500-a15);
-  border-color: var(--b5-color-accent-500);
+  background: var(--b5-color-bg-selected);
+  border-color: var(--b5-color-accent-border);
   border-width: var(--b5-border-width-thick);
   color: var(--b5-color-text-accent);
   font-weight: var(--b5-font-weight-bold);
-  box-shadow: inset 0 -3px 0 var(--b5-color-accent-500);
+  box-shadow: inset 0 -3px 0 var(--b5-color-accent-border);
 }
 .b5-seg:focus-visible { outline: none; box-shadow: var(--b5-shadow-focus); }
 
@@ -833,11 +833,11 @@
 
 /* tones — border colour + text colour only, so a tone is safe on any skin.
    Each also publishes its tint for --solid to pick up. */
-.b5-pill--ok      { border-color: var(--b5-color-success-500); color: var(--b5-color-text-success); --b5-pill-tint: var(--b5-color-success-900); }
-.b5-pill--warn    { border-color: var(--b5-color-warning-500); border-width: var(--b5-border-width-thick); color: var(--b5-color-text-warning); --b5-pill-tint: var(--b5-color-warning-900); }
-.b5-pill--danger  { border-color: var(--b5-color-danger-500);  color: var(--b5-color-text-danger);  --b5-pill-tint: var(--b5-color-danger-900); }
-.b5-pill--info    { border-color: var(--b5-color-info-500);    color: var(--b5-color-text-info);    --b5-pill-tint: var(--b5-color-info-900); }
-.b5-pill--accent  { border-color: var(--b5-color-accent-500);  border-width: var(--b5-border-width-thick); color: var(--b5-color-text-accent); --b5-pill-tint: var(--b5-color-accent-900); }
+.b5-pill--ok      { border-color: var(--b5-color-ok-border); color: var(--b5-color-text-success); --b5-pill-tint: var(--b5-color-ok-fill); }
+.b5-pill--warn    { border-color: var(--b5-color-warn-border); border-width: var(--b5-border-width-thick); color: var(--b5-color-text-warning); --b5-pill-tint: var(--b5-color-warn-fill); }
+.b5-pill--danger  { border-color: var(--b5-color-danger-border);  color: var(--b5-color-text-danger);  --b5-pill-tint: var(--b5-color-danger-fill); }
+.b5-pill--info    { border-color: var(--b5-color-text-info);    color: var(--b5-color-text-info);    --b5-pill-tint: var(--b5-color-bg-surface-raised); }
+.b5-pill--accent  { border-color: var(--b5-color-accent-border);  border-width: var(--b5-border-width-thick); color: var(--b5-color-text-accent); --b5-pill-tint: var(--b5-color-accent-fill); }
 /* --open and --unread are the two honest-unknown tones: a dashed border
    reads as "nothing is attached here" with no colour at all. */
 .b5-pill--open    { border-style: dashed; border-color: var(--b5-color-border-strong); color: var(--b5-color-text-secondary); }
@@ -865,7 +865,7 @@
   overflow: hidden;
 }
 .b5-tile.is-on {
-  border-color: var(--b5-color-accent-500);
+  border-color: var(--b5-color-accent-border);
   border-width: var(--b5-border-width-thick);
   background: var(--b5-color-bg-selected);
 }
@@ -958,8 +958,8 @@
   }
   .b5-param .b5-range-touch::-webkit-slider-runnable-track {
     height: 6px;
-    background: var(--b5-color-bg-inset);
-    border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
+    background: var(--b5-color-track);
+    border: var(--b5-border-width-thin) solid var(--b5-color-track-border);
     border-radius: var(--b5-radius-full);
   }
   .b5-param .b5-range-touch::-webkit-slider-thumb {
@@ -967,20 +967,20 @@
     width: 26px; height: 26px;
     margin-top: -11px;
     border-radius: var(--b5-radius-full);
-    background: var(--b5-color-accent-500);
-    border: var(--b5-border-width-thin) solid var(--b5-color-accent-700);
+    background: var(--b5-color-thumb);
+    border: var(--b5-border-width-thin) solid var(--b5-color-thumb-border);
   }
   .b5-param .b5-range-touch::-moz-range-track {
     height: 6px;
-    background: var(--b5-color-bg-inset);
-    border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
+    background: var(--b5-color-track);
+    border: var(--b5-border-width-thin) solid var(--b5-color-track-border);
     border-radius: var(--b5-radius-full);
   }
   .b5-param .b5-range-touch::-moz-range-thumb {
     width: 26px; height: 26px;
     border-radius: var(--b5-radius-full);
-    background: var(--b5-color-accent-500);
-    border: var(--b5-border-width-thin) solid var(--b5-color-accent-700);
+    background: var(--b5-color-thumb);
+    border: var(--b5-border-width-thin) solid var(--b5-color-thumb-border);
   }
   .b5-param .b5-range-touch:focus-visible { outline: none; box-shadow: var(--b5-shadow-focus); }
 }
@@ -1015,11 +1015,11 @@
 .b5-choicecard input:focus-visible + .b5-choicecard__box { box-shadow: var(--b5-shadow-focus); }
 .b5-choicecard__title { display: block; font-weight: var(--b5-font-weight-bold); color: var(--b5-color-text-primary); }
 .b5-choicecard__body { display: block; margin-top: var(--b5-space-1); font-size: var(--b5-font-size-sm); color: var(--b5-color-text-muted); }
-.b5-choicecard.is-on { border-color: var(--b5-color-accent-500); border-width: var(--b5-border-width-thick); background: var(--b5-color-bg-selected); }
-.b5-choicecard.is-on .b5-choicecard__box { border-color: var(--b5-color-accent-400); }
+.b5-choicecard.is-on { border-color: var(--b5-color-accent-border); border-width: var(--b5-border-width-thick); background: var(--b5-color-bg-selected); }
+.b5-choicecard.is-on .b5-choicecard__box { border-color: var(--b5-color-accent-border); }
 .b5-choicecard--caution .b5-choicecard__box { color: var(--b5-color-text-warning); }
-.b5-choicecard--caution.is-on { border-color: var(--b5-color-warning-500); background: var(--b5-color-warning-900); }
-.b5-choicecard--caution.is-on .b5-choicecard__box { border-color: var(--b5-color-warning-400); }
+.b5-choicecard--caution.is-on { border-color: var(--b5-color-warn-border); background: var(--b5-color-warn-fill); }
+.b5-choicecard--caution.is-on .b5-choicecard__box { border-color: var(--b5-color-warn-border); }
 
 /* ---------------------------------------------------------------------------
    8. PICK LIST — a bounded, scrolling list of checkbox rows.
@@ -1040,7 +1040,7 @@
   cursor: pointer;
   color: var(--b5-color-text-secondary);
 }
-.b5-pickrow input { width: 24px; height: 24px; flex: none; accent-color: var(--b5-color-accent-500); }
+.b5-pickrow input { width: 24px; height: 24px; flex: none; accent-color: var(--b5-color-accent-border); }
 
 /* ---------------------------------------------------------------------------
    9. STICKY ACTION BAR — the primary and destructive actions of a screen,
@@ -1090,20 +1090,20 @@
 .b5-bigbtn svg { width: var(--b5-size-icon-lg); height: var(--b5-size-icon-lg); }
 .b5-bigbtn:focus-visible { outline: none; box-shadow: var(--b5-shadow-focus); }
 .b5-bigbtn--go {
-  border: var(--b5-border-width-thick) solid var(--b5-color-success-500);
+  border: var(--b5-border-width-thick) solid var(--b5-color-ok-border);
   border-radius: var(--b5-radius-full);
-  background: var(--b5-color-success-900);
-  color: var(--b5-color-success-300);
+  background: var(--b5-color-ok-fill);
+  color: var(--b5-color-text-success);
 }
-.b5-bigbtn--go:hover:not(:disabled) { background: var(--b5-color-success-700); color: var(--b5-color-neutral-050); }
+.b5-bigbtn--go:hover:not(:disabled) { color: var(--b5-color-text-primary); }
 .b5-bigbtn--go:disabled { opacity: 0.4; cursor: not-allowed; }
 .b5-bigbtn--stop {
-  border: var(--b5-border-width-thick) solid var(--b5-color-danger-300);
+  border: var(--b5-border-width-thick) solid var(--b5-color-danger-border);
   border-radius: var(--b5-radius-sm);
-  background: var(--b5-color-danger-600);
-  color: var(--b5-color-neutral-050);
+  background: var(--b5-color-disarm-slab-bg);
+  color: var(--b5-color-disarm-slab-text);
 }
-.b5-bigbtn--stop:hover { background: var(--b5-color-danger-500); }
+.b5-bigbtn--stop:hover { background: var(--b5-color-disarm-slab-bg); }
 
 @media (max-width: 640px) {
   .b5-actionbar__buttons { flex-basis: 100%; }
@@ -1156,9 +1156,9 @@
   justify-content: space-between;
   margin-bottom: var(--b5-space-3);
   padding: var(--b5-space-3) var(--b5-space-4);
-  border: var(--b5-border-width-thick) solid var(--b5-color-accent-500);
+  border: var(--b5-border-width-thick) solid var(--b5-color-accent-border);
   border-radius: var(--b5-radius-md);
-  background: var(--b5-color-accent-500-a15);
+  background: var(--b5-color-bg-selected);
   color: var(--b5-color-text-primary);
 }
 .b5-modebar__label { font-size: var(--b5-font-size-md); line-height: 1.5; }
@@ -1227,17 +1227,17 @@
   border-radius: var(--b5-radius-md);
   background: var(--b5-color-bg-surface-raised);
 }
-.b5-statecard.is-ok { border-left-color: var(--b5-color-success-500); }
-.b5-statecard.is-warn { border-left-color: var(--b5-color-warning-500); border-left-width: 10px; }
-.b5-statecard.is-danger { border-left-color: var(--b5-color-danger-500); border-left-width: 10px; }
+.b5-statecard.is-ok { border-left-color: var(--b5-color-ok-border); }
+.b5-statecard.is-warn { border-left-color: var(--b5-color-warn-border); border-left-width: 10px; }
+.b5-statecard.is-danger { border-left-color: var(--b5-color-danger-border); border-left-width: 10px; }
 /* An unattached item reads as unattached even with no colour at all. */
 .b5-statecard.is-open { border-left-color: var(--b5-color-border-strong); border-left-style: dashed; }
 .b5-statecard.is-armed {
-  border-color: var(--b5-color-accent-500);
+  border-color: var(--b5-color-accent-border);
   border-width: var(--b5-border-width-thick);
   border-left-width: 10px;
-  border-left-color: var(--b5-color-accent-500);
-  background: var(--b5-color-accent-500-a15);
+  border-left-color: var(--b5-color-accent-border);
+  background: var(--b5-color-bg-selected);
 }
 .b5-statecard__top { display: flex; gap: var(--b5-space-3); align-items: flex-start; }
 .b5-statecard__id { min-width: 0; }
@@ -1271,8 +1271,8 @@
   justify-content: center;
   width: 32px; height: 32px;
   border-radius: var(--b5-radius-full);
-  border: var(--b5-border-width-thick) solid var(--b5-color-accent-500);
-  background: var(--b5-color-accent-500-a15);
+  border: var(--b5-border-width-thick) solid var(--b5-color-accent-border);
+  background: var(--b5-color-bg-selected);
   color: var(--b5-color-text-accent);
   font-size: var(--b5-font-size-sm);
   font-weight: var(--b5-font-weight-bold);
@@ -1309,19 +1309,16 @@
    left rule, a tint, and its own worded pill — so it survives greyscale. */
 .b5-diffline.is-warn {
   border-left-width: 8px;
-  border-left-color: var(--b5-color-warning-500);
-  background: var(--b5-color-warning-900);
+  border-left-color: var(--b5-color-warn-border);
+  background: var(--b5-color-warn-fill);
 }
-.b5-diffline.is-info { border-left-color: var(--b5-color-info-500); }
-.b5-diffline.is-ok { border-left-color: var(--b5-color-success-500); }
+.b5-diffline.is-info { border-left-color: var(--b5-color-info-border); }
+.b5-diffline.is-ok { border-left-color: var(--b5-color-ok-border); }
 .b5-diffline.is-unread { border-left-style: dashed; color: var(--b5-color-text-muted); }
-/* The tint above is the DARK-THEME value, because dark is this app's default
-   theme (benny512-tokens.css puts dark on :root and light behind
-   [data-theme="light"]). The light theme gets the light tint back here.
-   This replaced a `@media (prefers-color-scheme: dark)` override, which keyed
-   off the OS rather than off the app's own theme: on a light-theme app on a
-   dark-OS machine it painted a near-black tint under near-black text. */
-[data-theme="light"] .b5-diffline.is-warn { background: var(--b5-color-warning-100); }
+/* The tint is the warn-fill role, which console-tokens.css resolves per
+   theme, so the old [data-theme="light"] override (warning-100) is gone.
+   It had replaced a `@media (prefers-color-scheme: dark)` override that
+   keyed off the OS rather than the app's own theme. */
 
 .b5-diffline__head {
   display: flex;

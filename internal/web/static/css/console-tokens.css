@@ -1,0 +1,171 @@
+/* Semantic-role layer (I1). Copied verbatim from
+   docs/design/console-lite/console-tokens.css below this header.
+   Load immediately after benny512-tokens.css: the dark block overrides the
+   base file's roles, repairing muted-text contrast, the translucent focus
+   ring and the accent (theme-contract.md). Components use these roles;
+   palette ramps stay private to benny512-tokens.css.
+   The [data-theme="light"] block is inert until C9: index.html pins
+   data-theme="dark" and no script changes it. */
+:root, [data-theme="dark"] {
+  --b5-color-bg-canvas: #100e0b; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-bg-surface: #1c1815; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-bg-surface-raised: #241f1a; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-bg-surface-overlay: #2c261f; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-bg-inset: #0b0a08; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-bg-hover: #2c261f; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-bg-selected: #23332f; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-text-primary: #f3f0e9; /* 7:1 minimum; pairs in contrast.json */
+  --b5-color-text-secondary: #cbc5ba; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-muted: #b2a99b; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-disabled: #80786b; /* exempt:1 Disabled: reason word required; exempt */
+  --b5-color-text-accent: #7fd0c9; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-info: #aac3ec; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-danger: #ff9a93; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-success: #a2dba8; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-warning: #f0c163; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-on-accent: #100e0b; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-on-danger: #ffffff; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-border-control: #a29a8c; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-border-focus: #b1dfdf; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-border-subtle: #3a332b; /* exempt:1 Decoration only; never an essential boundary */
+  --b5-color-border-default: #3a332b; /* exempt:1 Decoration only; never an essential boundary */
+  --b5-color-border-strong: #a29a8c; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-ok-border: #a2dba8; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-ok-fill: #18291d; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-warn-border: #f0c163; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-warn-fill: #2b230e; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-danger-border: #ff9a93; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-danger-fill: #341c19; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-accent-border: #7fd0c9; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-accent-fill: #152923; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-armed-border: #c2aff0; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-armed-fill: #292335; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-armed-text: #ded2ff; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-disarm-slab-bg: #931b18; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-disarm-slab-text: #ffffff; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-arm-pill-border: #7fd0c9; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-arm-pill-text: #7fd0c9; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-simulated-text: #cbc5ba; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-lease-lost-border: #f0c163; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-idle: #b2a99b; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-selected: #7fd0c9; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-cell-selected: #b1dfdf; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-touched: #cbc5ba; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-test: #aac3ec; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-highlight: #f0c163; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-ghost: #a29a8c; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-unprofiled: #b2a99b; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-offline: #f0c163; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-value-set: #7fd0c9; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-value-default: #b2a99b; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-value-test: #aac3ec; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-value-mixed-band: #a29a8c; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-grid-bg: #15130f; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-grid-line: #29251e; /* exempt:1 Decoration only; never an essential boundary */
+  --b5-color-grid-line-major: #40392f; /* exempt:1 Decoration only; never an essential boundary */
+  --b5-color-grid-layer-label: #cbc5ba; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-track: #0b0a08; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-track-border: #a29a8c; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-thumb: #cbc5ba; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-thumb-border: #f3f0e9; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-xypad-bg: #15130f; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-xypad-crosshair: #a29a8c; /* 3:1 minimum; pairs in contrast.json */
+  /* I1b additions (not in the design package): measured with the same contract as build-assets.mjs;
+     ratios in docs/notes/2026-10.md (I1b). */
+  --b5-color-bg-pressed: #3a332b; /* 4.5:1 Background: pressed control surface; measured against text */
+  --b5-color-info-border: #aac3ec; /* 3:1 minimum; info tone outline */
+  --b5-color-info-fill: #1a2233; /* 4.5:1 Background: info tone tint; measured against text */
+  --b5-color-scrim: rgba(0, 0, 0, 0.6); /* exempt: modal backdrop; dialogs sit on their own opaque surface */
+  --b5-color-simulated-bg: repeating-linear-gradient(135deg, var(--b5-color-bg-surface) 0 6px, var(--b5-color-bg-surface-overlay) 6px 12px);
+  --b5-shadow-focus: 0 0 0 3px var(--b5-color-border-focus);
+}
+[data-theme="light"] {
+  --b5-color-bg-canvas: #eeece6; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-bg-surface: #fefefe; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-bg-surface-raised: #f7f5f0; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-bg-surface-overlay: #ffffff; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-bg-inset: #e7e4dc; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-bg-hover: #e7e4dc; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-bg-selected: #d6e8e3; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-text-primary: #1c1815; /* 7:1 minimum; pairs in contrast.json */
+  --b5-color-text-secondary: #423c33; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-muted: #5d5448; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-disabled: #80786b; /* exempt:1 Disabled: reason word required; exempt */
+  --b5-color-text-accent: #075e58; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-info: #2a4d85; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-danger: #a10500; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-success: #23522b; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-warning: #684400; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-on-accent: #ffffff; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-on-danger: #ffffff; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-border-control: #6b6255; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-border-focus: #075e58; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-border-subtle: #c7c0b0; /* exempt:1 Decoration only; never an essential boundary */
+  --b5-color-border-default: #c7c0b0; /* exempt:1 Decoration only; never an essential boundary */
+  --b5-color-border-strong: #6b6255; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-ok-border: #23522b; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-ok-fill: #dcebdd; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-warn-border: #684400; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-warn-fill: #f3e6c9; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-danger-border: #a10500; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-danger-fill: #f8e2dd; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-accent-border: #075e58; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-accent-fill: #d6e8e3; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-armed-border: #674283; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-armed-fill: #ece3f4; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-armed-text: #573474; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-disarm-slab-bg: #931b18; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-disarm-slab-text: #ffffff; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-arm-pill-border: #075e58; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-arm-pill-text: #075e58; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-simulated-text: #423c33; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-lease-lost-border: #684400; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-idle: #5d5448; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-selected: #075e58; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-cell-selected: #2a4d85; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-touched: #423c33; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-test: #2a4d85; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-highlight: #684400; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-ghost: #6b6255; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-unprofiled: #5d5448; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-offline: #684400; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-value-set: #075e58; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-value-default: #5d5448; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-value-test: #2a4d85; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-value-mixed-band: #6b6255; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-grid-bg: #f7f5f0; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-grid-line: #ded9ce; /* exempt:1 Decoration only; never an essential boundary */
+  --b5-color-grid-line-major: #c7c0b0; /* exempt:1 Decoration only; never an essential boundary */
+  --b5-color-grid-layer-label: #423c33; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-track: #e7e4dc; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-track-border: #6b6255; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-thumb: #423c33; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-thumb-border: #1c1815; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-xypad-bg: #f7f5f0; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-xypad-crosshair: #6b6255; /* 3:1 minimum; pairs in contrast.json */
+  /* I1b additions; see the dark block. */
+  --b5-color-bg-pressed: #d9d4c9; /* 4.5:1 Background: pressed control surface; measured against text */
+  --b5-color-info-border: #2a4d85; /* 3:1 minimum; info tone outline */
+  --b5-color-info-fill: #dfe6f3; /* 4.5:1 Background: info tone tint; measured against text */
+  --b5-color-scrim: rgba(28, 24, 21, 0.45); /* exempt: modal backdrop */
+  --b5-color-simulated-bg: repeating-linear-gradient(135deg, var(--b5-color-bg-surface) 0 6px, var(--b5-color-bg-surface-overlay) 6px 12px);
+  --b5-shadow-focus: 0 0 0 3px var(--b5-color-border-focus);
+}
+:root {
+  --b5-size-icon-xl: 32px;
+  --b5-size-control-lg: 60px;
+  --b5-size-tile-min: 88px;
+  --b5-size-xypad-min: 240px;
+  --b5-size-xypad-max: 340px;
+  --b5-size-slot-btn: 64px;
+  --b5-size-fader-track: 8px;
+  --b5-size-fixture-glyph: 48px;
+  --b5-size-thumb-mouse: 28px;
+  --b5-size-fader-length: 176px;
+  --b5-size-fader-dimmer-length: 240px;
+  --b5-size-pad-handle: var(--b5-size-touch-min);
+  --b5-size-state-border: 3px;
+  --b5-size-group-fader-width: 160px;
+  --b5-preview-max-brightness: 0.12; /* content only; not a state signal */
+}
+

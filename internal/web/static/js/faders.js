@@ -32,8 +32,18 @@ const Faders = (() => {
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const now = () => Date.now();
 
+  // remembered: this browser's last choice, else the I2a default
+  // (component-specs.md §19): collapsed on phones, portrait and landscape
+  // tablets and ordinary desktops, so the bar leaves the work area free;
+  // open only on a desktop tall enough to keep it (OPEN_WHEN). Collapsed is
+  // still a visible bar, and collapsing never releases a fader.
+  const OPEN_WHEN = '(min-width: 1300px) and (min-height: 1080px)';
   function remembered() {
-    try { return localStorage.getItem(KEY) === '1'; } catch (_) { return false; }
+    let v = null;
+    try { v = localStorage.getItem(KEY); } catch (_) { /* storage blocked: use the default */ }
+    if (v === '1') return true;
+    if (v === '0') return false;
+    try { return !(typeof matchMedia === 'function' && matchMedia(OPEN_WHEN).matches); } catch (_) { return true; }
   }
   function remember(v) {
     try { localStorage.setItem(KEY, v ? '1' : '0'); } catch (_) { /* private mode: not remembered */ }
