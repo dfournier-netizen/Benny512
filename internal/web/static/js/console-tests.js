@@ -377,7 +377,7 @@ const ConsoleTests = (() => {
     els.toggle = h('button', { type: 'button', class: 'b5-btn b5-ct-toggle', 'data-tests-toggle': '', 'aria-controls': 'conTestsBody' });
     els.toggle.addEventListener('click', () => {
       st.open = !st.open;
-      try { localStorage.setItem('benny512.console.testsOpen', st.open ? 'open' : 'closed'); } catch (_) { /* fine */ }
+      remember();
       render();
     });
     els.summary = h('span', { class: 'b5-ct-headword', 'data-tests-summary': '' });
@@ -386,8 +386,60 @@ const ConsoleTests = (() => {
     container.appendChild(h('h2', { class: 'b5-board__head b5-ct-head' }, els.toggle, els.summary));
     container.appendChild(els.status);
     container.appendChild(els.body);
+    // §16 P: on a phone the panel is a sheet opened on demand, so the
+    // Console never loads covered by it: start closed there (the remembered
+    // choice is for wider screens, where the panel sits in the side column).
+    if (isSheet()) st.open = false;
+    // §16 P: on a phone the open panel is a full working-area sheet (CSS);
+    // Escape or its Close button shuts it and focus goes back to whatever
+    // opened it.
+    els.body.addEventListener('keydown', ev => {
+      if (ev.key !== 'Escape' || !st.open || !isSheet()) return;
+      if (ev.preventDefault) ev.preventDefault();
+      closeSheet();
+    });
     render();
     refresh();
+  }
+  // sheetTop: on a phone the header scrolls away and only the master strip
+  // sticks, so the sheet's top edge is wherever the strip ends right now
+  // (the CSS falls back to the full chrome height). Kept current while the
+  // sheet is open, so the strip is never covered and no page shows through.
+  function sheetTop() {
+    if (!st.open || !isSheet()) return;
+    const strip = document.querySelector('.b5-show-context');
+    const r = strip && strip.getBoundingClientRect ? strip.getBoundingClientRect() : null;
+    if (r && r.height && document.documentElement && document.documentElement.style) document.documentElement.style.setProperty('--b5-ct-sheet-top', Math.max(0, Math.round(r.bottom)) + 'px');
+  }
+  try { window.addEventListener('scroll', sheetTop, { passive: true }); window.addEventListener('resize', sheetTop); } catch (_) { /* no window events */ }
+  function isSheet() {
+    try { return !!(window.matchMedia && window.matchMedia('(max-width: 767px)').matches); } catch (_) { return false; }
+  }
+  function remember() {
+    if (isSheet()) return; // the phone sheet is transient; keep the wide-screen choice
+    try { localStorage.setItem('benny512.console.testsOpen', st.open ? 'open' : 'closed'); } catch (_) { /* fine */ }
+  }
+  function closeSheet() {
+    st.open = false;
+    remember();
+    render();
+    // trigger: the element that opened the panel, or a function naming it
+    // at close time (the action bar redraws, and on a phone the Tests button
+    // sits in a More menu that has closed since).
+    const t = typeof st.trigger === 'function' ? st.trigger() : st.trigger;
+    const back = t && document.body.contains(t) ? t : els.toggle;
+    st.trigger = null;
+    if (back) back.focus();
+  }
+  // open: the action bar's Tests button opens the panel (a sheet on a
+  // phone) and brings it into view.
+  function open(trigger) {
+    if (!els.root) return;
+    st.trigger = trigger || null;
+    if (!st.open) { st.open = true; remember(); render(); }
+    if (els.root.scrollIntoView) els.root.scrollIntoView({ block: 'start' });
+    const f = els.body.querySelector('[data-tests-close]') && isSheet() ? els.body.querySelector('[data-tests-close]') : els.toggle;
+    if (f) f.focus();
   }
 
   function render() {
@@ -400,8 +452,12 @@ const ConsoleTests = (() => {
     renderStatus();
     clear(els.body);
     els.body.hidden = !st.open;
+    sheetTop();
     syncTicker();
     if (!st.open) return;
+    els.body.appendChild(h('div', { class: 'b5-ct-sheethead' },
+      h('strong', { text: 'Tests' }),
+      h('button', { type: 'button', class: 'b5-btn', 'data-tests-close': '', onclick: () => closeSheet() }, ic('chevron-collapse'), 'Close')));
     const view = v();
     if (!view) { els.body.appendChild(h('p', { class: 'b5-board__empty', text: 'Loading the tests…' })); return; }
     els.body.appendChild(h('p', { class: 'b5-caption b5-ct-rule', 'data-tests-rule': '' },
@@ -419,6 +475,16 @@ const ConsoleTests = (() => {
     const warn = renderWarnings();
     if (warn) els.body.appendChild(warn);
     els.body.appendChild(st.editor ? renderEditor() : renderSequences());
+    // §17: after a move / add / remove the focus stays on the step that
+    // moved (its same control when it still applies).
+    const ef = st.editor && st.editor.focus;
+    if (ef) {
+      st.editor.focus = null;
+      const row = els.body.querySelector('[data-step-editor="' + ef.i + '"]');
+      const want = row && row.querySelector('[' + ef.key + '="' + ef.i + '"]');
+      const f = want && !want.disabled ? want : row && (row.querySelector('[data-step-up]:not([disabled]), [data-step-down]:not([disabled])') || row.querySelector('[data-step-name]'));
+      if (f) f.focus();
+    }
   }
 
   function renderSummary() {
@@ -473,7 +539,7 @@ const ConsoleTests = (() => {
       const s = steps[i];
       const now = i === r.step;
       list.appendChild(h('li', { class: 'b5-ct-step' + (now ? ' is-now' : ''), 'data-run-step': i, 'aria-current': now ? 'step' : null },
-        h('span', { class: 'b5-ct-step__word', text: now ? 'NOW' : (i < r.step ? 'done' : 'next') }),
+        h('span', { class: 'b5-ct-step__word', text: now ? 'CURRENT' : (i < r.step ? 'done' : 'next') }),
         h('span', { text: 'Step ' + (i + 1) + (s ? ' · ' + s.name : '') }),
         s ? h('span', { class: 'b5-caption', text: ' · ' + (s.advance.mode === 'auto' ? 'auto ' + s.advance.seconds + ' s' : 'manual') }) : null));
     }
@@ -482,12 +548,20 @@ const ConsoleTests = (() => {
         h('strong', { text: (r.paused ? 'Paused: ' : 'Running: ') + r.sequenceName })),
       h('p', { class: 'b5-ct-run__step', 'data-run-step-word': '', text: 'Step ' + (r.step + 1) + ' of ' + r.stepCount + ' · ' + r.stepName }),
       h('p', { class: 'b5-ct-run__left', 'data-run-remaining': '', 'aria-live': 'polite', text: remainingWords() }),
-      h('div', { class: 'b5-row b5-ct-run__buttons', role: 'group', 'aria-label': 'Sequence controls' },
-        btn('Back', { 'data-run-back': '' }, () => act('run-back', {}), { disabled: r.step === 0 }),
-        btn('Next', { 'data-run-next': '' }, () => act('run-next', {}), { disabled: last, cls: 'b5-btn--primary' }),
-        r.paused ? btn('Resume', { 'data-run-resume': '' }, () => act('run-resume', {}), { icon: 'status-ok' })
-          : btn('Pause', { 'data-run-pause': '' }, () => act('run-pause', {}), { icon: 'status-pending' }),
+      // §17: Back / Next are 60 px step targets with distinct directional
+      // glyphs; they stop at the ends. AUTO is a toggle that says its time
+      // ("AUTO 5 s") on an auto step — off pauses the countdown, on resumes
+      // it; on a manual step it is unavailable and says why.
+      h('div', { class: 'b5-row b5-ct-run__buttons b5-ct-transport', role: 'group', 'aria-label': 'Sequence transport' },
+        btn('Back', { 'data-run-back': '' }, () => act('run-back', {}), { disabled: r.step === 0, icon: 'seq-back', cls: 'b5-btn--primary b5-ct-stepbtn' }),
+        btn('Next', { 'data-run-next': '' }, () => act('run-next', {}), { disabled: last, icon: 'seq-next', cls: 'b5-btn--primary b5-ct-stepbtn' }),
+        r.advance.mode === 'auto'
+          ? seg([ic('seq-auto'), !r.paused ? 'AUTO ' + r.advance.seconds + ' s' : 'AUTO OFF · paused'], !r.paused, { 'data-run-auto': '', title: 'Automatic advance for this step' },
+            () => act(r.paused ? 'run-resume' : 'run-pause', {}))
+          : seg([ic('seq-auto'), 'AUTO —'], false, { 'data-run-auto': '', 'aria-describedby': 'conRunAutoWhy' }, null, true),
+        r.paused && r.advance.mode !== 'auto' ? btn('Resume', { 'data-run-resume': '' }, () => act('run-resume', {}), { icon: 'status-ok' }) : null,
         btn('Stop sequence', { 'data-run-stop': '' }, () => act('run-stop', {}, 'Stopped the sequence; its tests are off.'), { cls: 'b5-btn--danger', icon: 'status-error' })),
+      r.advance.mode !== 'auto' ? h('p', { class: 'b5-caption', id: 'conRunAutoWhy', 'data-run-auto-why': '' }, 'AUTO is not available: this step advances by hand. Each step\'s advance is set in the sequence editor.') : null,
       h('div', { class: 'b5-row b5-ct-run__buttons' },
         h('label', { class: 'b5-con-inline' }, h('span', { text: 'Jump to ' }), jump),
         btn('Jump', { 'data-run-jump': '' }, () => act('run-jump', { step: Number(jump.value) }))),
@@ -596,29 +670,51 @@ const ConsoleTests = (() => {
     return act('set', () => ({ tests: adHoc().map(t => testId(t) === id ? Object.assign(t, change) : t) }));
   }
 
+  // §16: each tile has a glyph for its kind beside its words (decor, never
+  // the name); a kind this table does not know gets the generic test glyph
+  // and its server name, marked "name from file".
+  function kindIcon(a) {
+    const k = a.kind || '';
+    if (/^dimmer_/.test(k)) return 'attr-dimmer';
+    if (k === 'move_extreme') return /^focus/.test(a.target || '') ? 'focus' : /^zoom/.test(a.target || '') ? 'zoom' : 'attr-position';
+    if (k === 'ballyhoo') return 'attr-position';
+    if (/^colour_/.test(k)) return 'attr-colour';
+    if (k === 'frost') return 'frost';
+    if (k === 'gobo_step') return 'gobo-placeholder';
+    if (k === 'gobo_rotate' || k === 'animation_spin') return 'gobo-rotate-cw';
+    if (/^prism_/.test(k)) return 'prism';
+    if (k === 'manual_value') return /^zoom/.test(a.target || '') ? 'zoom' : 'focus';
+    if (/^shaper_/.test(k)) return 'shaper';
+    return 'test';
+  }
   function tile(a, on, s) {
     const lbl = labelOf(a);
     const locked = runActive();
     const open = !!st.expanded[a.id];
     const t = h('div', { class: 'b5-tile b5-ct-tile' + (on ? ' is-on' : ''), 'data-test-tile': a.id });
     const toggle = h('button', { type: 'button', class: 'b5-tile__toggle', 'data-test-toggle': a.id, 'aria-pressed': on ? 'true' : 'false' },
-      h('span', { class: 'b5-pill b5-pill--sm' + (on ? ' b5-pill--accent b5-pill--solid' : '') }, on ? ic('status-ok') : null, h('span', { class: 'b5-tile__stateword', text: on ? 'ON' : 'OFF' })),
+      h('span', { class: 'b5-ct-tile__top' },
+        h('span', { class: 'b5-ct-tile__glyph', 'data-test-glyph': a.id }, ic(kindIcon(a))),
+        h('span', { class: 'b5-pill b5-pill--sm' + (on ? ' b5-pill--accent b5-pill--solid' : '') }, on ? ic('status-ok') : null, h('span', { class: 'b5-tile__stateword', text: on ? 'ON' : 'OFF' }))),
       h('span', { class: 'b5-tile__label' }, lbl.text, lbl.fromFile ? h('span', { class: 'b5-fromfile', title: 'This name is repeated from the fixture file, not written by this app', text: ' name from file' }) : null),
       h('span', { class: 'b5-caption', 'data-test-coverage': a.id, text: coverage(a, on, s) }));
     if (locked) toggle.disabled = true;
     toggle.addEventListener('click', () => toggleTest(a, !on));
     t.appendChild(toggle);
-    const more = h('button', { type: 'button', class: 'b5-tile__more', 'data-test-more': a.id, 'aria-expanded': open ? 'true' : 'false', 'aria-label': 'Settings for ' + lbl.text },
-      ic(open ? 'chevron-collapse' : 'chevron-expand'), h('span', { text: 'Settings' }));
-    more.addEventListener('click', () => { st.expanded[a.id] = !open; render(); });
-    t.appendChild(more);
+    // §16: Settings is its own <details>, never a button nested in the
+    // toggle. Its open state is kept here so a redraw does not shut it.
+    const sum = h('summary', { class: 'b5-tile__more', 'data-test-more': a.id, 'aria-label': 'Settings for ' + lbl.text }, ic(open ? 'chevron-collapse' : 'chevron-expand'), h('span', { text: 'Settings' }));
+    sum.addEventListener('click', ev => { if (ev.preventDefault) ev.preventDefault(); st.expanded[a.id] = !open; render(); });
+    const det = h('details', { class: 'b5-ct-settings', 'data-test-settings': a.id }, sum);
+    det.open = open;
+    t.appendChild(det);
     if (open) {
       const panel = h('div', { class: 'b5-tile__panel' });
       const spec = adHoc().find(x => testId(x) === a.id);
       if (on && spec && !locked) panel.appendChild(params(a.id, Object.assign(specOf(spec), s ? { rateHz: s.rateHz, waveform: s.waveform } : {})));
       else panel.appendChild(h('p', { class: 'b5-caption', text: locked ? 'The running sequence sets this test\'s parameters.' : 'Turn this test ON to set its rate, levels, waveform and phase. It is live at once and reaches the rig only while output is Armed.' }));
       if (on && s && (s.entries || []).length) panel.appendChild(fixtureList(a.id, s));
-      t.appendChild(panel);
+      det.appendChild(panel);
     }
     return t;
   }
@@ -633,6 +729,7 @@ const ConsoleTests = (() => {
       const ul = h('ul', { class: 'b5-ct-fixlist' });
       s.entries.forEach(e => {
         const words = [e.applied ? 'testing' : 'skipped — no such function on this fixture'];
+        if (e.applied && e.virtual) words.push('through its virtual dimmer (scales colour)');
         if (e.applied && e.inferred) words.push('slots from RDM, not the profile');
         if (e.applied && e.detailMissing) words.push('no slot data');
         if (e.applied && e.phaseDegrees) words.push('phase ' + Math.round(e.phaseDegrees) + '°');
@@ -759,15 +856,47 @@ const ConsoleTests = (() => {
     ed.steps.forEach((s, i) => steps.appendChild(stepEditor(s, i)));
     return h('section', { class: 'b5-ct-section b5-ct-editor', 'aria-label': 'Sequence editor', 'data-seq-editor': '' },
       h('h3', { class: 'b5-group__head', text: ed.id ? 'Edit sequence' : 'New sequence' }),
+      h('p', { class: 'b5-caption', text: 'Editing changes only the stored steps of this sequence. It does not clear the programmer and does not turn any test on or off.' }),
       h('label', { class: 'b5-field' }, h('span', { class: 'b5-field__label', text: 'Sequence name' }), name),
+      h('p', { class: 'b5-caption b5-ct-announce', role: 'status', 'data-step-announce': '' }, ed.announce || ''),
       steps,
       h('div', { class: 'b5-row' },
-        btn('Add step', { 'data-step-add': '' }, () => { ed.steps.push(newStep(ed.steps.length + 1)); render(); }, { disabled: ed.steps.length >= (lim.steps || 64) })),
+        btn('Add step', { 'data-step-add': '' }, () => insertStep(ed.steps.length), { disabled: ed.steps.length >= (lim.steps || 64) })),
       h('div', { class: 'b5-row b5-con-dialog__actions' },
         btn('Cancel', { 'data-seq-cancel': '' }, () => { st.editor = null; st.catalogs = {}; render(); }),
         btn('Save sequence', { 'data-seq-save': '' }, () => saveEditor(), { cls: 'b5-btn--primary' })));
   }
 
+  // §17 editor moves: buttons, never drag-only; the moved step keeps focus
+  // and its new position is announced.
+  function stepWord(s, i) { return '"' + ((s && s.name) || 'Step ' + (i + 1)) + '"'; }
+  function moveStep(i, d) {
+    const ed = st.editor;
+    const j = i + d;
+    if (j < 0 || j >= ed.steps.length) return;
+    [ed.steps[i], ed.steps[j]] = [ed.steps[j], ed.steps[i]];
+    ed.sel = j;
+    ed.announce = 'Moved ' + stepWord(ed.steps[j], j) + ' to position ' + (j + 1) + ' of ' + ed.steps.length + '.';
+    ed.focus = { i: j, key: d < 0 ? 'data-step-up' : 'data-step-down' };
+    render();
+  }
+  function insertStep(at) {
+    const ed = st.editor;
+    ed.steps.splice(at, 0, newStep(at + 1));
+    ed.sel = at;
+    ed.announce = 'Added a step at position ' + (at + 1) + ' of ' + ed.steps.length + '.';
+    ed.focus = { i: at, key: 'data-step-name' };
+    render();
+  }
+  function removeStep(i) {
+    const ed = st.editor;
+    const gone = ed.steps.splice(i, 1)[0];
+    const k = Math.min(i, ed.steps.length - 1);
+    ed.sel = k;
+    ed.announce = 'Removed ' + stepWord(gone, i) + '. ' + ed.steps.length + (ed.steps.length === 1 ? ' step' : ' steps') + ' left.';
+    ed.focus = { i: k, key: 'data-step-name' };
+    render();
+  }
   function stepEditor(s, i) {
     const ed = st.editor;
     const lim = v().limits || {};
@@ -796,7 +925,7 @@ const ConsoleTests = (() => {
     s.tests.forEach((t, j) => {
       const a = cat.list.find(x => x.id === testId(t)) || t;
       chips.appendChild(h('li', { class: 'b5-ct-chip', 'data-step-test': i + ':' + testId(t) }, labelOf(a).text,
-        btn('Remove', { 'data-step-test-remove': i + ':' + j, 'aria-label': 'Remove ' + labelOf(a).text + ' from step ' + (i + 1) }, () => { s.tests.splice(j, 1); render(); }, { cls: 'b5-btn--sm' })));
+        btn('Remove from step', { 'data-step-test-remove': i + ':' + j, 'aria-label': 'Remove ' + labelOf(a).text + ' from step ' + (i + 1) }, () => { s.tests.splice(j, 1); render(); })));
     });
     const have = new Set(s.tests.map(testId));
     const addable = cat.list.filter(a => !have.has(a.id));
@@ -812,18 +941,34 @@ const ConsoleTests = (() => {
           if (a) { s.tests.push(specForAvailable(a)); render(); }
         }, { cls: 'b5-btn--sm', disabled: !addable.length }),
         btn('Use the tests on now', { 'data-step-copy': i }, () => { s.tests = adHoc(); render(); }, { cls: 'b5-btn--sm', disabled: !adHoc().length })));
-    return h('li', { class: 'b5-ct-edstep', 'data-step-editor': i },
+    const sel = ed.sel === i;
+    const li = h('li', { class: 'b5-ct-edstep' + (sel ? ' is-selected' : ''), 'data-step-editor': i, 'aria-current': sel ? 'true' : null },
       h('div', { class: 'b5-row b5-ct-edstep__head' },
-        h('strong', { text: 'Step ' + (i + 1) }),
-        btn('Up', { 'data-step-up': i }, () => { [ed.steps[i - 1], ed.steps[i]] = [ed.steps[i], ed.steps[i - 1]]; render(); }, { cls: 'b5-btn--sm', disabled: i === 0 }),
-        btn('Down', { 'data-step-down': i }, () => { [ed.steps[i + 1], ed.steps[i]] = [ed.steps[i], ed.steps[i + 1]]; render(); }, { cls: 'b5-btn--sm', disabled: i === ed.steps.length - 1 }),
-        btn('Remove step', { 'data-step-remove': i }, () => { ed.steps.splice(i, 1); render(); }, { cls: 'b5-btn--sm b5-btn--danger', disabled: ed.steps.length === 1 })),
+        h('strong', { 'data-step-title': i, text: (sel ? 'SELECTED · ' : '') + 'Step ' + (i + 1) + ' of ' + ed.steps.length }),
+        btn('Move up', { 'data-step-up': i }, () => moveStep(i, -1), { icon: 'layer-up', disabled: i === 0 }),
+        btn('Move down', { 'data-step-down': i }, () => moveStep(i, 1), { icon: 'layer-down', disabled: i === ed.steps.length - 1 }),
+        btn('Add step after', { 'data-step-add-after': i }, () => insertStep(i + 1), { disabled: ed.steps.length >= (lim.steps || 64) }),
+        btn('Remove step', { 'data-step-remove': i }, () => removeStep(i), { cls: 'b5-btn--danger', disabled: ed.steps.length === 1 })),
       h('label', { class: 'b5-field' }, h('span', { class: 'b5-field__label', text: 'Step name' }), name),
       scopeRow,
       testsBox,
       h('div', { class: 'b5-row' }, h('label', { class: 'b5-con-inline' }, h('span', { text: 'Fade ' }), fade)),
       h('div', { class: 'b5-row' }, h('label', { class: 'b5-con-inline' }, h('span', { text: 'Advance ' }), adv),
         s.advance.mode === 'auto' ? h('label', { class: 'b5-con-inline' }, secs, h('span', { text: ' seconds' })) : null));
+    // Working in a row selects it (no redraw: typing is not interrupted).
+    li.addEventListener('focusin', () => {
+      if (ed.sel === i) return;
+      ed.sel = i;
+      const rows = li.parentNode ? li.parentNode.querySelectorAll('[data-step-editor]') : [];
+      Array.from(rows).forEach((r, k) => {
+        const on = r === li;
+        r.classList.toggle('is-selected', on);
+        if (on) r.setAttribute('aria-current', 'true'); else r.removeAttribute('aria-current');
+        const t = r.querySelector('[data-step-title]');
+        if (t) t.textContent = (on ? 'SELECTED · ' : '') + 'Step ' + (k + 1) + ' of ' + rows.length;
+      });
+    });
+    return li;
   }
 
   async function saveEditor() {
@@ -866,5 +1011,5 @@ const ConsoleTests = (() => {
     window.addEventListener('b5-show-changed', () => { st.editor = null; st.catalogs = {}; st.expanded = {}; if (els.root) refresh(); });
   }
   init();
-  return { mount, refresh, paramsFor, _state: st };
+  return { mount, refresh, paramsFor, open, _state: st };
 })();

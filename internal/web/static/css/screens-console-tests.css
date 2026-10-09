@@ -73,3 +73,41 @@
 .b5-ct-editor .b5-input { min-height: var(--b5-size-touch-min); max-width: 100%; }
 .b5-ct-editor .b5-numinput { width: 6em; }
 .b5-ct-editor .b5-btn, .b5-ct-seq .b5-btn, .b5-ct-cathead .b5-btn { min-height: var(--b5-size-touch-min); }
+
+/* ---- I2e §16 test tiles: 88 px, glyph + ON/OFF word, 1 px idle / 3 px on
+   border on the control role, Settings as its own <details>. ---- */
+.b5-ct-tile { border-color: var(--b5-color-border-control); }
+.b5-ct-tile.is-on { border-width: var(--b5-size-state-border); }
+.b5-ct-tile__top { display: flex; align-items: center; justify-content: space-between; gap: var(--b5-space-2); width: 100%; }
+.b5-ct-tile__glyph { display: inline-flex; }
+.b5-ct-tile__glyph svg { width: 24px; height: 24px; }
+.b5-ct-settings > summary { list-style: none; cursor: pointer; }
+.b5-ct-settings > summary::-webkit-details-marker { display: none; }
+/* §16 P: the open panel is a full working-area sheet below the master
+   strip and above the fader bar and bottom nav, with its own scroll. */
+.b5-ct-sheethead { display: none; }
+@media (max-width: 767px) {
+  .b5-con-tests .b5-ct-body:not([hidden]) {
+    position: fixed; left: 0; right: 0; z-index: var(--b5-z-overlay);
+    top: var(--b5-ct-sheet-top, var(--b5-chrome-height, 0px));
+    bottom: calc(var(--b5-nav-height, 0px) + var(--b5-faders-height, 0px));
+    overflow-y: auto; overscroll-behavior: contain;
+    padding: 0 var(--b5-space-4) var(--b5-space-4);
+    background: var(--b5-color-bg-canvas); border-top: var(--b5-border-width-thick) solid var(--b5-color-border-strong);
+  }
+  .b5-ct-sheethead { display: flex; align-items: center; justify-content: space-between; gap: var(--b5-space-2);
+    position: sticky; top: 0; z-index: 1; padding: var(--b5-space-2) 0; background: var(--b5-color-bg-canvas); }
+  .b5-ct-sheethead .b5-btn { min-height: var(--b5-size-touch-min); }
+}
+
+/* ---- I2e §17 transport and editor ---- */
+.b5-ct-transport > .b5-ct-stepbtn { min-height: var(--b5-size-control-lg); flex: 1 1 8em; font-size: var(--b5-font-size-lg); }
+.b5-ct-transport > .b5-seg { min-height: var(--b5-size-control-lg); flex: 1 1 8em; }
+/* CURRENT: word + aria-current + a 3 px leading rule (not the frame alone) */
+.b5-ct-step.is-now { border: var(--b5-border-width-thin) solid var(--b5-color-border-control); border-left: var(--b5-size-state-border) solid var(--b5-color-accent-border);
+  background: var(--b5-color-bg-selected); font-weight: var(--b5-font-weight-bold); }
+.b5-ct-step__word { min-width: 5.5em; }
+.b5-ct-edstep.is-selected { border-style: solid; border-width: var(--b5-size-state-border); border-color: var(--b5-color-accent-border); }
+.b5-ct-edstep__head { flex-wrap: wrap; gap: var(--b5-space-2); }
+.b5-ct-edstep__head strong { flex: 1 1 100%; }
+.b5-ct-announce:empty { display: none; }

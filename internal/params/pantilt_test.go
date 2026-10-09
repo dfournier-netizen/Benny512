@@ -30,8 +30,9 @@ import (
 //     turning it on, and it is one of the settings a substituted fixture
 //     inherits.
 //
-// No time.Sleep and no runtime.Gosched spin-loop: the fake clock is advanced
-// against a wall-clock deadline, exactly as TestClientDimmerPIDs does.
+// No time.Sleep and no spin loop: the fake clock is advanced on real
+// blocking signals (a datagram on the wire, a 1 ms tick), as the web
+// harness's pumpUntilDone does.
 func TestClientPanTiltOrientationPIDs(t *testing.T) {
 	clock := session.NewFakeClock(time.Time{})
 	uid := rdm.UID{ManufacturerID: 0x2222, DeviceID: 1}
@@ -128,10 +129,27 @@ func TestClientPanTiltOrientationPIDs(t *testing.T) {
 		resCh <- r
 	}()
 
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		clock.Advance(2 * time.Millisecond)
+	// Never spin (see pumpUntilDone in internal/web/device_test.go): the
+	// old loop advanced the clock in a `select default` busy loop under a
+	// 5 s wall deadline, so under load it held the CPU the client goroutine
+	// needed and the deadline ran out with the calls unresolved. Block on
+	// real signals instead — a send on the wire, or a 1 ms tick for timers
+	// the controller arms on its own — with a 30 s backstop that only a real
+	// hang reaches.
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	backstop := time.NewTimer(30 * time.Second)
+	defer backstop.Stop()
+	for {
 		select {
+		case <-tport.SentSignal():
+			clock.Advance(2 * time.Millisecond)
+			continue
+		case <-ticker.C:
+			clock.Advance(2 * time.Millisecond)
+			continue
+		case <-backstop.C:
+			t.Fatal("timed out waiting for the pan/tilt orientation calls to resolve (30 s with no result: a real hang)")
 		case r := <-resCh:
 			if r.err != nil {
 				t.Fatalf("client call failed: %v", r.err)
@@ -167,10 +185,8 @@ func TestClientPanTiltOrientationPIDs(t *testing.T) {
 				}
 			}
 			return
-		default:
 		}
 	}
-	t.Fatal("timed out waiting for the pan/tilt orientation calls to resolve")
 }
 
 // TestClientPanInvert_BadLength: a device answering the wrong number of
@@ -205,17 +221,24 @@ func TestClientPanInvert_BadLength(t *testing.T) {
 		resCh <- result{v, err}
 	}()
 
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		clock.Advance(2 * time.Millisecond)
+	// Same blocking pump as above (no busy loop).
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	backstop := time.NewTimer(30 * time.Second)
+	defer backstop.Stop()
+	for {
 		select {
+		case <-tport.SentSignal():
+			clock.Advance(2 * time.Millisecond)
+		case <-ticker.C:
+			clock.Advance(2 * time.Millisecond)
+		case <-backstop.C:
+			t.Fatal("timed out waiting for PanInvert to resolve (30 s with no result: a real hang)")
 		case r := <-resCh:
 			if r.err == nil {
 				t.Fatalf("PanInvert returned %v with no error for a 2-byte response", r.v)
 			}
 			return
-		default:
 		}
 	}
-	t.Fatal("timed out waiting for PanInvert to resolve")
 }

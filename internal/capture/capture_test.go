@@ -143,6 +143,37 @@ func TestRingUnsubscribeStopsDelivery(t *testing.T) {
 	}
 }
 
+// TestRingPublishRacesUnsubscribe reproduces the --demo start-up panic
+// "send on closed channel" in Ring.Publish (called from the web server's
+// pumpCapture ticker): Publish copied the subscriber list under the lock,
+// released it, then sent each batch; a WebSocket closing at that moment
+// runs the cancel func, which closed the channel in between. Here many
+// subscribers are cancelled while Publish runs with a batch for each of
+// them. Run it with -race too; a crash or a race report is the failure.
+func TestRingPublishRacesUnsubscribe(t *testing.T) {
+	r := New(64)
+	for round := 0; round < 300; round++ {
+		cancels := make([]func(), 0, 16)
+		for i := 0; i < 16; i++ {
+			_, cancel := r.Subscribe(Filter{})
+			cancels = append(cancels, cancel)
+		}
+		r.Add(Entry{Kind: "ArtDmx"}) // every subscriber has a batch waiting
+		start := make(chan struct{})
+		done := make(chan struct{})
+		go func() {
+			<-start
+			for _, c := range cancels {
+				c()
+			}
+			close(done)
+		}()
+		close(start)
+		r.Publish()
+		<-done
+	}
+}
+
 // TestRingClearEmptiesButKeepsCapacityAndSeqMonotonic covers the full-reset
 // flow's use of Clear (task ask: "everything") — capacity/subscribers must
 // survive, and Seq must not rewind (see Clear's doc comment for why: a

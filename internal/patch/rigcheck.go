@@ -168,6 +168,11 @@ type RigCheck struct {
 	patternFrames   map[uint16][]byte
 	patternUnits    map[patternUnitKey]patternUnit
 	patternFades    map[patternUnitKey]patternFade
+	// I2e: the virtual dimmer levels last published (after fades), each
+	// key's writer, and the fades in progress — patternFades for keys.
+	patternVirtual map[string]byte
+	virtualUnits   map[string]virtualUnit
+	virtualFades   map[string]patternFade
 }
 
 // NewRigCheck builds a RigCheck driving dmx. dmx is required and typically

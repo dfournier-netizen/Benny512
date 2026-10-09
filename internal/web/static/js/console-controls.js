@@ -48,7 +48,7 @@ const ConsoleControls = (() => {
   const GROUP_LABEL = Object.fromEntries(FAMILIES);
   const HIDDEN_FN = /^(NoFeature|Dummy)$/;
   const UNITS_KEY = 'b5.consoleControls.readout'; // per-browser readout choice (§13)
-  const st = { root: null, tab: null, sig: '', fine: false, units: loadUnits(), models: {}, modelsLoading: false, open: {}, statusTimer: null, colourMode: null };
+  const st = { root: null, tab: null, sig: '', fine: false, units: loadUnits(), models: {}, modelsLoading: false, open: {}, statusTimer: null, colourMode: null, patchInfo: {} };
   function loadUnits() {
     try { const u = localStorage.getItem(UNITS_KEY); if (u === 'pct' || u === 'dmx' || u === 'phys') return u; } catch (_) { /* no storage */ }
     return 'pct';
@@ -1530,18 +1530,31 @@ const ConsoleControls = (() => {
   }
 
   // --- raw DMX ----------------------------------------------------------------------
+  // rawPanel (§18): one bank per fixture. Header "No profile · RDM only ·
+  // 12 channels" (RDM only when the patch has it committed to an RDM
+  // device; the count is the patch footprint, never a guessed
+  // personality). Each channel names its relative ch, absolute address,
+  // RDM slot label (not reported: these channels have none), its 0–255
+  // value and its source word.
   function rawPanel(list) {
     const box = h('div', { class: 'b5-cc-raw' });
     list.forEach(r => {
       const m = st.models[r.entryId] || {};
+      const info = st.patchInfo[r.entryId] || {};
       const name = (sel().find(s => s.entryId === r.entryId) || {}).name || m.name || 'fixture';
+      const words = m.profiled === false
+        ? ['No profile', info.uid ? 'RDM only' : '', r.offsets.length + (r.offsets.length === 1 ? ' channel' : ' channels'), m.mode ? 'mode ' + m.mode : ''].filter(Boolean)
+        : [r.offsets.length + ' channel(s) with no profile detail'];
       const sec = h('section', { class: 'b5-cc-rawfix', 'data-raw-entry': r.entryId },
-        h('h4', { class: 'b5-cc-rawhead' }, name, h('span', { class: 'b5-caption', text: m.profiled === false ? ' · No profile · ' + r.offsets.length + ' channels' : ' · ' + r.offsets.length + ' channel(s) with no profile detail' })));
-      const bank = h('div', { class: 'b5-cc-rawbank' });
+        h('h4', { class: 'b5-cc-rawhead' }, name, h('span', { class: 'b5-caption', 'data-raw-head': r.entryId, text: ' · ' + words.join(' · ') })));
+      if (m.profiled === false && info.uid) sec.appendChild(h('div', { class: 'b5-row' },
+        btn('Read RDM info', { 'data-raw-rdm-read': r.entryId }, () => readRDM(r.entryId, name)),
+        h('span', { class: 'b5-caption', text: 'Reads the slot labels this fixture reports over RDM, so its channels get names and controls.' })));
+      const bank = h('div', { class: 'b5-cc-rawbank', role: 'group', 'aria-label': name + ' raw channels' });
       r.offsets.forEach(o => {
         const key = 'raw#' + r.entryId + '#' + o.offset;
-        const addr = m.startAddress ? ' · addr ' + (m.startAddress + o.offset - 1) : '';
-        const input = h('input', { type: 'range', class: 'b5-range-touch', min: 0, max: 255, step: 1, 'data-raw': key, 'aria-label': name + ' channel ' + o.offset });
+        const abs = m.startAddress ? m.startAddress + o.offset - 1 : 0;
+        const input = h('input', { type: 'range', class: 'b5-range-touch', min: 0, max: 255, step: 1, 'data-raw': key, 'aria-label': name + ' channel ' + o.offset + (abs ? ', address ' + abs : '') });
         input.value = o.value;
         const val = h('span', { class: 'b5-text-mono', 'data-raw-value': key, text: String(o.value) });
         const mark = h('span', { 'data-raw-mark': key }, o.touched ? tag('SET', 'accent') : tag('default'));
@@ -1549,8 +1562,10 @@ const ConsoleControls = (() => {
         const push = () => { touchedAt = now(); val.textContent = input.value; lane(key, 'raw', { entryId: r.entryId, writes: [{ offset: o.offset, value: Number(input.value) }] }); };
         input.addEventListener('input', push);
         input.addEventListener('change', push);
-        bank.appendChild(h('div', { class: 'b5-param b5-cc-rawch' },
-          h('span', { class: 'b5-param__label' }, 'ch ' + o.offset + addr + ' ', mark, ' ', val),
+        bank.appendChild(h('div', { class: 'b5-param b5-cc-rawch', 'data-raw-ch': key },
+          h('span', { class: 'b5-param__label' }, h('strong', { text: 'ch ' + o.offset }), abs ? ' · address ' + abs : ' · address not known'),
+          h('span', { class: 'b5-caption b5-cc-rawslot', text: 'RDM slot label: not reported' }),
+          h('span', { class: 'b5-cc-rawval' }, val, h('span', { class: 'b5-caption', text: ' / 255 ' }), mark),
           input,
           btn('Release', { 'data-raw-release': key, 'aria-label': 'Release channel ' + o.offset + ' back to its default' }, () => write('raw', { entryId: r.entryId, writes: [{ offset: o.offset, release: true }] }, 'Released channel ' + o.offset + '.'))));
         reg.set(key, { update: ro => {
@@ -1773,7 +1788,27 @@ const ConsoleControls = (() => {
     st.modelsLoading = true;
     Api.getProgrammerFixtures().then(fx => {
       (fx.fixtures || []).forEach(f => { st.models[f.entryId] = f; });
-    }).catch(() => {}).then(() => { st.modelsLoading = false; refresh(); });
+    }).catch(() => {}).then(() => readPatchInfo()).then(() => { st.modelsLoading = false; refresh(); });
+  }
+  // §18: whether an unprofiled fixture is committed to an RDM device (the
+  // patch's confirmed UID) — the raw bank says "RDM only" and offers an RDM
+  // read only then.
+  function readPatchInfo() {
+    if (typeof Api === 'undefined' || !Api.getPatch) return Promise.resolve();
+    return Api.getPatch().then(p => {
+      const info = {};
+      ((p && p.patch && p.patch.entries) || []).forEach(e => { info[e.id] = { uid: e.confirmedUid || '', footprint: e.footprint || 0 }; });
+      st.patchInfo = info;
+    }).catch(() => {});
+  }
+  async function readRDM(entryId, name) {
+    try {
+      await Api.readPatchRDMSlots(entryId);
+      delete st.models[entryId];
+      say('Read the RDM channel labels of ' + name + '.');
+      if (typeof ConsoleScreen !== 'undefined' && ConsoleScreen.load) ConsoleScreen.load();
+      refresh(true);
+    } catch (e) { say('Not read — ' + name + ': ' + e.message, 'error'); }
   }
 
   function render() {
@@ -1865,13 +1900,25 @@ const ConsoleControls = (() => {
     }
     // §15: the action bar's Clear / Fan panels are family-aware.
     if (typeof ConsoleScreen !== 'undefined' && ConsoleScreen.actionsChanged) ConsoleScreen.actionsChanged();
-    const unprofiled = raw.filter(r => st.models[r.entryId] && st.models[r.entryId].profiled === false);
-    const partial = raw.filter(r => !unprofiled.includes(r));
-    if (unprofiled.length) {
+    const unprofiled = raw.filter(r => r.offsets.length && st.models[r.entryId] && st.models[r.entryId].profiled === false);
+    const partial = raw.filter(r => r.offsets.length && !unprofiled.includes(r));
+    // §18: an unprofiled fixture with no footprint gets NO invented faders.
+    const seen = new Set(unprofiled.map(r => r.entryId));
+    const noFootprint = sel().filter(x => !x.cell && !seen.has(x.entryId) && st.models[x.entryId] && st.models[x.entryId].profiled === false)
+      .filter((x, i, a) => a.findIndex(y => y.entryId === x.entryId) === i);
+    if (unprofiled.length || noFootprint.length) {
       els.body.appendChild(h('section', { class: 'b5-cc-rawsec', 'data-raw-panel': '' },
         h('h3', { class: 'b5-group__head', text: 'Raw DMX — fixtures with no profile' }),
-        h('p', { class: 'b5-caption', text: 'Only what the patch knows: one fader per channel. Release hands a channel back to its resting value.' }),
-        rawPanel(unprofiled)));
+        h('p', { class: 'b5-caption', text: 'Only what the patch knows: one fader per channel. Release hands a channel back to its resting value. These faders claim only this fixture\'s own channels; whole-universe levels are in Tools, which claim the whole universe.' }),
+        unprofiled.length ? rawPanel(unprofiled) : null,
+        noFootprint.map(x => {
+          const info = st.patchInfo[x.entryId] || {};
+          return h('section', { class: 'b5-cc-rawfix', 'data-raw-nofootprint': x.entryId },
+            h('h4', { class: 'b5-cc-rawhead' }, x.name || 'fixture', h('span', { class: 'b5-caption', text: ' · No profile' + (info.uid ? ' · RDM only' : '') + ' · footprint not reported' })),
+            h('p', { class: 'b5-note', text: 'How many channels this fixture has is not known, so no faders are invented.' }),
+            info.uid ? btn('Read RDM info', { 'data-raw-rdm-read': x.entryId }, () => readRDM(x.entryId, x.name || 'fixture'))
+              : h('p', { class: 'b5-caption', text: 'Set its footprint in Patch, or commit it to its RDM device in Reconcile, to get faders.' }));
+        })));
     }
     const adv = h('details', { class: 'b5-cc-tool', 'data-raw-advanced': '' }, h('summary', { text: 'Advanced: raw channels' }),
       partial.length ? rawPanel(partial) : h('p', { class: 'b5-note', text: 'Every channel of the selected profiled fixtures belongs to an attribute; set them above. Only channels with no profile detail can be driven raw.' }));

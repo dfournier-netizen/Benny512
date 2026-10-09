@@ -57,6 +57,7 @@ type c5Tests struct {
 			EntryID      string
 			Cell         string
 			Applied      bool
+			Virtual      bool
 			PhaseDegrees float64
 		}
 	}

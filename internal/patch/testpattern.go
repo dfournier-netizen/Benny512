@@ -713,6 +713,24 @@ type patternFuncTarget struct {
 	index       int // this function's position among its sibling group
 	total       int // sibling count for index above
 	staticValue uint32
+	// virtualKey (I2e): this target is an I2d4 virtual dimmer, not a DMX
+	// channel — its level (role "level", 8-bit) goes to the engine under
+	// this key (SetVirtualDimmerLevels, SourceTests); offsets is empty.
+	virtualKey string
+}
+
+// virtualEntries: the entry IDs that have a virtual dimmer in scope.
+func virtualEntries(v map[string][]string) map[string]bool {
+	out := make(map[string]bool, len(v))
+	for id, keys := range v {
+		out[id] = len(keys) > 0
+	}
+	return out
+}
+
+// isDimmerPatternKind: the kinds that drive a fixture's intensity.
+func isDimmerPatternKind(k PatternKind) bool {
+	return k == PatternDimmerSine || k == PatternDimmerSnap || k == PatternDimmerToggle
 }
 
 // patternEntryTarget is one scoped Entry's resolved targets for ONE test.
@@ -948,7 +966,11 @@ type AvailableTest struct {
 // no locking, no output, safe to call from a read handler. The returned
 // slice is always non-nil (this package's "slices must be make([]T,0)" rule)
 // and is in the canonical composition order.
-func AvailableTests(entries []Entry) []AvailableTest {
+func AvailableTests(entries []Entry) []AvailableTest { return availableTests(entries, nil) }
+
+// availableTests: virtual names the entries (by ID) that have a virtual
+// dimmer in scope, which offers them the dimmer tests (I2e).
+func availableTests(entries []Entry, virtual map[string]bool) []AvailableTest {
 	type acc struct {
 		test  AvailableTest
 		seen  map[string]bool
@@ -997,7 +1019,7 @@ func AvailableTests(entries []Entry) []AvailableTest {
 				continue // target-enumerated below
 			}
 			spec := PatternSpec{Kind: k}
-			if _, ok := resolveEntry(spec, e); ok {
+			if _, ok := resolveEntry(spec, e); ok || (virtual[e.ID] && isDimmerPatternKind(k)) {
 				note(spec, string(k), "", false, e.ID)
 			}
 		}
@@ -1155,6 +1177,9 @@ type entryBaseState struct {
 	dimmer   []baseWrite
 	shutter  []baseWrite
 	position []baseWrite
+	// master (I2e) opens a cell target's fixture master Dimmer — outside
+	// the cell's own channels — under the same "no test owns it" rule.
+	master []baseWrite
 	// knownCount/unknownCount count DMX slots in this entry's footprint
 	// whose resting value GDTF stated / did not state. An unknown slot is
 	// left at 0 — that is not a claim, it is this package declining to
@@ -1447,6 +1472,9 @@ type PatternEntryStatus struct {
 	// Deliberately reported per entry so a UI can show the chase it is about
 	// to produce before anything moves.
 	PhaseDegrees float64
+	// Virtual (I2e) is true iff this test reaches this entry through an
+	// I2d4 virtual dimmer (it scales the colour; no DMX channel of its own).
+	Virtual bool
 }
 
 // TestStatus is one selected test's full state.
@@ -1552,6 +1580,11 @@ type patternSelection struct {
 	// order (the programmer selection's) instead of universe/address.
 	owned      map[string][]uint16
 	scopeOrder bool
+	// virtual and masters (I2e, SetTests) are, by scope entry ID, the
+	// virtual dimmer keys a dimmer test drives and a cell's fixture master
+	// the base state opens — see TestTarget.
+	virtual map[string][]string
+	masters map[string][]uint16
 
 	// resolved is rebuilt from scope+tests on every mutation, in canonical
 	// order.
@@ -1595,6 +1628,12 @@ func (sel *patternSelection) rebuild() {
 		pt := &patternTest{spec: spec}
 		for _, e := range sel.scope {
 			t, ok := resolveEntry(spec, e)
+			if isDimmerPatternKind(spec.Kind) {
+				for _, k := range sel.virtual[e.ID] {
+					t.functions = append(t.functions, patternFuncTarget{attribute: "Dimmer", role: "level", nbytes: 1, virtualKey: k})
+					ok = true
+				}
+			}
 			if !ok {
 				continue
 			}
@@ -1613,7 +1652,15 @@ func (sel *patternSelection) rebuild() {
 
 	sel.base = make([]entryBaseState, 0, len(sel.scope))
 	for _, e := range sel.scope {
-		sel.base = append(sel.base, buildOwnedBaseState(e, sel.owned[e.ID]))
+		bs := buildOwnedBaseState(e, sel.owned[e.ID])
+		if m := sel.masters[e.ID]; len(m) > 0 {
+			n, full := 1, uint32(255)
+			if len(m) >= 2 {
+				n, full = 2, 65535
+			}
+			bs.master = append(bs.master, baseWrite{attribute: "Dimmer", offsets: m, nbytes: n, raw: full})
+		}
+		sel.base = append(sel.base, bs)
 	}
 }
 
@@ -1683,6 +1730,7 @@ func (r *RigCheck) SetPatternScope(entries []Entry) (PatternStatus, error) {
 	}
 	r.selection.scope = append([]Entry(nil), entries...)
 	r.selection.owned, r.selection.scopeOrder, r.testsLayer = nil, false, false
+	r.selection.virtual, r.selection.masters = nil, nil
 	r.selection.rebuild()
 	r.afterSelectionChangeLocked()
 	return r.patternStatusLocked(), nil
@@ -1734,6 +1782,7 @@ func (r *RigCheck) SetPatternTests(entries []Entry, specs []PatternSpec, isolate
 	}
 	r.selection.scope = append([]Entry(nil), entries...)
 	r.selection.owned, r.selection.scopeOrder, r.testsLayer = nil, false, false
+	r.selection.virtual, r.selection.masters = nil, nil
 	r.selection.tests = make(map[TestID]PatternSpec, len(normalized))
 	for _, spec := range normalized {
 		r.selection.tests[spec.TestID()] = spec
@@ -1932,7 +1981,7 @@ func (r *RigCheck) patternStatusLocked() PatternStatus {
 		LastEndReason: r.lastPatternEnd,
 		Tests:         make([]TestStatus, 0, len(sel.order)),
 		Contested:     make([]ContestedOffset, 0),
-		Available:     AvailableTests(sel.scope),
+		Available:     availableTests(sel.scope, virtualEntries(sel.virtual)),
 		BaseState:     BaseStateStatus{Isolate: sel.isolate, ShutterUnknownEntries: make([]string, 0)},
 	}
 	if r.patternOutput {
@@ -1957,10 +2006,14 @@ func (r *RigCheck) patternStatusLocked() PatternStatus {
 		}
 		for _, e := range sel.scope {
 			t, applied := byID[e.ID]
+			virtual := false
+			for _, ft := range t.functions {
+				virtual = virtual || ft.virtualKey != ""
+			}
 			ts.Entries = append(ts.Entries, PatternEntryStatus{
 				EntryID: e.ID, Applied: applied,
 				Inferred: applied && t.inferred, DetailMissing: applied && t.detailMissing,
-				PhaseDegrees: t.phase * 360,
+				PhaseDegrees: t.phase * 360, Virtual: applied && virtual,
 			})
 		}
 		st.Tests = append(st.Tests, ts)
@@ -1991,6 +2044,15 @@ type patternComposition struct {
 	frames    map[uint16][]byte
 	contested []ContestedOffset
 	base      BaseStateStatus
+	// virtual (I2e): the level of every virtual dimmer a test drives, by
+	// engine key, with the source that set it (for fades).
+	virtual map[string]virtualUnit
+}
+
+// virtualUnit is one virtual dimmer level a test sets (I2e).
+type virtualUnit struct {
+	level  byte
+	source patternSource
 }
 
 func slotKey(universe uint16, ch int) uint32 { return uint32(universe)<<16 | uint32(uint16(ch)) }
@@ -2008,6 +2070,7 @@ func (r *RigCheck) composePatternLocked(elapsed float64) patternComposition {
 		frames:    make(map[uint16][]byte, len(sel.scope)),
 		contested: make([]ContestedOffset, 0),
 		base:      BaseStateStatus{Isolate: sel.isolate, ShutterUnknownEntries: make([]string, 0)},
+		virtual:   map[string]virtualUnit{},
 	}
 	for _, e := range sel.scope {
 		if _, ok := comp.frames[e.Universe]; !ok {
@@ -2045,6 +2108,11 @@ func (r *RigCheck) composePatternLocked(elapsed float64) patternComposition {
 			}
 			for _, ft := range et.functions {
 				raw, nbytes := patternValueForFunc(pt.spec, ft, elapsed, et.phase)
+				if ft.virtualKey != "" {
+					// Later tests win, as for a slot (canonical order).
+					comp.virtual[ft.virtualKey] = virtualUnit{level: byte(raw), source: patternSource{entry: et.entryID, spec: pt.spec, phase: et.phase}}
+					continue
+				}
 				comp.noteUnit(et.universe, et.startAddr, ft.offsets, nbytes, patternSource{entry: et.entryID, spec: pt.spec, phase: et.phase}, continuousPatternAttribute(ft.attribute))
 				for _, ch := range writeFuncValue(frame, et.startAddr, ft.offsets, nbytes, raw) {
 					claim(et.universe, ch, et.entryID, id)
@@ -2096,6 +2164,9 @@ func (r *RigCheck) composePatternLocked(elapsed float64) patternComposition {
 				}
 			}
 			for _, w := range bs.position {
+				apply(w)
+			}
+			for _, w := range bs.master {
 				apply(w)
 			}
 			if opened {
@@ -2162,7 +2233,14 @@ func (r *RigCheck) recomputePatternLocked(elapsed float64) {
 	claim := map[uint16]*slotClaim{}
 	for _, e := range r.selection.scope {
 		claimEntry(claim, e, r.selection.owned[e.ID])
+		if m := r.selection.masters[e.ID]; len(m) > 0 {
+			claimEntry(claim, e, m)
+		}
 	}
+	// Virtual levels first: they scale whatever the slots compose to, so
+	// setting them before the slots never shows the new slots under a
+	// stale level.
+	r.out.setVirtual(r.patternVirtual)
 	r.out.setFrames(comp.frames, claim, false)
 }
 
@@ -2203,6 +2281,7 @@ func (r *RigCheck) patternTick() {
 // stops output and deselects nothing.
 func (r *RigCheck) cancelPatternOutputLocked(reason string) {
 	r.patternFrames, r.patternUnits, r.patternFades = nil, nil, nil
+	r.patternVirtual, r.virtualUnits, r.virtualFades = nil, nil, nil
 	if r.patternTimer != nil {
 		r.patternTimer.Stop()
 		r.patternTimer = nil

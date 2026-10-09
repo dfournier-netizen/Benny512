@@ -1272,7 +1272,10 @@ const ConsoleScreen = (() => {
         h('span', { class: 'b5-actionbar__title', text: 'Selection' }),
         h('span', { class: 'b5-pill b5-pill--md' + (s.length ? ' b5-pill--accent' : ''), 'data-sel-count': '' },
           ic(s.length ? 'status-ok' : 'status-pending'),
-          s.length ? s.length + ' selected' + (cells ? ' · ' + cells + (cells === 1 ? ' cell' : ' cells') : '') : 'Nothing selected'),
+          // I2e: two unbreakable parts, so on a phone the cell count wraps
+          // to a second line inside the pill instead of being cut off.
+          h('span', { class: 'b5-con-summary__countn', 'data-sel-count-n': '' }, s.length ? s.length + ' selected' : 'Nothing selected'),
+          cells ? h('span', { class: 'b5-con-summary__countcells', 'data-sel-count-cells': '' }, ' · ' + cells + (cells === 1 ? ' cell' : ' cells')) : null),
         h('span', { class: 'b5-con-summary__names', 'data-sel-names': '', title: s.map((x, i) => (i + 1) + ' ' + label(x)).join(', ') }, names),
         // I2d3: on a phone the Highlight toggle is inside More, so its state
         // is said here, under the count, instead of lengthening the More
@@ -1371,11 +1374,19 @@ const ConsoleScreen = (() => {
           catch (e) { status(e.message, 'error'); }
         }),
         btn('Fan…', { icon: 'fan-linear', cls: 'b5-con-act' + (st.pop === 'fan' ? ' is-on' : ''), attrs: { 'data-fan-open': '', 'aria-expanded': st.pop === 'fan' ? 'true' : 'false', 'aria-controls': 'conActPanel' }, disabled: n < 2 }, () => togglePop('fan')),
-        btn('Tests', { icon: 'test', attrs: { 'data-tests-jump': '', title: 'Go to the Tests panel' } }, () => {
+        btn('Tests', { icon: 'test', attrs: { 'data-tests-jump': '', title: 'Open the Tests panel' } }, () => {
           if (!els.tests) return;
+          // I2e §16: opens the panel (a full sheet on a phone); closing it
+          // brings focus back here.
+          // The return target is looked up at close time: the bar redraws,
+          // and a Tests button inside the closed phone More menu cannot take
+          // focus, so the More toggle does (the I2d2 rule).
+          if (typeof ConsoleTests !== 'undefined' && ConsoleTests.open) return ConsoleTests.open(() => {
+            const t = els.summary && els.summary.querySelector('[data-tests-jump]');
+            if (t && !st.moreOpen && phoneBar() && t.closest && t.closest('[data-summary-more]')) return els.summary.querySelector('[data-summary-more-toggle]');
+            return t;
+          });
           if (els.tests.scrollIntoView) els.tests.scrollIntoView({ block: 'start' });
-          const f = els.tests.querySelector('button, summary, [tabindex]');
-          if (f) f.focus();
         }),
         btn('Store group…', { icon: 'store-group', attrs: { 'data-store-group': '' }, disabled: !n }, async () => {
           const name = await ask({ title: 'Store the selection as a group', body: 'The group keeps the fixtures and cells in this selection order.', field: { label: 'Group name', value: '', maxLength: 80 }, ok: 'Store group' });

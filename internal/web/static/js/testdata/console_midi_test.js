@@ -156,18 +156,28 @@ function browser(opts) {
   await sleep(50);
   check(midi.calls.length === 0, 'mounting asks nothing of Web MIDI: access is requested only on Connect MIDI', midi.calls.length);
   check(/Not connected/.test(q('[data-midi-phase]').textContent) && /plugged into the computer running this browser/.test(q('[data-midi-phase]').textContent), 'before connecting the strip says so, and that the controller must be plugged into this computer', q('[data-midi-phase]').textContent);
+  // I2e restyle: the bar states the link with a glyph AND a word.
+  const link = () => q('[data-midi-link]');
+  const icOf = el => ((el && el.querySelector('.b5-con-ic') && el.querySelector('.b5-con-ic').innerHTML) || '');
+  const linkIcon = () => icOf(link()).match(/#b5-icon-(midi-[a-z]+)/);
+  check(link() && link().getAttribute('data-midi-link') === 'off' && /Not connected/.test(link().textContent) && linkIcon() && linkIcon()[1] === 'midi-disconnected',
+    'I2e: before connecting the bar shows "Not connected" with the midi-disconnected glyph', link() && [link().textContent, icOf(link())]);
 
   midi.plug(xt);
   click(q('[data-midi-connect]'));
   await until('MIDI to connect', () => q('[data-midi-phase="ready"]') && /Using X-TOUCH MINI/.test(q('[data-midi-phase]').textContent));
   check(midi.calls.length === 1 && same(midi.calls[0], { sysex: false }), 'Connect MIDI asks once, without SysEx', midi.calls);
   check(typeof xt.onmidimessage === 'function' && xt.connection === 'open', 'the only input is picked and opened');
+  check(link() && link().getAttribute('data-midi-link') === 'on' && /Connected/.test(link().textContent) && linkIcon() && linkIcon()[1] === 'midi-connected',
+    'I2e: connected, the bar says "Connected" with the midi-connected glyph', link() && [link().textContent, icOf(link())]);
 
   await select('B1', 'B2');
   await tab('position');
   await until('the encoder strip on Position', () => encAttr(1) === 'Pan');
   check(encAttr(1) === 'Pan' && encAttr(2) === 'Tilt' && encAttr(3) === 'PositionMSpeed' && /nothing on this bank/.test(encAttr(4)), 'Position: encoder 1 = Pan, 2 = Tilt, 3 = PositionMSpeed, 4 = nothing', [1, 2, 3, 4].map(encAttr));
   check(qa('[data-enc-tags="1"]')[0] && /not bound/.test(q('[data-enc-tags="1"]').textContent), 'an encoder with no MIDI binding says "not bound"');
+  check(/^Encoder 1$/.test(q('[data-enc="1"] .b5-midi-enc__num').textContent), 'I2e: each cell names its encoder in a word ("Encoder 1")', q('[data-enc="1"] .b5-midi-enc__num').textContent);
+  check(/#b5-icon-fine\b/.test(icOf(q('[data-enc-fine="1"]'))) && /Fine: OFF/.test(q('[data-enc-fine="1"]').textContent), 'I2e: the Fine toggle carries the fine glyph beside its words', q('[data-enc-fine="1"]').textContent);
   check(/Output is not armed/.test(q('[data-midi-strip]').textContent), 'the strip says output is not armed (moves change the programmer only)');
 
   // --- learn: each mode from what the encoder sends --------------------------------------
@@ -383,6 +393,8 @@ function browser(opts) {
   midi.unplug(xt);
   await until('the unplugged words', () => /X-TOUCH MINI was unplugged/.test(q('[data-midi-phase]').textContent));
   check(xt.onmidimessage === null, 'unplugging detaches the input');
+  check(link() && link().getAttribute('data-midi-link') === 'off' && /Unplugged/.test(link().textContent) && linkIcon() && linkIcon()[1] === 'midi-disconnected',
+    'I2e: unplugged, the bar says "Unplugged" with the midi-disconnected glyph', link() && [link().textContent, icOf(link())]);
   const nano = new FakeInput('in-2', 'nanoKONTROL2');
   midi.plug(nano);
   await sleep(30);

@@ -126,6 +126,9 @@ type testsEntryJSON struct {
 	Inferred      bool    `json:"inferred"`
 	DetailMissing bool    `json:"detailMissing"`
 	PhaseDegrees  float64 `json:"phaseDegrees"`
+	// Virtual (I2e): the test reaches this target through its virtual
+	// dimmer (scales the colour).
+	Virtual bool `json:"virtual"`
 }
 
 type testsTestJSON struct {
@@ -329,6 +332,9 @@ func (s *Server) resolveTestScope(sc testScopeJSON) ([]resolvedTarget, []program
 			rt.json.Name += " " + cellDisplayName(t.Cell)
 			rt.target = patch.CellTestTarget(e, t.Cell, offs)
 		}
+		// I2e: virtual dimmers a dimmer test drives, and a cell's master the
+		// base state opens (the programmer's scope rule).
+		rt.target.VirtualDimmers, rt.target.Master = s.Programmer.TestDimmers(t)
 		out = append(out, rt)
 	}
 	return out, ignored, note
@@ -653,9 +659,9 @@ func (s *Server) testsViewLocked(query testScopeJSON, haveQuery bool) testsViewJ
 	if haveQuery {
 		targets, _, _ = s.resolveTestScope(query)
 	}
-	entries := make([]patch.Entry, 0, len(targets))
+	tts := make([]patch.TestTarget, 0, len(targets))
 	for _, t := range targets {
-		entries = append(entries, t.target.Entry)
+		tts = append(tts, t.target)
 	}
 	for _, t := range st.targets {
 		v.Targets = append(v.Targets, t.json)
@@ -667,7 +673,7 @@ func (s *Server) testsViewLocked(query testScopeJSON, haveQuery bool) testsViewJ
 			v.Targets = append(v.Targets, t.json)
 		}
 	}
-	for _, a := range patch.AvailableTests(entries) {
+	for _, a := range patch.AvailableTestsForTargets(tts) {
 		v.Available = append(v.Available, availableTestJSON{
 			ID: string(a.ID), Kind: string(a.Kind), Group: string(a.Group), Target: a.Target,
 			Label: a.Label, Attribute: a.Attribute, FixtureCount: a.FixtureCount, LabelFromGDTF: a.LabelFromGDTF,
@@ -686,7 +692,7 @@ func (s *Server) testsViewLocked(query testScopeJSON, haveQuery bool) testsViewJ
 			for _, e := range ps.Tests[i].Entries {
 				tgt := byID[e.EntryID]
 				tj.Entries = append(tj.Entries, testsEntryJSON{EntryID: tgt.EntryID, Cell: tgt.Cell, Applied: e.Applied,
-					Inferred: e.Inferred, DetailMissing: e.DetailMissing, PhaseDegrees: e.PhaseDegrees})
+					Inferred: e.Inferred, DetailMissing: e.DetailMissing, PhaseDegrees: e.PhaseDegrees, Virtual: e.Virtual})
 			}
 			v.Tests = append(v.Tests, tj)
 		}

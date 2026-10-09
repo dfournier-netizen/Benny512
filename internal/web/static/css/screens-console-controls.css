@@ -266,3 +266,14 @@
 .b5-cc-preset { min-height: var(--b5-size-touch-min); flex-wrap: wrap; justify-content: flex-start; text-align: left; }
 .b5-cc-preset__applies { flex-basis: 100%; }
 @media (max-width: 767px) { .b5-cc-presets { flex-wrap: nowrap; overflow-x: auto; padding-bottom: var(--b5-space-1); } .b5-cc-preset { flex: none; } }
+
+/* I2e §18 raw bank: T/D cells at least 160 px, P two compact columns; the
+   bank scrolls inside itself; every control 44 px. */
+.b5-cc-rawbank { grid-template-columns: repeat(auto-fill, minmax(min(100%, 160px), 1fr)); }
+.b5-cc-rawch { display: flex; flex-direction: column; gap: var(--b5-space-1); }
+.b5-cc-rawslot { overflow-wrap: anywhere; }
+.b5-cc-rawval { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-1); }
+.b5-cc-rawch .b5-btn, .b5-cc-rawfix .b5-btn { min-height: var(--b5-size-touch-min); }
+.b5-cc-rawfix { display: flex; flex-direction: column; gap: var(--b5-space-2); min-width: 0; margin-bottom: var(--b5-space-3); }
+@media (max-width: 767px) { .b5-cc-rawbank { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.b5-cc-rawch .b5-param__label { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 0 var(--b5-space-1); }

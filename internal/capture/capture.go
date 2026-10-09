@@ -737,13 +737,22 @@ func (r *Ring) Publish() {
 			continue
 		}
 		s.setLastSeq(batch[len(batch)-1].Seq)
-		select {
-		case s.ch <- batch:
-		default:
-			// Subscriber's channel is full (consumer stalled); drop this
-			// batch rather than block the publisher. The next Publish will
-			// include an even bigger catch-up batch once it drains.
+		// The send happens under r.mu, the lock the cancel func holds to
+		// close the channel, and only while the subscriber is still open:
+		// a WebSocket closing between the copy above and this send used to
+		// panic the server with "send on closed channel". The send never
+		// blocks, so holding the lock is brief (hub.sendTo does the same).
+		r.mu.Lock()
+		if !s.closed {
+			select {
+			case s.ch <- batch:
+			default:
+				// Subscriber's channel is full (consumer stalled); drop this
+				// batch rather than block the publisher. The next Publish will
+				// include an even bigger catch-up batch once it drains.
+			}
 		}
+		r.mu.Unlock()
 	}
 }
 

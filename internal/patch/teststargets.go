@@ -31,6 +31,14 @@ type TestTarget struct {
 	// Offsets (1-based within the footprint) are the only channels the
 	// target owns — a cell's. nil: the whole footprint.
 	Offsets []uint16
+	// VirtualDimmers (I2e) are the engine keys (VirtualDimmerKey) of the
+	// I2d4 virtual dimmers inside this target's scope: a dimmer test drives
+	// them as SourceTests levels, beside any real Dimmer channel it drives.
+	// Master (I2e) are the offsets of a cell target's fixture master Dimmer:
+	// the base state opens it, as it opens a whole fixture's dimmer, so the
+	// cell can be seen. Both come from Programmer.TestDimmers.
+	VirtualDimmers []string
+	Master         []uint16
 }
 
 // CellTestTarget narrows e to one cell whose channels are offsets: a copy of
@@ -82,10 +90,18 @@ func (r *RigCheck) SetTests(targets []TestTarget, specs []PatternSpec, fade *tim
 	}
 	entries := make([]Entry, 0, len(targets))
 	owned := map[string][]uint16{}
+	virtual := map[string][]string{}
+	masters := map[string][]uint16{}
 	for _, t := range targets {
 		entries = append(entries, t.Entry)
 		if t.Offsets != nil {
 			owned[t.Entry.ID] = append([]uint16(nil), t.Offsets...)
+		}
+		if len(t.VirtualDimmers) > 0 {
+			virtual[t.Entry.ID] = append([]string(nil), t.VirtualDimmers...)
+		}
+		if len(t.Master) > 0 {
+			masters[t.Entry.ID] = append([]uint16(nil), t.Master...)
 		}
 	}
 	r.mu.Lock()
@@ -103,6 +119,7 @@ func (r *RigCheck) SetTests(targets []TestTarget, specs []PatternSpec, fade *tim
 	}
 	r.selection.scope = entries
 	r.selection.owned, r.selection.scopeOrder, r.selection.isolate = owned, true, false
+	r.selection.virtual, r.selection.masters = virtual, masters
 	r.selection.tests = make(map[TestID]PatternSpec, len(normalized))
 	for _, spec := range normalized {
 		r.selection.tests[spec.TestID()] = spec
@@ -120,6 +137,7 @@ func (r *RigCheck) ReleaseTests() PatternStatus {
 	r.testsLayer = true
 	r.selection.scope = nil
 	r.selection.owned, r.selection.scopeOrder, r.selection.isolate = nil, true, false
+	r.selection.virtual, r.selection.masters = nil, nil
 	r.selection.tests = map[TestID]PatternSpec{}
 	r.selection.rebuild()
 	r.stopLocked("manual")
@@ -144,4 +162,57 @@ func (pg *Programmer) CellOffsets(entryID, cell string) ([]uint16, bool) {
 		}
 	}
 	return out, true
+}
+
+// TestDimmers (I2e; owner 2026-10-09: Tests drive virtual dimmers) is how
+// the Tests layer reaches target t's intensity beyond the real Dimmer
+// channels it finds itself, by the same scope rule as group faders and the
+// programmer (dimmersOf / inScope, I2d4):
+//
+//   - virtual: the engine keys of the virtual dimmers in t's scope. A whole
+//     fixture with no master reaches its own and its cells' virtual
+//     dimmers; a whole fixture WITH a master is tested through the master
+//     (a real channel), so none; a cell, its own virtual dimmer.
+//   - master: for a cell target of a fixture with a real master Dimmer, the
+//     master's offsets (coarse first). The master is the cell's output on
+//     top of its colour, so the base state opens it.
+//
+// Unknown fixture or cell: nothing.
+func (pg *Programmer) TestDimmers(t ProgTarget) (virtual []string, master []uint16) {
+	pg.mu.Lock()
+	defer pg.mu.Unlock()
+	m := pg.models[t.EntryID]
+	if m == nil || (t.Cell != "" && !m.HasCell(t.Cell)) {
+		return nil, nil
+	}
+	for _, p := range dimmersOf(m, t) {
+		if p.Virtual {
+			virtual = append(virtual, VirtualDimmerKey(t.EntryID, p.Offset))
+		}
+	}
+	if t.Cell != "" {
+		for i := range m.Parameters {
+			p := &m.Parameters[i]
+			if p.Attribute == "Dimmer" && p.Cell == "" && !p.Virtual && len(p.Offsets) > 0 {
+				master = append([]uint16(nil), p.Offsets...)
+				break
+			}
+		}
+	}
+	return virtual, master
+}
+
+// AvailableTestsForTargets is AvailableTests over targets (I2e): a target
+// with a virtual dimmer is offered the dimmer tests even when it has no
+// Dimmer channel.
+func AvailableTestsForTargets(targets []TestTarget) []AvailableTest {
+	entries := make([]Entry, 0, len(targets))
+	virtual := map[string]bool{}
+	for _, t := range targets {
+		entries = append(entries, t.Entry)
+		if len(t.VirtualDimmers) > 0 {
+			virtual[t.Entry.ID] = true
+		}
+	}
+	return availableTests(entries, virtual)
 }

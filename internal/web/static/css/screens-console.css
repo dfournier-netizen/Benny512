@@ -261,7 +261,11 @@
   .b5-con-summary {
     flex-wrap: nowrap; padding: var(--b5-space-1) var(--b5-space-2); gap: var(--b5-space-2); margin-top: var(--b5-space-3); }
   .b5-con-summary__status { flex: 1 1 auto; flex-wrap: nowrap; gap: var(--b5-space-2); min-width: 0; }
-  .b5-con-summary__status .b5-pill { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  /* I2e: never cut the count off ("4 selected · 4 cells" lost its end at
+     390 px): its two parts are unbreakable and the cell count wraps to a
+     second line inside the pill when the row is too narrow. */
+  .b5-con-summary__status .b5-pill { flex-wrap: wrap; column-gap: var(--b5-space-1); row-gap: 0; max-width: 100%; border-radius: var(--b5-radius-md); }
+  .b5-con-summary__countn, .b5-con-summary__countcells { white-space: nowrap; }
   .b5-con-summary__names, .b5-con-summary__long { display: none; }
   .b5-con-summary__status { flex-direction: column; align-items: flex-start; gap: var(--b5-space-1); }
   .b5-con-summary__hlstate { display: inline-flex; align-items: center; gap: var(--b5-space-1); white-space: nowrap;

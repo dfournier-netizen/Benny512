@@ -124,6 +124,19 @@ const ConsoleMIDI = (() => {
     return b;
   }
   function tag(word, tone) { return h('span', { class: 'b5-pill b5-pill--tag' + (tone ? ' b5-pill--' + tone : ''), text: word }); }
+  function ic(name) {
+    const s = h('span', { class: 'b5-con-ic', 'aria-hidden': 'true' });
+    if (typeof UI !== 'undefined' && UI.icon) s.innerHTML = UI.icon(name);
+    return s;
+  }
+  // I2e: the connection state as a glyph AND a word, in the bar itself.
+  function linkPill() {
+    const on = st.phase === 'ready' && !!st.input && !st.lost;
+    const word = on ? 'Connected' : st.phase === 'ready' && st.lost ? 'Unplugged' : st.phase === 'insecure' ? 'Not available here'
+      : st.phase === 'unsupported' ? 'No Web MIDI' : st.phase === 'denied' ? 'Access refused' : st.phase === 'asking' ? 'Asking…' : 'Not connected';
+    return h('span', { class: 'b5-pill b5-pill--md' + (on ? ' b5-pill--ok' : st.phase === 'denied' ? ' b5-pill--danger' : ' b5-pill--open'), 'data-midi-link': on ? 'on' : 'off' },
+      ic(on ? 'midi-connected' : 'midi-disconnected'), word);
+  }
   const now = () => Date.now();
   const stamp = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
 
@@ -590,7 +603,7 @@ const ConsoleMIDI = (() => {
     if (st.phase === 'idle' && !secure()) st.phase = 'insecure';
     else if (st.phase === 'idle' && !hasWebMIDI()) st.phase = 'unsupported';
     const words = phaseWords();
-    const head = h('div', { class: 'b5-midi-bar' }, h('strong', { class: 'b5-midi-title', text: 'MIDI encoders' }));
+    const head = h('div', { class: 'b5-midi-bar' }, h('strong', { class: 'b5-midi-title', text: 'MIDI encoders' }), linkPill());
     if (st.phase === 'idle' || st.phase === 'denied') head.appendChild(btn('Connect MIDI', { 'data-midi-connect': '' }, () => connect(), 'b5-btn--primary'));
     if (st.phase === 'ready' && st.inputs.length) {
       const sel = h('select', { class: 'b5-select b5-midi-input', 'data-midi-input': '', 'aria-label': 'MIDI controller' });
@@ -662,9 +675,9 @@ const ConsoleMIDI = (() => {
       if (m.tab && m.tab !== 'other') {
         for (let i = 0; i < m.N; i++) {
           const a = m.attrs[i];
-          const fineB = h('button', { type: 'button', class: 'b5-seg b5-midi-fine', 'data-enc-fine': String(i + 1), 'aria-pressed': 'false', onclick: () => toggleFine(i) }, 'Fine: OFF');
+          const fineB = h('button', { type: 'button', class: 'b5-seg b5-midi-fine', 'data-enc-fine': String(i + 1), 'aria-pressed': 'false', onclick: () => toggleFine(i) }, ic('fine'), h('span', { 'data-enc-fine-word': '' }, 'Fine: OFF'));
           strip.appendChild(h('div', { class: 'b5-midi-enc' + (a ? '' : ' is-empty'), role: 'listitem', 'data-enc': String(i + 1) },
-            h('span', { class: 'b5-midi-enc__num', text: 'Enc ' + (i + 1) }),
+            h('span', { class: 'b5-midi-enc__num', text: 'Encoder ' + (i + 1) }),
             h('span', { class: 'b5-midi-enc__attr', 'data-enc-attr': String(i + 1), text: a ? a.attribute : '— nothing on this bank' }),
             h('span', { class: 'b5-text-mono b5-midi-enc__val', 'data-enc-val': String(i + 1) }),
             h('span', { class: 'b5-midi-enc__tags', 'data-enc-tags': String(i + 1) }),
@@ -691,7 +704,7 @@ const ConsoleMIDI = (() => {
       if (!enc[i]) tags.appendChild(tag('not bound', 'open'));
       if (fineFor(i)) tags.appendChild(tag(rt(i).fine ? 'FINE' : 'FINE (Controls)', 'accent'));
       if (a && a.channels.some(c => !c.touched && !c.defaultKnown)) tags.appendChild(tag('default unknown', 'unread'));
-      fb.textContent = rt(i).fine ? 'Fine: ON' : 'Fine: OFF';
+      fb.querySelector('[data-enc-fine-word]').textContent = rt(i).fine ? 'Fine: ON' : 'Fine: OFF';
       fb.setAttribute('aria-pressed', rt(i).fine ? 'true' : 'false');
       fb.classList.toggle('is-on', rt(i).fine);
     }

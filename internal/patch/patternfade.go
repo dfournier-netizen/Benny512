@@ -214,7 +214,69 @@ func (r *RigCheck) fadePatternLocked(comp patternComposition, now time.Time) {
 			delete(r.patternFades, k)
 		}
 	}
+	for _, u := range r.virtualUnits {
+		previousEntries[u.source.entry] = true
+	}
 	r.patternUnits, r.patternFrames = units, comp.frames
+	r.fadeVirtualLocked(comp, now, previousEntries)
+}
+
+// fadeVirtualLocked (I2e) applies the slot rules above to the virtual dimmer
+// levels the tests set, by engine key, and leaves the result in
+// r.patternVirtual: a changed writer fades from the level that was showing
+// — the last published one, untouched (full) for a key no test drove, or 0
+// for a target new to the tests (dimmers start at zero) — and a key no test
+// drives any more fades back to untouched, then is released.
+func (r *RigCheck) fadeVirtualLocked(comp patternComposition, now time.Time, previousEntries map[string]bool) {
+	if r.virtualFades == nil {
+		r.virtualFades = map[string]patternFade{}
+	}
+	units := make(map[string]virtualUnit, len(comp.virtual))
+	for k, u := range comp.virtual {
+		units[k] = u
+	}
+	for k, old := range r.virtualUnits {
+		if _, ok := units[k]; ok {
+			continue
+		}
+		if _, fading := r.virtualFades[k]; old.source.removed && !fading {
+			continue
+		}
+		units[k] = virtualUnit{level: 255, source: patternSource{entry: old.source.entry, removed: true}}
+	}
+	out := make(map[string]byte, len(units))
+	for k, u := range units {
+		if old, exists := r.virtualUnits[k]; !exists || old.source != u.source {
+			delete(r.virtualFades, k)
+			if r.patternFadeTime > 0 {
+				from, shown := r.patternVirtual[k]
+				if !shown {
+					from = 255
+					if !previousEntries[u.source.entry] {
+						from = 0
+					}
+				}
+				r.virtualFades[k] = patternFade{from: uint32(from), start: now, duration: r.patternFadeTime}
+			}
+		}
+		level := u.level
+		if f, ok := r.virtualFades[k]; ok {
+			progress := float64(now.Sub(f.start)) / float64(f.duration)
+			if progress >= 1 {
+				delete(r.virtualFades, k)
+			} else {
+				progress = math.Max(0, progress)
+				level = byte(math.Round(float64(f.from) + (float64(u.level)-float64(f.from))*progress))
+			}
+		}
+		out[k] = level
+	}
+	for k := range r.virtualFades {
+		if _, ok := units[k]; !ok {
+			delete(r.virtualFades, k)
+		}
+	}
+	r.virtualUnits, r.patternVirtual = units, out
 }
 
 // Live scope changes must validate and start new universes before committing

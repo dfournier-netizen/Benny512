@@ -42,6 +42,9 @@ type rigOutput struct {
 	// claim is what the last publish claimed, per universe — what a
 	// blackout zeroes and stopAll releases.
 	claim map[uint16]*slotClaim
+	// virtual (I2e) is the virtual dimmer levels last set as SourceTests,
+	// by engine key — what a blackout zeroes and stopAll releases.
+	virtual map[string]byte
 }
 
 func newRigOutput(dmx *session.DMXOutputEngine) *rigOutput {
@@ -85,8 +88,30 @@ func (o *rigOutput) setFrames(frames map[uint16][]byte, claim map[uint16]*slotCl
 	o.claim = kept
 }
 
-// blackout zeroes every slot of the current claim and pushes it at once.
+// setVirtual (I2e) sets the tests' virtual dimmer levels (engine keys,
+// session.VirtualDimmer): the levels of the I2d4 virtual dimmers a dimmer
+// test drives, resolved by the engine under every source above the tests.
+func (o *rigOutput) setVirtual(levels map[string]byte) {
+	if len(levels) == 0 && len(o.virtual) == 0 {
+		return
+	}
+	_ = o.dmx.SetVirtualDimmerLevels(session.SourceTests, levels)
+	o.virtual = make(map[string]byte, len(levels))
+	for k, v := range levels {
+		o.virtual[k] = v
+	}
+}
+
+// blackout zeroes every slot of the current claim and every virtual dimmer
+// level the tests set, and pushes it at once.
 func (o *rigOutput) blackout() {
+	if len(o.virtual) > 0 {
+		zero := make(map[string]byte, len(o.virtual))
+		for k := range o.virtual {
+			zero[k] = 0
+		}
+		o.setVirtual(zero)
+	}
 	o.setFrames(nil, o.claim, true)
 }
 
@@ -104,6 +129,10 @@ func (o *rigOutput) stopAll() {
 		if !o.live[raw] {
 			raws = append(raws, raw)
 		}
+	}
+	if len(o.virtual) > 0 {
+		_ = o.dmx.SetVirtualDimmerLevels(session.SourceTests, nil)
+		o.virtual = nil
 	}
 	o.dmx.Release(session.SourceTests, raws...)
 	o.live = map[uint16]bool{}

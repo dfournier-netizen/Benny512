@@ -1,6 +1,6 @@
 # Console-lite — decisions after the design hand-back
 
-**For the design agent.** Written 2026-10-09 00:46:57 -0400 (chunk I2d2), updated 2026-10-09 08:49:21 -0400 and 2026-10-09 09:40:15 -0400 (I2d3) and 2026-10-09 10:01:46 -0400 (I2d4). Precedence is unchanged: owner answers > `docs/plans/console-lite.md` > this design package > the older UI brief. Each line names the spec section in `component-specs.md` and how the shipped UI now differs from it. Details and dates: the plan's Owner decisions and Progress rows I1–I2d2.
+**For the design agent.** Written 2026-10-09 00:46:57 -0400 (chunk I2d2), updated 2026-10-09 08:49:21 -0400 and 2026-10-09 09:40:15 -0400 (I2d3) 2026-10-09 10:01:46 -0400 (I2d4) and 2026-10-09 13:28:22 -0400 (I2e). Precedence is unchanged: owner answers > `docs/plans/console-lite.md` > this design package > the older UI brief. Each line names the spec section in `component-specs.md` and how the shipped UI now differs from it. Details and dates: the plan's Owner decisions and Progress rows I1–I2d2.
 
 ## Owner decisions of 2026-10-09 (I2d2)
 
@@ -16,6 +16,16 @@
 - **§15 Locate** is NOT momentary and has no LOCATE source: it writes into the programmer (owner: no change).
 - **§15 P (phone)** keeps the C6c one-line bar — selection count, Clear…, More. Highlight, Locate and Tests are in More (spec puts them on the bar). Highlight and Lowlight toggles keep More open so Previous/Next appear in place; the open menu ends above the fader bar and bottom navigation. Since I2d3 the More button says only "More" and, while Highlight is ON, "Highlight ON" (icon + words) shows under the count, so the count stays readable at 360 px.
 - **§12 pattern applied app-wide.** Every question in the web UI (names, yes/no, Replace / Merge / Save as new, packet detail, Show tools, Fixture library) is a non-modal dialog below the master strip: Cancel focused first (name dialogs included), Escape closes and restores focus, DISARM reachable. Exception: the Settings full-reset "Benny512 has shut down" overlay (the process has exited).
+
+## I2e (2026-10-09)
+
+- **§16 Tests drive virtual dimmers (owner).** A dimmer test reaches a fixture or cell with colour mixing and no dimmer channel of its own through its virtual dimmer, by the I2d4 scope rule: a whole fixture through its master when it has one, a selected cell through its own virtual dimmer, an RGB-only fixture through its own (it is now offered dimmer tests). The per-fixture list says "through its virtual dimmer (scales colour)". Fill-in for the owner to confirm: when cells are tested, the tests' base state opens their fixture's master (as it already opens a whole fixture's dimmer) — otherwise nothing a cell test does can be seen; the programmer above still wins.
+- **§16 tiles:** glyph per test kind + ON/OFF word; Settings is its own `details`. Not built: masked-test "overridden by SET on n fixtures" and Isolate (the tests view carries no per-channel source data).
+- **§16 P:** on a phone the Tests panel is a sheet below the master strip with Close and Escape; Tests stays under More (C6c/I2d2), so closing the sheet returns focus to More when the menu has closed.
+- **§17:** Back / Next 60 px with glyphs, AUTO toggle "AUTO 8 s" (unavailable with the reason on a manual step), CURRENT word. The interval is the step's own (set in the editor), not an input on the transport. Edit is disabled while a sequence runs, so editing the running step does not arise. Editor rows: worded Move up / Move down / Add step after / Remove step, no drag handle (no drag at all).
+- **§18:** horizontal faders (like §6 T/D in I2c1); the desktop fader keeps the app-wide 28 px param height. "RDM only" means the patch has the fixture committed to an RDM device; slot labels say "not reported" (an RDM slot read makes the fixture profiled, so a raw bank never has labels).
+- **MIDI panel:** no layout in the package; restyled to the roles and glyphs only — link pill with midi-connected/disconnected glyph and a word, "Encoder n", fine glyph on Fine.
+- **§15 P count pill:** with cells selected the count wraps "· 4 cells" to a second line inside the pill (a rounded box, not a capsule) instead of being cut off.
 
 ## Deviations already recorded in I1–I2d
 
