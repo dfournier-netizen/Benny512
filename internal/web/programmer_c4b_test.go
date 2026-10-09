@@ -27,8 +27,9 @@ type c4bHighlight struct {
 		Offset  int
 		Reason  string
 	}
-	Lowlit   int
-	NoDimmer []string
+	Lowlit      int
+	LowlitCells int // I2d3
+	NoDimmer    []string
 }
 
 type c4bView struct {

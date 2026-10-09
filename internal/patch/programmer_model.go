@@ -121,6 +121,20 @@ type ProgFunction struct {
 	ModeFrom         int       `json:"modeFrom"`
 	ModeTo           int       `json:"modeTo"`
 	Sets             []ProgSet `json:"sets"`
+	// Command (I2d3): a value in this function is a one-shot fixture
+	// command (IsCommandFunction) — sent by POST /api/programmer/command,
+	// refused by /set. The UI reads this flag instead of guessing.
+	Command bool `json:"command"`
+}
+
+// IsCommandFunction (I2d3, owner 2026-10-09) is THE rule for what a fixture
+// command is, shared by /api/programmer/set (refuses), Fan (refuses) and
+// the UI (sends one-shot): every function of a Control-family channel
+// (taxonomy group "other": no faders, a sweep would pass through reset and
+// lamp ranges), and any Reset or Lamp function on any channel (GDTF
+// attributes such as FixtureGlobalReset, PositionReset, LampControl).
+func IsCommandFunction(group AttributeGroup, fnAttribute string) bool {
+	return group == GroupOther || strings.Contains(fnAttribute, "Reset") || strings.HasPrefix(fnAttribute, "Lamp")
 }
 
 // ProgParameter is one controllable channel of a fixture.
@@ -344,6 +358,9 @@ func BuildFixtureModel(e Entry) FixtureModel {
 	firstOnly := 0
 	for i := range m.Parameters {
 		p := &m.Parameters[i]
+		for fi := range p.Functions {
+			p.Functions[fi].Command = IsCommandFunction(p.Group, p.Functions[fi].Attribute)
+		}
 		vb, _ := json.Marshal(struct {
 			B int
 			D string

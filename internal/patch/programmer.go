@@ -569,6 +569,26 @@ type ProgSetResult struct {
 // result carries every reason.
 type ProgNothingApplied struct{ Result ProgSetResult }
 
+// ProgCommandRefused (I2d3): a value-keeping write (/set, Fan) reached a
+// fixture command. Nothing was stored.
+type ProgCommandRefused struct {
+	Name   string
+	Result ProgSetResult
+}
+
+func (e ProgCommandRefused) Error() string {
+	return e.Name + " is a fixture command (a Control channel, or a Reset or Lamp function). Commands are sent once and never kept, so /api/programmer/set and Fan do not take them; send it to POST /api/programmer/command."
+}
+
+// isCommand: a value of this parameter in function fi (-1: not one
+// function) is a fixture command (IsCommandFunction).
+func (p *ProgParameter) isCommand(fi int) bool {
+	if fi >= 0 && fi < len(p.Functions) {
+		return p.Functions[fi].Command
+	}
+	return p.Group == GroupOther
+}
+
 func (e ProgNothingApplied) Error() string {
 	if len(e.Result.Skipped) == 0 {
 		return "Nothing was set."
@@ -879,11 +899,9 @@ func (pg *Programmer) Set(req ProgSetRequest, expected *uint64) (ProgSetResult, 
 // one-shot) is how long a fixture command's value stays on the wire before
 // the channel returns to what it was. No profile states one: GDTF's
 // LogicalChannel DMXChangeTimeLimit is not read by the importer and is 0 in
-// every real file in this repository. 5 s is a chosen value, long enough
-// for a fixture that wants a command held for a few seconds before it acts
-// on it, short enough that the channel is back within a few seconds; the
-// owner confirms it against his fixtures' manuals.
-const CommandWindow = 5 * time.Second
+// every real file in this repository. 1 s is the owner's value (Dom,
+// 2026-10-09, I2d3; the I2d2 placeholder was 5 s).
+const CommandWindow = 1 * time.Second
 
 // ProgOutputNotLive is Command's refusal while output is not armed: the
 // command is not sent and not kept to send at a later Arm.
@@ -1161,11 +1179,26 @@ func (pg *Programmer) placeLocked(res *ProgSetResult, entry string, m *FixtureMo
 	res.Applied = append(res.Applied, a)
 }
 
-// commitLocked stores pending, or refuses when nothing applied.
+// commitLocked stores pending, or refuses when nothing applied — or when
+// any applied value is a fixture command (I2d3: commands are one-shot, so a
+// path that keeps values never takes one; mode masters it moved are kept,
+// they are what makes the requested function work).
 func (pg *Programmer) commitLocked(res ProgSetResult, pending map[progKey]uint32) (ProgSetResult, error) {
 	if len(res.Applied) == 0 {
 		res.Revision, res.Output = pg.revision, pg.outputLocked()
 		return res, ProgNothingApplied{Result: res}
+	}
+	for _, a := range res.Applied {
+		if m := pg.models[a.EntryID]; m != nil {
+			if p := m.paramAt(a.Offset); p != nil && p.isCommand(a.FunctionIndex) {
+				res.Revision, res.Output = pg.revision, pg.outputLocked()
+				name := a.Attribute
+				if a.FunctionIndex >= 0 {
+					name = p.Functions[a.FunctionIndex].Name
+				}
+				return res, ProgCommandRefused{Name: name, Result: res}
+			}
+		}
 	}
 	for k, v := range pending {
 		pg.values[k] = v

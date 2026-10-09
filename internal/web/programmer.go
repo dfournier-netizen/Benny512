@@ -106,6 +106,7 @@ func (s *Server) writeProgrammerError(w http.ResponseWriter, err error) {
 	var bad patch.ProgrammerRequestError
 	var recall patch.ProgRecallNothing
 	var notLive patch.ProgOutputNotLive
+	var cmd patch.ProgCommandRefused
 	switch {
 	case errors.As(err, &recall):
 		s.writeProgrammerJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": err.Error(), "targets": recall.Result.Targets})
@@ -113,6 +114,8 @@ func (s *Server) writeProgrammerError(w http.ResponseWriter, err error) {
 		s.writeProgrammerJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 	case errors.As(err, &nothing):
 		s.writeProgrammerJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": err.Error(), "skipped": nothing.Result.Skipped})
+	case errors.As(err, &cmd):
+		s.writeProgrammerJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": err.Error(), "use": "/api/programmer/command"})
 	case errors.As(err, &notLive):
 		s.writeProgrammerJSON(w, http.StatusPreconditionFailed, map[string]any{"error": err.Error(), "output": notLive.Output})
 	case errors.As(err, &bad):

@@ -100,7 +100,7 @@ const ConsoleControls = (() => {
     const p = prog();
     return !!(p && p.output && p.output.live);
   }
-  const CMD_SECONDS = 5; // patch.CommandWindow; the server answers windowMs
+  const CMD_SECONDS = 1; // patch.CommandWindow (owner 2026-10-09: 1 s); the server answers windowMs
   const NOT_LIVE = 'Output is not live: commands are sent only while output is armed, and nothing is kept to send later.';
   const liveSubs = new Set(); // open command dialogs redraw on a change
   // drawOutputNote: the Controls panel's output note (State S), from the
@@ -601,9 +601,12 @@ const ConsoleControls = (() => {
     return [n, at.channels.length];
   }
   function inWord(n, m) { return !m || !n ? '' : n === m ? 'IN' : 'IN on ' + n + ' of ' + m; }
-  // A function whose attribute is a reset or lamp command never fires on a
-  // single tap (§7: control commands route through confirmation).
-  const COMMAND_FN = /Reset|^Lamp/;
+  // A fixture command never fires on a single tap and never goes to /set
+  // (§7, §12; I2d3). The SERVER decides which functions are commands
+  // (patch.IsCommandFunction: every Control-family function, and any Reset
+  // or Lamp function) and marks them f.command, so this UI and
+  // /api/programmer/set can never disagree.
+  const isCommand = f => !!(f && f.command);
 
   // --- §12 fixture commands: Reset and Lamp off ask first -------------------
   // Owner (2026-10-08): a confirmation dialog for Lamp off and Reset,
@@ -801,12 +804,12 @@ const ConsoleControls = (() => {
       const state = h('span', { class: 'b5-cc-in', 'data-seg-state': k(i) });
       const words = [fnIcon(f) ? ic(fnIcon(f)) : null, h('span', { class: 'b5-cc-seg__name b5-fromfile', text: f.name }),
         h('span', { class: 'b5-cc-seg__range', text: 'DMX ' + num(f.dmxFrom) + '–' + num(f.dmxTo) + (f.modeMaster ? ' · needs ' + f.modeMaster : '') }), state];
-      const kind = COMMAND_FN.test(f.attribute) ? commandKind(f.attribute, f.name) : null;
-      if (kind) cmds.push({ kind, key: k(i), label: f.name, attr: a.attribute, vi, fi: i, fnName: f.name, extra: { dmx: at } });
-      const b = kind ? h('span', { class: 'b5-cc-seglabel b5-cc-seglabel--cmd', 'data-seg': k(i) }, words, h('span', { class: 'b5-caption', text: ' · in Fixture commands' }))
-        : COMMAND_FN.test(f.attribute) ? holdButton(f.name, { 'data-seg': k(i), title: f.name }, () => write('command', body, sentOnce(f.name)))
+      // I2d3: a command function is only labelled on the rail; its HOLD or
+      // Fixture-commands entry is drawn once, by functionControls.
+      const kind = isCommand(f) ? commandKind(f.attribute, f.name) : null;
+      const b = isCommand(f) ? h('span', { class: 'b5-cc-seglabel b5-cc-seglabel--cmd', 'data-seg': k(i) }, words, h('span', { class: 'b5-caption', text: kind ? ' · in Fixture commands' : ' · HOLD below' }))
         : h('button', { type: 'button', class: 'b5-btn b5-btn--sm b5-cc-seglabel', 'data-seg': k(i), title: f.name + ' — jumps to DMX ' + at, 'aria-pressed': 'false' }, words);
-      if (!COMMAND_FN.test(f.attribute)) b.addEventListener('click', () => write('set', body));
+      if (!isCommand(f)) b.addEventListener('click', () => write('set', body));
       labels.appendChild(b);
       segs.push([seg, b, state, i]);
     });
@@ -933,7 +936,7 @@ const ConsoleControls = (() => {
       functionControls(av, vi, control, into, sh ? sh.covers : null);
     });
     if (control) {
-      body.appendChild(h('p', { class: 'b5-note', text: 'Control channels have no faders: a sweep would pass through reset and lamp ranges. Hold a button for 0.75 s to send it once; Reset and Lamp off are under Fixture commands and ask first. A command is not kept: after a few seconds the channel returns to its previous value.' }));
+      body.appendChild(h('p', { class: 'b5-note', text: 'Control channels have no faders: a sweep would pass through reset and lamp ranges. Hold a button for 0.75 s to send it once; Reset and Lamp off are under Fixture commands and ask first. A command is not kept: after ' + CMD_SECONDS + ' s the channel returns to its previous value.' }));
       const why = h('p', { class: 'b5-note', role: 'status', 'data-hold-why': '', text: NOT_LIVE });
       why.hidden = liveNow();
       body.appendChild(why);
@@ -994,8 +997,12 @@ const ConsoleControls = (() => {
       } });
       reg.get(key).update(a);
     };
+    const panelControl = control;
     fns.forEach((f, i) => {
       if (HIDDEN_FN.test(f.attribute)) return;
+      // I2d3: a command function (server flag) is drawn as the Control
+      // panel draws everything — HOLD or Fixture commands, never /set.
+      const control = panelControl || isCommand(f);
       const ref = { functionIndex: i };
       const slots = f.sets.filter(s => s.hasWheelSlot);
       const named = f.sets.filter(s => !s.hasWheelSlot && s.name && !(skip && skip.has(i + '#' + s.name)));
@@ -1589,7 +1596,7 @@ const ConsoleControls = (() => {
         if (!(v >= 0 && v <= 100) || v !== Math.round(v)) return say('The lowlight level is a whole percentage from 0 to 100.', 'error');
         write('highlight', { lowlightPercent: v }, 'Lowlight level set to ' + v + ' %.').then(r => { if (r && done) done(); });
       }),
-      h('p', { class: 'b5-caption', text: 'While Highlight is ON, Lowlight dims the selected fixtures that are not highlighted (step with Previous/Next) to this level. Fixtures outside the selection are not touched.' }));
+      h('p', { class: 'b5-caption', text: 'While Highlight is ON, Lowlight dims the selected fixtures and cells that are not highlighted (step with Previous/Next) to this level. Fixtures outside the selection are not touched.' }));
   }
 
   function toolbar(group) {
@@ -1629,6 +1636,9 @@ const ConsoleControls = (() => {
     const attrs = attrsOf(group);
     const ff = st.fanForm || (st.fanForm = { shape: 'linear', attr: '', fn: '', from: '0', to: '100' });
     if (!attrs.length) return h('p', { class: 'b5-note', text: 'Nothing to fan in ' + (GROUP_LABEL[group] || 'this family') + '.' });
+    // I2d3: every Control value is a one-shot command, which Fan (it keeps
+    // values) refuses on the server.
+    if (group === 'other') return h('p', { class: 'b5-note', text: 'Nothing to fan in Control: Control channels are fixture commands, sent once and never kept.' });
     if (!attrs.some(a => a.attribute === ff.attr)) { ff.attr = attrs[0].attribute; ff.fn = ''; }
     const aSel = h('select', { class: 'b5-select', 'data-fan-attr': '' });
     attrs.forEach(a => aSel.appendChild(h('option', { value: a.attribute, text: a.attribute })));

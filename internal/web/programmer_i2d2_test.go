@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -58,10 +59,11 @@ func (r *c4aRig) command(t *testing.T, body map[string]any) *c4aSetResult {
 // (never touched) to its profile default. The programmer never holds it.
 func TestCommandIsOneShot(t *testing.T) {
 	r := newC4aRig(t)
-	s1, _ := r.control1(t, "B1", 1)
+	// I2d3: /set refuses Control values and raw refuses profiled offsets,
+	// so B1's Control1 is at its default here; the return to a programmer
+	// value is proven at the engine (TestFireCommandReturnsToTheSourceBelow).
+	s1, linear := r.control1(t, "B1", 1)
 	s2, def2 := r.control1(t, "B2", 42)
-	r.selectNames(t, "B1")
-	linear := r.set(t, map[string]any{"attribute": "Control1", "set": "Dimmer curve: Linear"}).Applied[0].Value
 	r.selectNames(t, "B1", "B2")
 	rev := r.view(t).Revision
 	r.arm(t)
@@ -86,14 +88,16 @@ func TestCommandIsOneShot(t *testing.T) {
 		}
 	}
 
-	r.heartbeatFor(t, 4900*time.Millisecond)
+	// I2d3 (owner 2026-10-09): the window is 1 s. r.wire has already run
+	// 30 ms of it.
+	r.heartbeatFor(t, 900*time.Millisecond)
 	if f = r.wire(t, 0); uint32(f[s1-1]) != reset {
-		t.Errorf("4.9 s in: B1 %d, want the command still on the wire (%d)", f[s1-1], reset)
+		t.Errorf("0.96 s in: B1 %d, want the command still on the wire (%d)", f[s1-1], reset)
 	}
-	r.heartbeatFor(t, 200*time.Millisecond)
+	r.heartbeatFor(t, 100*time.Millisecond)
 	f = r.wire(t, 0)
 	if uint32(f[s1-1]) != linear || uint32(f[s2-1]) != def2 {
-		t.Errorf("after the window: B1 %d B2 %d, want B1 back at its programmer value %d and B2 at its default %d", f[s1-1], f[s2-1], linear, def2)
+		t.Errorf("after the window: B1 %d B2 %d, want B1 back at its previous value %d and B2 at its default %d", f[s1-1], f[s2-1], linear, def2)
 	}
 	// Re-arming must not fire it again.
 	r.post(t, "/api/output/disarm", map[string]any{"client": "c4a"}, nil)
@@ -219,14 +223,14 @@ func TestCommandProgressIsServerState(t *testing.T) {
 		t.Fatalf("in flight: %+v, want one command", v.Commands)
 	}
 	a := v.Commands.Active[0]
-	if a.Name != "Total reset" || strings.Join(a.Fixtures, ",") != "B1,B2" || a.State != "sending" || a.WindowMs != 5000 || a.RemainingMs <= 4000 || a.RemainingMs > 5000 {
-		t.Errorf("in flight: %+v, want Total reset on B1,B2, sending, 5000 ms window, about 5000 ms left", a)
+	if a.Name != "Total reset" || strings.Join(a.Fixtures, ",") != "B1,B2" || a.State != "sending" || a.WindowMs != 1000 || a.RemainingMs <= 900 || a.RemainingMs > 1000 {
+		t.Errorf("in flight: %+v, want Total reset on B1,B2, sending, 1000 ms window, about 1000 ms left", a)
 	}
-	r.heartbeatFor(t, 3*time.Second)
-	if v = r.commands(t); len(v.Commands.Active) != 1 || v.Commands.Active[0].RemainingMs > 2100 {
-		t.Errorf("3 s in: %+v, want it still in flight with about 2 s left", v.Commands)
+	r.heartbeatFor(t, 600*time.Millisecond)
+	if v = r.commands(t); len(v.Commands.Active) != 1 || v.Commands.Active[0].RemainingMs > 400 {
+		t.Errorf("0.6 s in: %+v, want it still in flight with about 0.4 s left", v.Commands)
 	}
-	r.heartbeatFor(t, 2100*time.Millisecond)
+	r.heartbeatFor(t, 500*time.Millisecond)
 	v = r.commands(t)
 	if len(v.Commands.Active) != 0 || v.Commands.Last == nil || v.Commands.Last.State != "done" || v.Commands.Last.Name != "Total reset" {
 		t.Errorf("after the window: %+v, want nothing in flight and the last one done", v.Commands)
@@ -246,24 +250,160 @@ func TestCommandProgressIsServerState(t *testing.T) {
 // thing one-shot forbids. Each command channel holds what it returns to.
 func TestCommandNotFrozenInHeldLook(t *testing.T) {
 	r := newC4aRig(t)
-	s1, _ := r.control1(t, "B1", 1)
-	r.selectNames(t, "B1")
-	linear := r.set(t, map[string]any{"attribute": "Control1", "set": "Dimmer curve: Linear"}).Applied[0].Value
+	s1, linear := r.control1(t, "B1", 1) // its default (see TestCommandIsOneShot)
 	r.h.srv.DMX.SetLeaseLossAction(session.LeaseLossHold)
 	r.arm(t)
-	r.h.clock.Advance(4 * time.Second) // the last heartbeat was the Arm
+	r.h.clock.Advance(4500 * time.Millisecond) // the last heartbeat was the Arm
 	reset := r.command(t, map[string]any{"attribute": "Control1", "set": "Total reset"}).Applied[0].Value
 	if f := r.wire(t, 0); uint32(f[s1-1]) != reset {
 		t.Fatalf("command not on the wire: %d, want %d", f[s1-1], reset)
 	}
-	r.h.clock.Advance(1100 * time.Millisecond) // the lease is lost 1 s into the window
+	r.h.clock.Advance(500 * time.Millisecond) // the lease is lost about 0.5 s into the 1 s window
 	if st := r.h.srv.DMX.State(); st != session.StateHolding {
 		t.Fatalf("lease lost with Hold: %q, want holding", st)
 	}
 	if f := r.wire(t, 0); uint32(f[s1-1]) != linear {
-		t.Errorf("held look: B1 Control1 %d, want %d (its programmer value; the Reset %d is not held)", f[s1-1], linear, reset)
+		t.Errorf("held look: B1 Control1 %d, want %d (its previous value; the Reset %d is not held)", f[s1-1], linear, reset)
 	}
 	if v := r.commandsWhen(t, func(v cmdView) bool { return v.Commands.Last != nil }); len(v.Commands.Active) != 0 || v.Commands.Last == nil || v.Commands.Last.State != "stopped" {
 		t.Errorf("lease lost: %+v, want the command stopped", v.Commands)
+	}
+}
+
+// TestSetRefusesCommandValues (I2d3, owner 2026-10-09): /api/programmer/set
+// keeps values, so it refuses every Control command value — the same rule
+// the one-shot path and the UI use: any function on a Control-family
+// channel (taxonomy group "other"), and any Reset or Lamp function on any
+// channel. The refusal is a 422 that names /api/programmer/command; nothing
+// is stored and the revision does not move. Fan, which also stores values,
+// refuses the same way. The view marks each function "command".
+func TestSetRefusesCommandValues(t *testing.T) {
+	r := newC4aRig(t)
+	r.selectNames(t, "B1", "B2")
+	rev := r.view(t).Revision
+	for _, body := range []map[string]any{
+		{"attribute": "Control1", "set": "Total reset"},
+		{"attribute": "Control1", "set": "Lamp Off"},
+		{"attribute": "Control1", "set": "Dimmer curve: Linear"},
+	} {
+		rr := r.do(t, "POST", "/api/programmer/set", body, nil)
+		if rr.Code != http.StatusUnprocessableEntity || !strings.Contains(rr.Body.String(), "/api/programmer/command") {
+			t.Errorf("/set %v: %d %s, want 422 naming /api/programmer/command", body, rr.Code, strings.TrimSpace(rr.Body.String()))
+		}
+	}
+	rr := r.do(t, "POST", "/api/programmer/fan", map[string]any{"attribute": "Control1", "shape": "linear", "from": map[string]any{"dmx": 0}, "to": map[string]any{"dmx": 255}}, nil)
+	if rr.Code != http.StatusUnprocessableEntity || !strings.Contains(rr.Body.String(), "/api/programmer/command") {
+		t.Errorf("/fan on Control1: %d %s, want 422 naming /api/programmer/command", rr.Code, strings.TrimSpace(rr.Body.String()))
+	}
+	v := r.view(t)
+	if v.Revision != rev {
+		t.Errorf("a refused write moved the revision %d -> %d", rev, v.Revision)
+	}
+	for _, c := range v.attr("Control1").Channels {
+		if c.Touched {
+			t.Errorf("Control1 on %s is held after refused writes: %+v", c.EntryID, c)
+		}
+	}
+	if res := r.set(t, map[string]any{"attribute": "Dimmer", "fraction": 0.5}); len(res.Applied) == 0 {
+		t.Errorf("a Dimmer /set is still accepted: %+v", res)
+	}
+	// The read model says which functions are commands, so the UI decides
+	// exactly as the server does.
+	rv := r.do(t, "GET", "/api/programmer", nil, nil)
+	var raw struct {
+		Groups []struct {
+			Attributes []struct {
+				Attribute string
+				Variants  []struct {
+					Functions []struct {
+						Name    string
+						Command *bool `json:"command"`
+					}
+				}
+			}
+		}
+	}
+	_ = json.Unmarshal(rv.Body.Bytes(), &raw)
+	seen := map[string]bool{}
+	for _, g := range raw.Groups {
+		for _, a := range g.Attributes {
+			for _, va := range a.Variants {
+				for _, f := range va.Functions {
+					if f.Command == nil {
+						t.Fatalf("%s function %q has no command flag", a.Attribute, f.Name)
+					}
+					if (a.Attribute == "Control1") != *f.Command {
+						t.Errorf("%s function %q command=%v, want %v", a.Attribute, f.Name, *f.Command, a.Attribute == "Control1")
+					}
+					seen[a.Attribute] = true
+				}
+			}
+		}
+	}
+	if !seen["Control1"] || !seen["Dimmer"] {
+		t.Errorf("view had no Control1 or Dimmer functions: %v", seen)
+	}
+}
+
+// TestLowlightCells (I2d3, owner 2026-10-09: Lowlight works on cells as
+// well as whole fixtures). The rule: Lowlight dims every SELECTION TARGET
+// that is not highlighted — a whole fixture dims as before (all its
+// dimmers), a cell dims only its own dimmer (for the Paladin, its virtual
+// dimmer: the cell's colour). Highlight wins where they overlap: a channel
+// the highlighted target drives is never lowlit, and a whole-fixture master
+// that would also dim a highlighted cell is left alone. Proven on the real
+// Paladin Cube (P1, three RGBW cells at 101/109/117, red 40000 each, master
+// 255): lowlit 20 % = 8000.
+func TestLowlightCells(t *testing.T) {
+	r := newC4aRig(t)
+	r.arm(t)
+	p1 := r.ids["P1"]
+	r.set(t, map[string]any{"targets": []any{r.target("P1")}, "attribute": "Dimmer", "dmx": 255})
+	r.set(t, map[string]any{"targets": []any{r.target("P1")}, "attribute": "ColorAdd_R", "dmx": 40000})
+	r.set(t, map[string]any{"targets": []any{r.target("B1")}, "attribute": "Dimmer", "dmx": 50000})
+	red := func(what string, c1, c2, c3 uint16) {
+		t.Helper()
+		f := r.wire(t, 1)
+		for i, v := range []uint16{c1, c2, c3} {
+			wantSlots(t, fmt.Sprintf("%s: P1 cell %d red", what, i+1), f, 101+8*i, byte(v>>8), byte(v))
+		}
+	}
+	sel := func(targets ...any) {
+		r.post(t, "/api/programmer/select", map[string]any{"action": "set", "targets": targets}, nil)
+	}
+	var v c4bView
+
+	// Three cells selected, stepped to cell 1: cells 2 and 3 are lowlit.
+	sel(cellTarget(p1, "Beam 1:0"), cellTarget(p1, "Beam 2:0"), cellTarget(p1, "Beam 3:0"))
+	r.post(t, "/api/programmer/highlight", map[string]any{"highlight": true, "lowlight": true}, nil)
+	red("whole selection highlighted", 40000, 40000, 40000)
+	r.post(t, "/api/programmer/highlight", map[string]any{"step": "next"}, &v)
+	red("cells, stepped to cell 1", 40000, 8000, 8000)
+	if v.Highlight.Lowlit != 2 || v.Highlight.LowlitCells != 2 {
+		t.Errorf("cells, stepped to cell 1: lowlit %d (cells %d), want 2 (2)", v.Highlight.Lowlit, v.Highlight.LowlitCells)
+	}
+
+	// Mixed: B1 whole + P1 cell 2, stepped to B1: only cell 2 is lowlit; the
+	// unselected cells 1 and 3 are untouched.
+	sel(r.target("B1"), cellTarget(p1, "Beam 2:0"))
+	r.post(t, "/api/programmer/highlight", map[string]any{"step": "next"}, &v)
+	red("B1 + cell 2, stepped to B1", 40000, 8000, 40000)
+	if v.Highlight.Lowlit != 1 || v.Highlight.LowlitCells != 1 {
+		t.Errorf("B1 + cell 2: lowlit %d (cells %d), want 1 (1)", v.Highlight.Lowlit, v.Highlight.LowlitCells)
+	}
+
+	// Parent and one of its cells: the parent highlighted covers the cell,
+	// so nothing is lowlit; the cell highlighted leaves the parent's other
+	// cells lowlit, never the highlighted cell.
+	sel(r.target("P1"), cellTarget(p1, "Beam 1:0"))
+	r.post(t, "/api/programmer/highlight", map[string]any{"step": "next"}, &v)
+	red("P1 + its cell 1, stepped to P1", 40000, 40000, 40000)
+	if v.Highlight.Lowlit != 0 {
+		t.Errorf("P1 + its cell 1, stepped to P1: lowlit %d, want 0", v.Highlight.Lowlit)
+	}
+	r.post(t, "/api/programmer/highlight", map[string]any{"step": "next"}, &v)
+	red("P1 + its cell 1, stepped to cell 1", 40000, 8000, 8000)
+	if v.Highlight.Lowlit != 1 || v.Highlight.LowlitCells != 0 {
+		t.Errorf("P1 + its cell 1, stepped to cell 1: lowlit %d (cells %d), want 1 (0: the whole P1)", v.Highlight.Lowlit, v.Highlight.LowlitCells)
 	}
 }

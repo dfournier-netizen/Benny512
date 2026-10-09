@@ -29,11 +29,12 @@
 // would otherwise replace the mix with white). Lowlight scales an
 // unselected fixture's virtual dimmers by scaling the additive channels.
 //
-// LOWLIGHT, only while Highlight is on: every fixture in the selection that
-// is not highlighted (I2d2, component-specs §15: "applies only to the
-// non-highlighted members of selection" — owner 2026-10-09: dimming
-// everything but the selection would be solo, a different feature) has
-// each of its Dimmer-group channels scaled to
+// LOWLIGHT, only while Highlight is on: every selection target (whole
+// fixture or cell, I2d3) that is not highlighted (I2d2, component-specs
+// §15: "applies only to the non-highlighted members of selection" — owner
+// 2026-10-09: dimming everything but the selection would be solo, a
+// different feature) has each of its Dimmer-group channels (a cell: its
+// own; highlight wins where they overlap, see overlayLocked) scaled to
 // LowlightPercent of what it would otherwise show (default 20%). The engine
 // scales the live composition (session.DMXOutputEngine.SetLowlight), so a
 // running Rig Check test is scaled as it moves; floor(v x % / 100) never
@@ -139,10 +140,13 @@ type ProgHighlightView struct {
 	// Unresolved: selected dimmer/shutter/colour channels with no highlight
 	// value; they keep their current value.
 	Unresolved []ProgSkipped `json:"unresolved"`
-	// Lowlit: fixtures whose dimmers Lowlight scales (when both are on).
-	Lowlit int `json:"lowlit"`
-	// NoDimmer: selected, not highlighted fixtures Lowlight cannot dim (no
-	// dimmer channel).
+	// Lowlit: selection targets (whole fixtures or cells) whose dimmers
+	// Lowlight scales (when both are on); LowlitCells: how many of them are
+	// cells (I2d3).
+	Lowlit      int `json:"lowlit"`
+	LowlitCells int `json:"lowlitCells"`
+	// NoDimmer: selected, not highlighted fixtures (or the fixture of such
+	// a cell) Lowlight cannot dim (no dimmer channel).
 	NoDimmer []string `json:"noDimmer"`
 	// Step (I2d): the index in the selection that Highlight is stepped to,
 	// or null when the whole selection is highlighted.
@@ -157,18 +161,39 @@ func (pg *Programmer) overlayLocked() (map[uint16]session.LayerFrame, map[string
 		Unresolved: make([]ProgSkipped, 0), NoDimmer: make([]string, 0)}
 	frames := map[uint16]session.LayerFrame{}
 	levels := map[string]byte{}
-	selected := map[string]bool{}
 	done := map[progKey]bool{}
 	// Stepping highlights one member; the rest of the selection is then
 	// not highlighted, so Lowlight treats it like any other fixture.
 	lit := pg.selection
+	litIndex := -1 // the stepped-to member; -1 = the whole selection is lit
 	if pg.stepping && pg.step >= 0 && pg.step < len(pg.selection) {
 		lit = pg.selection[pg.step : pg.step+1]
 		step := pg.step
 		view.Step = &step
+		litIndex = step
+	}
+	// What the highlighted targets cover (I2d3): every channel of their
+	// scope, colour channels under a virtual dimmer included; and which
+	// fixtures are highlighted whole or in part.
+	hiOff := map[progKey]bool{}
+	hiWhole, hiPart := map[string]bool{}, map[string]bool{}
+	for _, t := range lit {
+		if m := pg.models[t.EntryID]; m != nil {
+			hiPart[t.EntryID] = true
+			if t.Cell == "" {
+				hiWhole[t.EntryID] = true
+			}
+			for _, p := range m.Parameters {
+				if t.Cell == "" || p.Cell == t.Cell {
+					hiOff[progKey{t.EntryID, p.Offset}] = true
+					for _, off := range p.virtualOf {
+						hiOff[progKey{t.EntryID, off}] = true
+					}
+				}
+			}
+		}
 	}
 	for _, t := range lit {
-		selected[t.EntryID] = true
 		e, m := pg.entries[t.EntryID], pg.models[t.EntryID]
 		if m == nil {
 			continue
@@ -213,56 +238,72 @@ func (pg *Programmer) overlayLocked() (map[uint16]session.LayerFrame, map[string
 			}
 		}
 	}
-	// Lowlight scope (I2d2): selected fixtures that are not highlighted —
-	// only stepping leaves any. Fixtures outside the selection are never
-	// dimmed.
-	inSelection := map[string]bool{}
-	for _, t := range pg.selection {
-		inSelection[t.EntryID] = true
-	}
+	// Lowlight scope (I2d2, cells I2d3; component-specs §15): every
+	// selection TARGET that is not highlighted — only stepping leaves any.
+	// A whole fixture dims all its dimmers (real and virtual); a cell dims
+	// only its own. Highlight wins where they overlap: a channel a
+	// highlighted target covers is never scaled, a fixture highlighted
+	// whole is not lowlit at all, and a whole-fixture (cell-less) real
+	// dimmer is left alone while any of its cells is highlighted, since it
+	// would dim that cell too. Each channel is scaled once. Fixtures
+	// outside the selection are never dimmed (that would be solo).
 	scale := map[uint16][]session.ScaleGroup{}
-	for _, id := range pg.order {
-		if selected[id] || !inSelection[id] {
+	scaled := map[progKey]bool{}
+	noDim := map[string]bool{}
+	for i, t := range pg.selection {
+		if litIndex < 0 || i == litIndex || hiWhole[t.EntryID] {
 			continue
 		}
-		e, m := pg.entries[id], pg.models[id]
+		e, m := pg.entries[t.EntryID], pg.models[t.EntryID]
+		if m == nil {
+			continue
+		}
 		dims := 0
-		for _, p := range m.Parameters {
-			if p.Virtual {
-				n := 0
-				for _, off := range p.virtualOf {
-					if g, ok := scaleGroupOf(e, m.paramAt(off)); ok {
-						scale[e.Universe] = append(scale[e.Universe], g)
-						n++
-					}
-				}
-				if n > 0 {
-					dims++
-				}
-				continue
+		add := func(off uint16, p *ProgParameter) {
+			k := progKey{t.EntryID, off}
+			if hiOff[k] {
+				return
 			}
-			if p.Group != GroupDimmer {
-				continue
+			if scaled[k] {
+				dims++
+				return
 			}
-			g := session.ScaleGroup{}
-			for _, off := range p.Offsets {
-				if e.addressable(off) {
-					g.Slots = append(g.Slots, int(e.StartAddress)+int(off)-2)
-				}
-			}
-			if len(g.Slots) == len(p.Offsets) {
+			if g, ok := scaleGroupOf(e, p); ok {
 				scale[e.Universe] = append(scale[e.Universe], g)
+				scaled[k] = true
 				dims++
 			}
 		}
+		for pi := range m.Parameters {
+			p := &m.Parameters[pi]
+			if t.Cell != "" && p.Cell != t.Cell {
+				continue
+			}
+			if p.Virtual {
+				for _, off := range p.virtualOf {
+					add(off, m.paramAt(off))
+				}
+				continue
+			}
+			if p.Group != GroupDimmer || (p.Cell == "" && hiPart[t.EntryID]) {
+				continue
+			}
+			add(p.Offset, p)
+		}
 		if dims == 0 {
-			view.NoDimmer = append(view.NoDimmer, id)
-		} else {
-			view.Lowlit++
+			if !noDim[t.EntryID] {
+				noDim[t.EntryID] = true
+				view.NoDimmer = append(view.NoDimmer, t.EntryID)
+			}
+			continue
+		}
+		view.Lowlit++
+		if t.Cell != "" {
+			view.LowlitCells++
 		}
 	}
 	if !pg.highlight || !pg.lowlight {
-		view.Lowlit = 0
+		view.Lowlit, view.LowlitCells = 0, 0
 	}
 	return frames, levels, scale, view
 }

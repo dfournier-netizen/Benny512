@@ -53,3 +53,19 @@ func TestOutputNoteHiddenRule(t *testing.T) {
 		t.Errorf("screens-console-controls.css has no .b5-cc-output[hidden] { display: none; } rule, so the hidden output note still shows")
 	}
 }
+
+// TestUIUsesServerCommandFlag (I2d3, owner 2026-10-09: decide what counts
+// as a command the same way on both paths so they never disagree): the
+// Controls read the server's per-function "command" flag
+// (patch.IsCommandFunction) and keep no command pattern of their own; no
+// browser script posts a value for a command function to /set. The JS runs
+// (console_i2d_test.js) prove no Control1 value ever goes to /set.
+func TestUIUsesServerCommandFlag(t *testing.T) {
+	js := readAsset(t, "static/js/console-controls.js")
+	if regexp.MustCompile(`/Reset\|\^Lamp/`).MatchString(js) {
+		t.Errorf("console-controls.js still carries its own command pattern /Reset|^Lamp/; it must use the server's f.command flag")
+	}
+	if !strings.Contains(js, "f.command") {
+		t.Errorf("console-controls.js never reads the server's f.command flag")
+	}
+}

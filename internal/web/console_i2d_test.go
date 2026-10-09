@@ -28,6 +28,8 @@ func TestConsole_I2d(t *testing.T) {
 		vendorEntry(t, "robe_bmfl_spot_real_extract.xml", "B2", 0, 42),
 		vendorEntry(t, "robe_ledbeam100_real_extract.xml", "L1", 1, 1),
 		vendorEntry(t, "robe_ledbeam100_real_extract.xml", "L2", 1, 101),
+		// I2d3: three RGBW cells, for Lowlight on cells.
+		vendorEntry(t, "paladin_cube_real_extract.xml", "P1", 1, 301),
 	}
 	if rr := doJSON(t, h.srv.Handler(), "POST", "/api/patch/import", map[string]any{"mode": "fresh", "entries": entries}); rr.Code != http.StatusOK {
 		t.Fatalf("import: %d %s", rr.Code, rr.Body.String())
@@ -45,8 +47,8 @@ func TestConsole_I2d(t *testing.T) {
 	for _, e := range resp.Patch.Entries {
 		ids[e.Name] = e.ID
 	}
-	if len(ids) != 4 {
-		t.Fatalf("patched %d entries, want 4", len(ids))
+	if len(ids) != 5 {
+		t.Fatalf("patched %d entries, want 5", len(ids))
 	}
 	idsJSON, _ := json.Marshal(ids)
 	// Test-only (I2d2): the engine runs on the harness's fake clock, so the

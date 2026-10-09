@@ -1273,10 +1273,14 @@ const ConsoleScreen = (() => {
         h('span', { class: 'b5-pill b5-pill--md' + (s.length ? ' b5-pill--accent' : ''), 'data-sel-count': '' },
           ic(s.length ? 'status-ok' : 'status-pending'),
           s.length ? s.length + ' selected' + (cells ? ' · ' + cells + (cells === 1 ? ' cell' : ' cells') : '') : 'Nothing selected'),
-        h('span', { class: 'b5-con-summary__names', 'data-sel-names': '', title: s.map((x, i) => (i + 1) + ' ' + label(x)).join(', ') }, names)),
+        h('span', { class: 'b5-con-summary__names', 'data-sel-names': '', title: s.map((x, i) => (i + 1) + ' ' + label(x)).join(', ') }, names),
+        // I2d3: on a phone the Highlight toggle is inside More, so its state
+        // is said here, under the count, instead of lengthening the More
+        // label (which squeezed the count to "3").
+        hl ? h('span', { class: 'b5-con-summary__hlstate', 'data-hl-state': '' }, ic('highlight'), 'Highlight ON') : null),
       h('div', { class: 'b5-actionbar__buttons b5-con-summary__buttons' },
         btn('Clear…', { icon: 'clear', cls: 'b5-con-act' + (st.pop === 'clear' ? ' is-on' : ''), attrs: { 'data-clear-open': '', 'aria-expanded': st.pop === 'clear' ? 'true' : 'false', 'aria-controls': 'conActPanel' } }, () => togglePop('clear')),
-        btn(hl ? 'More · Highlight ON' : 'More', { cls: 'b5-con-summary__morebtn', attrs: { 'data-summary-more-toggle': '', 'aria-expanded': st.moreOpen ? 'true' : 'false', 'aria-controls': 'conSummaryMore' } },
+        btn('More', { cls: 'b5-con-summary__morebtn', attrs: { 'data-summary-more-toggle': '', 'aria-expanded': st.moreOpen ? 'true' : 'false', 'aria-controls': 'conSummaryMore' } },
           () => { st.moreOpen = !st.moreOpen; renderSummary(); if (st.moreOpen) fitMore(true); }),
         more),
     ]);
@@ -1300,6 +1304,12 @@ const ConsoleScreen = (() => {
     const floor = () => Array.from(document.querySelectorAll('.b5-faders, .b5-nav--mobile')).reduce((a, e) => { const r = e.getBoundingClientRect(); return r.height ? Math.min(a, r.top) : a; }, innerHeight);
     if (opened && floor() - m.getBoundingClientRect().top < 320 && els.summary.scrollIntoView) els.summary.scrollIntoView({ block: 'start' });
     m.style.maxHeight = Math.max(160, Math.floor(floor() - m.getBoundingClientRect().top - 8)) + 'px';
+  }
+  // lowlitWords (I2d3): what Lowlight dims — whole fixtures and cells.
+  function lowlitWords(hv) {
+    const cells = hv.lowlitCells || 0, fx = hv.lowlit - cells;
+    const n = (k, one, many) => k + ' ' + (k === 1 ? one : many);
+    return [fx ? n(fx, 'selected fixture', 'selected fixtures') : '', cells ? n(cells, fx ? 'cell' : 'selected cell', fx ? 'cells' : 'selected cells') : ''].filter(Boolean).join(' and ');
   }
   // phoneBar: the action bar is in its phone form (the tools behind More;
   // screens-console.css, max-width 767px).
@@ -1353,7 +1363,7 @@ const ConsoleScreen = (() => {
         // I2d2 (§15): say in words what Lowlight covers — only the selected
         // fixtures that are not highlighted, never the rest of the rig.
         hv.lowlight ? h('span', { class: 'b5-caption', 'data-lowlight-scope': '' }, !hl ? 'Lowlight works while Highlight is ON.'
-          : hv.lowlit ? 'Dims ' + hv.lowlit + ' selected ' + (hv.lowlit === 1 ? 'fixture' : 'fixtures') + ' not highlighted.'
+          : hv.lowlit ? 'Dims ' + lowlitWords(hv) + ' not highlighted.'
             : 'Dims nothing now: the whole selection is highlighted. Step with Next to dim the rest.') : null,
         btn('Level ' + pct + ' %…', { cls: 'b5-con-act' + (st.pop === 'lowlight' ? ' is-on' : ''), attrs: { 'data-lowlight-level-open': '', 'aria-expanded': st.pop === 'lowlight' ? 'true' : 'false', 'aria-controls': 'conActPanel' } }, () => togglePop('lowlight')),
         btn('Locate', { attrs: { 'data-locate': '' }, disabled: !n, icon: 'locate' }, async () => {

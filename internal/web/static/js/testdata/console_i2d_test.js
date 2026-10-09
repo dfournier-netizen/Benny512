@@ -121,6 +121,10 @@ let modalCalls = 0;
     const labels = zone ? zone.querySelectorAll('[data-cmd]').map(b => b.textContent) : [];
     check(['Total reset', 'Pan/Tilt reset', 'Lamp Off'].every(l => labels.some(x => x.indexOf(l) === 0)), 'every FixtureGlobalReset set and Lamp Off are commands there', labels);
     check(!qa('.b5-cc-hold').some(b => /reset|Lamp Off/i.test(b.textContent)), 'no Reset or Lamp off is a HOLD button any more');
+    // I2d3: Control values are commands, which Fan (it keeps values) refuses:
+    // the Fan form says so instead of offering Control1.
+    const ff = get('ConsoleControls').actions.fanForm(() => {});
+    check(ff && /Control channels are fixture commands/.test(ff.textContent) && !(ff.querySelector && ff.querySelector('[data-fan-attr]')), 'Control tab: Fan… says Control channels are commands, nothing to fan', ff && ff.textContent);
     const lampOn = q('[data-set="Control1#12#Lamp On"]');
     check(!!lampOn && /HOLD 0\.75 s/.test(lampOn.textContent), 'Lamp On keeps the 0.75 s hold (only Reset and Lamp off ask)', lampOn && lampOn.textContent);
 
@@ -139,7 +143,7 @@ let modalCalls = 0;
     // Arming while it is open brings the action back.
     await server('POST', '/api/output/arm', { client: 'i2d2' });
     outputEvent('armed');
-    check(!q('[data-cmd-confirm]').hidden && !q('[data-cmd-confirm]').disabled && /Sent once/.test(dd.textContent), 'Arm while open: the action appears and says it is sent once', dd.textContent);
+    check(!q('[data-cmd-confirm]').hidden && !q('[data-cmd-confirm]').disabled && /Sent once: after 1 s each channel returns/.test(dd.textContent), 'Arm while open: the action appears and says it is sent once for 1 s', dd.textContent);
     check(!lampOn.disabled && q('[data-hold-why]').hidden, 'armed: the HOLD buttons are enabled and the reason is gone');
     check(!q('[data-output-note]') || q('[data-output-note]').hidden, 'armed: the panel no longer says "Disarmed · values retained, nothing sent"', q('[data-output-note]') && q('[data-output-note]').textContent);
     kd(dd, 'Escape');
@@ -188,9 +192,9 @@ let modalCalls = 0;
     // I2d2: the command's progress is shown in words, from the server.
     const prog = () => (q('[data-cc-command]') || {}).textContent || '';
     await until('the in-progress line', () => q('[data-cmd-progress="sending"]'));
-    check(/SENDING Total reset to B1 — the channel returns to its previous value in [1-5] s\./.test(prog()) && !q('[data-cc-command]').hidden,
-      'in progress: "SENDING Total reset to B1 — … returns to its previous value in n s."', prog());
-    await server('POST', '/__test/advance?ms=5100'); // the engine's (fake) clock runs the window out
+    check(/SENDING Total reset to B1 — the channel returns to its previous value in [01] s\./.test(prog()) && !q('[data-cc-command]').hidden,
+      'in progress: "SENDING Total reset to B1 — … returns to its previous value in 1 s." (I2d3: 1 s window)', prog());
+    await server('POST', '/__test/advance?ms=1100'); // the engine's (fake) clock runs the window out
     await until('the Reset window to end', () => q('[data-cmd-progress="done"]'));
     check(/DONE Total reset to B1: sent once; the channel is back to its previous value\./.test(prog()) && !q('[data-cmd-progress="sending"]'),
       'when the window ends: "DONE Total reset to B1: sent once; the channel is back …"', prog());
@@ -223,7 +227,7 @@ let modalCalls = 0;
     await settled();
     await PS().refresh();
     check(!attr('Control1').channels.some(x => x.touched), 'and the programmer holds no Control1 value afterwards', attr('Control1').channels);
-    await server('POST', '/__test/advance?ms=5100'); // Lamp Off and Lamp On run out
+    await server('POST', '/__test/advance?ms=1100'); // Lamp Off and Lamp On run out
     await until('every command to end', () => !q('[data-cmd-progress="sending"]'));
     // Another browser's command shows here too (server state), and Disarm
     // inside its window says STOPPED.
@@ -400,6 +404,16 @@ let modalCalls = 0;
     await PS().act('highlight', { step: 'next' });
     await until('the scope words to follow the step', () => /Dims 2 selected fixtures not highlighted/.test((q('[data-lowlight-scope]') || {}).textContent || ''));
     check(true, 'stepped: "Dims 2 selected fixtures not highlighted."');
+    // I2d3: cells are lowlit too, and the words say cells.
+    const C = c => ({ entryId: ids.P1, cell: c });
+    await PS().act('select', { action: 'set', targets: [C('Beam 1:0'), C('Beam 2:0'), C('Beam 3:0')] });
+    await PS().act('highlight', { step: 'next' });
+    await until('the cell scope words', () => /Dims 2 selected cells not highlighted\./.test((q('[data-lowlight-scope]') || {}).textContent || ''));
+    check(PS().state().highlight.lowlitCells === 2, 'stepped to cell 1 of 3: "Dims 2 selected cells not highlighted."', PS().state().highlight);
+    await PS().act('select', { action: 'set', targets: [T('B1'), T('L1'), C('Beam 2:0')] });
+    await PS().act('highlight', { step: 'next' });
+    await until('the mixed scope words', () => /Dims 1 selected fixture and 1 cell not highlighted\./.test((q('[data-lowlight-scope]') || {}).textContent || ''));
+    check(true, 'B1, L1, a cell, stepped to B1: "Dims 1 selected fixture and 1 cell not highlighted."');
   });
   await PS().act('highlight', { highlight: false, lowlight: false });
   await sect('phone More', async () => {
@@ -413,6 +427,12 @@ let modalCalls = 0;
     click(hb);
     await until('Highlight ON', () => PS().state().highlight.on && q('[data-summary-more] [data-hl-next]'));
     check(q('[data-summary-more]').classList.contains('is-open'), 'turning Highlight ON inside More keeps More open, so Previous/Next are right there');
+    // I2d3 (owner): the More label stays short so the count stays readable;
+    // the Highlight state is shown in words beside the count instead.
+    const mt = q('[data-summary-more-toggle]');
+    check(mt && mt.textContent.trim() === 'More', 'phone, Highlight ON: the More button just says "More"', mt && mt.textContent);
+    const hs = q('[data-hl-state]');
+    check(!!hs && /Highlight ON/.test(hs.textContent) && iconOf(hs).includes('#b5-icon-highlight') && !!hs.closest('.b5-con-summary__status'), 'and "Highlight ON" (icon + words) sits in the status beside the count', hs && [hs.textContent, iconOf(hs)]);
     check(document.activeElement && document.activeElement.hasAttribute('data-highlight'), 'focus stays on Highlight after the redraw');
     const nx = q('[data-summary-more] [data-hl-next]');
     nx.focus();

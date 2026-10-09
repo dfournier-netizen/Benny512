@@ -253,6 +253,9 @@
    and the grid keeps the screen. */
 .b5-con-summary__morebtn { display: none; }
 .b5-con-summary__more { display: contents; }
+/* I2d3: the Highlight state beside the count, phone only (desktop and
+   tablet show the Highlight: ON toggle itself on the bar). */
+.b5-con-summary__hlstate { display: none; }
 @media (max-width: 767px) {
   .b5-con-summary .b5-actionbar__title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .b5-con-summary {
@@ -260,8 +263,12 @@
   .b5-con-summary__status { flex: 1 1 auto; flex-wrap: nowrap; gap: var(--b5-space-2); min-width: 0; }
   .b5-con-summary__status .b5-pill { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
   .b5-con-summary__names, .b5-con-summary__long { display: none; }
+  .b5-con-summary__status { flex-direction: column; align-items: flex-start; gap: var(--b5-space-1); }
+  .b5-con-summary__hlstate { display: inline-flex; align-items: center; gap: var(--b5-space-1); white-space: nowrap;
+    font-size: var(--b5-font-size-sm); font-weight: var(--b5-font-weight-bold); color: var(--b5-color-text-primary); }
   .b5-con-summary__buttons { flex: 0 0 auto; flex-basis: auto; flex-wrap: nowrap; gap: var(--b5-space-2); }
-  .b5-con-summary__buttons > .b5-btn { min-height: var(--b5-size-touch-min); padding-inline: var(--b5-space-3); }
+  /* I2d3: 8 px side padding (was 12) so "3 selected" is never clipped at 360 px. */
+  .b5-con-summary__buttons > .b5-btn { min-height: var(--b5-size-touch-min); padding-inline: var(--b5-space-2); }
   .b5-con-summary__morebtn { display: inline-flex; }
   .b5-con-summary__more { display: none; }
   .b5-con-summary__more.is-open {
