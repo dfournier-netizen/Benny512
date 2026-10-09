@@ -8,7 +8,9 @@
 //   - An untouched fader claims nothing. A moved fader claims the Dimmer
 //     channels of its members until it is released (one fader, or all).
 //     A whole-fixture member is every Dimmer of the fixture (all its
-//     cells'); a cell member is that cell's Dimmer only. A member without
+//     cells'; I2d4: not the cells' virtual dimmers when it has a real
+//     master — FixtureModel.inScope); a cell member is that cell's Dimmer
+//     only. A member without
 //     a real Dimmer uses its G1 virtual dimmer(s); a member with neither is
 //     listed as not controllable on that fader, never skipped silently.
 //   - A channel in two moved faders follows the MOST RECENTLY MOVED one
@@ -102,7 +104,7 @@ func dimmersOf(m *FixtureModel, t ProgTarget) []*ProgParameter {
 	out := make([]*ProgParameter, 0)
 	for i := range m.Parameters {
 		p := &m.Parameters[i]
-		if p.Attribute == "Dimmer" && (t.Cell == "" || p.Cell == t.Cell) {
+		if p.Attribute == "Dimmer" && m.inScope(t, p) {
 			out = append(out, p)
 		}
 	}

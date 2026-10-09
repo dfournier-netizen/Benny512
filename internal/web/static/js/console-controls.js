@@ -367,7 +367,7 @@ const ConsoleControls = (() => {
   function layoutName(a, vi) {
     const ids = [...new Set(a.channels.filter(c => c.variant === vi).map(c => c.entryId))];
     const types = [...new Set(ids.map(id => (st.models[id] && st.models[id].fixtureType) || 'fixture type not known'))];
-    return types.join(', ') + ' · ' + ids.length + (ids.length === 1 ? ' fixture' : ' fixtures');
+    return types.join(', ') + ' · ' + ids.length + (ids.length === 1 ? ' fixture' : ' fixtures') + (a.variants[vi] && a.variants[vi].virtual ? ' · virtual (scales colour)' : '');
   }
 
   // --- generic controls ------------------------------------------------------
@@ -917,7 +917,8 @@ const ConsoleControls = (() => {
     fillReadout(ro, a);
     const head = h('summary', { class: 'b5-cc-attrhead' },
       h('span', { class: 'b5-cc-attrlabel' }, h('strong', { class: 'b5-cc-attrname', text: title || a.attribute }), title ? h('span', { class: 'b5-caption', text: ' ' + a.attribute }) : null,
-        virt ? h('span', { class: 'b5-caption', text: ' virtual · RGB' }) : null,
+        // I2d4: a virtual dimmer has no DMX channel; it scales the colour.
+        virt ? h('span', { class: 'b5-caption', text: ' virtual (scales colour)' }) : null,
         h('span', { class: 'b5-caption b5-cc-scope', 'data-scope': a.attribute, text: scopeText(a) })),
       ro,
       h('span', { class: 'b5-cc-markers', 'data-markers': a.attribute }, markers(a)));

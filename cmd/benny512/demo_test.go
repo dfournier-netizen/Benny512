@@ -10,6 +10,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"benny512/internal/artnet"
+	"benny512/internal/patch"
 )
 
 // TestDemoModeSmoke starts the demo wiring exactly as --demo does, hits
@@ -317,4 +320,34 @@ func TestDemoPatch_ChannelFunctionProvenance(t *testing.T) {
 	if !absentEntry {
 		t.Error("expected at least one demo entry with no channel functions at all")
 	}
+}
+
+// TestDemoHasCellBattenWithVirtualDimmers (I2d4): --demo carries a 4-cell
+// RGB batten with a master dimmer, so the cell virtual dimmers (owner
+// 2026-10-09) can be seen and used on screen: four cells, a real master
+// Dimmer, and one virtual dimmer per cell.
+func TestDemoHasCellBattenWithVirtualDimmers(t *testing.T) {
+	p0, _ := artnet.PortAddressFromRaw(0)
+	p1, _ := artnet.PortAddressFromRaw(1)
+	p2, _ := artnet.PortAddressFromRaw(2)
+	for _, e := range buildDemoPatch(p0, p1, p2).Entries {
+		if e.Name != "Batten 1" {
+			continue
+		}
+		m := patch.BuildFixtureModel(e)
+		master, virt := 0, map[string]bool{}
+		for _, p := range m.Parameters {
+			if p.Attribute == "Dimmer" && !p.Virtual && p.Cell == "" {
+				master++
+			}
+			if p.Attribute == "Dimmer" && p.Virtual {
+				virt[p.Cell] = true
+			}
+		}
+		if len(m.Cells) != 4 || master != 1 || len(virt) != 4 || virt[""] {
+			t.Errorf("Batten 1: %d cells, %d master dimmers, virtual dimmers by cell %v; want 4, 1 and one per cell", len(m.Cells), master, virt)
+		}
+		return
+	}
+	t.Fatal("the demo patch has no \"Batten 1\" (a multi-cell RGB batten with a master dimmer)")
 }

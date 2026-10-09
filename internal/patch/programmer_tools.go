@@ -259,6 +259,7 @@ func (pg *Programmer) overlayLocked() (map[uint16]session.LayerFrame, map[string
 			continue
 		}
 		dims := 0
+		master := m.hasMasterDimmer()
 		add := func(off uint16, p *ProgParameter) {
 			k := progKey{t.EntryID, off}
 			if hiOff[k] {
@@ -280,6 +281,13 @@ func (pg *Programmer) overlayLocked() (map[uint16]session.LayerFrame, map[string
 				continue
 			}
 			if p.Virtual {
+				// I2d4: a whole fixture with a master dims the master,
+				// not its cells' virtual dimmers on top — unless one of
+				// its cells is highlighted, when the master is left alone
+				// and the other cells dim through their own.
+				if t.Cell == "" && p.Cell != "" && master && !hiPart[t.EntryID] {
+					continue
+				}
 				for _, off := range p.virtualOf {
 					add(off, m.paramAt(off))
 				}

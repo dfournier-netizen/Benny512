@@ -44,8 +44,15 @@
 //     cell's. A scope gets one virtual Dimmer parameter when it has red,
 //     green and blue additive emitters (ColorAdd_R/G/B, or
 //     ColorRGB_Red/Green/Blue — the GDTF attribute names the taxonomy
-//     groups as colour) and no "Dimmer" channel, and the fixture has no
-//     Dimmer of its own (a fixture-level dimmer already dims its cells).
+//     groups as colour) and no "Dimmer" channel of its own. I2d4 (owner
+//     2026-10-09): a cell gets one even when the fixture has a master
+//     Dimmer — "if a fixture or subfixture doesn't have a dimmer channel,
+//     we'll need a virtual dimmer channel". The cell's output is its
+//     colour x its virtual level; the master, a real channel, stays on top.
+//     A WHOLE-fixture intensity control (Dimmer set, fan, a group-fader
+//     member, Lowlight) is that master; the cells' virtual dimmers are
+//     reached by selecting the cells (inScope), so the two never multiply
+//     by accident. Highlight and presets still take the whole look.
 //     It scales EVERY additive channel of the scope: every ColorAdd_*
 //     (W, WW/CW, amber, lime, UV, ...) and ColorRGB_* channel.
 //     UNVERIFIED: GDTF describes ColorRGB_* as "emitter or subtractive
@@ -600,9 +607,6 @@ func addVirtualDimmers(m *FixtureModel) {
 			sc.additive = append(sc.additive, p.Offset)
 		}
 	}
-	if scopes[""].dimmer {
-		return
-	}
 	add := func(sc *scope, off uint16) {
 		if sc.dimmer || !sc.r || !sc.g || !sc.b {
 			return
@@ -622,6 +626,31 @@ func addVirtualDimmers(m *FixtureModel) {
 }
 
 // HasCell reports whether id is one of m's cells.
+// hasMasterDimmer: the fixture has a real Dimmer channel of its own (not a
+// cell's) — then a whole-fixture intensity control drives it, not the
+// cells' virtual dimmers (I2d4).
+func (m *FixtureModel) hasMasterDimmer() bool {
+	for i := range m.Parameters {
+		p := &m.Parameters[i]
+		if p.Attribute == "Dimmer" && p.Cell == "" && !p.Virtual {
+			return true
+		}
+	}
+	return false
+}
+
+// inScope (I2d4) reports whether p is one of target t's channels for a
+// control that acts by attribute (set, fan, command, the read model, group
+// faders): a cell target is its own channels; a whole fixture is every
+// channel EXCEPT the cells' virtual dimmers when the fixture has a real
+// master Dimmer (the master is its intensity; see VIRTUAL DIMMER above).
+func (m *FixtureModel) inScope(t ProgTarget, p *ProgParameter) bool {
+	if t.Cell != "" {
+		return p.Cell == t.Cell
+	}
+	return !(p.Virtual && p.Cell != "" && m.hasMasterDimmer())
+}
+
 func (m FixtureModel) HasCell(id string) bool {
 	for _, c := range m.Cells {
 		if c.ID == id {

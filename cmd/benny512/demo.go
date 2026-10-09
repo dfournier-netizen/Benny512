@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"net/netip"
 	"sort"
 	"sync"
@@ -771,6 +772,22 @@ func buildDemoPatch(port0, port1, port2 artnet.PortAddress) patch.Patch {
 		13: {Source: patch.SourceGDTF, Attribute: "Control1", FunctionName: "Control", DMXFrom: 0, DMXTo: 255, ChannelSets: []patch.ChannelSet{{Name: "Idle", DMXFrom: 0}, {Name: "Lamp On", DMXFrom: 130}, {Name: "Total reset", DMXFrom: 200}, {Name: "Lamp Off", DMXFrom: 230}}},
 	}
 
+	// Batten 1 (I2d4, GDTF-derived, synthetic): a 4-cell RGB batten with a
+	// master dimmer, so cells and the cell virtual dimmers (owner
+	// 2026-10-09: every cell with colour mixing and no dimmer of its own
+	// gets one, even under a master) can be seen and used on screen.
+	// Channel 1 is the master Dimmer; cells "Pixel 1".."Pixel 4" are RGB at
+	// 2-4, 5-7, 8-10 and 11-13.
+	battenChannels := map[uint16]patch.ChannelFunction{
+		1: {Source: patch.SourceGDTF, Attribute: "Dimmer", FunctionName: "Dimmer", DMXFrom: 0, DMXTo: 255, ChannelSets: make([]patch.ChannelSet, 0)},
+	}
+	for c := 0; c < 4; c++ {
+		for i, a := range []string{"ColorAdd_R", "ColorAdd_G", "ColorAdd_B"} {
+			battenChannels[uint16(2+3*c+i)] = patch.ChannelFunction{Source: patch.SourceGDTF, Attribute: a, FunctionName: a, DMXFrom: 0, DMXTo: 255,
+				ChannelSets: make([]patch.ChannelSet, 0), GeometryInstance: fmt.Sprintf("Pixel %d:0", c+1)}
+		}
+	}
+
 	p := patch.Patch{
 		Name: "Demo Show",
 		Entries: []patch.Entry{
@@ -803,11 +820,13 @@ func buildDemoPatch(port0, port1, port2 artnet.PortAddress) patch.Patch {
 			//     of the entry's intended settings AND the honest "this fixture
 			//     will not answer for that setting" degrade on the substitute.
 			entry("Wash L", "Robe Wash", "SL Boom", "106", port0, 41, 20),
+			entry("Batten 1", "Demo RGB Batten", "Downstage Edge", "107", port1, 30, 13),
 		},
 	}
 	p.Entries[0].ChannelFunctions = cf2Channels    // CF2 48: GDTF-derived
 	p.Entries[2].ChannelFunctions = spotChannels   // Spot 1: RDM-inferred
 	p.Entries[6].ChannelFunctions = beamFXChannels // Beam FX 1: GDTF-derived (synthetic — see above)
+	p.Entries[8].ChannelFunctions = battenChannels // Batten 1: GDTF-derived (synthetic — see above)
 	// Par 1, Missing Fixture, Practical 1/2: left with a nil
 	// ChannelFunctions (the "absent"/"neither" case) — normalized to a
 	// non-nil empty map once this Patch is installed via patch.Store,

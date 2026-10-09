@@ -416,6 +416,17 @@ let modalCalls = 0;
     check(true, 'B1, L1, a cell, stepped to B1: "Dims 1 selected fixture and 1 cell not highlighted."');
   });
   await PS().act('highlight', { highlight: false, lowlight: false });
+  // --- I2d4: the virtual dimmer says it is virtual, in words ------------------------
+  await sect('virtual dimmer words', async () => {
+    await PS().act('select', { action: 'set', targets: [T('B1'), { entryId: ids.P1, cell: 'Beam 2:0' }] });
+    await sleep(200);
+    await tab('dimmer');
+    await until('the Dimmer card', () => q('[data-attr="Dimmer"]'));
+    const card = q('[data-attr="Dimmer"]');
+    check(/virtual \(scales colour\)/.test(card.querySelector('summary').textContent) && !/virtual · RGB/.test(card.textContent), 'the Dimmer card says "virtual (scales colour)"', card.querySelector('summary').textContent);
+    const heads = card.querySelectorAll('.b5-cc-varhead').map(x => x.textContent);
+    check(heads.length === 2 && heads.filter(x => /virtual \(scales colour\)/.test(x)).length === 1, 'with a real and a virtual dimmer selected, the virtual one\'s section says so', heads);
+  });
   await sect('phone More', async () => {
     // Phone: Highlight, Locate and Tests live under More (C6c contract).
     ctx.matchMedia = () => ({ matches: true });

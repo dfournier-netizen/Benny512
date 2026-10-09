@@ -1128,7 +1128,7 @@ func (pg *Programmer) matchLocked(targets []ProgTarget, attribute string, res *P
 		matched := false
 		for i := range m.Parameters {
 			p := &m.Parameters[i]
-			if p.Attribute != attribute || (t.Cell != "" && p.Cell != t.Cell) {
+			if p.Attribute != attribute || !m.inScope(t, p) {
 				continue
 			}
 			matched = true

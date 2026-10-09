@@ -131,7 +131,7 @@ func (pg *Programmer) View() ProgView {
 		v.Selection = append(v.Selection, sel)
 		for i := range m.Parameters {
 			p := &m.Parameters[i]
-			if t.Cell != "" && p.Cell != t.Cell {
+			if !m.inScope(t, p) {
 				continue
 			}
 			acc := accs[p.Attribute]
