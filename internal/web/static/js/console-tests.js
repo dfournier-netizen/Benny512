@@ -102,40 +102,9 @@ const ConsoleTests = (() => {
   // ask({title, body, field:{label, value}, ok, danger}): the in-app dialog
   // (native prompt() fails in the embedded browser). Resolves to the trimmed
   // text, true for a plain confirm, or null on cancel.
-  function ask(o) {
-    return new Promise(resolve => {
-      let done = false;
-      const input = o.field ? h('input', { class: 'b5-input', type: 'text', maxlength: o.field.maxLength || 80, 'data-ask-input': '' }) : null;
-      if (input) input.value = o.field.value || '';
-      const err = h('p', { class: 'b5-field__error', role: 'alert' });
-      const okBtn = btn(o.ok || 'Confirm', { 'data-ask-ok': '' }, null, { cls: o.danger ? 'b5-btn--danger' : 'b5-btn--primary' });
-      const cancel = btn('Cancel', { 'data-ask-cancel': '' });
-      const dlg = h('dialog', { class: 'b5-workspace-dialog b5-con-dialog', 'data-ask': '', 'aria-label': o.title },
-        h('h3', { text: o.title }),
-        o.body ? h('p', { class: 'b5-note', text: o.body }) : null,
-        input ? h('label', { class: 'b5-field' }, h('span', { class: 'b5-field__label', text: o.field.label }), input) : null,
-        err, h('div', { class: 'b5-row b5-con-dialog__actions' }, cancel, okBtn));
-      const finish = v => {
-        if (done) return;
-        done = true;
-        try { if (dlg.open) dlg.close(); } catch (_) { /* closed */ }
-        dlg.remove();
-        resolve(v);
-      };
-      okBtn.addEventListener('click', () => {
-        if (!input) return finish(true);
-        const v = input.value.trim();
-        if (!v) { err.textContent = 'Type ' + o.field.label.toLowerCase() + ' first.'; return; }
-        finish(v);
-      });
-      cancel.addEventListener('click', () => finish(null));
-      dlg.addEventListener('cancel', ev => { ev.preventDefault(); finish(null); });
-      if (input) input.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); okBtn.click(); } });
-      document.body.appendChild(dlg);
-      dlg.showModal();
-      (input || okBtn).focus();
-    });
-  }
+  // I2d2: the shared non-modal dialog (ui.js UI.ask): Cancel focused,
+  // Escape cancels, focus returns, Disarm stays reachable.
+  function ask(o) { return UI.ask(o); }
 
   // --- presentation tables ------------------------------------------------------
   // Moved here verbatim from the retired Rig Check screen (rigcheck.js, C7),

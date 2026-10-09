@@ -371,6 +371,9 @@ func New(nodes *session.ArtNetSession, rdmc *session.RDMController, dmx *session
 	s.DMX.SetSACNBinding(s.engineSACNBinding())
 	s.RigCheck.SetOutputFollowsSelection(true)
 	s.applyOutputSettings(s.settings)
+	// I2d2: a one-shot command's end (window over, or Disarm) reaches every
+	// browser's progress line.
+	s.Programmer.OnCommandEnd(s.broadcastCommands)
 	s.mux = http.NewServeMux()
 	s.routes()
 	s.syncProgrammer(true)
@@ -680,6 +683,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/programmer/fixtures", s.handleGetProgrammerFixtures)
 	s.mux.HandleFunc("POST /api/programmer/select", s.handleProgrammerSelect)
 	s.mux.HandleFunc("POST /api/programmer/set", s.handleProgrammerSet)
+	s.mux.HandleFunc("POST /api/programmer/command", s.handleProgrammerCommand)
 	s.mux.HandleFunc("POST /api/programmer/clear", s.handleProgrammerClear)
 	s.mux.HandleFunc("POST /api/programmer/raw", s.handleProgrammerRaw)
 	s.mux.HandleFunc("POST /api/programmer/highlight", s.handleProgrammerHighlight)

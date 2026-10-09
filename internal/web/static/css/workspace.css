@@ -115,3 +115,10 @@
      measured height (--b5-nav-height, app.js), instead of under it. */
   .b5-actionbar { bottom: var(--b5-nav-height, calc(var(--b5-size-touch-min) + var(--b5-space-6))); }
 }
+/* I2d2: Show tools and the Fixture library open NON-modally (UI.showPanel)
+   below the app chrome, so the master strip and DISARM stay operable. */
+.b5-workspace-dialog.b5-nmpanel {
+  position: fixed; top: calc(var(--b5-chrome-height, 120px) + var(--b5-space-2)); left: 0; right: 0; margin: 0 auto;
+  max-height: calc(100dvh - var(--b5-chrome-height, 120px) - var(--b5-space-4)); overflow: auto;
+  z-index: var(--b5-z-overlay); box-shadow: var(--b5-shadow-lg);
+}

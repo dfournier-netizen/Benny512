@@ -6,8 +6,10 @@ import (
 	"net/http/httptest"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestConsole_I2d (Console-lite I2d: fixture-command confirmation §12,
@@ -47,7 +49,22 @@ func TestConsole_I2d(t *testing.T) {
 		t.Fatalf("patched %d entries, want 4", len(ids))
 	}
 	idsJSON, _ := json.Marshal(ids)
-	ts := httptest.NewServer(h.srv.Handler())
+	// Test-only (I2d2): the engine runs on the harness's fake clock, so the
+	// script ends a one-shot command's window by advancing it here, with a
+	// heartbeat each second like a browser so the lease holds.
+	mux := http.NewServeMux()
+	mux.Handle("/", h.srv.Handler())
+	mux.HandleFunc("POST /__test/advance", func(w http.ResponseWriter, r *http.Request) {
+		ms, _ := strconv.Atoi(r.URL.Query().Get("ms"))
+		for d := time.Duration(ms) * time.Millisecond; d > 0; {
+			step := min(d, time.Second)
+			h.srv.DMX.Heartbeat("i2d2")
+			h.clock.Advance(step)
+			d -= step
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	ts := httptest.NewServer(mux)
 	defer ts.Close()
 	jsDir, _ := filepath.Abs("static/js")
 	out, err := exec.Command(nodePath, filepath.Join(jsDir, "testdata", "console_i2d_test.js"), jsDir, ts.URL, string(idsJSON)).CombinedOutput()

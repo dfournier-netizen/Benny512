@@ -1115,7 +1115,7 @@ const NodesScreen = (() => {
     const key = keyOf(n);
     const portStatus=(section,msg)=>setStatus(key,section,msg,portIndex);
     const word = direction === 'input' ? 'input' : 'output';
-    if (!confirm(`Set port ${portIndex} on ${n.shortName || n.ip} to ${word}?${word === 'input' ? '\n\nThis also flushes that port’s subscriber list.' : ''}\n\nThis sends an ArtAddress command to the node now.`)) return;
+    if (!(await UI.confirmAsk(`Set port ${portIndex} on ${n.shortName || n.ip} to ${word}?${word === 'input' ? '\n\nThis also flushes that port’s subscriber list.' : ''}\n\nThis sends an ArtAddress command to the node now.`, 'Set to ' + word))) return;
     portStatus('direction', `setting port ${portIndex} to ${word}…`);
     try {
       const res = await Api.setNodeAddress(n.ip, { bindIndex: n.bindIndex, command: `direction_${word === 'input' ? 'rx' : 'tx'}_${portIndex}` });
@@ -1129,7 +1129,7 @@ const NodesScreen = (() => {
     const key = keyOf(n);
     const portStatus=(section,msg)=>setStatus(key,section,msg,portIndex);
     const word = enabled ? 'enable' : 'disable';
-    if (!confirm(`${enabled ? 'Enable' : 'Disable'} RDM on port ${portIndex} of ${n.shortName || n.ip}?\n\nThis sends an ArtAddress command to the node now.`)) return;
+    if (!(await UI.confirmAsk(`${enabled ? 'Enable' : 'Disable'} RDM on port ${portIndex} of ${n.shortName || n.ip}?\n\nThis sends an ArtAddress command to the node now.`, enabled ? 'Enable RDM' : 'Disable RDM'))) return;
     portStatus('rdm', `${word} RDM on port ${portIndex}…`);
     try {
       const res = await Api.setNodeAddress(n.ip, { bindIndex: n.bindIndex, command: `rdm_${word}_${portIndex}` });

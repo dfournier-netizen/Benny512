@@ -97,6 +97,8 @@ type ProgView struct {
 	Touched int `json:"touched"`
 	// Highlight is the Highlight/Lowlight state and coverage (C4b).
 	Highlight ProgHighlightView `json:"highlight"`
+	// Commands: one-shot commands in flight and the last that ended (I2d2).
+	Commands ProgCommandsView `json:"commands"`
 }
 
 // View builds the read model.
@@ -106,6 +108,7 @@ func (pg *Programmer) View() ProgView {
 	v := ProgView{Revision: pg.revision, Output: pg.outputLocked(), Selection: make([]ProgSelected, 0, len(pg.selection)),
 		Groups: make([]ProgGroupView, 0), Raw: make([]ProgRawView, 0), Touched: len(pg.values)}
 	_, _, _, v.Highlight = pg.overlayLocked()
+	v.Commands = pg.commandsLocked()
 	type attrAcc struct {
 		view     *ProgAttrView
 		variants map[string]int

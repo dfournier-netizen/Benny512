@@ -63,8 +63,10 @@ func cellTarget(id, cell string) map[string]any { return map[string]any{"entryId
 
 // TestHighlightLowlightOnTheWireAndOffRestoresExactly: Highlight drives the
 // selection to its highlight values (profile highlight, dimmer full,
-// shutter/colour open sets), Lowlight scales every other lit fixture's
-// dimmer to 20%, and switching it off gives back the exact frames — the
+// shutter/colour open sets), Lowlight leaves every fixture outside the
+// selection alone (I2d2, §15: it dims only non-highlighted members of the
+// selection, and the whole selection is highlighted here), and switching
+// it off gives back the exact frames — the
 // programmer's stored values are never touched.
 func TestHighlightLowlightOnTheWireAndOffRestoresExactly(t *testing.T) {
 	r := newC4aRig(t)
@@ -92,7 +94,7 @@ func TestHighlightLowlightOnTheWireAndOffRestoresExactly(t *testing.T) {
 	// Color2's states 0 to 0, so its DMXFrom 0.
 	wantSlots(t, "B1 colour wheels open/white", h0, 7, 0x09, 0x09, 0, 0)
 	wantSlots(t, "B1 pan untouched by highlight", h0, 1, slots(u0, 1, 2)...)
-	wantSlots(t, "B2 dimmer lowlit: floor(1000 x 20%) = 200", h0, 81, 0, 200)
+	wantSlots(t, "B2 (not selected) not lowlit: 1000", h0, 81, 0x03, 0xE8)
 	// LEDBeam: GDTF 1.0 <DMXChannel Highlight="255/1"> on RGBW, shutter and
 	// dimmer; Color1 has none, its "Open" set (0) is used.
 	wantSlots(t, "L1 RGBW profile highlight", h1, 7, 255, 255, 255, 255)
@@ -108,14 +110,13 @@ func TestHighlightLowlightOnTheWireAndOffRestoresExactly(t *testing.T) {
 			t.Errorf("B1 offset %d should be reported unresolved: %+v", off, v.Highlight.Unresolved)
 		}
 	}
-	// G1: the Paladin has no dimmer but RGB cells, so its virtual dimmers
-	// make it lowlit (its additive channels are scaled); G1 has nothing.
-	noDim := strings.Join(v.Highlight.NoDimmer, ",")
-	if strings.Contains(noDim, r.ids["P1"]) || !strings.Contains(noDim, r.ids["G1"]) || v.Highlight.Lowlit != 2 {
-		t.Errorf("lowlight: lowlit %d (want 2: B2, P1), noDimmer %v (want G1 only)", v.Highlight.Lowlit, v.Highlight.NoDimmer)
+	// I2d2: the virtual-dimmer and no-dimmer lowlight cases are proven
+	// on selected, non-highlighted fixtures in programmer_i2d2_test.go.
+	if len(v.Highlight.NoDimmer) != 0 || v.Highlight.Lowlit != 0 {
+		t.Errorf("lowlight: lowlit %d, noDimmer %v (want none: the whole selection is highlighted)", v.Highlight.Lowlit, v.Highlight.NoDimmer)
 	}
 	r.post(t, "/api/programmer/highlight", map[string]any{"lowlightPercent": 50}, nil)
-	wantSlots(t, "B2 dimmer at 50%", r.wire(t, 0), 81, 1, 244)
+	wantSlots(t, "B2 still untouched at 50%", r.wire(t, 0), 81, 0x03, 0xE8)
 
 	r.post(t, "/api/programmer/highlight", map[string]any{"highlight": false}, nil)
 	if f := r.wire(t, 0); !bytes.Equal(f, u0) {
@@ -134,7 +135,8 @@ func TestHighlightLowlightOnTheWireAndOffRestoresExactly(t *testing.T) {
 }
 
 // TestHighlightFollowsSelection: with Highlight on, changing the selection
-// moves it; the previously selected fixture is lowlit.
+// moves it; the previously selected fixture goes back to its own level
+// (I2d2: Lowlight never dims fixtures outside the selection).
 func TestHighlightFollowsSelection(t *testing.T) {
 	r := newC4aRig(t)
 	r.arm(t)
@@ -143,10 +145,10 @@ func TestHighlightFollowsSelection(t *testing.T) {
 	r.post(t, "/api/programmer/highlight", map[string]any{"highlight": true, "lowlight": true}, nil)
 	f := r.wire(t, 0)
 	wantSlots(t, "B1 highlighted", f, 40, 255, 255)
-	wantSlots(t, "B2 lowlit (50000 -> 10000)", f, 81, 0x27, 0x10)
+	wantSlots(t, "B2 not selected: not lowlit (50000)", f, 81, 0xC3, 0x50)
 	r.selectNames(t, "B2")
 	f = r.wire(t, 0)
-	wantSlots(t, "B1 now lowlit", f, 40, 0x27, 0x10)
+	wantSlots(t, "B1 back at 50000", f, 40, 0xC3, 0x50)
 	wantSlots(t, "B2 now highlighted", f, 81, 255, 255)
 }
 

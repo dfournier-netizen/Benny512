@@ -110,62 +110,16 @@ const ConsoleScreen = (() => {
   // --- in-app dialog (native prompt() fails in the embedded browser) --------
   // ask({title, body, field:{label, value, maxLength}, ok, danger}) resolves
   // to the trimmed field text, true for a plain confirm, or null on cancel.
-  function ask(o) {
-    return new Promise(resolve => {
-      let done = false;
-      const input = o.field ? h('input', { class: 'b5-input', type: 'text', maxlength: o.field.maxLength || 80, 'data-ask-input': '' }) : null;
-      if (input) input.value = o.field.value || '';
-      const err = h('p', { class: 'b5-field__error', role: 'alert', 'data-ask-error': '' });
-      const okBtn = btn(o.ok || 'Confirm', { cls: o.danger ? 'b5-btn--danger' : 'b5-btn--primary', attrs: { 'data-ask-ok': '' } });
-      const cancelBtn = btn('Cancel', { attrs: { 'data-ask-cancel': '' } });
-      const dlg = h('dialog', { class: 'b5-workspace-dialog b5-con-dialog', 'data-ask': '', 'aria-label': o.title },
-        h('h3', { text: o.title }),
-        o.body ? h('p', { class: 'b5-note', text: o.body }) : null,
-        input ? h('label', { class: 'b5-field' }, h('span', { class: 'b5-field__label', text: o.field.label }), input) : null,
-        err,
-        h('div', { class: 'b5-row b5-con-dialog__actions' }, cancelBtn, okBtn));
-      const finish = v => {
-        if (done) return;
-        done = true;
-        try { if (dlg.open) dlg.close(); } catch (_) { /* already closed */ }
-        dlg.remove();
-        resolve(v);
-      };
-      okBtn.addEventListener('click', () => {
-        if (!input) return finish(true);
-        const v = input.value.trim();
-        if (!v) { err.textContent = 'Type ' + o.field.label.toLowerCase() + ' first.'; return; }
-        finish(v);
-      });
-      cancelBtn.addEventListener('click', () => finish(null));
-      dlg.addEventListener('cancel', ev => { ev.preventDefault(); finish(null); });
-      if (input) input.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); okBtn.click(); } });
-      document.body.appendChild(dlg);
-      dlg.showModal();
-      (input || okBtn).focus();
-    });
-  }
+  // I2d2: the shared non-modal dialog (ui.js UI.ask): Cancel focused,
+  // Escape cancels, focus returns, Disarm stays reachable.
+  function ask(o) { return UI.ask(o); }
 
   // --- status line ------------------------------------------------------------
   // choose (I2d §14): a NON-modal choice dialog (Disarm stays operable);
   // resolves to the picked value, or null on Cancel / Escape. Cancel has
   // focus first: a destructive choice is never the default.
-  function choose(o) {
-    return new Promise(resolve => {
-      let done = false;
-      const cancel = btn('Cancel', { attrs: { 'data-choice': 'cancel' } });
-      const dlg = h('dialog', { class: 'b5-con-floatdialog', 'data-choose': '', 'aria-label': o.title }, h('h3', { text: o.title }),
-        o.body ? h('p', { class: 'b5-note', text: o.body }) : null,
-        h('div', { class: 'b5-row b5-con-dialog__actions' }, cancel,
-          o.choices.map(c => btn(c.label, { cls: c.cls, attrs: { 'data-choice': c.value } }, () => finish(c.value)))));
-      const finish = v => { if (done) return; done = true; try { if (dlg.open) dlg.close(); } catch (_) { /* closed */ } dlg.remove(); resolve(v); };
-      cancel.addEventListener('click', () => finish(null));
-      dlg.addEventListener('keydown', ev => { if (ev.key === 'Escape') { if (ev.preventDefault) ev.preventDefault(); finish(null); } });
-      document.body.appendChild(dlg);
-      dlg.show();
-      cancel.focus();
-    });
-  }
+  // I2d2: the shared non-modal choice dialog (ui.js UI.choose).
+  function choose(o) { return UI.choose(o); }
   function status(msg, tone) {
     if (!els.status) return;
     clear(els.status);
@@ -1323,13 +1277,34 @@ const ConsoleScreen = (() => {
       h('div', { class: 'b5-actionbar__buttons b5-con-summary__buttons' },
         btn('Clear…', { icon: 'clear', cls: 'b5-con-act' + (st.pop === 'clear' ? ' is-on' : ''), attrs: { 'data-clear-open': '', 'aria-expanded': st.pop === 'clear' ? 'true' : 'false', 'aria-controls': 'conActPanel' } }, () => togglePop('clear')),
         btn(hl ? 'More · Highlight ON' : 'More', { cls: 'b5-con-summary__morebtn', attrs: { 'data-summary-more-toggle': '', 'aria-expanded': st.moreOpen ? 'true' : 'false', 'aria-controls': 'conSummaryMore' } },
-          () => { st.moreOpen = !st.moreOpen; renderSummary(); }),
+          () => { st.moreOpen = !st.moreOpen; renderSummary(); if (st.moreOpen) fitMore(true); }),
         more),
     ]);
+    if (st.moreOpen) fitMore(false);
     if (fk) {
-      const back = els.summary.querySelector('[' + fk[0] + ']');
+      let back = els.summary.querySelector('[' + fk[0] + ']');
+      // I2d2: on a phone the tools live in More. If the control that had
+      // focus is now inside a CLOSED More menu it cannot take focus, so
+      // focus goes to the More toggle instead of being lost to the page.
+      if (back && !st.moreOpen && phoneBar() && back.closest && back.closest('[data-summary-more]')) back = els.summary.querySelector('[data-summary-more-toggle]');
       if (back && !back.disabled) back.focus();
     }
+  }
+  // fitMore (I2d2): on a phone the More menu drops below the bar and used
+  // to run on under the fader bar and the bottom navigation, hiding Locate,
+  // Tests and Store group. It now ends above them and scrolls inside; when
+  // the bar sits too low (opened is true), the bar is scrolled up first.
+  function fitMore(opened) {
+    const m = els.summary && els.summary.querySelector('[data-summary-more]');
+    if (!m || !phoneBar() || typeof innerHeight !== 'number' || !m.getBoundingClientRect) return;
+    const floor = () => Array.from(document.querySelectorAll('.b5-faders, .b5-nav--mobile')).reduce((a, e) => { const r = e.getBoundingClientRect(); return r.height ? Math.min(a, r.top) : a; }, innerHeight);
+    if (opened && floor() - m.getBoundingClientRect().top < 320 && els.summary.scrollIntoView) els.summary.scrollIntoView({ block: 'start' });
+    m.style.maxHeight = Math.max(160, Math.floor(floor() - m.getBoundingClientRect().top - 8)) + 'px';
+  }
+  // phoneBar: the action bar is in its phone form (the tools behind More;
+  // screens-console.css, max-width 767px).
+  function phoneBar() {
+    try { return typeof matchMedia === 'function' && matchMedia('(max-width: 767px)').matches; } catch (_) { return false; }
   }
 
   // --- selection order list (I2b §3) ---------------------------------------------
@@ -1373,8 +1348,13 @@ const ConsoleScreen = (() => {
     const more = h('div', { class: 'b5-con-summary__more' + (st.moreOpen ? ' is-open' : ''), id: 'conSummaryMore', 'data-summary-more': '' },
         seg([ic('highlight'), hl ? 'Highlight: ON' : 'Highlight: OFF'], hl, { 'data-highlight': '' }, () => hlAct({ highlight: !hl })),
         stepping,
-        seg([ic('lowlight'), hv.lowlight ? 'Lowlight: ON · ' + pct + ' %' : 'Lowlight: OFF'], !!hv.lowlight, { 'data-lowlight': '', title: 'Lowlight dims every fixture that is not highlighted, while Highlight is ON' },
+        seg([ic('lowlight'), hv.lowlight ? 'Lowlight: ON · ' + pct + ' %' : 'Lowlight: OFF'], !!hv.lowlight, { 'data-lowlight': '', title: 'Lowlight dims the selected fixtures that are not highlighted (step with Previous/Next), while Highlight is ON. Fixtures outside the selection are not touched.' },
           () => hlAct({ lowlight: !hv.lowlight })),
+        // I2d2 (§15): say in words what Lowlight covers — only the selected
+        // fixtures that are not highlighted, never the rest of the rig.
+        hv.lowlight ? h('span', { class: 'b5-caption', 'data-lowlight-scope': '' }, !hl ? 'Lowlight works while Highlight is ON.'
+          : hv.lowlit ? 'Dims ' + hv.lowlit + ' selected ' + (hv.lowlit === 1 ? 'fixture' : 'fixtures') + ' not highlighted.'
+            : 'Dims nothing now: the whole selection is highlighted. Step with Next to dim the rest.') : null,
         btn('Level ' + pct + ' %…', { cls: 'b5-con-act' + (st.pop === 'lowlight' ? ' is-on' : ''), attrs: { 'data-lowlight-level-open': '', 'aria-expanded': st.pop === 'lowlight' ? 'true' : 'false', 'aria-controls': 'conActPanel' } }, () => togglePop('lowlight')),
         btn('Locate', { attrs: { 'data-locate': '' }, disabled: !n, icon: 'locate' }, async () => {
           try { await ProgrammerSync.act('locate', {}); status('Located the selection: open white, centred (reaches the rig only while output is armed).'); }
@@ -1404,9 +1384,11 @@ const ConsoleScreen = (() => {
           catch (e) { status(e.message, 'error'); }
         }));
     // Picking a tool closes the phone menu — except stepping, which is
-    // pressed again and again.
+    // pressed again and again, and the Highlight / Lowlight toggles (I2d2:
+    // turning Highlight ON is what brings Previous/Next, so the menu stays
+    // open to show them).
     more.addEventListener('click', ev => {
-      if (ev.target && ev.target.closest && ev.target.closest('[data-hl-prev], [data-hl-next], [data-hl-all]')) return;
+      if (ev.target && ev.target.closest && ev.target.closest('[data-hl-prev], [data-hl-next], [data-hl-all], [data-highlight], [data-lowlight]')) return;
       st.moreOpen = false; more.classList.remove('is-open');
     });
     more.addEventListener('keydown', ev => {

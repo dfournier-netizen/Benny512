@@ -957,7 +957,7 @@ const ReconcilePanel = (() => {
       const id = e.currentTarget.dataset.rcbDecommit;
       const row = (board.intended || []).find(r => r.entryId === id);
       const name = row ? entryLabel(row) : id;
-      if (!confirm(`Decommit "${name}"?\n\nThis breaks the link to fixture ${row ? row.committedUid : ''} and clears what was read off it.\n\nThe entry's own intended settings are KEPT, so a replacement fixture committed here can be configured to match.\n\nNothing is sent to the fixture.`)) return;
+      if (!(await UI.confirmAsk(`Decommit "${name}"?\n\nThis breaks the link to fixture ${row ? row.committedUid : ''} and clears what was read off it.\n\nThe entry's own intended settings are KEPT, so a replacement fixture committed here can be configured to match.\n\nNothing is sent to the fixture.`, 'Decommit'))) return;
       await run('decommitted — intended settings kept', async () => {
         await Api.reconcileDecommit(id);
         if (openEntryId === id) openEntryId = null;
@@ -980,7 +980,7 @@ const ReconcilePanel = (() => {
       if (!row || !line) return;
       const from = stripTags(valueText(line, 'found'));
       const to = stripTags(valueText(line, 'intended'));
-      if (!confirm(`Set "${line.label}" on fixture ${row.committedUid} from ${from} to ${to}?\n\nThis sends an RDM SET to that fixture now.`)) return;
+      if (!(await UI.confirmAsk(`Set "${line.label}" on fixture ${row.committedUid} from ${from} to ${to}?\n\nThis sends an RDM SET to that fixture now.`, 'Send SET'))) return;
       await run('applied to fixture', async () => {
         const res = await Api.reconcilePush(id, [field]);
         openEntryId = id;

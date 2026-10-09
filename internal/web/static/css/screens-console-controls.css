@@ -7,9 +7,13 @@
 .b5-cc-status { min-width: 0; }
 .b5-cc-status p { display: flex; gap: var(--b5-space-2); align-items: flex-start; margin: var(--b5-space-1) 0; overflow-wrap: anywhere; }
 .b5-cc-status--error { color: var(--b5-color-text-danger); border-left: var(--b5-border-width-thick) solid var(--b5-color-border-danger); padding-left: var(--b5-space-2); }
+.b5-cc-cmdprogress strong { font-weight: var(--b5-font-weight-bold); }
 .b5-cc-status--warn { color: var(--b5-color-text-warning); border-left: var(--b5-border-width-thick) dashed var(--b5-color-text-warning); padding-left: var(--b5-space-2); }
 .b5-cc-output { display: flex; gap: var(--b5-space-2); align-items: flex-start; margin: 0; padding: var(--b5-space-2);
   border: var(--b5-border-width-thick) dashed var(--b5-color-text-warning); border-radius: var(--b5-radius-sm); color: var(--b5-color-text-secondary); }
+/* I2d2: the note is kept and hidden while output is live (display:flex above
+   would otherwise beat the hidden attribute). */
+.b5-cc-output[hidden] { display: none; }
 
 /* attribute family tabs (specs §14): icon, word, "n set"; the row scrolls
    in its own box on a phone. Active = bold + 3 px underline; a family the

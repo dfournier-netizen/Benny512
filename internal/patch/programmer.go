@@ -26,6 +26,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"benny512/internal/session"
 )
@@ -87,6 +88,13 @@ type Programmer struct {
 	faderClaims map[string]faderClaim
 	faderGroups []FaderGroup
 	faderDigest string
+	// I2d2: one-shot commands in flight (by id) and the last one that
+	// ended, for every browser's progress line; cmdHook is told when one
+	// ends (the web layer broadcasts).
+	cmds    map[uint64]*progCmd
+	lastCmd *ProgCommandView
+	cmdSeq  uint64
+	cmdHook func()
 }
 
 // NewProgrammer builds an empty programmer over dmx. seed is the first
@@ -865,6 +873,202 @@ func (pg *Programmer) Set(req ProgSetRequest, expected *uint64) (ProgSetResult, 
 		}
 	}
 	return pg.commitLocked(res, pending)
+}
+
+// CommandWindow (I2d2, owner decision 2026-10-09: Control commands are
+// one-shot) is how long a fixture command's value stays on the wire before
+// the channel returns to what it was. No profile states one: GDTF's
+// LogicalChannel DMXChangeTimeLimit is not read by the importer and is 0 in
+// every real file in this repository. 5 s is a chosen value, long enough
+// for a fixture that wants a command held for a few seconds before it acts
+// on it, short enough that the channel is back within a few seconds; the
+// owner confirms it against his fixtures' manuals.
+const CommandWindow = 5 * time.Second
+
+// ProgOutputNotLive is Command's refusal while output is not armed: the
+// command is not sent and not kept to send at a later Arm.
+type ProgOutputNotLive struct{ Output ProgOutput }
+
+func (e ProgOutputNotLive) Error() string {
+	return "Output is not live, so the command was not sent and is not kept for later. Arm output, then send it again."
+}
+
+// Command (I2d2) sends a fixture command one-shot: the value is resolved
+// exactly as Set resolves it (function, channel set, wheel slot, mode
+// master), put on the wire for CommandWindow by the engine's command
+// source, and never stored in the programmer — afterwards each channel
+// shows its programmer value again, or the profile default. expected is
+// checked like Set's; the revision does not change, because the programmer
+// does not. Refused (ProgOutputNotLive) unless output is armed.
+func (pg *Programmer) Command(req ProgSetRequest, expected *uint64) (ProgSetResult, error) {
+	pg.mu.Lock()
+	defer pg.mu.Unlock()
+	res := newSetResult()
+	if err := pg.checkLocked(expected); err != nil {
+		return res, err
+	}
+	if err := req.validate(); err != nil {
+		return res, err
+	}
+	res.Revision, res.Output = pg.revision, pg.outputLocked()
+	if !res.Output.Live {
+		return res, ProgOutputNotLive{Output: res.Output}
+	}
+	matches, err := pg.matchLocked(req.Targets, req.Attribute, &res)
+	if err != nil {
+		return res, err
+	}
+	pending := map[progKey]uint32{}
+	for _, tm := range matches {
+		for _, p := range tm.params {
+			v, fi, why := req.resolveValue(p)
+			if why != "" {
+				res.Skipped = append(res.Skipped, ProgSkipped{EntryID: tm.target.EntryID, Cell: p.Cell, Offset: p.Offset, Reason: why})
+				continue
+			}
+			pg.placeLocked(&res, tm.target.EntryID, tm.model, p, v, fi, req.namesFunction(), pending)
+		}
+	}
+	if len(res.Applied) == 0 {
+		return res, ProgNothingApplied{Result: res}
+	}
+	frames := map[uint16]session.LayerFrame{}
+	for k, v := range pending {
+		e, m := pg.entries[k.entry], pg.models[k.entry]
+		p := m.paramAt(k.offset)
+		if p == nil || p.Virtual {
+			continue
+		}
+		for i, b := range p.bytesOf(v) {
+			if i >= len(p.Offsets) || !e.addressable(p.Offsets[i]) {
+				continue
+			}
+			f := frames[e.Universe]
+			slot := int(e.StartAddress) + int(p.Offsets[i]) - 2
+			f.Values[slot], f.Owned[slot] = b, true
+			frames[e.Universe] = f
+		}
+	}
+	pg.cmdSeq++
+	id := pg.cmdSeq
+	if err := pg.dmx.FireCommand(frames, CommandWindow, func(finished bool) { pg.commandEnded(id, finished) }); err != nil {
+		if errors.Is(err, session.ErrOutputNotLive) {
+			return res, ProgOutputNotLive{Output: pg.outputLocked()}
+		}
+		return res, err
+	}
+	if pg.cmds == nil {
+		pg.cmds = map[uint64]*progCmd{}
+	}
+	pg.cmds[id] = &progCmd{view: ProgCommandView{ID: id, Name: commandName(req, res), Attribute: req.Attribute,
+		Fixtures: pg.fixtureNamesLocked(res), WindowMs: CommandWindow.Milliseconds(), State: "sending"},
+		ends: pg.dmx.Now().Add(CommandWindow)}
+	return res, nil
+}
+
+// ProgCommandView is one one-shot command (I2d2) as every browser shows
+// it. State is "sending" while it is on the wire, "done" when its window
+// ran out and the channels returned to their previous values, "stopped"
+// when Disarm or a lost lease ended it first. RemainingMs is set while
+// sending.
+type ProgCommandView struct {
+	ID          uint64   `json:"id"`
+	Name        string   `json:"name"`
+	Attribute   string   `json:"attribute"`
+	Fixtures    []string `json:"fixtures"`
+	WindowMs    int64    `json:"windowMs"`
+	RemainingMs int64    `json:"remainingMs"`
+	State       string   `json:"state"`
+}
+
+// ProgCommandsView is GET /api/programmer's "commands": those in flight,
+// oldest first, and the last one that ended (null before any).
+type ProgCommandsView struct {
+	Active []ProgCommandView `json:"active"`
+	Last   *ProgCommandView  `json:"last"`
+}
+
+type progCmd struct {
+	view ProgCommandView
+	ends time.Time
+}
+
+// OnCommandEnd sets fn, called (outside the programmer's lock) whenever a
+// one-shot command ends, so the web layer can tell every browser.
+func (pg *Programmer) OnCommandEnd(fn func()) {
+	pg.mu.Lock()
+	defer pg.mu.Unlock()
+	pg.cmdHook = fn
+}
+
+func (pg *Programmer) commandEnded(id uint64, finished bool) {
+	pg.mu.Lock()
+	c := pg.cmds[id]
+	if c == nil {
+		pg.mu.Unlock()
+		return
+	}
+	delete(pg.cmds, id)
+	v := c.view
+	v.RemainingMs, v.State = 0, "stopped"
+	if finished {
+		v.State = "done"
+	}
+	pg.lastCmd = &v
+	hook := pg.cmdHook
+	pg.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+}
+
+func (pg *Programmer) commandsLocked() ProgCommandsView {
+	out := ProgCommandsView{Active: make([]ProgCommandView, 0, len(pg.cmds))}
+	now := pg.dmx.Now()
+	for _, c := range pg.cmds {
+		v := c.view
+		v.RemainingMs = max(c.ends.Sub(now).Milliseconds(), 0)
+		out.Active = append(out.Active, v)
+	}
+	sort.Slice(out.Active, func(i, j int) bool { return out.Active[i].ID < out.Active[j].ID })
+	if pg.lastCmd != nil {
+		v := *pg.lastCmd
+		out.Last = &v
+	}
+	return out
+}
+
+// commandName is what the operator pressed: the channel set's name, else
+// the function's (with the wheel slot when one was named).
+func commandName(req ProgSetRequest, res ProgSetResult) string {
+	if req.Set != nil {
+		return *req.Set
+	}
+	name := req.Attribute
+	if len(res.Applied) > 0 && res.Applied[0].FunctionName != "" {
+		name = res.Applied[0].FunctionName
+	}
+	if req.Slot != nil {
+		name += fmt.Sprintf(" slot %d", *req.Slot)
+	}
+	return name
+}
+
+// fixtureNamesLocked: the fixtures a result reached, in patch order.
+func (pg *Programmer) fixtureNamesLocked(res ProgSetResult) []string {
+	hit := map[string]bool{}
+	for _, a := range res.Applied {
+		hit[a.EntryID] = true
+	}
+	out := make([]string, 0, len(hit))
+	for _, id := range pg.order {
+		if hit[id] {
+			if m := pg.models[id]; m != nil {
+				out = append(out, m.Name)
+			}
+		}
+	}
+	return out
 }
 
 func newSetResult() ProgSetResult {

@@ -155,7 +155,7 @@ const Workspace = (() => {
       data=await Api.getWorkspace();
       selected=selected.filter(id=>data.entries.some(e=>e.id===id));
       if(!dialog) {dialog=document.createElement('dialog');dialog.className='b5-workspace-dialog';document.body.appendChild(dialog);}
-      render(); if(!dialog.open) dialog.showModal();
+      render(); UI.showPanel(dialog, '[data-close]');
     } catch(e) {const o=document.querySelector('[data-output]'); if(o) o.textContent=e.message;}
     finally {loading=false;}
   }
@@ -164,16 +164,11 @@ const Workspace = (() => {
     try {await fn(); data=await Api.getWorkspace();render();status(message);await context();}
     catch(e) {status(e.message);}
   }
+  // I2d2: the shared non-modal dialog (ui.js UI.ask) — Cancel focused,
+  // Escape cancels, Disarm stays reachable. Resolves the trimmed name,
+  // true for a plain confirm, or null.
   function ask(question, needsName=false) {
-    return new Promise(resolve => {
-      const box=document.createElement('dialog');box.className='b5-workspace-dialog';
-      box.innerHTML=`<form method="dialog"><h3>${esc(question)}</h3>${needsName?'<label>Name <input class="b5-input" name="itemName" maxlength="80" required autofocus></label>':''}<div class="b5-row"><button class="b5-btn" type="button" data-cancel>Cancel</button><button class="b5-btn b5-btn--primary" type="submit">${needsName?'Save':'Confirm'}</button></div></form>`;
-      let value=null;
-      box.querySelector('form').onsubmit=e=>{e.preventDefault();value=needsName?box.querySelector('input').value.trim():true;if(needsName&&!value)return;box.close();};
-      box.querySelector('[data-cancel]').onclick=()=>box.close();
-      box.onclose=()=>{box.remove();resolve(value);};
-      document.body.appendChild(box);box.showModal();
-    });
+    return UI.ask({ title: question, field: needsName ? { label: 'Name', maxLength: 80 } : null, ok: needsName ? 'Save' : 'Confirm' });
   }
   async function named(actionName, message, extra={}) {
     const name=await ask(actionName==='snapshot'?'Record rig baseline':actionName==='save-preset'?'Save test preset':'Save fixture group',true);if(!name)return;
@@ -249,8 +244,8 @@ const Workspace = (() => {
     dialog.querySelectorAll('[data-report]').forEach(b=>b.onclick=async()=>{
       try {const r=await Api.baselineReport(data.baselines[Number(b.dataset.report)].id);dialog.querySelector('[data-report-body]').innerHTML=`<p>${esc(r.evidence)}</p>${r.changes.map(c=>`<p>${esc(c)}</p>`).join('')||'<p>No changes in recorded evidence.</p>'}`;}catch(e){status(e.message);}
     });
-    dialog.querySelector('[data-recover]').onclick=async()=>{if(await ask('Replace this show with its preceding save? Output stops.'))action(async()=>{await Api.recoverShow();if(!dialog.open)dialog.showModal();},'Preceding save restored');};
-    dialog.querySelector('[data-reset]').onclick=async()=>{if(await ask(`Empty “${data.name}” only? Other shows and the Fixture Library stay. Output stops.`))action(async()=>{await Api.resetActiveShow();if(!dialog.open)dialog.showModal();},'Active show emptied; preceding save available for recovery');};
+    dialog.querySelector('[data-recover]').onclick=async()=>{if(await ask('Replace this show with its preceding save? Output stops.'))action(async()=>{await Api.recoverShow();UI.showPanel(dialog,'[data-close]');},'Preceding save restored');};
+    dialog.querySelector('[data-reset]').onclick=async()=>{if(await ask(`Empty “${data.name}” only? Other shows and the Fixture Library stay. Output stops.`))action(async()=>{await Api.resetActiveShow();UI.showPanel(dialog,'[data-close]');},'Active show emptied; preceding save available for recovery');};
   }
   return {init,open,selection,ask};
 })();

@@ -23,14 +23,26 @@ import (
 // reader, zero dependencies) against the real server over real HTTP.
 
 // wsTestClient is a minimal RFC 6455 client: handshake, then unmasked
-// server-to-client text frames.
+// server-to-client text frames. One goroutine reads frames with no read
+// deadline and queues the text messages, so a wait that ends never cuts a
+// frame in half (a read deadline expiring mid-frame would desynchronise
+// the stream for every later read).
 type wsTestClient struct {
 	conn net.Conn
 	r    *bufio.Reader
+	msgs chan string
 }
 
-func dialTestWS(t *testing.T, ts *httptest.Server) *wsTestClient {
+// hubClients is how many WebSocket connections the server's hub holds.
+func hubClients(s *Server) int {
+	s.hub.mu.Lock()
+	defer s.hub.mu.Unlock()
+	return len(s.hub.clients)
+}
+
+func dialTestWS(t *testing.T, ts *httptest.Server, srv *Server) *wsTestClient {
 	t.Helper()
+	before := hubClients(srv)
 	addr := strings.TrimPrefix(ts.URL, "http://")
 	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
 	if err != nil {
@@ -48,46 +60,102 @@ func dialTestWS(t *testing.T, ts *httptest.Server) *wsTestClient {
 	if resp.StatusCode != http.StatusSwitchingProtocols || resp.Header.Get("Sec-WebSocket-Accept") != "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=" {
 		t.Fatalf("WebSocket handshake: %d accept %q", resp.StatusCode, resp.Header.Get("Sec-WebSocket-Accept"))
 	}
-	return &wsTestClient{conn: conn, r: r}
+	conn.SetReadDeadline(time.Time{})
+	c := &wsTestClient{conn: conn, r: r, msgs: make(chan string, 256)}
+	go c.readLoop()
+	// handleWS writes the 101 answer (ws.Upgrade) BEFORE it registers the
+	// connection with the hub (s.hub.add), so a broadcast sent right after
+	// the handshake can reach the hub first and miss this client — the
+	// "WebSocket layout messages [], want exactly [...]" failure under
+	// load. Wait for the registration itself.
+	end := time.Now().Add(5 * time.Second)
+	for hubClients(srv) <= before {
+		if time.Now().After(end) {
+			t.Fatalf("the server never registered the WebSocket connection with its hub")
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	return c
+}
+
+func (c *wsTestClient) readLoop() {
+	defer close(c.msgs)
+	for {
+		m, ok := c.readFrame()
+		if !ok {
+			return
+		}
+		if m != "" {
+			c.msgs <- m
+		}
+	}
 }
 
 // next returns the next text message, or "" after the deadline.
 func (c *wsTestClient) next(deadline time.Time) string {
-	c.conn.SetReadDeadline(deadline)
-	for {
+	select {
+	case m, ok := <-c.msgs:
+		if !ok {
+			return ""
+		}
+		return m
+	case <-time.After(time.Until(deadline)):
+		return ""
+	}
+}
+
+// readFrame reads one frame: its text, "" for a non-text frame, ok false
+// when the connection is gone.
+func (c *wsTestClient) readFrame() (string, bool) {
+	{
 		var hdr [2]byte
 		if _, err := io.ReadFull(c.r, hdr[:]); err != nil {
-			return ""
+			return "", false
 		}
 		n := uint64(hdr[1] & 0x7f)
 		switch n {
 		case 126:
 			var b [2]byte
 			if _, err := io.ReadFull(c.r, b[:]); err != nil {
-				return ""
+				return "", false
 			}
 			n = uint64(binary.BigEndian.Uint16(b[:]))
 		case 127:
 			var b [8]byte
 			if _, err := io.ReadFull(c.r, b[:]); err != nil {
-				return ""
+				return "", false
 			}
 			n = binary.BigEndian.Uint64(b[:])
 		}
 		payload := make([]byte, n)
 		if _, err := io.ReadFull(c.r, payload); err != nil {
-			return ""
+			return "", false
 		}
 		if hdr[0]&0x0f == 0x1 {
-			return string(payload)
+			return string(payload), true
 		}
+		return "", true
 	}
 }
 
-// layoutMessages collects every {"type":"layout"} revision that arrives
-// within d (other message types — capture, node — are skipped).
-func (c *wsTestClient) layoutMessages(d time.Duration) []uint64 {
-	end := time.Now().Add(d)
+// layoutMessages waits up to wsFirstWait for the first {"type":"layout"}
+// message, then keeps collecting for settle, so "exactly one" still
+// catches a second, duplicate broadcast (other message types — capture,
+// node — are skipped).
+func (c *wsTestClient) layoutMessages(settle time.Duration) []uint64 {
+	return c.typedMessages("layout", settle, false)
+}
+
+// wsFirstWait bounds the wait for an expected broadcast. It is a deadline,
+// not a delay: the wait ends as soon as the message arrives.
+const wsFirstWait = 10 * time.Second
+
+// typedMessages collects the revisions of every message of type typ: it
+// waits up to wsFirstWait for the first, then collects for settle. With
+// needRevision, a message without a revision is skipped; otherwise it is
+// recorded as 0.
+func (c *wsTestClient) typedMessages(typ string, settle time.Duration, needRevision bool) []uint64 {
+	end := time.Now().Add(wsFirstWait)
 	out := make([]uint64, 0)
 	for time.Now().Before(end) {
 		m := c.next(end)
@@ -98,11 +166,16 @@ func (c *wsTestClient) layoutMessages(d time.Duration) []uint64 {
 			Type     string  `json:"type"`
 			Revision *uint64 `json:"revision"`
 		}
-		if json.Unmarshal([]byte(m), &msg) == nil && msg.Type == "layout" {
-			if msg.Revision == nil {
+		if json.Unmarshal([]byte(m), &msg) == nil && msg.Type == typ {
+			if msg.Revision != nil {
+				out = append(out, *msg.Revision)
+			} else if !needRevision {
 				out = append(out, 0)
 			} else {
-				out = append(out, *msg.Revision)
+				continue
+			}
+			if len(out) == 1 {
+				end = time.Now().Add(settle)
 			}
 		}
 	}
@@ -149,7 +222,7 @@ func TestLayoutLiveSync_RevisionBroadcastOnEveryMutation(t *testing.T) {
 	}
 	ts := httptest.NewServer(h.srv.Handler())
 	defer ts.Close()
-	ws := dialTestWS(t, ts)
+	ws := dialTestWS(t, ts, h.srv)
 
 	code, raw, g0 := c6cDo(t, ts, "GET", "/api/patch/layout", "")
 	if code != http.StatusOK || g0.Revision == nil {
@@ -201,14 +274,23 @@ func TestLayoutLiveSync_RevisionBroadcastOnEveryMutation(t *testing.T) {
 	if code, raw, _ := c6cDo(t, ts, "POST", "/api/patch/layout/layer-rename", `{"id":"no-such-layer","name":"X"}`); code == http.StatusOK {
 		t.Fatalf("renaming a missing layer was accepted: %.200s", raw)
 	}
-	if got := ws.layoutMessages(300 * time.Millisecond); len(got) != 0 {
-		t.Errorf("a refused layout action broadcast %v; it must broadcast nothing", got)
-	}
 	code, raw, g1 := c6cDo(t, ts, "GET", "/api/patch/layout", "")
 	if code != http.StatusOK || g1.Revision == nil || *g1.Revision != want {
 		t.Errorf("GET after the refusal: %.200s, want revision %d", raw, want)
 	}
 	if hdr := strings.SplitN(raw, "|", 2)[0]; hdr != strconv.FormatUint(want, 10) {
 		t.Errorf("X-Benny-Layout header %q, want %d", hdr, want)
+	}
+	// No time window can prove a broadcast never comes. The hub delivers
+	// one connection's messages in order, so the next successful mutation
+	// proves it: had the refusal broadcast anything, it would arrive
+	// before that mutation's own message.
+	code, raw, v = c6cDo(t, ts, "POST", "/api/patch/layout/layer-rename", `{"id":"`+floor+`","name":"Floor"}`)
+	want++
+	if code != http.StatusOK || v.Revision == nil || *v.Revision != want {
+		t.Errorf("layer-rename after the refusal: %d %.200s, want revision %d", code, raw, want)
+	}
+	if got := ws.layoutMessages(500 * time.Millisecond); len(got) != 1 || got[0] != want {
+		t.Errorf("after a refused layout action the WebSocket carried %v before the next mutation's [%d]; a refusal must broadcast nothing", got, want)
 	}
 }

@@ -1,0 +1,29 @@
+# Console-lite — decisions after the design hand-back
+
+**For the design agent.** Written 2026-10-09 00:46:57 -0400 (chunk I2d2), updated 2026-10-09 08:49:21 -0400. Precedence is unchanged: owner answers > `docs/plans/console-lite.md` > this design package > the older UI brief. Each line names the spec section in `component-specs.md` and how the shipped UI now differs from it. Details and dates: the plan's Owner decisions and Progress rows I1–I2d2.
+
+## Owner decisions of 2026-10-09 (I2d2)
+
+- **§12 Fixture commands — one-shot.** Reset, Lamp off and every HOLD 0.75 s Control function send their value for a fixed 5 s window, then the channel returns to its previous programmer value or the profile default; nothing is stored in the programmer or re-sent at Arm. 5 s is a chosen value: §12 asks the engine to keep a "profile-declared hold for N seconds", but no profile here declares one (GDTF `DMXChangeTimeLimit` is not imported and is 0 in every real file).
+- **§12 progress (not in the spec).** A line under the Controls status, the same in every browser (server state): `SENDING <command> to <fixtures> — … in n s`, then `DONE … the channel is back to its previous value` or `STOPPED … cut short because output stopped`. Words and icons, not colour.
+- **§12 / §1 Lease lost with "Hold last look".** A command in flight is not frozen into the held look; its channels hold what they return to.
+- **§12 Disarmed.** The confirmation dialog states "Output is not live" and offers only Cancel (the action button is hidden); HOLD buttons are disabled with the reason in words. Nothing is queued for the next Arm.
+- **§12 dialog words.** Armed, the dialog adds "Sent once: after 5 s each channel returns to its previous value. Nothing is kept in the programmer."
+- **§15 Lowlight** now matches the spec: it dims only selected fixtures that are not highlighted, so with the whole selection highlighted it dims nothing; a visible line under Lowlight says what it covers. Scope is per fixture (cells of a stepped fixture are not lowlit).
+- **§15 Locate** is NOT momentary and has no LOCATE source: it writes into the programmer (owner: no change).
+- **§15 P (phone)** keeps the C6c one-line bar — selection count, Clear…, More. Highlight, Locate and Tests are in More (spec puts them on the bar). Highlight and Lowlight toggles keep More open so Previous/Next appear in place; the open menu ends above the fader bar and bottom navigation.
+- **§12 pattern applied app-wide.** Every question in the web UI (names, yes/no, Replace / Merge / Save as new, packet detail, Show tools, Fixture library) is a non-modal dialog below the master strip: Cancel focused first (name dialogs included), Escape closes and restores focus, DISARM reachable. Exception: the Settings full-reset "Benny512 has shut down" overlay (the process has exited).
+
+## Deviations already recorded in I1–I2d
+
+- **Theme (token contract):** dark only; the light block is inert until C9.
+- **§1 / §2:** universe disclosure chips not built (I2a).
+- **§15 placement:** the action bar stays in flow above the grid, not sticky at the bottom above the group bar / navigation (I2a); the selection summary is not pinned on phones.
+- **§3:** P/T (programmer / test) tile marks and the Live preview toggle not built; lasso selects parents only, in reading order (I2b).
+- **§13 / S:** per-control unit override menu not built (one Readout selector per browser, default %); TEST and override source markers not built (I2c1).
+- **§6 T/D:** vertical fader banks not built — horizontal faders throughout (I2c1).
+- **State S Disarmed note:** unchanged words, but it now follows Arm/Disarm live instead of only when the panel redraws (I2d2).
+- **§19:** the fader bar starts collapsed unless remembered or the window is at least 1300 × 1080 (a fill-in threshold for "desktop open when height permits", I2a).
+- **§3 / §4:** Ghosts default OFF; "Not on wire" means the fixture has no addressable byte (I2b).
+- **§13:** the default readout unit is % (I2c1).
+- **§12 optional hold:** Lamp On, "Home position off" and every other Control function keep HOLD 0.75 s (60 px); only Reset and Lamp off use the dialog (I2d).

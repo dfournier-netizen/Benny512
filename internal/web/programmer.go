@@ -105,6 +105,7 @@ func (s *Server) writeProgrammerError(w http.ResponseWriter, err error) {
 	var nothing patch.ProgNothingApplied
 	var bad patch.ProgrammerRequestError
 	var recall patch.ProgRecallNothing
+	var notLive patch.ProgOutputNotLive
 	switch {
 	case errors.As(err, &recall):
 		s.writeProgrammerJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": err.Error(), "targets": recall.Result.Targets})
@@ -112,6 +113,8 @@ func (s *Server) writeProgrammerError(w http.ResponseWriter, err error) {
 		s.writeProgrammerJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 	case errors.As(err, &nothing):
 		s.writeProgrammerJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": err.Error(), "skipped": nothing.Result.Skipped})
+	case errors.As(err, &notLive):
+		s.writeProgrammerJSON(w, http.StatusPreconditionFailed, map[string]any{"error": err.Error(), "output": notLive.Output})
 	case errors.As(err, &bad):
 		s.writeProgrammerJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 	default:
@@ -368,6 +371,49 @@ func (s *Server) handleProgrammerSet(w http.ResponseWriter, r *http.Request) {
 	}
 	s.broadcastProgrammer()
 	s.writeProgrammerJSON(w, http.StatusOK, res)
+}
+
+// programmerCommandResponse is POST /api/programmer/command: the set result
+// plus how long the command stays on the wire.
+type programmerCommandResponse struct {
+	patch.ProgSetResult
+	WindowMs int64 `json:"windowMs"`
+}
+
+// handleProgrammerCommand (I2d2): a one-shot fixture command (Reset, Lamp
+// off, every hold-to-fire Control function). Same body and revision header
+// as /set; the value goes out for patch.CommandWindow and is never stored
+// in the programmer. 412 while output is not armed — nothing is queued.
+func (s *Server) handleProgrammerCommand(w http.ResponseWriter, r *http.Request) {
+	var req programmerSetRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	expected, err := programmerExpected(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	s.syncProgrammer(false)
+	res, err := s.Programmer.Command(patch.ProgSetRequest{
+		Targets: req.Targets, Attribute: req.Attribute, Function: req.Function, FunctionName: req.FunctionName,
+		FunctionIndex: req.FunctionIndex, DMX: req.DMX, Fraction: req.Fraction, Physical: req.Physical, Set: req.Set, Slot: req.Slot,
+	}, expected)
+	if err != nil {
+		s.writeProgrammerError(w, err)
+		return
+	}
+	s.broadcastCommands()
+	s.writeProgrammerJSON(w, http.StatusOK, programmerCommandResponse{ProgSetResult: res, WindowMs: patch.CommandWindow.Milliseconds()})
+}
+
+// broadcastCommands (I2d2) tells every browser that a one-shot command
+// started or ended: {"type":"commands"}. A command does not change the
+// programmer revision, so browsers re-read GET /api/programmer's
+// "commands" on this message instead.
+func (s *Server) broadcastCommands() {
+	s.hub.broadcast(wsMessage{Type: "commands", At: time.Now()})
 }
 
 type programmerClearRequest struct {

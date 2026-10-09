@@ -325,3 +325,9 @@
 @media (max-width: 767px) {
   .b5-nav--mobile .b5-nav__item { min-width: 0; padding-inline: 2px; overflow: hidden; }
 }
+/* I2d2: every in-app question is a non-modal .b5-con-floatdialog (ui.js
+   UI.ask / choose / notice); long confirm texts keep their line breaks. */
+.b5-nmdialog__body { white-space: pre-line; overflow-wrap: anywhere; }
+/* I2d2: scrolling the action bar up for the phone More menu stops below the
+   sticky app chrome, not under it. */
+.b5-con-summary { scroll-margin-top: calc(var(--b5-chrome-height, 0px) + var(--b5-space-2)); }

@@ -29,8 +29,11 @@
 // would otherwise replace the mix with white). Lowlight scales an
 // unselected fixture's virtual dimmers by scaling the additive channels.
 //
-// LOWLIGHT, only while Highlight is on: every patched fixture with no
-// target in the selection has each of its Dimmer-group channels scaled to
+// LOWLIGHT, only while Highlight is on: every fixture in the selection that
+// is not highlighted (I2d2, component-specs §15: "applies only to the
+// non-highlighted members of selection" — owner 2026-10-09: dimming
+// everything but the selection would be solo, a different feature) has
+// each of its Dimmer-group channels scaled to
 // LowlightPercent of what it would otherwise show (default 20%). The engine
 // scales the live composition (session.DMXOutputEngine.SetLowlight), so a
 // running Rig Check test is scaled as it moves; floor(v x % / 100) never
@@ -138,7 +141,8 @@ type ProgHighlightView struct {
 	Unresolved []ProgSkipped `json:"unresolved"`
 	// Lowlit: fixtures whose dimmers Lowlight scales (when both are on).
 	Lowlit int `json:"lowlit"`
-	// NoDimmer: unselected fixtures Lowlight cannot dim (no dimmer channel).
+	// NoDimmer: selected, not highlighted fixtures Lowlight cannot dim (no
+	// dimmer channel).
 	NoDimmer []string `json:"noDimmer"`
 	// Step (I2d): the index in the selection that Highlight is stepped to,
 	// or null when the whole selection is highlighted.
@@ -209,9 +213,16 @@ func (pg *Programmer) overlayLocked() (map[uint16]session.LayerFrame, map[string
 			}
 		}
 	}
+	// Lowlight scope (I2d2): selected fixtures that are not highlighted —
+	// only stepping leaves any. Fixtures outside the selection are never
+	// dimmed.
+	inSelection := map[string]bool{}
+	for _, t := range pg.selection {
+		inSelection[t.EntryID] = true
+	}
 	scale := map[uint16][]session.ScaleGroup{}
 	for _, id := range pg.order {
-		if selected[id] {
+		if selected[id] || !inSelection[id] {
 			continue
 		}
 		e, m := pg.entries[id], pg.models[id]

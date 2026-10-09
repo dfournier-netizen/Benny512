@@ -70,6 +70,7 @@ const PS = () => get('ProgrammerSync');
 const posts = p => calls.filter(c => c.method === 'POST' && c.path === p);
 const last = p => { const l = posts(p); return l[l.length - 1]; };
 const SET = '/api/programmer/set';
+const CMD = '/api/programmer/command';
 const q = sel => document.querySelector(sel);
 const qa = sel => document.querySelectorAll(sel);
 const click = (el, init) => el.dispatchEvent(new Event('click', Object.assign({ bubbles: true }, init || {})));
@@ -247,20 +248,25 @@ const settled = async () => { await sleep(120); await until('writes to settle', 
   check(qa('[data-panel="other"] input[type="range"]').length === 0, 'the Control tab has no faders at all');
   const lamp = q('[data-set="Control1#12#Lamp On"]');
   check(!!lamp && /HOLD 0\.75 s/.test(lamp.textContent), 'Lamp On is a HOLD 0.75 s button', lamp && lamp.textContent);
-  const lb = posts(SET).length;
+  // I2d2: holds send one-shot commands, only while output is live.
+  await server('POST', '/api/output/arm', { client: 'c6b' });
+  window.dispatchEvent(new CustomEvent('b5-output', { detail: { state: 'armed' } }));
+  const lb = posts(CMD).length;
   lamp.dispatchEvent(new Event('pointerdown', { bubbles: true, pointerId: 9 }));
   await sleep(400);
   lamp.dispatchEvent(new Event('pointerup', { bubbles: true, pointerId: 9 }));
   click(lamp);
   await sleep(1400);
-  check(posts(SET).length === lb, 'a 0.4 s press (and a plain click) sends nothing');
+  check(posts(CMD).length === lb, 'a 0.4 s press (and a plain click) sends nothing');
   lamp.dispatchEvent(new Event('pointerdown', { bubbles: true, pointerId: 9 }));
   await sleep(900);
   lamp.dispatchEvent(new Event('pointerup', { bubbles: true, pointerId: 9 }));
   await settled();
-  check(posts(SET).length === lb + 1 && same(last(SET).body, { targets: [T('B1')], attribute: 'Control1', functionIndex: 12, set: 'Lamp On' }), 'held 0.9 s (past the 0.75 s hold): posts {attribute:Control1, functionIndex:12, set:"Lamp On"}', last(SET).body);
-  await until('Control1 at Lamp On', () => attr('Control1').value >= 130 && attr('Control1').value <= 139);
-  check(attr('Control1').value >= 130 && attr('Control1').value <= 139, 'the server holds Control1 inside Lamp On (130-139)', attr('Control1').value);
+  check(posts(CMD).length === lb + 1 && same(last(CMD).body, { targets: [T('B1')], attribute: 'Control1', functionIndex: 12, set: 'Lamp On' }), 'held 0.9 s (past the 0.75 s hold): posts to /command {attribute:Control1, functionIndex:12, set:"Lamp On"}', last(CMD).body);
+  await PS().refresh();
+  check(!attr('Control1').touched && !(attr('Control1').value >= 130 && attr('Control1').value <= 139), 'I2d2 one-shot: the programmer does NOT hold Lamp On afterwards', attr('Control1'));
+  await server('POST', '/api/output/disarm', { client: 'c6b' });
+  window.dispatchEvent(new CustomEvent('b5-output', { detail: { state: 'disarmed' } }));
 
   // --- toolbar: clear, fan, presets, lowlight ----------------------------------------
   await select('B1', 'B2');

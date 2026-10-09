@@ -90,6 +90,46 @@ const ConsoleControls = (() => {
 
   // --- state helpers ---------------------------------------------------------
   function prog() { return ProgrammerSync.state() || null; }
+  // I2d2: fixture commands are one-shot and go out only while output is
+  // LIVE (armed); the server refuses them otherwise and nothing is queued
+  // for a later Arm. liveNow follows the strip's heartbeat (workspace.js
+  // 'b5-output') once one has arrived, else the programmer's own answer.
+  let outState;
+  function liveNow() {
+    if (outState !== undefined) return outState === 'armed';
+    const p = prog();
+    return !!(p && p.output && p.output.live);
+  }
+  const CMD_SECONDS = 5; // patch.CommandWindow; the server answers windowMs
+  const NOT_LIVE = 'Output is not live: commands are sent only while output is armed, and nothing is kept to send later.';
+  const liveSubs = new Set(); // open command dialogs redraw on a change
+  // drawOutputNote: the Controls panel's output note (State S), from the
+  // strip's heartbeat once one has arrived, else the programmer's answer.
+  function drawOutputNote() {
+    const live = liveNow();
+    const p = prog();
+    const state = outState !== undefined ? outState : (p && p.output && p.output.state);
+    document.querySelectorAll('[data-output-note]').forEach(n => {
+      n.hidden = live;
+      const t = n.querySelector('[data-output-note-text]');
+      if (t) t.textContent = state === 'disarmed' ? 'Disarmed · values retained, nothing sent' : ((outState === undefined && p && p.output && p.output.note) || 'Output is not live.');
+    });
+  }
+  function syncLive() {
+    const live = liveNow();
+    drawOutputNote();
+    document.querySelectorAll('.b5-cc-hold').forEach(b => { b.disabled = !live; });
+    document.querySelectorAll('[data-hold-why]').forEach(p => { p.hidden = live; });
+    liveSubs.forEach(fn => fn());
+  }
+  if (typeof window !== 'undefined' && window.addEventListener) {
+    window.addEventListener('b5-output', e => {
+      const s = e && e.detail ? e.detail.state : 'unknown';
+      if (s === outState) return;
+      outState = s;
+      syncLive();
+    });
+  }
   function sel() { const p = prog(); return (p && p.selection) || []; }
   function groupsOf() { const p = prog(); return (p && p.groups) || []; }
   function attrsOf(group) { const g = groupsOf().find(x => x.group === group); return g ? g.attributes : []; }
@@ -460,14 +500,15 @@ const ConsoleControls = (() => {
   // continuous press, by pointer or by Space/Enter held down.
   function holdButton(label, attrs, fire) {
     const fill = h('span', { class: 'b5-cc-hold__fill', 'aria-hidden': 'true' });
-    const b = h('button', Object.assign({ type: 'button', class: 'b5-btn b5-btn--sm b5-cc-hold', 'aria-description': 'Hold for 0.75 seconds to send' }, attrs || {}),
+    const b = h('button', Object.assign({ type: 'button', class: 'b5-btn b5-btn--sm b5-cc-hold', 'aria-description': 'Hold for 0.75 seconds to send once' }, attrs || {}),
       fill, h('span', { class: 'b5-cc-hold__word', text: 'HOLD 0.75 s · ' }), label);
+    b.disabled = !liveNow();
     let timer = null;
     const start = ev => {
       if (ev && ev.preventDefault) ev.preventDefault();
-      if (timer) return;
+      if (timer || b.disabled || !liveNow()) return;
       b.classList.add('is-holding');
-      timer = setTimeout(() => { timer = null; b.classList.remove('is-holding'); fire(); }, HOLD_MS);
+      timer = setTimeout(() => { timer = null; b.classList.remove('is-holding'); if (liveNow()) fire(); }, HOLD_MS);
     };
     const stop = () => { if (timer) { clearTimeout(timer); timer = null; } b.classList.remove('is-holding'); };
     b.addEventListener('pointerdown', start);
@@ -482,6 +523,54 @@ const ConsoleControls = (() => {
     return b;
   }
 
+  // I2d2 command progress: the server's GET /api/programmer "commands"
+  // (re-read on every {"type":"commands"} broadcast), so every browser shows
+  // the same thing, in words: SENDING with the time left while a command is
+  // on the wire, then DONE (the channels are back) or STOPPED (Disarm or a
+  // lost lease cut it short). The end line shows for CMD_END_MS in a
+  // browser that saw the command in flight; a browser that opens later is
+  // not told about an old one.
+  const CMD_END_MS = 20000;
+  const cmdSeen = new Map(); // id -> client time it ends (from remainingMs)
+  let cmdEnded = null;       // { view, until }
+  let cmdTick = null;
+  function cmdWho(c) {
+    const f = c.fixtures || [];
+    return f.length <= 3 ? f.join(', ') : f.slice(0, 2).join(', ') + ' and ' + (f.length - 2) + ' more';
+  }
+  function drawCommands() {
+    if (!els.cmd) return;
+    const p = prog();
+    const c = (p && p.commands) || { active: [], last: null };
+    const now = Date.now();
+    const active = c.active || [];
+    active.forEach(a => { if (!cmdSeen.has(a.id)) cmdSeen.set(a.id, now + a.remainingMs); });
+    const last = c.last;
+    if (last && cmdSeen.has(last.id)) {
+      cmdSeen.delete(last.id);
+      cmdEnded = { view: last, until: now + CMD_END_MS };
+    }
+    clear(els.cmd);
+    active.forEach(a => {
+      const left = Math.max(0, Math.ceil(((cmdSeen.get(a.id) || now) - now) / 1000));
+      els.cmd.appendChild(h('p', { 'data-cmd-progress': 'sending' }, ic('status-pending'), h('span', {}, h('strong', { text: 'SENDING' }),
+        ' ' + a.name + ' to ' + cmdWho(a) + ' — the channel returns to its previous value in ' + left + ' s.')));
+    });
+    if (cmdEnded && now < cmdEnded.until && !active.some(a => a.id === cmdEnded.view.id)) {
+      const e = cmdEnded.view;
+      els.cmd.appendChild(e.state === 'done'
+        ? h('p', { 'data-cmd-progress': 'done' }, ic('status-ok'), h('span', {}, h('strong', { text: 'DONE' }), ' ' + e.name + ' to ' + cmdWho(e) + ': sent once; the channel is back to its previous value.'))
+        : h('p', { 'data-cmd-progress': 'stopped' }, ic('status-warning'), h('span', {}, h('strong', { text: 'STOPPED' }), ' ' + e.name + ' to ' + cmdWho(e) + ' was cut short because output stopped. Nothing is kept to send later.')));
+    }
+    els.cmd.hidden = !els.cmd.firstChild;
+    if (cmdTick) { clearTimeout(cmdTick); cmdTick = null; }
+    if (active.length || (cmdEnded && now < cmdEnded.until)) cmdTick = setTimeout(() => { cmdTick = null; drawCommands(); }, 500);
+  }
+
+  // sentOnce: the status line after a one-shot command (I2d2).
+  function sentOnce(name) {
+    return res => 'Sent ' + name + ' once' + (res && res.windowMs ? ' for ' + res.windowMs / 1000 + ' s' : '') + '; the channel then returns to its previous value.';
+  }
   function slotLabel(s) {
     const n = s.hasWheelSlot ? 'Slot ' + s.wheelSlot : '';
     const name = s.hasSlotDetail && s.slotName ? s.slotName : s.name;
@@ -615,14 +704,20 @@ const ConsoleControls = (() => {
       what.textContent = (c.kind === 'reset'
         ? (n === 1 ? 'This fixture will reset' : 'These fixtures will reset') + ' (' + c.label + '). Their light and movement may stop while they restart.'
         : (n === 1 ? 'This lamp will go out' : 'These lamps will go out') + ' (' + c.label + '). Some lamps need time before they can restart.');
-      const p = prog();
-      outNote.textContent = p && p.output && !p.output.live
-        ? 'Output is not live: nothing reaches the fixtures now. The programmer keeps the value and sends it when output is armed.' : '';
-      go.disabled = false;
+      // I2d2: disarmed, the dialog says so and offers only Cancel — a
+      // command is never kept to fire at the next Arm.
+      const live = liveNow();
+      outNote.textContent = live ? 'Sent once: after ' + CMD_SECONDS + ' s each channel returns to its previous value. Nothing is kept in the programmer.'
+        : NOT_LIVE + ' Arm output to send this command.';
+      go.hidden = !live;
+      go.disabled = !live;
+      if (!live && document.activeElement === go) cancel.focus();
     };
+    const redraw = () => { if (!busy) draw(); };
     const close = () => {
       if (!cmdDialogs.has(c.key)) return;
       cmdDialogs.delete(c.key);
+      liveSubs.delete(redraw);
       try { if (dlg.open) dlg.close(); } catch (_) { /* closed */ }
       dlg.remove();
       // The panel may have redrawn while the dialog was open: the trigger
@@ -645,6 +740,7 @@ const ConsoleControls = (() => {
         const before = shown;
         await ProgrammerSync.refresh();
         const now = resolveCmd(c);
+        if (!liveNow()) { draw(); return; }
         if (!now || !before || now.key !== before.key) {
           draw();
           changed.textContent = 'The selection changed since this opened. Check the list and confirm again.';
@@ -653,19 +749,24 @@ const ConsoleControls = (() => {
         }
         const body = Object.assign({ targets: now.targets, attribute: c.attr, functionIndex: c.fi }, c.extra);
         try {
-          const res = await ProgrammerSync.act('set', body);
+          const res = await ProgrammerSync.act('command', body);
           close();
-          say('Sent ' + c.label + ' to ' + now.targets.length + ' target(s).');
+          say('Sent ' + c.label + ' once to ' + now.targets.length + ' target(s); the channel then returns to its previous value.');
           report(res);
         } catch (e) {
           if (/another browser/.test(e.message)) {
             draw();
             changed.textContent = 'The programmer changed while sending, so nothing was sent. Check the list and confirm again.';
+          } else if (e.status === 412) {
+            outState = 'unknown';
+            draw();
+            changed.textContent = e.message;
           } else changed.textContent = e.message;
         }
       } finally { busy = false; }
     });
     draw();
+    liveSubs.add(redraw);
     cmdDialogs.set(c.key, dlg);
     document.body.appendChild(dlg);
     dlg.show();
@@ -703,7 +804,7 @@ const ConsoleControls = (() => {
       const kind = COMMAND_FN.test(f.attribute) ? commandKind(f.attribute, f.name) : null;
       if (kind) cmds.push({ kind, key: k(i), label: f.name, attr: a.attribute, vi, fi: i, fnName: f.name, extra: { dmx: at } });
       const b = kind ? h('span', { class: 'b5-cc-seglabel b5-cc-seglabel--cmd', 'data-seg': k(i) }, words, h('span', { class: 'b5-caption', text: ' · in Fixture commands' }))
-        : COMMAND_FN.test(f.attribute) ? holdButton(f.name, { 'data-seg': k(i), title: f.name }, () => write('set', body, 'Sent ' + f.name + '.'))
+        : COMMAND_FN.test(f.attribute) ? holdButton(f.name, { 'data-seg': k(i), title: f.name }, () => write('command', body, sentOnce(f.name)))
         : h('button', { type: 'button', class: 'b5-btn b5-btn--sm b5-cc-seglabel', 'data-seg': k(i), title: f.name + ' — jumps to DMX ' + at, 'aria-pressed': 'false' }, words);
       if (!COMMAND_FN.test(f.attribute)) b.addEventListener('click', () => write('set', body));
       labels.appendChild(b);
@@ -831,7 +932,12 @@ const ConsoleControls = (() => {
       if (sh) into.appendChild(sh.el);
       functionControls(av, vi, control, into, sh ? sh.covers : null);
     });
-    if (control) body.appendChild(h('p', { class: 'b5-note', text: 'Control channels have no faders: a sweep would pass through reset and lamp ranges. Hold a button for 0.75 s to send it; Reset and Lamp off are under Fixture commands and ask first.' }));
+    if (control) {
+      body.appendChild(h('p', { class: 'b5-note', text: 'Control channels have no faders: a sweep would pass through reset and lamp ranges. Hold a button for 0.75 s to send it once; Reset and Lamp off are under Fixture commands and ask first. A command is not kept: after a few seconds the channel returns to its previous value.' }));
+      const why = h('p', { class: 'b5-note', role: 'status', 'data-hold-why': '', text: NOT_LIVE });
+      why.hidden = liveNow();
+      body.appendChild(why);
+    }
     const card = h('details', { class: 'b5-cc-attr', 'data-attr': a.attribute }, head, body);
     card.open = st.open[a.attribute] !== false;
     card.addEventListener('toggle', () => { st.open[a.attribute] = card.open; });
@@ -906,7 +1012,7 @@ const ConsoleControls = (() => {
           const kind = control ? commandKind(f.attribute, slotLabel(s)) : null;
           if (kind) { cmds.push({ kind, key: k(i) + '#' + s.wheelSlot, label: slotLabel(s), attr: a.attribute, vi, fi: i, fnName: f.name, extra: { slot: s.wheelSlot } }); return; }
           if (control) {
-            const b = holdButton(slotLabel(s), { 'data-slot': k(i) + '#' + s.wheelSlot }, () => write('set', body0, 'Sent ' + slotLabel(s) + '.'));
+            const b = holdButton(slotLabel(s), { 'data-slot': k(i) + '#' + s.wheelSlot }, () => write('command', body0, sentOnce(slotLabel(s))));
             mark(b, i, s);
             row.appendChild(b);
             return;
@@ -932,7 +1038,7 @@ const ConsoleControls = (() => {
           const kind = control ? commandKind(f.attribute, s.name) : null;
           if (kind) { cmds.push({ kind, key: k(i) + '#' + s.name, label: s.name, attr: a.attribute, vi, fi: i, fnName: f.name, extra: { set: s.name } }); return; }
           if (control) {
-            const b = holdButton(s.name, { 'data-set': k(i) + '#' + s.name }, () => write('set', body0, 'Sent ' + s.name + '.'));
+            const b = holdButton(s.name, { 'data-set': k(i) + '#' + s.name }, () => write('command', body0, sentOnce(s.name)));
             mark(b, i, s);
             row.appendChild(b);
             return;
@@ -950,7 +1056,7 @@ const ConsoleControls = (() => {
           const body0 = Object.assign({ targets: tgt(a), attribute: a.attribute }, ref, { fraction: 0 });
           const kind = commandKind(f.attribute, f.name);
           if (kind) cmds.push({ kind, key: k(i), label: f.name, attr: a.attribute, vi, fi: i, fnName: f.name, extra: { fraction: 0 } });
-          else box.appendChild(holdButton(f.name, { 'data-hold-fn': k(i) }, () => write('set', body0, 'Sent ' + f.name + '.')));
+          else box.appendChild(holdButton(f.name, { 'data-hold-fn': k(i) }, () => write('command', body0, sentOnce(f.name))));
         }
       } else if (single && !slots.length && !named.length) {
         box.appendChild(btn(f.name, { 'data-fn-button': k(i) }, () => write('set', Object.assign({ targets: tgt(a), attribute: a.attribute }, ref, { fraction: 0 }))));
@@ -1452,34 +1558,9 @@ const ConsoleControls = (() => {
   }
 
   // --- toolbar -----------------------------------------------------------------------
-  function ask(o) {
-    // In-app dialog, the same contract as console.js's (native prompt()
-    // fails in the embedded browser).
-    return new Promise(resolve => {
-      let done = false;
-      const input = o.field ? h('input', { class: 'b5-input', type: 'text', maxlength: 80, 'data-ask-input': '' }) : null;
-      if (input) input.value = o.field.value || '';
-      const err = h('p', { class: 'b5-field__error', role: 'alert' });
-      const ok = btn(o.ok || 'Confirm', { 'data-ask-ok': '' }, null, o.danger ? 'b5-btn--danger' : 'b5-btn--primary');
-      const cancel = btn('Cancel', { 'data-ask-cancel': '' });
-      const dlg = h('dialog', { class: 'b5-workspace-dialog b5-con-dialog', 'data-ask': '', 'aria-label': o.title }, h('h3', { text: o.title }),
-        o.body ? h('p', { class: 'b5-note', text: o.body }) : null,
-        input ? h('label', { class: 'b5-field' }, h('span', { class: 'b5-field__label', text: o.field.label }), input) : null, err,
-        h('div', { class: 'b5-row b5-con-dialog__actions' }, cancel, ok));
-      const finish = v => { if (done) return; done = true; try { if (dlg.open) dlg.close(); } catch (_) { /* closed */ } dlg.remove(); resolve(v); };
-      ok.addEventListener('click', () => {
-        if (!input) return finish(true);
-        const v = input.value.trim();
-        if (!v) { err.textContent = 'Type a name first.'; return; }
-        finish(v);
-      });
-      cancel.addEventListener('click', () => finish(null));
-      dlg.addEventListener('cancel', ev => { ev.preventDefault(); finish(null); });
-      document.body.appendChild(dlg);
-      dlg.showModal();
-      (input || ok).focus();
-    });
-  }
+  // I2d2: the shared non-modal dialog (ui.js UI.ask): Cancel focused,
+  // Escape cancels, focus returns, Disarm stays reachable.
+  function ask(o) { return UI.ask(o); }
   // --- §15 action-bar parts (drawn by console.js in the selection bar) -------
   // Clear scopes, the Fan form and the Lowlight level are family-aware, so
   // they are built here and handed to the action bar. done() closes the
@@ -1508,7 +1589,7 @@ const ConsoleControls = (() => {
         if (!(v >= 0 && v <= 100) || v !== Math.round(v)) return say('The lowlight level is a whole percentage from 0 to 100.', 'error');
         write('highlight', { lowlightPercent: v }, 'Lowlight level set to ' + v + ' %.').then(r => { if (r && done) done(); });
       }),
-      h('p', { class: 'b5-caption', text: 'While Highlight is ON, Lowlight dims every fixture that is not highlighted to this level.' }));
+      h('p', { class: 'b5-caption', text: 'While Highlight is ON, Lowlight dims the selected fixtures that are not highlighted (step with Previous/Next) to this level. Fixtures outside the selection are not touched.' }));
   }
 
   function toolbar(group) {
@@ -1614,22 +1695,8 @@ const ConsoleControls = (() => {
   // choose (I2d §14): a NON-modal choice dialog — Disarm stays operable —
   // resolving to the picked choice's value, or null on Cancel / Escape.
   // Cancel has focus first: a destructive choice is never the default.
-  function choose(o) {
-    return new Promise(resolve => {
-      let done = false;
-      const cancel = btn('Cancel', { 'data-choice': 'cancel' });
-      const dlg = h('dialog', { class: 'b5-con-floatdialog', 'data-choose': '', 'aria-label': o.title }, h('h3', { text: o.title }),
-        o.body ? h('p', { class: 'b5-note', text: o.body }) : null,
-        h('div', { class: 'b5-row b5-con-dialog__actions' }, cancel,
-          o.choices.map(c => btn(c.label, { 'data-choice': c.value }, () => finish(c.value), c.cls))));
-      const finish = v => { if (done) return; done = true; try { if (dlg.open) dlg.close(); } catch (_) { /* closed */ } dlg.remove(); resolve(v); };
-      cancel.addEventListener('click', () => finish(null));
-      dlg.addEventListener('keydown', ev => { if (ev.key === 'Escape') { if (ev.preventDefault) ev.preventDefault(); finish(null); } });
-      document.body.appendChild(dlg);
-      dlg.show();
-      cancel.focus();
-    });
-  }
+  // I2d2: the shared non-modal choice dialog (ui.js UI.choose).
+  function choose(o) { return UI.choose(o); }
   const PRESET_ICON = { dimmer: 'preset-dimmer', position: 'preset-position', colour: 'preset-colour', beam: 'preset-beam', focus: 'preset-focus', shaper: 'preset-shaper', other: 'preset-control' };
   function presetPanel(group) {
     const label = GROUP_LABEL[group] || group;
@@ -1711,8 +1778,11 @@ const ConsoleControls = (() => {
       return;
     }
     // State S: Disarmed is a panel note; values stay editable and retained.
-    if (p.output && !p.output.live) els.body.appendChild(h('p', { class: 'b5-cc-output', 'data-output-note': '' }, ic('status-warning'),
-      p.output.state === 'disarmed' ? 'Disarmed · values retained, nothing sent' : (p.output.note || 'Output is not live.')));
+    // I2d2: always drawn and kept true by syncLive — arming does not redraw
+    // the panel, so it used to say "Disarmed" while output was live.
+    const note = h('p', { class: 'b5-cc-output', 'data-output-note': '' }, ic('status-warning'), h('span', { 'data-output-note-text': '' }));
+    els.body.appendChild(note);
+    drawOutputNote();
     els.body.classList.toggle('is-fine', st.fine);
     if (groups.length) {
       if (!groups.some(g => g.group === st.tab)) st.tab = groups[0].group;
@@ -1827,6 +1897,7 @@ const ConsoleControls = (() => {
     needModels();
     const sig = signature();
     if (force || sig !== st.sig) { st.sig = signature(); render(); } else update();
+    drawCommands();
     // C8 hook: the MIDI encoder strip follows the open tab and the values.
     if (typeof ConsoleMIDI !== 'undefined') ConsoleMIDI.refresh();
   }
@@ -1837,10 +1908,13 @@ const ConsoleControls = (() => {
     clear(region);
     els.status = h('div', { class: 'b5-cc-status', role: 'status', 'aria-live': 'polite', 'data-cc-status': '' });
     els.body = h('div', { class: 'b5-cc-body', 'data-cc-body': '' });
+    els.cmd = h('div', { class: 'b5-cc-status b5-cc-cmdprogress', role: 'status', 'aria-live': 'polite', 'data-cc-command': '' });
+    els.cmd.hidden = true;
     region.appendChild(h('h2', { class: 'b5-board__head' },
       h('span', { class: 'b5-board__title', text: 'Controls' }),
       h('span', { class: 'b5-board__sub', text: 'live for the selection — ARM decides whether it reaches the rig' })));
     region.appendChild(els.status);
+    region.appendChild(els.cmd);
     // C8 hook: the MIDI encoder strip (console-midi.js) sits between the
     // status line and the controls.
     if (typeof ConsoleMIDI !== 'undefined') { const m = h('section', { class: 'b5-midi', 'data-midi-region': '', 'aria-label': 'MIDI encoders' }); region.appendChild(m); ConsoleMIDI.mount(m); }

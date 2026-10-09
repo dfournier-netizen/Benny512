@@ -118,6 +118,9 @@ var (
 	ErrFrameTooLong       = errors.New("session: DMX frame longer than 512 slots")
 	ErrChannelOutOfRange  = errors.New("session: DMX channel out of range (1-512)")
 	ErrUniverseOutOfRange = errors.New("session: universe is not an Art-Net Port-Address (0-32767)")
+	// ErrOutputNotLive: FireCommand while the engine is not armed. A command
+	// is never queued for a later Arm (I2d2).
+	ErrOutputNotLive = errors.New("session: output is not armed")
 )
 
 // Source is one producer of DMX inside the engine, in priority order: a
@@ -156,6 +159,14 @@ const (
 	// whole-universe override and has outranked everything the programmer
 	// does since C3 (and Identify stays above all).
 	SourceHighlight
+	// SourceCommand is a one-shot fixture command (chunk I2d2, owner
+	// decision 2026-10-09): Reset, Lamp off and every hold-to-fire Control
+	// function. FireCommand claims the command's channels for a fixed
+	// window and then releases them, so the channel returns to whatever the
+	// sources below show (the programmer's value, or the profile default).
+	// Above the programmer and Highlight so the command reaches the fixture;
+	// below raw, the operator's explicit whole-universe override.
+	SourceCommand
 	// SourceRaw is the Console's Tools raw universe levels (the Send screen
 	// until C7) and POST /api/dmx: a full 512-slot frame,
 	// zeros included, so it claims the whole universe it sends.
@@ -175,6 +186,8 @@ func (s Source) String() string {
 		return "programmer"
 	case SourceHighlight:
 		return "highlight"
+	case SourceCommand:
+		return "command"
 	case SourceRaw:
 		return "raw"
 	}
@@ -385,6 +398,12 @@ type DMXOutputEngine struct {
 	// claimed levels by VirtualDimmer.Key.
 	virtuals map[uint16][]VirtualDimmer
 	vdLevels [numSources]map[string]byte
+
+	// I2d2 one-shot commands in flight (FireCommand), by fire order, and
+	// each one's end callback.
+	commands map[uint64]map[uint16]LayerFrame
+	cmdDone  map[uint64]func(finished bool)
+	cmdSeq   uint64
 }
 
 // NewDMXOutputEngine builds a disarmed engine. Transport is required.
@@ -756,6 +775,11 @@ func (e *DMXOutputEngine) ReplaceSource(src Source, frames map[uint16]LayerFrame
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	e.replaceSourceLocked(src, frames)
+	return nil
+}
+
+func (e *DMXOutputEngine) replaceSourceLocked(src Source, frames map[uint16]LayerFrame) {
 	scope := map[uint16]bool{}
 	for raw, u := range e.shows {
 		if u.layers[src] == nil {
@@ -790,7 +814,113 @@ func (e *DMXOutputEngine) ReplaceSource(src Source, frames map[uint16]LayerFrame
 	if len(scope) > 0 {
 		e.passLocked(passMode{shows: scope})
 	}
+}
+
+// FireCommand (I2d2) puts a one-shot command on the wire: frames (show
+// universe -> the command's channels) are claimed on SourceCommand for
+// window and then released, so each channel returns to what the sources
+// below it show — nothing is left behind. It refuses with
+// ErrOutputNotLive unless the engine is armed: a command is never kept to
+// fire at a later Arm. Disarm and lease loss drop every command in flight.
+// Commands that overlap in time and channel: the later one wins. done
+// (optional) is called once, never under the engine's lock: finished true
+// when the window ran out and the channels were released, false when
+// Disarm or lease loss dropped the command first.
+func (e *DMXOutputEngine) FireCommand(frames map[uint16]LayerFrame, window time.Duration, done func(finished bool)) error {
+	for raw := range frames {
+		if raw > 0x7FFF {
+			return fmt.Errorf("%w: %d", ErrUniverseOutOfRange, raw)
+		}
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.state != StateArmed {
+		return ErrOutputNotLive
+	}
+	if e.commands == nil {
+		e.commands = map[uint64]map[uint16]LayerFrame{}
+	}
+	if e.cmdDone == nil {
+		e.cmdDone = map[uint64]func(bool){}
+	}
+	e.cmdSeq++
+	id := e.cmdSeq
+	e.commands[id] = frames
+	if done != nil {
+		e.cmdDone[id] = done
+	}
+	e.applyCommandsLocked()
+	e.cfg.Clock.AfterFunc(window, func() {
+		e.mu.Lock()
+		if _, ok := e.commands[id]; !ok {
+			e.mu.Unlock()
+			return // dropped by Disarm or lease loss
+		}
+		delete(e.commands, id)
+		cb := e.cmdDone[id]
+		delete(e.cmdDone, id)
+		e.applyCommandsLocked()
+		e.mu.Unlock()
+		if cb != nil {
+			cb(true)
+		}
+	})
 	return nil
+}
+
+// Now is the engine clock's time (the programmer's command countdown, I2d2).
+func (e *DMXOutputEngine) Now() time.Time { return e.cfg.Clock.Now() }
+
+func (e *DMXOutputEngine) applyCommandsLocked() {
+	ids := make([]uint64, 0, len(e.commands))
+	for id := range e.commands {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	merged := map[uint16]LayerFrame{}
+	for _, id := range ids {
+		for raw, f := range e.commands[id] {
+			m := merged[raw]
+			for i, o := range f.Owned {
+				if o {
+					m.Values[i], m.Owned[i] = f.Values[i], true
+				}
+			}
+			merged[raw] = m
+		}
+	}
+	e.replaceSourceLocked(SourceCommand, merged)
+}
+
+// dropCommandsLocked forgets every command in flight without a transmit
+// pass (Disarm has blacked out; leaseLostLocked has taken the command
+// channels out of the held look). Each end callback runs on its own
+// goroutine: the engine's lock is held here.
+func (e *DMXOutputEngine) dropCommandsLocked() {
+	if len(e.cmdDone) > 0 {
+		ids := make([]uint64, 0, len(e.cmdDone))
+		for id := range e.cmdDone {
+			ids = append(ids, id)
+		}
+		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+		cbs := make([]func(bool), 0, len(ids))
+		for _, id := range ids {
+			cbs = append(cbs, e.cmdDone[id])
+		}
+		go func() { // in fire order, off the engine's lock
+			for _, cb := range cbs {
+				cb(false)
+			}
+		}()
+	}
+	e.cmdDone = nil
+	e.commands = nil
+	for raw, u := range e.shows {
+		u.layers[SourceCommand] = nil
+		if u.empty() {
+			delete(e.shows, raw)
+		}
+	}
 }
 
 // PublishSource is ReplaceSource with Rig Check's push discipline (chunk
@@ -1071,12 +1201,34 @@ func (e *DMXOutputEngine) leaseLostLocked() {
 	}
 	// Hold last look: freeze exactly what is on the wire now. A stream that
 	// has been created but not yet transmitted holds the frame it was about
-	// to send.
+	// to send. I2d2: except a one-shot command in flight — it is dropped
+	// first, and each of its channels holds what it would have returned to
+	// (the sources below it), so a Reset or Lamp off is never frozen on the
+	// wire for the whole hold.
+	cmdSlots := map[uint16][DMXUniverseSize]bool{}
+	for raw, u := range e.shows {
+		if l := u.layers[SourceCommand]; l != nil {
+			cmdSlots[raw] = l.owned
+		}
+	}
+	e.dropCommandsLocked()
 	desired := e.desiredLocked()
 	e.hold = map[Stream][DMXUniverseSize]byte{}
 	for k, ws := range e.active {
 		if ws.sent {
-			e.hold[k] = ws.last
+			f := ws.last
+			if owned, ok := cmdSlots[uint16(ws.show)]; ok && ws.show >= 0 {
+				d, live := desired[k]
+				for i, o := range owned {
+					if o {
+						f[i] = 0
+						if live {
+							f[i] = d.frame[i]
+						}
+					}
+				}
+			}
+			e.hold[k] = f
 		} else if d, ok := desired[k]; ok {
 			e.hold[k] = d.frame
 		}
@@ -1129,6 +1281,7 @@ func (e *DMXOutputEngine) disarmLocked(reason string) {
 	}
 	e.active = map[Stream]*wireStream{}
 	e.hold = nil
+	e.dropCommandsLocked()
 	e.closeLinkLocked()
 	if e.timer != nil {
 		e.timer.Stop()

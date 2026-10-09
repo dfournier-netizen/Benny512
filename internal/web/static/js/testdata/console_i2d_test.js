@@ -68,6 +68,8 @@ const PS = () => get('ProgrammerSync');
 const posts = p => calls.filter(c => c.method === 'POST' && c.path === p);
 const last = p => { const l = posts(p); return l[l.length - 1]; };
 const SET = '/api/programmer/set';
+const CMD = '/api/programmer/command'; // I2d2: commands are one-shot
+const outputEvent = state => window.dispatchEvent(new CustomEvent('b5-output', { detail: { state } }));
 const q = sel => document.querySelector(sel);
 const attr = name => { const s = PS().state(); for (const g of s.groups) for (const a of g.attributes) if (a.attribute === name) return a; return null; };
 const T = n => ({ entryId: ids[n], cell: '' });
@@ -102,7 +104,7 @@ let modalCalls = 0;
 {
   const proto = Object.getPrototypeOf(document.createElement('dialog'));
   const orig = proto.showModal;
-  proto.showModal = function () { if (this.hasAttribute && (this.hasAttribute('data-cmd-dialog') || this.hasAttribute('data-choose'))) modalCalls++; return orig.call(this); };
+  proto.showModal = function () { if (this.hasAttribute && (this.hasAttribute('data-cmd-dialog') || this.hasAttribute('data-choose') || this.hasAttribute('data-ask'))) modalCalls++; return orig.call(this); };
 }
 
 (async () => {
@@ -122,7 +124,27 @@ let modalCalls = 0;
     const lampOn = q('[data-set="Control1#12#Lamp On"]');
     check(!!lampOn && /HOLD 0\.75 s/.test(lampOn.textContent), 'Lamp On keeps the 0.75 s hold (only Reset and Lamp off ask)', lampOn && lampOn.textContent);
 
-    const n0 = posts(SET).length;
+    // I2d2: disarmed, holds are disabled with the reason in words, and a
+    // command dialog says output is not live and offers only Cancel.
+    check(lampOn && lampOn.disabled, 'disarmed: the HOLD buttons are disabled');
+    check(!!q('[data-hold-why]') && !q('[data-hold-why]').hidden && /not live/.test(q('[data-hold-why]').textContent), 'and the panel says why', q('[data-hold-why]') && q('[data-hold-why]').textContent);
+    const nc0 = posts(CMD).length + posts(SET).length;
+    click(cmdBtn('Total reset'));
+    let dd = q('[data-cmd-dialog]');
+    check(!!dd && /not live/.test(dd.textContent) && /Arm output/.test(dd.textContent), 'disarmed: the Reset dialog says output is not live', dd && dd.textContent);
+    check(q('[data-cmd-confirm]').hidden && q('[data-cmd-confirm]').disabled && document.activeElement === q('[data-cmd-cancel]'), 'it offers only Cancel (the action is hidden), Cancel focused');
+    click(q('[data-cmd-confirm]'));
+    await settled();
+    check(posts(CMD).length + posts(SET).length === nc0, 'pressing the hidden action sends nothing and queues nothing');
+    // Arming while it is open brings the action back.
+    await server('POST', '/api/output/arm', { client: 'i2d2' });
+    outputEvent('armed');
+    check(!q('[data-cmd-confirm]').hidden && !q('[data-cmd-confirm]').disabled && /Sent once/.test(dd.textContent), 'Arm while open: the action appears and says it is sent once', dd.textContent);
+    check(!lampOn.disabled && q('[data-hold-why]').hidden, 'armed: the HOLD buttons are enabled and the reason is gone');
+    check(!q('[data-output-note]') || q('[data-output-note]').hidden, 'armed: the panel no longer says "Disarmed · values retained, nothing sent"', q('[data-output-note]') && q('[data-output-note]').textContent);
+    kd(dd, 'Escape');
+
+    const n0 = posts(CMD).length;
     const total = cmdBtn('Total reset');
     click(total);
     let dlg = q('[data-cmd-dialog]');
@@ -140,7 +162,7 @@ let modalCalls = 0;
     check(dialogs().length === 0, 'Escape cancels');
     check(document.activeElement && document.activeElement.getAttribute('data-cmd') === total.getAttribute('data-cmd'), 'focus returns to the trigger');
     await settled();
-    check(posts(SET).length === n0, 'nothing was sent by opening, re-pressing or cancelling');
+    check(posts(CMD).length === n0, 'nothing was sent by opening, re-pressing or cancelling');
 
     // The selection changes while the dialog is open: confirming re-checks,
     // redraws and asks again instead of sending.
@@ -149,20 +171,34 @@ let modalCalls = 0;
     await server('POST', '/api/programmer/select', { action: 'set', targets: [T('B1')] });
     click(q('[data-cmd-confirm]'));
     await until('the dialog to notice the change', () => /changed/.test((q('[data-cmd-changed]') || {}).textContent || ''));
-    check(posts(SET).length === n0, 'a changed selection is not sent on the first confirm');
+    check(posts(CMD).length === n0, 'a changed selection is not sent on the first confirm');
     const t2 = q('#' + q('[data-cmd-dialog]').getAttribute('aria-labelledby'));
     check(t2.textContent === 'Reset 1 fixture?', 'the dialog now says "Reset 1 fixture?"', t2.textContent);
     click(q('[data-cmd-confirm]'));
-    await until('the reset to be sent', () => posts(SET).length === n0 + 1);
+    await until('the reset to be sent', () => posts(CMD).length === n0 + 1);
     const fi = attr('Control1').variants[0].functions.findIndex(f => f.attribute === 'FixtureGlobalReset');
-    check(same(last(SET).body, { targets: [T('B1')], attribute: 'Control1', functionIndex: fi, set: 'Total reset' }), 'the second confirm sends Total reset to exactly the listed target', last(SET).body);
+    check(same(last(CMD).body, { targets: [T('B1')], attribute: 'Control1', functionIndex: fi, set: 'Total reset' }), 'the second confirm sends Total reset to exactly the listed target', last(CMD).body);
+    await until('the dialog to close after the answer', () => dialogs().length === 0);
     check(dialogs().length === 0, 'and closes');
-    await until('Control1 at Total reset', () => { const c = attr('Control1').channels.find(x => x.entryId === ids.B1); return c && c.value >= 200 && c.value <= 209; });
+    await settled();
+    await PS().refresh();
+    const c1 = attr('Control1').channels.find(x => x.entryId === ids.B1);
+    check(c1 && !(c1.value >= 200 && c1.value <= 209) && !c1.touched, 'one-shot: the programmer does not hold the Reset value', c1);
+    check(posts(SET).filter(p => p.body && p.body.attribute === 'Control1').length === 0, 'no command went through /set (it would persist)');
+    // I2d2: the command's progress is shown in words, from the server.
+    const prog = () => (q('[data-cc-command]') || {}).textContent || '';
+    await until('the in-progress line', () => q('[data-cmd-progress="sending"]'));
+    check(/SENDING Total reset to B1 — the channel returns to its previous value in [1-5] s\./.test(prog()) && !q('[data-cc-command]').hidden,
+      'in progress: "SENDING Total reset to B1 — … returns to its previous value in n s."', prog());
+    await server('POST', '/__test/advance?ms=5100'); // the engine's (fake) clock runs the window out
+    await until('the Reset window to end', () => q('[data-cmd-progress="done"]'));
+    check(/DONE Total reset to B1: sent once; the channel is back to its previous value\./.test(prog()) && !q('[data-cmd-progress="sending"]'),
+      'when the window ends: "DONE Total reset to B1: sent once; the channel is back …"', prog());
 
     // A held key auto-repeating onto the action is not a decision.
     await select('B1', 'B2');
     await tab('other');
-    const n1 = posts(SET).length;
+    const n1 = posts(CMD).length;
     click(cmdBtn('Lamp Off'));
     dlg = q('[data-cmd-dialog]');
     const t3 = q('#' + dlg.getAttribute('aria-labelledby'));
@@ -170,11 +206,36 @@ let modalCalls = 0;
     kd(q('[data-cmd-confirm]'), 'Enter', { repeat: true });
     click(q('[data-cmd-confirm]'));
     await settled();
-    check(posts(SET).length === n1, 'an auto-repeated Enter does not confirm');
+    check(posts(CMD).length === n1, 'an auto-repeated Enter does not confirm');
     kd(q('[data-cmd-confirm]'), 'Enter');
     click(q('[data-cmd-confirm]'));
-    await until('Lamp Off to be sent', () => posts(SET).length === n1 + 1);
-    check(last(SET).body.set === 'Lamp Off' && last(SET).body.targets.length === 2, 'a fresh Enter confirms: Lamp Off to both', last(SET).body);
+    await until('Lamp Off to be sent', () => posts(CMD).length === n1 + 1);
+    check(last(CMD).body.set === 'Lamp Off' && last(CMD).body.targets.length === 2, 'a fresh Enter confirms: Lamp Off to both', last(CMD).body);
+
+    // A completed hold is one-shot too (I2d2).
+    await settled();
+    const nh = posts(CMD).length;
+    const lo = q('[data-set="Control1#12#Lamp On"]');
+    lo.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    await until('the hold to fire', () => posts(CMD).length === nh + 1, 2000);
+    lo.dispatchEvent(new Event('pointerup', { bubbles: true }));
+    check(last(CMD).body.set === 'Lamp On', 'a completed 0.75 s hold posts Lamp On to /command', last(CMD).body);
+    await settled();
+    await PS().refresh();
+    check(!attr('Control1').channels.some(x => x.touched), 'and the programmer holds no Control1 value afterwards', attr('Control1').channels);
+    await server('POST', '/__test/advance?ms=5100'); // Lamp Off and Lamp On run out
+    await until('every command to end', () => !q('[data-cmd-progress="sending"]'));
+    // Another browser's command shows here too (server state), and Disarm
+    // inside its window says STOPPED.
+    const other = await server('POST', CMD, { targets: [T('B2')], attribute: 'Control1', set: 'Lamp Off' });
+    check(other.status === 200, 'a command from another browser is accepted', other);
+    await until('the other browser\'s command to show', () => /SENDING Lamp Off to B2/.test(prog()));
+    await server('POST', '/api/output/disarm', { client: 'i2d2' });
+    outputEvent('disarmed');
+    check(!!q('[data-output-note]') && !q('[data-output-note]').hidden && /Disarmed · values retained, nothing sent/.test(q('[data-output-note]').textContent), 'disarmed again: the panel note is back at once', q('[data-output-note]') && q('[data-output-note]').outerHTML);
+    await until('Disarm to stop it', () => q('[data-cmd-progress="stopped"]') && !/SENDING/.test(prog()));
+    check(/STOPPED Lamp Off to B2 was cut short because output stopped\. Nothing is kept to send later\./.test(prog()),
+      'Disarm inside the window: "STOPPED Lamp Off to B2 was cut short …"', prog());
   });
 
   // --- §15 action bar: Highlight Previous/Next, Clear scopes, Fan shapes -------------
@@ -260,6 +321,17 @@ let modalCalls = 0;
       q('[data-ask-input]').value = name;
       click(q('[data-ask-ok]'));
     };
+    // I2d2: the store-preset name dialog is the I2d non-modal pattern too.
+    const opener = q('[data-preset-store="colour"]');
+    opener.focus();
+    click(opener);
+    await until('the preset name dialog', () => q('[data-ask-input]'));
+    check(modalCalls === 0, 'the store-preset name dialog is not modal (Disarm stays reachable)');
+    check(document.activeElement === q('[data-ask-cancel]'), 'Cancel has focus first in the name dialog');
+    kd(q('[data-ask]'), 'Escape');
+    check(!q('[data-ask]'), 'Escape closes the name dialog');
+    check(document.activeElement === opener, 'and focus goes back to Store preset');
+    check(posts('/api/programmer/presets/store').length === 0, 'nothing stored on Escape');
     await storePreset('Warm');
     await until('the preset to be stored', () => posts('/api/programmer/presets/store').length === 1);
     check(same(last('/api/programmer/presets/store').body, { name: 'Warm', family: 'colour' }), 'Store posts {name, family}');
@@ -299,6 +371,13 @@ let modalCalls = 0;
       q('[data-ask-input]').value = name;
       click(q('[data-ask-ok]'));
     };
+    const sg = q('[data-store-group]');
+    sg.focus();
+    click(sg);
+    await until('the group name dialog', () => q('[data-ask]'));
+    check(modalCalls === 0 && document.activeElement === q('[data-ask-cancel]'), 'Store group… asks non-modally with Cancel focused');
+    kd(q('[data-ask]'), 'Escape');
+    check(!q('[data-ask]') && document.activeElement === q('[data-store-group]'), 'Escape closes it and focus is back on Store group…');
     await storeGroup('Front');
     await until('the group', () => posts('/api/programmer/groups/store').length === 1);
     await until('the stored group in the view', () => (PS().state().storedGroups || []).length === 1);
@@ -310,6 +389,79 @@ let modalCalls = 0;
     await until('the merge', () => posts('/api/programmer/groups/merge').length === 1);
     await until('three members', () => ((PS().state().storedGroups || [])[0] || {}).members && PS().state().storedGroups[0].members.length === 3);
     check(same(PS().state().storedGroups[0].members.map(m => m.entryId), [ids.B1, ids.B2, ids.L1]), 'Merge adds the selection after the group\'s members');
+  });
+
+  // --- I2d2: Lowlight scope words; the phone bar's More menu ------------------------
+  await sect('lowlight scope', async () => {
+    await select('B1', 'B2', 'L1');
+    await PS().act('highlight', { highlight: true, lowlight: true });
+    await until('the lowlight scope words', () => q('[data-lowlight-scope]'));
+    check(/Dims nothing now: the whole selection is highlighted/.test(q('[data-lowlight-scope]').textContent), 'whole selection highlighted: Lowlight says it dims nothing (never the unselected rig)', q('[data-lowlight-scope]').textContent);
+    await PS().act('highlight', { step: 'next' });
+    await until('the scope words to follow the step', () => /Dims 2 selected fixtures not highlighted/.test((q('[data-lowlight-scope]') || {}).textContent || ''));
+    check(true, 'stepped: "Dims 2 selected fixtures not highlighted."');
+  });
+  await PS().act('highlight', { highlight: false, lowlight: false });
+  await sect('phone More', async () => {
+    // Phone: Highlight, Locate and Tests live under More (C6c contract).
+    ctx.matchMedia = () => ({ matches: true });
+    await until('Highlight OFF on the bar', () => q('[data-highlight]') && /OFF/.test(q('[data-highlight]').textContent));
+    click(q('[data-summary-more-toggle]'));
+    await until('More open', () => q('[data-summary-more]').classList.contains('is-open'));
+    const hb = q('[data-summary-more] [data-highlight]');
+    hb.focus();
+    click(hb);
+    await until('Highlight ON', () => PS().state().highlight.on && q('[data-summary-more] [data-hl-next]'));
+    check(q('[data-summary-more]').classList.contains('is-open'), 'turning Highlight ON inside More keeps More open, so Previous/Next are right there');
+    check(document.activeElement && document.activeElement.hasAttribute('data-highlight'), 'focus stays on Highlight after the redraw');
+    const nx = q('[data-summary-more] [data-hl-next]');
+    nx.focus();
+    click(nx);
+    await until('step 1', () => PS().state().highlight.step === 0);
+    click(q('[data-summary-more] [data-hl-next]'));
+    await until('step 2', () => PS().state().highlight.step === 1);
+    check(q('[data-summary-more]').classList.contains('is-open') && document.activeElement && document.activeElement.hasAttribute('data-hl-next'), 'Next steps through the selection from More, repeatedly, with focus kept on Next');
+    const loc = q('[data-summary-more] [data-locate]');
+    loc.focus();
+    click(loc);
+    await until('More to close after Locate', () => !q('[data-summary-more]').classList.contains('is-open'));
+    await PS().act('highlight', { step: 'previous' }); // a broadcast redraws the bar
+    await until('the bar redraw', () => PS().state().highlight.step === 0);
+    await sleep(200);
+    check(document.activeElement && document.activeElement.hasAttribute('data-summary-more-toggle'), 'a tool picked from More: after the redraw focus lands on the More toggle, not lost', document.activeElement && document.activeElement.outerHTML);
+    // The open menu ends 8 px above the topmost of the fader bar and the
+    // bottom navigation (390 x 844 geometry, measured in Chromium), so Locate,
+    // Tests and Store group are never under them; it follows the fader bar
+    // collapsed or open, on every redraw (Previous/Next stepping included).
+    ctx.innerHeight = 844;
+    const rect = (el, top, height) => { el.getBoundingClientRect = () => ({ x: 0, y: top, top, left: 0, right: 390, bottom: top + height, width: 390, height }); };
+    const menu = () => q('[data-summary-more]');
+    const fadersEl = q('#faderBar'), navEl = q('#tabsMobile');
+    await PS().act('highlight', { highlight: false });
+    await until('Highlight OFF before', () => !PS().state().highlight.on && !q('[data-hl-next]'));
+    rect(navEl, 780, 64);
+    rect(fadersEl, 729, 51); // collapsed
+    const proto = Object.getPrototypeOf(menu());
+    const origRect = proto.getBoundingClientRect;
+    proto.getBoundingClientRect = function () { return this.hasAttribute && this.hasAttribute('data-summary-more') ? { x: 0, y: 264, top: 264, left: 0, right: 390, bottom: 900, width: 200, height: 636 } : origRect.call(this); };
+    click(q('[data-summary-more-toggle]'));
+    await until('More open again', () => menu().classList.contains('is-open'));
+    check(menu().style.maxHeight === '457px', 'phone More, fader bar collapsed: the menu ends 8 px above it (max-height 457px)', menu().style.maxHeight);
+    rect(fadersEl, 600, 180); // the operator opens the fader bar
+    await PS().act('highlight', { highlight: true });
+    await until('Highlight ON in More', () => PS().state().highlight.on && q('[data-summary-more] [data-hl-next]'));
+    await sleep(200);
+    check(menu().classList.contains('is-open') && menu().style.maxHeight === '328px', 'fader bar open: after the redraw the menu ends above it (max-height 328px)', menu().style.maxHeight);
+    click(q('[data-summary-more] [data-hl-next]'));
+    await until('a step from More', () => typeof PS().state().highlight.step === 'number');
+    await sleep(200);
+    check(menu().classList.contains('is-open') && menu().style.maxHeight === '328px' && !!q('[data-summary-more] [data-hl-next]'), 'stepping with Next keeps More open and still fitted', menu().style.maxHeight);
+    rect(fadersEl, 729, 51);
+    proto.getBoundingClientRect = origRect;
+    click(q('[data-summary-more-toggle]'));
+    ctx.innerHeight = undefined;
+    await PS().act('highlight', { highlight: false });
+    ctx.matchMedia = undefined;
   });
 
   check(thrown.length === 0, 'nothing threw during the whole run', thrown);
