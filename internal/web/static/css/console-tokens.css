@@ -4,8 +4,11 @@
    base file's roles, repairing muted-text contrast, the translucent focus
    ring and the accent (theme-contract.md). Components use these roles;
    palette ramps stay private to benny512-tokens.css.
-   The [data-theme="light"] block is inert until C9: index.html pins
-   data-theme="dark" and no script changes it. */
+   C9: the [data-theme="light"] block is the Daylight theme. js/theme.js
+   sets data-theme on <html> from this browser's choice before first paint;
+   a custom theme sets the opaque roles below as inline custom properties
+   on <html> over its base block. Every role is defined in BOTH blocks
+   (console_c9_test.go). */
 :root, [data-theme="dark"] {
   --b5-color-bg-canvas: #100e0b; /* 4.5:1 Background: measured against text; tone borders checked separately */
   --b5-color-bg-surface: #1c1815; /* 4.5:1 Background: measured against text; tone borders checked separately */
@@ -76,6 +79,9 @@
   --b5-color-info-border: #aac3ec; /* 3:1 minimum; info tone outline */
   --b5-color-info-fill: #1a2233; /* 4.5:1 Background: info tone tint; measured against text */
   --b5-color-scrim: rgba(0, 0, 0, 0.6); /* exempt: modal backdrop; dialogs sit on their own opaque surface */
+  /* C9: the stale-row hatch, from roles so a theme re-colours it (was the
+     base file's neutral-800/700, the same two colours as raised/overlay). */
+  --b5-color-bg-stale: repeating-linear-gradient(135deg, var(--b5-color-bg-surface-raised) 0 6px, var(--b5-color-bg-surface-overlay) 6px 12px);
   --b5-color-simulated-bg: repeating-linear-gradient(135deg, var(--b5-color-bg-surface) 0 6px, var(--b5-color-bg-surface-overlay) 6px 12px);
   --b5-shadow-focus: 0 0 0 3px var(--b5-color-border-focus);
 }
@@ -148,6 +154,9 @@
   --b5-color-info-border: #2a4d85; /* 3:1 minimum; info tone outline */
   --b5-color-info-fill: #dfe6f3; /* 4.5:1 Background: info tone tint; measured against text */
   --b5-color-scrim: rgba(28, 24, 21, 0.45); /* exempt: modal backdrop */
+  /* C9: stale-row hatch from roles (was the base file's #efece4 / #e5e1d7);
+     both endpoints are contract surfaces. */
+  --b5-color-bg-stale: repeating-linear-gradient(135deg, var(--b5-color-bg-surface-raised) 0 6px, var(--b5-color-bg-inset) 6px 12px);
   --b5-color-simulated-bg: repeating-linear-gradient(135deg, var(--b5-color-bg-surface) 0 6px, var(--b5-color-bg-surface-overlay) 6px 12px);
   --b5-shadow-focus: 0 0 0 3px var(--b5-color-border-focus);
 }

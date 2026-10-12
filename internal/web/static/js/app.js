@@ -47,6 +47,10 @@
     if (currentTab === 'console' && name !== 'console') {
       ConsoleScreen.onLeaveScreen();
     }
+    // C9: leaving Settings ends a custom-theme preview (the draft stays).
+    if (currentTab === 'settings' && name !== 'settings' && typeof ThemeSettings !== 'undefined') {
+      ThemeSettings.onLeaveScreen();
+    }
     tabs.forEach(t => t.classList.toggle('is-active', t.dataset.tab === name));
     screens.forEach(s => s.classList.toggle('active', s.id === 'screen-' + name));
     // Rig Walk's own fixed b5-walk-bar and the phone bottom tab bar both
@@ -132,6 +136,7 @@
     AnalyzerScreen.init();
     WalkScreen.init();
     SettingsScreen.init();
+    if (typeof ThemeSettings !== 'undefined') ThemeSettings.init(); // test harnesses that load app.js without it
     Workspace.init();
     ConsoleScreen.init();
     Faders.init();

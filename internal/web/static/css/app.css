@@ -540,3 +540,29 @@ td[data-label="Input enabled"] .b5-checkbox { margin-right: var(--b5-space-2); }
   gap: 6px;
   min-height: 32px;
 }
+
+/* C9 — Settings › Theme: the custom theme editor. Colours are roles only. */
+.b5-theme-actions { flex-wrap: wrap; }
+.b5-theme-editor { display: flex; flex-direction: column; gap: var(--b5-space-3); margin-top: var(--b5-space-3); padding: var(--b5-space-3);
+  border: var(--b5-border-width-thin) solid var(--b5-color-border-control); border-radius: var(--b5-radius-md); background: var(--b5-color-bg-surface-raised); }
+.b5-theme-editor[hidden] { display: none; }
+/* The verdict box keeps this browser's theme (theme-settings.js pins the
+   roles on it), so Revert stays readable whatever a draft does. */
+.b5-theme-verdict { padding: var(--b5-space-3);
+  color: var(--b5-color-text-primary); background: var(--b5-color-bg-surface); border: var(--b5-size-state-border) solid var(--b5-color-border-control); }
+/* Pinned under the chrome where there is room; on a phone it would cover
+   the rows being edited, so it scrolls with them (Revert is at its top). */
+@media (min-width: 768px) {
+  .b5-theme-verdict { position: sticky; top: var(--b5-chrome-height, 0px); z-index: var(--b5-z-sticky); }
+}
+.b5-theme-verdict.is-fail { border-style: dashed; border-color: var(--b5-color-warn-border); }
+.b5-theme-verdict__word { display: flex; align-items: center; gap: var(--b5-space-2); margin: 0; }
+.b5-theme-failures { margin: var(--b5-space-2) 0; padding-left: 1.2em; max-height: 11em; overflow: auto; color: var(--b5-color-text-primary); }
+.b5-theme-failures:empty { display: none; }
+.b5-theme-group > summary { min-height: var(--b5-size-touch-min); padding: var(--b5-space-3) 0; cursor: pointer; font-weight: var(--b5-font-weight-bold); }
+.b5-theme-row { display: grid; grid-template-columns: minmax(0, 1fr) var(--b5-size-touch-min) 7.5em; gap: var(--b5-space-2); align-items: center; padding: var(--b5-space-1) 0;
+  border-bottom: var(--b5-border-width-thin) solid var(--b5-color-border-subtle); }
+.b5-theme-row input[type="color"] { width: var(--b5-size-touch-min); height: var(--b5-size-touch-min); padding: 2px; border: var(--b5-border-width-thin) solid var(--b5-color-border-control); border-radius: var(--b5-radius-sm); background: var(--b5-color-bg-surface); }
+.b5-theme-row__fail { grid-column: 1 / -1; color: var(--b5-color-text-warning); font-size: var(--b5-font-size-xs); }
+.b5-theme-row__fail:empty { display: none; }
+.b5-theme-row.is-fail .b5-theme-row__label { font-weight: var(--b5-font-weight-bold); }

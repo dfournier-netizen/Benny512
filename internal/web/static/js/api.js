@@ -41,6 +41,7 @@ const Api = (() => {
       const msg = (data && data.error) ? data.error : ('HTTP ' + res.status);
       const err = new Error(msg);
       err.status = res.status; // G3: faders.js retries a 409 once
+      err.data = data; // C9: a refused theme carries its failures
       throw err;
     }
     return data;
@@ -217,6 +218,12 @@ const Api = (() => {
     },
     getSettings: () => req('GET', '/api/settings'),
     postSettings: (s) => req('POST', '/api/settings', s),
+    // C9 custom themes: station settings, validated by the server on every
+    // save (internal/web/theme.go). saveTheme answers 422 with {error,
+    // failures} when the theme does not pass the contract.
+    getThemes: () => req('GET', '/api/themes'),
+    saveTheme: (t) => req('POST', '/api/themes', t),
+    deleteTheme: (id) => req('DELETE', '/api/themes/' + encodeURIComponent(id)),
     // getSACNConfig/postSACNConfig: the persisted sACN configuration
     // (internal/web/sacn.go). The body is exactly {startUniverse, priority,
     // unicastTo} in BOTH directions — the server's decoder sets
