@@ -1,0 +1,38 @@
+[
+  {
+    "cancelFocused": true,
+    "copy": "MH 01 and MH 02 will reset. Their light and movement may stop while they restart. Output is not live. Nothing queued for Arm.",
+    "holdDisabled": true,
+    "name": "disarmed-command",
+    "sendHidden": true,
+    "stopEnabled": true
+  },
+  {
+    "closed": true,
+    "focus": "Reset…",
+    "name": "escape-restore"
+  },
+  {
+    "cancelFocused": true,
+    "copy": "MH 01 and MH 02 will reset. Their light and movement may stop while they restart. Sent once: after 1 s each channel returns to its previous value. Nothing is kept in the programmer.",
+    "name": "armed-command",
+    "sendVisible": true
+  },
+  {
+    "copy": "Output is not live. Nothing queued for Arm.",
+    "name": "disarm-open-dialog",
+    "sendHidden": true
+  },
+  {
+    "footerTop": 754,
+    "highlightVisible": true,
+    "menuBottom": 742,
+    "name": "phone-more",
+    "open": true
+  },
+  {
+    "closed": true,
+    "moreFocused": true,
+    "name": "tests-escape"
+  }
+]

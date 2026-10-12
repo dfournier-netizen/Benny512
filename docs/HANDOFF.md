@@ -2,11 +2,11 @@
 
 **Last updated:** 2026-10-09 23:22:56 -0400
 
-## Current delta — Console-lite design package (`codex/console-lite-design`)
+## Current delta — Console-lite design refresh (`codex/console-lite-design-refresh`)
 
-Design artifacts are in `docs/design/console-lite/`; start with `README.md` and the local `index.html` review. Delivered 72 new icons, eight fixture glyphs, component/keyboard/ARIA specifications, semantic dark/light tokens, 44 responsive mockups (11 scenes × 4 sizes), computed contrast and browser evidence. The package follows the newer shared-browser lease, hold-last-look and group-fader decisions over the stale brief. Owner answers in this session: touch lasso toggle, highlight stepping, 10× fine mode, family/all clear, Beam/Gobo and Control names, absolute mixed-value movement, and **confirmation dialogs for Lamp off and Reset** (supersedes 0.75 s hold for these two commands when integrated).
+Design artifacts in `docs/design/console-lite/` now follow the owner addendum through I2f. Start with `README.md`, `revision-notes.md` and local `index.html`. Updated specs and 18 mockup scenes cover one-second commands, disarmed cancellation/shared progress, per-cell Lowlight/virtual dimmers, persistent Locate, retained Store Control preset, phone count/Clear/More above grid, test-only white, opened cell masters, masked-test explanations and transient Isolate, stopped sequence editor and MIDI. Universe chips, P/T tile marks, Live preview, parameter TEST/override tags, per-control unit menus and vertical banks remain clearly deferred; production is dark only, C9 separate. The two I2e test questions are resolved; preserve the plan's open I2f legacy-Isolate, white-release/fade and masked-note refresh follow-ups.
 
-Validation: 1,240 contrast pairs pass; all new JS syntax checks pass; 132 browser layout checks across dark/light/greyscale-dim pass. The design is not wired into production. Go gates and a disposable demo build were unavailable because Go/gofmt are absent; physical device minimum-brightness and screen-reader validation remain outstanding. `verification.md` records the limits and a brighter current-sequence-row exception. C9 integration remains a separate change.
+Validation: 270 refreshed browser layout checks (18 scenes × 5 sizes including 360 px × dark/light/greyscale-dim) pass; command/More focus checks pass; package Node syntax and diff checks pass. Original D0 evidence is marked historical; refresh files use `evidence/refresh-*`. Palette and SVG assets remain unchanged, preserving 1,240 measured contrast pairs. Production separately integrated I1–I2f; this change touches design artifacts and handoff notes only. Go gates/demo build remain unavailable without Go/gofmt; physical brightness/glove and screen-reader checks remain outstanding.
 
 ## Current delta — Console-lite (branch `feat/console-lite`)
 

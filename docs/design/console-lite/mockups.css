@@ -311,6 +311,41 @@ dialog[open]{position:absolute;inset:220px 16px auto;margin:0 auto;z-index:30;ma
 
 button { min-width:var(--b5-size-touch-min); }
 
+/* I2f refresh: selection actions belong in flow above the grid. */
+.selection-action { flex:none; position:static; flex-wrap:wrap; padding:8px 0; }
+.selection-count { border:1px solid var(--b5-color-border-control); border-radius:8px; padding:6px 10px; line-height:1.4; }
+@media (min-width:768px) { .selection-count { display:none; } }
+.highlight-state { display:block; font-size:13px; }
+.highlight-state[hidden] { display:none; }
+.command-progress,.masked-test { border-left:3px dashed var(--b5-color-border-control); padding:8px 12px; }
+.command-hold { min-height:60px; }
+.transport button { min-height:60px; }
+.sequence li.current { background:var(--b5-color-bg-surface); }
+.isolate-card { border:2px solid var(--b5-color-warn-border); padding:12px; margin:12px 0; }
+button:disabled { cursor:default; border-style:dashed; }
+.console dialog { max-height:calc(100dvh - 340px); overflow:auto; }
+@media (min-width:768px) and (max-width:899px) {
+ .selection { grid-template-rows:repeat(6,auto); align-content:start; }
+ .selection .section-head { grid-row:1; grid-column:1; }
+ .selection .layers { grid-row:2; grid-column:1; min-height:44px; }
+ .selection .selection-tools { grid-row:3; grid-column:1; align-items:start; }
+ .selection .selection-action { grid-row:4; grid-column:1; overflow:visible; }
+ .selection .selection-summary { grid-row:5; grid-column:1; }
+ .selection .group-rail { grid-row:6; grid-column:1; min-height:44px; }
+ .selection .rig { grid-column:2; grid-row:1/7; min-height:310px; align-self:start; }
+}
+@media (pointer:fine) { .b5-param input[type=range] { height:28px; min-height:28px; } }
+@media (pointer:coarse) { .b5-param input[type=range] { height:44px; min-height:44px; } }
+@media (max-width:767px) {
+ .console.is-armed .masthead > .caption { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); }
+ .selection-action .row { flex-wrap:nowrap; }
+ .selection-action [data-highlight],.selection-action [data-local] { display:none; }
+ .selection-action { justify-content:space-between; }
+ .phone-switch > span { display:none; }
+ .selection-action .selection-count { min-width:0; font-size:13px; }
+ .selection-action button .icon { display:none; }
+}
+
 
 .empty-state .icon { width:18px; height:18px; }
 @media (min-width:1300px) {

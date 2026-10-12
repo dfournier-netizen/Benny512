@@ -1,5 +1,7 @@
 # Colour-theme contract for C9
 
+Production currently ships dark only (I1–I2f). Light/custom examples here are design preparation for C9, not available production settings.
+
 `console-tokens.css` is one importable block after the existing token file. It defines dark/light semantic values and measurement additions. Existing low-contrast muted text, translucent focus ring and light accent are intentionally overridden. Component CSS uses roles; palette ramps remain private to the base token file. SVG is theme-independent `currentColor` with no style elements or descendant IDs.
 
 ## Pair validation
