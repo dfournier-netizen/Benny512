@@ -132,6 +132,25 @@ const sect = async (name, fn) => { try { await fn(); } catch (e) { check(false, 
     check(/Every pair passes/.test(verdict()), 'which passes', verdict());
   });
 
+  // C9c (owner, 2026-10-09 23:12): Daylight previews at full brightness.
+  await sect('Daylight preview intensity', async () => {
+    get('B5Theme').choose('light');
+    click(q('[data-theme-new]'));
+    await until('the editor', () => q('#themeBase') && q('#themeBase').value === 'light');
+    check(q('#themePreview').value === '1' && q('#themePreview').max === '1', 'a new theme on Daylight starts at full preview brightness (1), allowed up to 1', q('#themePreview').value + ' max ' + q('#themePreview').max);
+    input(q('#themeName'), 'Sun');
+    check(!failList().length && !q('[data-theme-save]').disabled, 'and passes', failList().join(' | '));
+    check(/Default 1\./.test(q('[data-theme-preview-hint]').textContent), 'the hint gives Daylight\'s default 1', q('[data-theme-preview-hint]').textContent);
+    input(q('#themeBase'), 'dark', 'change');
+    check(q('#themePreview').value === '0.12' && q('#themePreview').max === '0.15', 'switching the base to Dark goes back to 0.12, at most 0.15', q('#themePreview').value + ' max ' + q('#themePreview').max);
+    input(q('#themeBase'), 'light', 'change');
+    check(q('#themePreview').value === '1', 'and back to Daylight, 1 again', q('#themePreview').value);
+    get('B5Theme').choose('dark');
+    click(q('[data-theme-new]'));
+    await until('a Dark draft', () => q('#themeBase').value === 'dark');
+    check(q('#themePreview').value === '0.12', 'a new theme on Dark still starts at 0.12');
+  });
+
   await sect('leaving Settings ends the preview', async () => {
     input(q('[data-role="accent-border"]'), '#86d6d0');
     check(rootProp('--b5-color-accent-border') === '#86d6d0', 'a colour picked with the colour well previews');

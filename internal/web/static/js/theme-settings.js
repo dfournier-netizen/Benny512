@@ -189,7 +189,9 @@ const ThemeSettings = (() => {
       const b = $('themeBase').value;
       draft.base = b;
       draft.colors = Object.assign({}, info.bases[b]);
-      if (b === 'dark' && !(draft.preview <= info.previewMax.dark)) draft.preview = info.preview;
+      // C9c: the preview intensity starts again too — 0.12 on Dark (dark-venue
+      // limit), full brightness on Daylight.
+      draft.preview = info.preview[b];
       fillEditor();
       update(true);
     });
@@ -220,8 +222,8 @@ const ThemeSettings = (() => {
     $('themePreview').value = String(draft.preview);
     $('themePreview').max = String(info.previewMax[draft.base]);
     ed.querySelector('[data-theme-preview-hint]').textContent = draft.base === 'dark'
-      ? `How bright colour previews (the colour picker's swatches) may be: more than 0, at most ${info.previewMax.dark} on Dark, and never brighter than overlay. Default ${info.preview}.`
-      : `How bright colour previews (the colour picker's swatches) may be: more than 0, at most ${info.previewMax.light}. Default ${info.preview}.`;
+      ? `How bright colour previews (the colour picker's swatches) may be: more than 0, at most ${info.previewMax.dark} on Dark, and never brighter than overlay. Default ${info.preview.dark}.`
+      : `How bright colour previews (the colour picker's swatches) may be: more than 0, at most ${info.previewMax.light} on Daylight. Default ${info.preview.light}.`;
     info.roles.forEach(r => {
       const v = draft.colors[r] || '';
       const col = ed.querySelector('[data-role="' + r + '"]');
@@ -365,7 +367,7 @@ const ThemeSettings = (() => {
     }
     const colors = {};
     Object.keys(d.colors).forEach(k => { colors[k] = String(d.colors[k]).trim().toLowerCase(); });
-    openEditor({ id: '', name: String(d.name || '').slice(0, 40), base: d.base, colors, preview: typeof d.preview === 'number' ? d.preview : info.preview });
+    openEditor({ id: '', name: String(d.name || '').slice(0, 40), base: d.base, colors, preview: typeof d.preview === 'number' ? d.preview : info.preview[d.base] });
     setStatus('Imported into the editor. Check it, then save it to this station.');
   }
 
@@ -399,7 +401,7 @@ const ThemeSettings = (() => {
       if (!info) return;
       const c = B5Theme.currentCustom();
       const base = c ? c.base : (B5Theme.current() === 'light' ? 'light' : 'dark');
-      openEditor({ id: '', name: '', base, colors: Object.assign({}, info.bases[base]), preview: info.preview });
+      openEditor({ id: '', name: '', base, colors: Object.assign({}, info.bases[base]), preview: info.preview[base] });
     });
     root.querySelector('[data-theme-edit]').addEventListener('click', () => {
       const v = $('themeSelect').value;

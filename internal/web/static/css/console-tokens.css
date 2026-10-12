@@ -177,4 +177,9 @@
   --b5-size-group-fader-width: 160px;
   --b5-preview-max-brightness: 0.12; /* content only; not a state signal */
 }
-
+/* C9c (owner, 2026-10-09): Daylight shows colour previews (the colour
+   picker's swatches) at full brightness. The 0.12 default and 0.15 cap are
+   dark-venue limits (theme-contract.md); Dark keeps them. */
+[data-theme="light"] {
+  --b5-preview-max-brightness: 1;
+}

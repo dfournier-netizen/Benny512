@@ -114,7 +114,7 @@ func TestC9BuiltInThemesPassContract(t *testing.T) {
 		base string
 		vals map[string]string
 	}{{"dark", tok.colours("dark")}, {"light", tok.colours("light")}} {
-		fails := validateTheme(theme.base, theme.vals, tok.Preview, tok.Roles, themeLabels)
+		fails := validateTheme(theme.base, theme.vals, tok.Preview[theme.base], tok.Roles, themeLabels)
 		for _, f := range fails {
 			t.Errorf("%s: %s", theme.base, f.Message)
 		}
@@ -485,5 +485,69 @@ func TestC9ThemeEditorUI(t *testing.T) {
 	t.Logf("theme_editor_test.js:\n%s", out)
 	if err != nil || !strings.Contains(string(out), "ALL PASS") {
 		t.Fatalf("theme_editor_test.js failed: %v", err)
+	}
+}
+
+// --- C9c: Daylight previews at full brightness (owner, 2026-10-09 23:12) ---
+
+// c9EffectiveVar resolves a custom property for one theme the way the
+// browser's cascade does for this file: every rule whose selector list
+// holds :root or [data-theme="<theme>"] applies (all specificity 0,1,0),
+// and the last declaration in file order wins. Written here, apart from
+// theme.go, so the test does not agree with itself.
+func c9EffectiveVar(css, theme, name string) string {
+	css = i1bCommentRE.ReplaceAllString(css, "")
+	val := ""
+	for _, m := range i1bRuleRE.FindAllStringSubmatch(css, -1) {
+		applies := false
+		for _, sel := range strings.Split(m[1], ",") {
+			sel = strings.TrimSpace(sel)
+			applies = applies || sel == ":root" || sel == `[data-theme="`+theme+`"]`
+		}
+		if !applies {
+			continue
+		}
+		for _, decl := range strings.Split(m[2], ";") {
+			k, v, ok := strings.Cut(strings.TrimSpace(decl), ":")
+			if ok && strings.TrimSpace(k) == name {
+				val = strings.TrimSpace(v)
+			}
+		}
+	}
+	return val
+}
+
+// TestC9DaylightPreviewFullBrightness: the 0.15 cap and 0.12 default are
+// dark-venue rules (theme-contract.md "Dark venue limits"); in Daylight the
+// colour picker's swatches show at full brightness, and the editor's
+// Daylight default follows. Dark keeps 0.12 / 0.15.
+func TestC9DaylightPreviewFullBrightness(t *testing.T) {
+	css := i1Embedded(t, "static/css/console-tokens.css")
+	if got := c9EffectiveVar(css, "dark", "--b5-preview-max-brightness"); got != "0.12" {
+		t.Errorf("Dark preview intensity = %q, want 0.12", got)
+	}
+	if got := c9EffectiveVar(css, "light", "--b5-preview-max-brightness"); got != "1" {
+		t.Errorf("Daylight preview intensity = %q, want 1 (full brightness)", got)
+	}
+	h := newHarness(t)
+	t.Cleanup(h.srv.Close)
+	rr := doJSON(t, h.srv.Handler(), "GET", "/api/themes", nil)
+	var v struct {
+		Preview    map[string]float64 `json:"preview"`
+		PreviewMax map[string]float64 `json:"previewMax"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &v); err != nil {
+		t.Fatalf("GET /api/themes preview is not a per-base default: %v\n%s", err, rr.Body.String())
+	}
+	if v.Preview["dark"] != 0.12 || v.Preview["light"] != 1 || v.PreviewMax["dark"] != 0.15 || v.PreviewMax["light"] != 1 {
+		t.Errorf("GET /api/themes: defaults %v, maxima %v; want dark 0.12 / 0.15, light 1 / 1", v.Preview, v.PreviewMax)
+	}
+	// A custom theme on Daylight saves at 1.0; on Dark 1.0 is still refused.
+	tok, _ := parseThemeTokens(css)
+	if rr := doJSON(t, h.srv.Handler(), "POST", "/api/themes", c9Body("Sun", "light", tok.colours("light"), 1)); rr.Code != http.StatusOK {
+		t.Errorf("Daylight custom theme at 1.0: %d %s", rr.Code, rr.Body.String())
+	}
+	if rr := doJSON(t, h.srv.Handler(), "POST", "/api/themes", c9Body("Moon", "dark", tok.colours("dark"), 1)); rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("Dark custom theme at 1.0 must be refused: %d", rr.Code)
 	}
 }

@@ -326,10 +326,10 @@ func validateTheme(base string, colours map[string]string, preview float64, role
 
 // themeTokens is what css/console-tokens.css defines.
 type themeTokens struct {
-	Dark, Light map[string]string // every --b5-color-* role → its declared value
-	Order       []string          // dark block order
-	Roles       []string          // the themeable roles: opaque #rrggbb in both blocks
-	Preview     float64           // --b5-preview-max-brightness
+	Dark, Light map[string]string  // every --b5-color-* role → its declared value
+	Order       []string           // dark block order
+	Roles       []string           // the themeable roles: opaque #rrggbb in both blocks
+	Preview     map[string]float64 // --b5-preview-max-brightness in effect per base ("dark", "light")
 }
 
 var (
@@ -338,7 +338,8 @@ var (
 	themeTokensErr  error
 	themeDeclRE     = regexp.MustCompile(`--b5-color-([a-z0-9-]+):\s*([^;]+);`)
 	themeCommentRE  = regexp.MustCompile(`(?s)/\*.*?\*/`)
-	themePreviewRE  = regexp.MustCompile(`--b5-preview-max-brightness:\s*([0-9.]+)\s*;`)
+	themeRuleRE     = regexp.MustCompile(`([^{}]+)\{([^{}]*)\}`)
+	themePreviewRE  = regexp.MustCompile(`--b5-preview-max-brightness:\s*([0-9.]+)\s*(;|$)`)
 )
 
 func themeBlock(css, selector string) (string, error) {
@@ -376,12 +377,30 @@ func parseThemeTokens(css string) (themeTokens, error) {
 			t.Roles = append(t.Roles, r)
 		}
 	}
-	m := themePreviewRE.FindStringSubmatch(css)
-	if m == nil {
-		return t, fmt.Errorf("console-tokens.css has no --b5-preview-max-brightness")
+	// The preview intensity in effect per base, as the cascade gives it:
+	// every rule for :root or that base's [data-theme] (all one
+	// specificity), the last in file order winning. C9c: Daylight is 1.
+	t.Preview = map[string]float64{}
+	for _, base := range []string{"dark", "light"} {
+		val := ""
+		for _, rule := range themeRuleRE.FindAllStringSubmatch(css, -1) {
+			applies := false
+			for _, sel := range strings.Split(rule[1], ",") {
+				sel = strings.TrimSpace(sel)
+				applies = applies || sel == ":root" || sel == `[data-theme="`+base+`"]`
+			}
+			if m := themePreviewRE.FindStringSubmatch(rule[2]); applies && m != nil {
+				val = m[1]
+			}
+		}
+		if val == "" {
+			return t, fmt.Errorf("console-tokens.css sets no --b5-preview-max-brightness for %s", base)
+		}
+		if t.Preview[base], err = strconv.ParseFloat(val, 64); err != nil {
+			return t, err
+		}
 	}
-	t.Preview, err = strconv.ParseFloat(m[1], 64)
-	return t, err
+	return t, nil
 }
 
 // loadThemeTokens parses the embedded token file once.
@@ -486,7 +505,7 @@ func (s *Server) handleGetThemes(w http.ResponseWriter, r *http.Request) {
 		"roles":      tok.Roles,
 		"labels":     labels,
 		"bases":      map[string]map[string]string{"dark": tok.colours("dark"), "light": tok.colours("light")},
-		"preview":    tok.Preview,
+		"preview":    tok.Preview, // per base: dark 0.12, light 1 (C9c)
 		"previewMax": map[string]float64{"dark": themePreviewDarkMax, "light": 1},
 		"maxThemes":  themeMaxCustom,
 		"themes":     list,
