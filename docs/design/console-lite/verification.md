@@ -1,6 +1,18 @@
 # Design verification
 
-Reviewed 2026-10-08 using the local design server and the Codex in-app Chromium browser. This verifies the delivered standalone artifacts, not an integrated production Console.
+The original D0 review below is historical evidence from 2026-10-08. The refreshed standalone package follows I2f; it does not certify integrated production behavior.
+
+## I2f refresh — 2026-10-09
+
+- 18 scenes at 360×844, 390×844, 1024×768, 820×1180 and 1440×900, each in dark, light preview and greyscale/dim: **270 layout checks passed**. No body horizontal overflow, Disarm inside viewport, no grid/summary overlap and no visible button/select/summary below 44×44. Parameter inputs honor the fine-pointer 28 px exception; the coarse-pointer 44 px rule remains specified but physical touch hardware was not exercised. See `evidence/refresh-layout-checks.json`.
+- Refreshed dark screenshots use `evidence/refresh-390-<scene>.jpg` for all scenes, plus seven desktop additions. Original filenames and `layout-checks.json` describe D0, not the new layouts.
+- 360 px command interaction: disarmed Reset focuses Cancel, hides Send, disables HOLD with a reason; Escape restores Reset. Arming exposes the one-second confirmation copy. Disarm remains enabled. More stays open after Highlight, shows Highlight ON under the count and ends above the footer. Additional interaction evidence records focus and bounds.
+- Visual review corrected portrait layer/group rows collapsing under grid sizing. Sequence CURRENT now uses a leading rule and normal surface, removing D0's brighter-row exception. P/T and universe-chip proposals are omitted from baseline mockups.
+- All five package scripts, including the server, pass Node syntax checks; the asset generator runs successfully and `git diff --check` passes. Semantic palette/SVG definitions remain unchanged; the generator only adds deferred-state labels to the asset proof sheet. The 1,240 contrast pairs still pass.
+- Go/gofmt remain unavailable on PATH; required Go gates and disposable production `--demo` build cannot run here. Browser checks use the loopback standalone server. No production code, runtime configuration or show data changed. Device brightness/glove and screen-reader checks remain outstanding.
+- Light/custom previews remain C9 preparation. Resolved I2e decisions and open I2f follow-ups are listed in `revision-notes.md`; they are not inferred from sample mockups.
+
+## Original D0 evidence (historical)
 
 ## Automated and browser evidence
 

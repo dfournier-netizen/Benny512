@@ -1,0 +1,4023 @@
+{
+  "date": "2026-10-09",
+  "revision": "I2f design refresh",
+  "checks": [
+    {
+      "scene": "armed",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "empty",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "colour",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "beam",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "shaper",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "tests",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "lost",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "held",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "simulated",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "raw",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "control",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "command-disarmed",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "command-sending",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "command-done",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "command-stopped",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "cells",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "sequence-editor",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "midi",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "armed",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "empty",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "colour",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "beam",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "shaper",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "tests",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "lost",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "held",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "simulated",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "raw",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "control",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "command-disarmed",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "command-sending",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "command-done",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "command-stopped",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "cells",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "sequence-editor",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "midi",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "armed",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "empty",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "colour",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "beam",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "shaper",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "tests",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "lost",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "held",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "simulated",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "raw",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "control",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "command-disarmed",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "command-sending",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "command-done",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "command-stopped",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "cells",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "sequence-editor",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "midi",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 360
+    },
+    {
+      "scene": "armed",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "empty",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "colour",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "beam",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "shaper",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "tests",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "lost",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "held",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "simulated",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "raw",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "control",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "command-disarmed",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "command-sending",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "command-done",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "command-stopped",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "cells",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "sequence-editor",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "midi",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "armed",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "empty",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "colour",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "beam",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "shaper",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "tests",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "lost",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "held",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "simulated",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "raw",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "control",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "command-disarmed",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "command-sending",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "command-done",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "command-stopped",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "cells",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "sequence-editor",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "midi",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "armed",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "empty",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "colour",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "beam",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "shaper",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "tests",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "lost",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "held",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "simulated",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "raw",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "control",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "command-disarmed",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "command-sending",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "command-done",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "command-stopped",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "cells",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "sequence-editor",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "midi",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 844,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 390
+    },
+    {
+      "scene": "armed",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "empty",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "colour",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "beam",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "shaper",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "tests",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "lost",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "held",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "simulated",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "raw",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "control",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "command-disarmed",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "command-sending",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "command-done",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "command-stopped",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "cells",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "sequence-editor",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "midi",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "armed",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "empty",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "colour",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "beam",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "shaper",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "tests",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "lost",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "held",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "simulated",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "raw",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "control",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "command-disarmed",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "command-sending",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "command-done",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "command-stopped",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "cells",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "sequence-editor",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "midi",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "armed",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "empty",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "colour",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "beam",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "shaper",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "tests",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "lost",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "held",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "simulated",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "raw",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "control",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "command-disarmed",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "command-sending",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "command-done",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "command-stopped",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "cells",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "sequence-editor",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "midi",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 768,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1024
+    },
+    {
+      "scene": "armed",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "empty",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "colour",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "beam",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "shaper",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "tests",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "lost",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "held",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "simulated",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "raw",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "control",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "command-disarmed",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "command-sending",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "command-done",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "command-stopped",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "cells",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "sequence-editor",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "midi",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "armed",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "empty",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "colour",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "beam",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "shaper",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "tests",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "lost",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "held",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "simulated",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "raw",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "control",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "command-disarmed",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "command-sending",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "command-done",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "command-stopped",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "cells",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "sequence-editor",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "midi",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "armed",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "empty",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "colour",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "beam",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "shaper",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "tests",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "lost",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "held",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "simulated",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "raw",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "control",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "command-disarmed",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "command-sending",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "command-done",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "command-stopped",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "cells",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "sequence-editor",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "midi",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 1180,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 820
+    },
+    {
+      "scene": "armed",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "empty",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "colour",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "beam",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "shaper",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "tests",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "lost",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "held",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "simulated",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "raw",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "control",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "command-disarmed",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "command-sending",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "command-done",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "command-stopped",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "cells",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "sequence-editor",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "midi",
+      "mode": "dark",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "armed",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "empty",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "colour",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "beam",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "shaper",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "tests",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "lost",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "held",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "simulated",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "raw",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "control",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "command-disarmed",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "command-sending",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "command-done",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "command-stopped",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "cells",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "sequence-editor",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "midi",
+      "mode": "light",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "armed",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "empty",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "colour",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "beam",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "shaper",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "tests",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "lost",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "held",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "simulated",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "raw",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "control",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "command-disarmed",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "command-sending",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "command-done",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "command-stopped",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "cells",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "sequence-editor",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    },
+    {
+      "scene": "midi",
+      "mode": "grey-dim",
+      "bodyOverflow": false,
+      "faderHeights": [
+        28,
+        28,
+        28
+      ],
+      "height": 900,
+      "pointerCoarse": false,
+      "small": [],
+      "stopVisible": true,
+      "summaryOverlapsRig": false,
+      "width": 1440
+    }
+  ]
+}
