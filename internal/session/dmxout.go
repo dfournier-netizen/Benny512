@@ -1,8 +1,10 @@
 package session
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"net/netip"
 	"sort"
 	"sync"
@@ -420,6 +422,9 @@ type DMXOutputEngine struct {
 	// claimed levels by VirtualDimmer.Key.
 	virtuals map[uint16][]VirtualDimmer
 	vdLevels [numSources]map[string]byte
+	// I2g: per source, the fill level of a claim where it differs from
+	// its level (SetVirtualDimmerClaims); absent = the claim's level.
+	vdFills [numSources]map[string]byte
 
 	// I2d2 one-shot commands in flight (FireCommand), by fire order, and
 	// each one's end callback.
@@ -432,6 +437,11 @@ type DMXOutputEngine struct {
 	isolateOn     bool
 	isolateClient string
 	isolateEnd    func(reason string)
+
+	// I2g: the ownership hook (OnOwnershipChange) and the fingerprint of
+	// the ownership it last saw (ownershipLocked).
+	onOwnership func()
+	ownPrint    uint64
 }
 
 // NewDMXOutputEngine builds a disarmed engine. Transport is required.
@@ -551,6 +561,7 @@ func (e *DMXOutputEngine) SetFrame(src Source, raw uint16, data []byte) error {
 	for i := range l.owned {
 		l.owned[i] = true
 	}
+	e.ownershipLocked()
 	return nil
 }
 
@@ -571,6 +582,7 @@ func (e *DMXOutputEngine) SetChannels(src Source, raw uint16, start int, values 
 		l.values[start-1+i] = v
 		l.owned[start-1+i] = true
 	}
+	e.ownershipLocked()
 	return nil
 }
 
@@ -610,14 +622,20 @@ func applyScale(out *[DMXUniverseSize]byte, groups []ScaleGroup, percent int) {
 // floor(v x L / 255) — never brighter — after one fill rule: when every
 // channel of the group composed to zero, each is first driven to full
 // (no colour set means white).
+//
+// FILL LEVEL (I2g): that white is scaled by the claim's fill level, which
+// is its level unless the source set another (SetVirtualDimmerClaims). A
+// claim at level 255 with fill 0 is exactly "untouched" — a set colour
+// unscaled, an unset one dark — so a source can fade a claim out to it, or
+// in from it, and release or take it at the end without a step.
 type VirtualDimmer struct {
 	Key      string
 	Channels []ScaleGroup
 }
 
 type resolvedVirtual struct {
-	channels []ScaleGroup
-	level    byte
+	channels    []ScaleGroup
+	level, fill byte
 }
 
 // applyVirtual applies the claimed virtual dimmers — see VirtualDimmer.
@@ -629,6 +647,10 @@ func applyVirtual(out *[DMXUniverseSize]byte, vds []resolvedVirtual) {
 				dark = dark && out[s] == 0
 			}
 		}
+		level := vd.level
+		if dark {
+			level = vd.fill
+		}
 		for _, g := range vd.channels {
 			var v uint64
 			for _, s := range g.Slots {
@@ -638,7 +660,7 @@ func applyVirtual(out *[DMXUniverseSize]byte, vds []resolvedVirtual) {
 				}
 				v = v<<8 | uint64(b)
 			}
-			v = v * uint64(vd.level) / 255
+			v = v * uint64(level) / 255
 			for i := len(g.Slots) - 1; i >= 0; i-- {
 				out[g.Slots[i]] = byte(v)
 				v >>= 8
@@ -656,8 +678,12 @@ func (e *DMXOutputEngine) virtualLocked(raw uint16) []resolvedVirtual {
 	}
 	out := make([]resolvedVirtual, 0, len(defs))
 	for _, d := range defs {
-		if _, lv, ok := e.virtualClaimLocked(d.Key); ok {
-			out = append(out, resolvedVirtual{channels: d.Channels, level: lv})
+		if src, lv, ok := e.virtualClaimLocked(d.Key); ok {
+			fill, set := e.vdFills[src][d.Key]
+			if !set {
+				fill = lv
+			}
+			out = append(out, resolvedVirtual{channels: d.Channels, level: lv, fill: fill})
 		}
 	}
 	return out
@@ -673,6 +699,97 @@ func (e *DMXOutputEngine) virtualClaimLocked(key string) (Source, byte, bool) {
 		}
 	}
 	return 0, 0, false
+}
+
+// OnOwnershipChange (I2g) sets fn to be called whenever which source owns
+// any channel may have changed what ChannelSources and VirtualSource
+// report: a layer's owned channels, the virtual dimmer keys each source
+// claims, Universe Identify's streams or the routing. A change of VALUES
+// under the same ownership (a raw fader drag, a pattern tick) does not
+// call it. fn runs under the engine's lock: it must not block and must not
+// call the engine (signal another goroutine instead). nil turns it off.
+func (e *DMXOutputEngine) OnOwnershipChange(fn func()) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.onOwnership = fn
+	e.ownPrint = e.ownershipPrintLocked()
+}
+
+// ownershipLocked calls the ownership hook if the ownership fingerprint
+// moved since it last looked.
+func (e *DMXOutputEngine) ownershipLocked() {
+	if e.onOwnership == nil {
+		return
+	}
+	if p := e.ownershipPrintLocked(); p != e.ownPrint {
+		e.ownPrint = p
+		e.onOwnership()
+	}
+}
+
+// ownershipPrintLocked is a fingerprint (FNV-1a 64) of everything the
+// ownership hook watches — owned masks, not values.
+func (e *DMXOutputEngine) ownershipPrintLocked() uint64 {
+	h := fnv.New64a()
+	var b [8]byte
+	put := func(v uint64) {
+		binary.LittleEndian.PutUint64(b[:], v)
+		h.Write(b[:])
+	}
+	raws := make([]int, 0, len(e.shows))
+	for raw := range e.shows {
+		raws = append(raws, int(raw))
+	}
+	sort.Ints(raws)
+	for _, raw := range raws {
+		for s, l := range e.shows[uint16(raw)].layers {
+			if l == nil {
+				continue
+			}
+			put(uint64(raw)<<8 | uint64(s))
+			var word uint64
+			for i, o := range l.owned {
+				if o {
+					word |= 1 << (i % 64)
+				}
+				if i%64 == 63 {
+					put(word)
+					word = 0
+				}
+			}
+		}
+	}
+	put(1 << 40)
+	ids := make([]Stream, 0, len(e.identify))
+	for k := range e.identify {
+		ids = append(ids, k)
+	}
+	sortStreamKeys(ids)
+	for _, k := range ids {
+		put(uint64(k.Protocol)<<16 | uint64(k.Universe))
+	}
+	put(2 << 40)
+	routes := make([]int, 0, len(e.routing))
+	for raw, p := range e.routing {
+		routes = append(routes, int(raw)<<8|int(p))
+	}
+	sort.Ints(routes)
+	for _, r := range routes {
+		put(uint64(r))
+	}
+	for s, levels := range e.vdLevels {
+		put(3<<40 | uint64(s))
+		keys := make([]string, 0, len(levels))
+		for k := range levels {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			h.Write([]byte(k))
+			h.Write([]byte{0})
+		}
+	}
+	return h.Sum64()
 }
 
 // ChannelSource (I2f) is where the composed value of one channel comes
@@ -783,6 +900,14 @@ func (e *DMXOutputEngine) SetVirtualDimmers(defs map[uint16][]VirtualDimmer) err
 // SetVirtualDimmerLevels replaces every virtual dimmer level src claims
 // (Key -> 0-255). nil or empty releases all of src's claims.
 func (e *DMXOutputEngine) SetVirtualDimmerLevels(src Source, levels map[string]byte) error {
+	return e.SetVirtualDimmerClaims(src, levels, nil)
+}
+
+// SetVirtualDimmerClaims (I2g) is SetVirtualDimmerLevels with a fill level
+// per claimed key where it differs from the level (see VirtualDimmer); a
+// fill for a key src does not claim is ignored. Both are replaced in one
+// step, so no frame shows a new level under an old fill.
+func (e *DMXOutputEngine) SetVirtualDimmerClaims(src Source, levels, fills map[string]byte) error {
 	if !src.valid() {
 		return fmt.Errorf("session: unknown output source %d", int(src))
 	}
@@ -792,10 +917,16 @@ func (e *DMXOutputEngine) SetVirtualDimmerLevels(src Source, levels map[string]b
 	for k, v := range levels {
 		next[k] = v
 	}
+	nextFills := make(map[string]byte, len(fills))
+	for k, v := range fills {
+		if _, claimed := next[k]; claimed {
+			nextFills[k] = v
+		}
+	}
 	if len(next) == 0 && len(e.vdLevels[src]) == 0 {
 		return nil
 	}
-	e.vdLevels[src] = next
+	e.vdLevels[src], e.vdFills[src] = next, nextFills
 	scope := map[uint16]bool{}
 	for raw := range e.virtuals {
 		scope[raw] = true
@@ -1023,6 +1154,7 @@ func (e *DMXOutputEngine) dropCommandsLocked() {
 			delete(e.shows, raw)
 		}
 	}
+	e.ownershipLocked()
 }
 
 // Isolate end reasons (StartIsolate's end callback).
@@ -1119,6 +1251,7 @@ func (e *DMXOutputEngine) dropIsolateLocked(reason string, pass bool) {
 	if pass && len(scope) > 0 {
 		e.passLocked(passMode{shows: scope})
 	}
+	e.ownershipLocked()
 }
 
 // isolateClientGoneLocked: the browser that turned Isolate on has not been
@@ -1612,6 +1745,9 @@ func (e *DMXOutputEngine) streamLocked(k Stream, show int) *wireStream {
 }
 
 func (e *DMXOutputEngine) passLocked(m passMode) {
+	if !m.tick {
+		e.ownershipLocked() // I2g: a non-tick pass follows a source change
+	}
 	if e.state == StateDisarmed {
 		return
 	}

@@ -104,6 +104,11 @@ type Settings struct {
 	// other than the default Art-Net: "sacn", or "both". A universe with no
 	// row is Art-Net only. See output.go.
 	UniverseProtocols []UniverseProtocol `json:"universeProtocols"`
+	// CustomThemes (C9) are station-wide so every browser can pick one;
+	// which theme a browser USES stays in that browser. Changed only
+	// through /api/themes (theme.go), which validates every save against
+	// the theme contract; POST /api/settings keeps them as they are.
+	CustomThemes []CustomTheme `json:"customThemes"`
 }
 
 // Server bundles the engines and serves REST + WS + the embedded UI.
@@ -318,6 +323,7 @@ func defaultSettings() Settings {
 		// Blackout is the owner-confirmed default lease-loss action (C3).
 		LeaseLossAction:   "blackout",
 		UniverseProtocols: make([]UniverseProtocol, 0),
+		CustomThemes:      make([]CustomTheme, 0),
 	}
 }
 
@@ -374,6 +380,9 @@ func New(nodes *session.ArtNetSession, rdmc *session.RDMController, dmx *session
 	// I2d2: a one-shot command's end (window over, or Disarm) reaches every
 	// browser's progress line.
 	s.Programmer.OnCommandEnd(s.broadcastCommands)
+	// I2g: a change of which layer owns a tested channel reaches every
+	// browser's tests view at once (testsLiveCheck).
+	s.DMX.OnOwnershipChange(s.ownershipChanged)
 	s.mux = http.NewServeMux()
 	s.routes()
 	s.syncProgrammer(true)
@@ -551,6 +560,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/settings", s.handlePostSettings)
 	s.mux.HandleFunc("GET /api/sacn", s.handleGetSACNConfig)
 	s.mux.HandleFunc("POST /api/sacn", s.handlePostSACNConfig)
+	s.mux.HandleFunc("GET /api/themes", s.handleGetThemes)
+	s.mux.HandleFunc("POST /api/themes", s.handlePostTheme)
+	s.mux.HandleFunc("DELETE /api/themes/{id}", s.handleDeleteTheme)
 	// C8: the MIDI encoder mapping (midi.go).
 	s.mux.HandleFunc("GET /api/midi", s.handleGetMIDI)
 	s.mux.HandleFunc("POST /api/midi", s.handlePostMIDI)
@@ -1453,6 +1465,9 @@ func (s *Server) handlePostSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.settingsMu.Lock()
+	// Custom themes (C9) change only through /api/themes, which validates
+	// them; settings.js's Apply does not send them and must not delete them.
+	req.CustomThemes = s.settings.CustomThemes
 	// Persist BEFORE publishing. A failed save must not leave the running
 	// server on settings it could not write down: that is the rule
 	// internal/patch and internal/sacn already follow, and the reason is that

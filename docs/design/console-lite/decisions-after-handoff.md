@@ -1,6 +1,6 @@
 # Console-lite — decisions after the design hand-back
 
-**For the design agent.** Written 2026-10-09 00:46:57 -0400 (chunk I2d2), updated 2026-10-09 08:49:21 -0400 and 2026-10-09 09:40:15 -0400 (I2d3) 2026-10-09 10:01:46 -0400 (I2d4) 2026-10-09 13:28:22 -0400 (I2e) and 2026-10-09 15:00:06 -0400 (I2f). Precedence is unchanged: owner answers > `docs/plans/console-lite.md` > this design package > the older UI brief. Each line names the spec section in `component-specs.md` and how the shipped UI now differs from it. Details and dates: the plan's Owner decisions and Progress rows I1–I2d2.
+**For the design agent.** Written 2026-10-09 00:46:57 -0400 (chunk I2d2), updated 2026-10-09 08:49:21 -0400 and 2026-10-09 09:40:15 -0400 (I2d3) 2026-10-09 10:01:46 -0400 (I2d4) 2026-10-09 13:28:22 -0400 (I2e) 2026-10-09 15:00:06 -0400 (I2f) 2026-10-09 20:45:52 -0400 (I2g) 2026-10-09 21:28:40 -0400 (C9) and 2026-10-09 23:22:56 -0400 (C9c). Precedence is unchanged: owner answers > `docs/plans/console-lite.md` > this design package > the older UI brief. Each line names the spec section in `component-specs.md` and how the shipped UI now differs from it. Details and dates: the plan's Owner decisions and Progress rows I1–I2d2.
 
 ## Owner decisions of 2026-10-09 (I2d2)
 
@@ -35,9 +35,24 @@
 - **§16 Isolate (built):** the kit's `.b5-choicecard--caution` card, "Isolate: drive only the tested channel — ON/OFF" with an explanation, below the test tiles (the mockup's place). Every channel of the tested fixtures that no test drives is held at 0; manual values still win. Choices where the spec is silent: a tested cell's master stays open under Isolate; a dimmer test's white still shows. Safety (owner): offered only while Armed with a test on (it says why otherwise); ends by itself on Disarm, on lease loss with either Settings choice (never held isolated) and when the browser that turned it on leaves, and with the tests; the card then says "Isolate ended by itself: output was disarmed." DISARM · BLACKOUT stays the strip's slab; the card is in flow, not a dialog.
 - **§1 P strip (owner):** at phone widths, while ARMED, the show name is hidden visually instead of being squeezed to "D." (still read by assistive technology; Show tools' heading names the show). Other states keep it.
 
+## I2g (owner answers, 2026-10-09 20:17)
+
+- **§16 Isolate is never restored from a preset (owner).** A test preset saved with the old Rig Check's Isolate loads with Isolate OFF; only a live action on the card while Armed turns it on. (The stored field is still read so old show files load; it is not used.)
+- **§16 fades (owner: no snap, overshoot or step).** A dimmer test's white on unset colour fades in and out with the tests' fade time like any other test change; a fixture or cell with a virtual dimmer and no colour set rises from dark to the test's white and falls back to dark. Choice made here: the white is held for the whole fade and released at its end, where the release changes nothing on the wire. With fade 0 everything still snaps.
+- **§16 masked note is live (owner).** "Overridden by …" appears and clears in every open browser at once (within a frame of the change on the server; the browser then re-reads) for raw universe levels, Universe Identify, programmer SET/clear, group faders, Highlight and Isolate — no reload, no wait for the next tests read.
+
+## C9 themes (2026-10-09 21:28:40 -0400)
+
+- **theme-contract.md built.** Settings › Theme: Dark (default) or "Daylight — not for dark-venue checking", per browser, applied before first paint; custom themes edited in Settings (colour roles + preview intensity only), validated live and again by the server, failures in the contract's words ("Muted text on overlay is 3.0:1; needs 4.5:1."), "Theme needs changes" with Save blocked and a working Revert. The editor states the contract's limit: no certification; device black level and backlight need physical review.
+- **Role set:** production roles = the package's plus I1b's bg-pressed, info-border, info-fill (scrim stays translucent and exempt, not themeable). bg-pressed and info-fill are **surfaces** in the pair checks; info-border joins the tone-outline ΔE set; bg-pressed and info-fill are under the 0.035 dark limit; canvas, surface, grid and XY pad are the "large regions" no brighter than overlay. Every Dark and Daylight pair passes; no value changed.
+- **Base-file roles routed:** `bg-stale` is defined in both theme blocks (raised/overlay hatch in Dark — unchanged; raised/inset in Daylight); `border-accent`/`border-danger` uses became `accent-border`/`danger-border`; the undefined `--b5-color-border` became `border-default`.
+- **Preview intensity** (`--b5-preview-max-brightness`): a custom theme on Dark may set (0, 0.15] and white × m must stay no brighter than overlay; on Daylight (0, 1]. **C9c (owner):** Daylight's default is 1 — the colour picker's field and swatches at full colour; the 0.12 default and 0.15 cap stay Dark-only, as the contract words them.
+- **C9c (owner, 2026-10-09 23:12):** the C9 rules here are approved; a browser picks up another browser's edit of its custom theme at reload or its next Settings visit (no live update, by choice); the Dark changes (picker frame and error rules on the tone outlines, the three separators) stay.
+- **Not in the package:** where custom themes live (station settings; use per browser), names/limits, export/import JSON, and what a browser does when its theme is deleted or stops passing (back to Dark, in words). Details in the plan's C9 decision line.
+
 ## Deviations already recorded in I1–I2d
 
-- **Theme (token contract):** dark only; the light block is inert until C9.
+- **Theme (token contract):** ~~dark only; the light block is inert until C9~~ — built in C9 (above).
 - **§1 / §2:** universe disclosure chips not built (I2a).
 - **§15 placement:** the action bar stays in flow above the grid, not sticky at the bottom above the group bar / navigation (I2a); the selection summary is not pinned on phones.
 - **§3:** P/T (programmer / test) tile marks and the Live preview toggle not built; lasso selects parents only, in reading order (I2b).

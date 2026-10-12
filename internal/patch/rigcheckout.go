@@ -93,11 +93,12 @@ func (o *rigOutput) setFrames(frames map[uint16][]byte, claim map[uint16]*slotCl
 // setVirtual (I2e) sets the tests' virtual dimmer levels (engine keys,
 // session.VirtualDimmer): the levels of the I2d4 virtual dimmers a dimmer
 // test drives, resolved by the engine under every source above the tests.
-func (o *rigOutput) setVirtual(levels map[string]byte) {
+// fills (I2g) are their fill levels (nil: each its level).
+func (o *rigOutput) setVirtual(levels, fills map[string]byte) {
 	if len(levels) == 0 && len(o.virtual) == 0 {
 		return
 	}
-	_ = o.dmx.SetVirtualDimmerLevels(session.SourceTests, levels)
+	_ = o.dmx.SetVirtualDimmerClaims(session.SourceTests, levels, fills)
 	o.virtual = make(map[string]byte, len(levels))
 	for k, v := range levels {
 		o.virtual[k] = v
@@ -141,7 +142,7 @@ func (o *rigOutput) blackout() {
 		for k := range o.virtual {
 			zero[k] = 0
 		}
-		o.setVirtual(zero)
+		o.setVirtual(zero, nil)
 	}
 	o.setFrames(nil, o.claim, true)
 }

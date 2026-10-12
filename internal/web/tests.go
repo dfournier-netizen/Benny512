@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"benny512/internal/patch"
@@ -337,6 +338,10 @@ type testsState struct {
 	note     string
 	scope    testScopeJSON
 	isoEnded string // why Isolate last ended by itself (I2f)
+	// I2g: the layer each tested channel showed in the last view built
+	// (testsSourcesSig), and whether an ownership check is already due.
+	sourcesSig  string
+	livePending atomic.Bool
 }
 
 func newTestsState() *testsState {
@@ -535,6 +540,65 @@ func (s *Server) isolateEnded(reason string) {
 
 func (s *Server) broadcastTests(rev uint64) {
 	s.hub.broadcast(wsMessage{Type: "tests", At: time.Now(), Revision: &rev})
+}
+
+// testsLiveDelay (I2g) is how long the tests view waits after the output
+// engine reports an ownership change before it looks: every change inside
+// it folds into one look (a burst — a fader drag, a programmer edit that
+// touches many channels — is one announcement), and it is under a frame
+// at 40 Hz, so the note still follows at once.
+const testsLiveDelay = 20 * time.Millisecond
+
+// ownershipChanged (I2g) is the output engine's ownership hook
+// (session.DMXOutputEngine.OnOwnershipChange): raw universe levels set or
+// cleared, Universe Identify started or stopped, a programmer SET or clear,
+// a group fader moved or released, Highlight, a fixture command, Isolate.
+// It runs under the engine's lock, so it only schedules testsLiveCheck.
+func (s *Server) ownershipChanged() {
+	if s.tests.livePending.CompareAndSwap(false, true) {
+		time.AfterFunc(testsLiveDelay, s.testsLiveCheck)
+	}
+}
+
+// testsLiveCheck (I2g): while tests are on, if the layer shown on any
+// tested channel differs from the last view built, the view has changed —
+// bump the tests revision and broadcast it ({"type":"tests"}), so every
+// open "Overridden by …" note re-reads at once instead of on the next read.
+func (s *Server) testsLiveCheck() {
+	st := s.tests
+	st.livePending.Store(false)
+	st.mu.Lock()
+	if !st.owns {
+		st.mu.Unlock()
+		return
+	}
+	sig := s.testsSourcesSig(s.RigCheck.PatternStatus())
+	if sig == st.sourcesSig {
+		st.mu.Unlock()
+		return
+	}
+	st.sourcesSig = sig
+	st.revision++
+	rev := st.revision
+	st.mu.Unlock()
+	s.broadcastTests(rev)
+}
+
+// testsSourcesSig (I2g) is the layer the output shows on every channel of
+// every tested target (testChannelSources), as one string.
+func (s *Server) testsSourcesSig(ps patch.PatternStatus) string {
+	var b strings.Builder
+	for _, t := range ps.Tests {
+		b.WriteString(string(t.ID))
+		for _, e := range t.Entries {
+			b.WriteString("|" + e.EntryID + ":")
+			for _, c := range s.testChannelSources(e.Channels) {
+				b.WriteString(c.Source + ",")
+			}
+		}
+		b.WriteString("#")
+	}
+	return b.String()
 }
 
 // refreshTests re-resolves the tests layer's scope after the selection or
@@ -822,6 +886,7 @@ func (s *Server) testsViewLocked(query testScopeJSON, haveQuery bool) testsViewJ
 			tj.Overridden = testOverrides(tj.Entries)
 			v.Tests = append(v.Tests, tj)
 		}
+		st.sourcesSig = s.testsSourcesSig(ps) // I2g: what this view showed
 		for _, c := range js.Contested {
 			tgt := byID[c.EntryID]
 			v.Contested = append(v.Contested, testsContestedJSON{Universe: c.Universe, Channel: c.Channel, EntryID: tgt.EntryID, Cell: tgt.Cell, Tests: c.Tests})

@@ -107,7 +107,7 @@ const SettingsScreen = (() => {
     return `
       <div class="b5-page-header">
         <h1 class="b5-page-header__title">Settings</h1>
-        <span class="b5-page-header__meta b5-text-muted b5-text-sm">Nothing here takes effect until you press Apply.</span>
+        <span class="b5-page-header__meta b5-text-muted b5-text-sm">Station settings take effect when you press Apply. The theme applies at once, to this browser only.</span>
       </div>
 
       <section class="b5-step-section" aria-labelledby="setNetHead">
@@ -235,9 +235,17 @@ const SettingsScreen = (() => {
         </div>
       </section>
 
+      <section class="b5-step-section" aria-labelledby="setThemeHead">
+        <h2 class="b5-step-section__head" id="setThemeHead">
+          <span class="b5-step-num">6</span> Theme
+          <span class="b5-step-section__note">this browser only &mdash; applies at once</span>
+        </h2>
+        <div class="b5-stack" id="themeSettingsRoot"></div>
+      </section>
+
       <section class="b5-step-section" aria-labelledby="setResetHead">
         <h2 class="b5-step-section__head" id="setResetHead">
-          <span class="b5-step-num">6</span> Danger zone &mdash; full reset
+          <span class="b5-step-num">7</span> Danger zone &mdash; full reset
           <span class="b5-step-section__note">deletes the patch and shuts Benny512 down</span>
         </h2>
         <div class="b5-stack" id="resetPanelRoot"></div>

@@ -221,62 +221,91 @@ func (r *RigCheck) fadePatternLocked(comp patternComposition, now time.Time) {
 	r.fadeVirtualLocked(comp, now, previousEntries)
 }
 
+// virtualFade is one virtual dimmer fade in progress (I2g): its level and
+// its fill level (session.VirtualDimmer) move together from where they were.
+type virtualFade struct {
+	fromLevel, fromFill byte
+	start               time.Time
+	duration            time.Duration
+}
+
+// target is what u shows once any fade is done: (level, fill level). A
+// test's level L is (L, L); a white claim is (255, 255) — no set colour is
+// scaled, an unset one is white. A key no test drives any more is
+// (255, 0), which is exactly untouched — a set colour unscaled, an unset
+// one dark — so its release at the end of the fade changes nothing on the
+// wire (I2g).
+func (u virtualUnit) target() (level, fill byte) {
+	if u.source.removed {
+		return 255, 0
+	}
+	return u.level, u.level
+}
+
 // fadeVirtualLocked (I2e) applies the slot rules above to the virtual dimmer
 // levels the tests set, by engine key, and leaves the result in
-// r.patternVirtual: a changed writer fades from the level that was showing
-// — the last published one, untouched (full) for a key no test drove, or 0
-// for a target new to the tests (dimmers start at zero) — and a key no test
-// drives any more fades back to untouched, then is released.
+// r.patternVirtual and r.patternFill: a changed writer fades from what was
+// showing — the last published level and fill, untouched for a key no test
+// drove, or 0 for a target new to the tests (dimmers start at zero) — and a
+// key no test drives any more fades back to untouched, then is released.
+// I2g: untouched is (255, 0), not full: with no colour set it is dark, so
+// a test's level, or a white claim's white, rises from dark and falls to
+// dark over the fade time, held until the fade's end — never via full
+// white (the G1 fill rule applies to any claim, so fading to level 255
+// alone showed full white and then dropped to dark on release).
 func (r *RigCheck) fadeVirtualLocked(comp patternComposition, now time.Time, previousEntries map[string]bool) {
 	if r.virtualFades == nil {
-		r.virtualFades = map[string]patternFade{}
+		r.virtualFades = map[string]virtualFade{}
 	}
 	units := make(map[string]virtualUnit, len(comp.virtual))
 	for k, u := range comp.virtual {
 		units[k] = u
 	}
 	for k, old := range r.virtualUnits {
-		if _, ok := units[k]; ok || old.fill {
-			continue // a white claim is released at once
+		if _, ok := units[k]; ok {
+			continue
 		}
 		if _, fading := r.virtualFades[k]; old.source.removed && !fading {
 			continue
 		}
-		units[k] = virtualUnit{level: 255, source: patternSource{entry: old.source.entry, removed: true}}
+		units[k] = virtualUnit{level: 255, source: patternSource{entry: old.source.entry, removed: true}, fill: old.fill}
 	}
-	out := make(map[string]byte, len(units))
+	levels := make(map[string]byte, len(units))
+	fills := make(map[string]byte, len(units))
 	for k, u := range units {
+		level, fill := u.target()
 		if old, exists := r.virtualUnits[k]; !exists || old.source != u.source || old.fill != u.fill {
 			delete(r.virtualFades, k)
-			if r.patternFadeTime > 0 && !u.fill {
-				from, shown := r.patternVirtual[k]
+			if r.patternFadeTime > 0 {
+				fromLevel, shown := r.patternVirtual[k]
+				fromFill := r.patternFill[k]
 				if !shown {
-					from = 255
-					if !previousEntries[u.source.entry] {
-						from = 0
+					fromLevel, fromFill = 255, 0 // untouched
+					if !u.fill && !previousEntries[u.source.entry] {
+						fromLevel, fromFill = 0, 0
 					}
 				}
-				r.virtualFades[k] = patternFade{from: uint32(from), start: now, duration: r.patternFadeTime}
+				r.virtualFades[k] = virtualFade{fromLevel: fromLevel, fromFill: fromFill, start: now, duration: r.patternFadeTime}
 			}
 		}
-		level := u.level
 		if f, ok := r.virtualFades[k]; ok {
 			progress := float64(now.Sub(f.start)) / float64(f.duration)
 			if progress >= 1 {
 				delete(r.virtualFades, k)
 			} else {
 				progress = math.Max(0, progress)
-				level = byte(math.Round(float64(f.from) + (float64(u.level)-float64(f.from))*progress))
+				level = byte(math.Round(float64(f.fromLevel) + (float64(level)-float64(f.fromLevel))*progress))
+				fill = byte(math.Round(float64(f.fromFill) + (float64(fill)-float64(f.fromFill))*progress))
 			}
 		}
-		out[k] = level
+		levels[k], fills[k] = level, fill
 	}
 	for k := range r.virtualFades {
 		if _, ok := units[k]; !ok {
 			delete(r.virtualFades, k)
 		}
 	}
-	r.virtualUnits, r.patternVirtual = units, out
+	r.virtualUnits, r.patternVirtual, r.patternFill = units, levels, fills
 }
 
 // Live scope changes must validate and start new universes before committing

@@ -27,7 +27,7 @@
 }
 
 .b5-con-status { min-height: 1.5em; margin: var(--b5-space-2) 0; display: flex; align-items: center; gap: var(--b5-space-2); flex-wrap: wrap; }
-.b5-con-status--error { color: var(--b5-color-text-danger); border-left: var(--b5-border-width-thick) solid var(--b5-color-border-danger); padding-left: var(--b5-space-2); }
+.b5-con-status--error { color: var(--b5-color-text-danger); border-left: var(--b5-border-width-thick) solid var(--b5-color-danger-border); padding-left: var(--b5-space-2); }
 /* Not sticky: the kit bar is translucent and the page chrome above it is
    only partly sticky, so a stuck bar would sit over the grid's text. */
 .b5-con-modebar { position: static; }
@@ -176,7 +176,7 @@
 .b5-con-cellsnote { font-size: var(--b5-font-size-xs); color: var(--b5-color-text-secondary); }
 
 /* cell picker: full-size buttons below the grid */
-.b5-con-picker { border: var(--b5-border-width-thick) solid var(--b5-color-border-accent); border-radius: var(--b5-radius-md); padding: var(--b5-space-3); min-width: 0; }
+.b5-con-picker { border: var(--b5-border-width-thick) solid var(--b5-color-accent-border); border-radius: var(--b5-radius-md); padding: var(--b5-space-3); min-width: 0; }
 .b5-con-picker[hidden] { display: none; }
 .b5-con-pickhead { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--b5-space-2); }
 .b5-con-pickrow { display: flex; flex-wrap: wrap; gap: var(--b5-space-2); max-height: 40vh; overflow: auto; }

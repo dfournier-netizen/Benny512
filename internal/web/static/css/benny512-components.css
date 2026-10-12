@@ -1631,7 +1631,7 @@
   .b5-table--responsive tr,
   .b5-table--responsive td { display: block; width: 100%; }
   .b5-table--responsive tr {
-    border: 1px solid var(--b5-color-border);
+    border: 1px solid var(--b5-color-border-default);
     border-radius: var(--b5-radius-md);
     margin-bottom: var(--b5-space-3);
     padding: var(--b5-space-2);
