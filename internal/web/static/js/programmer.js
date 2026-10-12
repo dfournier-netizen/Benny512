@@ -81,6 +81,9 @@ const ProgrammerSync = (() => {
   Live.on('programmer', msg => {
     if (msg.revision !== known) refresh().catch(() => {});
   });
+  // I2d2: a one-shot command started or ended. It does not move the
+  // revision, so re-read for its progress line.
+  Live.on('commands', () => { refresh().catch(() => {}); });
   // A reconnect may have missed broadcasts: catch up.
   Live.on('connected', () => { refresh().catch(() => {}); });
 

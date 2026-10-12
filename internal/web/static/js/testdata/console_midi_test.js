@@ -156,18 +156,28 @@ function browser(opts) {
   await sleep(50);
   check(midi.calls.length === 0, 'mounting asks nothing of Web MIDI: access is requested only on Connect MIDI', midi.calls.length);
   check(/Not connected/.test(q('[data-midi-phase]').textContent) && /plugged into the computer running this browser/.test(q('[data-midi-phase]').textContent), 'before connecting the strip says so, and that the controller must be plugged into this computer', q('[data-midi-phase]').textContent);
+  // I2e restyle: the bar states the link with a glyph AND a word.
+  const link = () => q('[data-midi-link]');
+  const icOf = el => ((el && el.querySelector('.b5-con-ic') && el.querySelector('.b5-con-ic').innerHTML) || '');
+  const linkIcon = () => icOf(link()).match(/#b5-icon-(midi-[a-z]+)/);
+  check(link() && link().getAttribute('data-midi-link') === 'off' && /Not connected/.test(link().textContent) && linkIcon() && linkIcon()[1] === 'midi-disconnected',
+    'I2e: before connecting the bar shows "Not connected" with the midi-disconnected glyph', link() && [link().textContent, icOf(link())]);
 
   midi.plug(xt);
   click(q('[data-midi-connect]'));
   await until('MIDI to connect', () => q('[data-midi-phase="ready"]') && /Using X-TOUCH MINI/.test(q('[data-midi-phase]').textContent));
   check(midi.calls.length === 1 && same(midi.calls[0], { sysex: false }), 'Connect MIDI asks once, without SysEx', midi.calls);
   check(typeof xt.onmidimessage === 'function' && xt.connection === 'open', 'the only input is picked and opened');
+  check(link() && link().getAttribute('data-midi-link') === 'on' && /Connected/.test(link().textContent) && linkIcon() && linkIcon()[1] === 'midi-connected',
+    'I2e: connected, the bar says "Connected" with the midi-connected glyph', link() && [link().textContent, icOf(link())]);
 
   await select('B1', 'B2');
   await tab('position');
   await until('the encoder strip on Position', () => encAttr(1) === 'Pan');
   check(encAttr(1) === 'Pan' && encAttr(2) === 'Tilt' && encAttr(3) === 'PositionMSpeed' && /nothing on this bank/.test(encAttr(4)), 'Position: encoder 1 = Pan, 2 = Tilt, 3 = PositionMSpeed, 4 = nothing', [1, 2, 3, 4].map(encAttr));
   check(qa('[data-enc-tags="1"]')[0] && /not bound/.test(q('[data-enc-tags="1"]').textContent), 'an encoder with no MIDI binding says "not bound"');
+  check(/^Encoder 1$/.test(q('[data-enc="1"] .b5-midi-enc__num').textContent), 'I2e: each cell names its encoder in a word ("Encoder 1")', q('[data-enc="1"] .b5-midi-enc__num').textContent);
+  check(/#b5-icon-fine\b/.test(icOf(q('[data-enc-fine="1"]'))) && /Fine: OFF/.test(q('[data-enc-fine="1"]').textContent), 'I2e: the Fine toggle carries the fine glyph beside its words', q('[data-enc-fine="1"]').textContent);
   check(/Output is not armed/.test(q('[data-midi-strip]').textContent), 'the strip says output is not armed (moves change the programmer only)');
 
   // --- learn: each mode from what the encoder sends --------------------------------------
@@ -243,16 +253,20 @@ function browser(opts) {
   w = await turn(CC(18, 64));
   check(w === null, 'signbit: value 64 (minus zero) writes nothing', w);
 
-  // absolute and 14-bit on the Colour tab: enc 4 = ColorSub_M, enc 5 = ColorSub_Y.
+  // absolute and 14-bit on the Colour tab: enc 4 = ColorMacro1, enc 5 = ColorMixMSpeed.
+  // I2c2 (§9): the Colour tab draws its open mode's cards (Mix on a BMFL: C, M, Y)
+  // then the other colour channels, and the encoders follow exactly that order,
+  // so enc 4 / 5 are ColorMacro1 / ColorMixMSpeed (8-bit, one function each: the
+  // same 3-count steps the CMY checks used).
   await tab('colour');
-  await until('the strip to follow the Colour tab', () => encAttr(1) === 'Color1');
+  await until('the strip to follow the Colour tab', () => encAttr(1) === 'ColorSub_C');
   const cards = qa('[data-panel="colour"] [data-attr]').map(c => c.getAttribute('data-attr'));
-  check(same([1, 2, 3, 4, 5, 6, 7, 8].map(encAttr), cards.slice(0, 8)), 'Colour: the encoders take the tab\'s attributes in the order the cards are drawn', [[1, 2, 3, 4, 5, 6, 7, 8].map(encAttr), cards]);
-  check(encAttr(4) === 'ColorSub_M' && encAttr(5) === 'ColorSub_Y', 'Colour on a BMFL: encoder 4 = ColorSub_M, 5 = ColorSub_Y');
+  check(cards.length > 0 && same([1, 2, 3, 4, 5, 6, 7, 8].map(encAttr).slice(0, cards.length), cards.slice(0, 8)), 'Colour: the encoders take the tab\'s attributes in the order the cards are drawn', [[1, 2, 3, 4, 5, 6, 7, 8].map(encAttr), cards]);
+  check(encAttr(4) === 'ColorMacro1' && encAttr(5) === 'ColorMixMSpeed', 'Colour on a BMFL: encoder 4 = ColorMacro1, 5 = ColorMixMSpeed');
   w = await turn(CC(19, 50));
   check(w === null, 'absolute: the first value only says where the control is (no write)', w);
   w = await turn(CC(19, 53));
-  check(same(w, { targets: [T('B1'), T('B2')], attribute: 'ColorSub_M', functionIndex: 0, dmx: 9 }), 'absolute: 50 → 53 = +3 steps (ColorSub_M 9)', w);
+  check(same(w, { targets: [T('B1'), T('B2')], attribute: 'ColorMacro1', functionIndex: 0, dmx: 9 }), 'absolute: 50 → 53 = +3 steps (ColorMacro1 9)', w);
   w = await turn(CC(19, 51));
   check(w && w.dmx === 3, 'absolute: 53 → 51 = −2 steps (3)', w);
   w = await turn(CC(19, 120));
@@ -268,7 +282,7 @@ function browser(opts) {
   // 14-bit: 128 fine values = one step (3 on an 8-bit channel).
   send(CC(1, 64)); send(CC(33, 0)); await settled();
   w = await turn(CC(33, 64));
-  check(same(w, { targets: [T('B1'), T('B2')], attribute: 'ColorSub_Y', functionIndex: 0, dmx: 2 }), '14-bit: baseline 64/0, then LSB 64 alone = +64/128 step → ColorSub_Y 1.5 → 2', w);
+  check(same(w, { targets: [T('B1'), T('B2')], attribute: 'ColorMixMSpeed', functionIndex: 0, dmx: 2 }), '14-bit: baseline 64/0, then LSB 64 alone = +64/128 step → ColorMixMSpeed 1.5 → 2', w);
   let before = posts(SET).length;
   send(CC(1, 65)); send(CC(33, 0)); await settled();
   w = posts(SET).slice(before);
@@ -280,7 +294,7 @@ function browser(opts) {
   send(CC(1, 66)); await sleep(60); await settled();
   w = posts(SET).slice(before);
   check(w.length === 1 && w[0].body.dmx === 6, '14-bit: a lone MSB 66 is read after 20 ms with LSB 0 (8448 = +129/128 step) → 6', w.map(x => x.body));
-  await until('the server to hold ColorSub_Y 6', async () => (await held('ColorSub_Y', 'B2')) === 6);
+  await until('the server to hold ColorMixMSpeed 6', async () => (await held('ColorMixMSpeed', 'B2')) === 6);
 
   // --- push toggles fine for that encoder ----------------------------------------------------
   await tab('position');
@@ -290,7 +304,9 @@ function browser(opts) {
     'pushing encoder 1 (Note On 32) turns FINE on for encoder 1 only; the Note Off changes nothing');
   await sleep(650); // a new gesture: read Pan from the programmer again
   w = await turn(CC(16, 1));
-  check(w && w.dmx === 34078 + 16, 'fine: one step on a 16-bit Pan is 16 (34094)', w);
+  // I2c: fine is 1:10 of a normal step over the whole value (owner rule,
+  // 2026-10-08), superseding 1/4096 (16): 655 / 10 -> 66.
+  check(w && w.dmx === 34078 + 66, 'fine: one step on a 16-bit Pan is a tenth of 655 = 66 (34144)', w);
   send([0x90, 32, 127]); await settled();
   check(q('[data-enc-fine="1"]').getAttribute('aria-pressed') === 'false', 'pushing again turns fine off');
   click(q('[data-enc-fine="2"]'));
@@ -377,6 +393,8 @@ function browser(opts) {
   midi.unplug(xt);
   await until('the unplugged words', () => /X-TOUCH MINI was unplugged/.test(q('[data-midi-phase]').textContent));
   check(xt.onmidimessage === null, 'unplugging detaches the input');
+  check(link() && link().getAttribute('data-midi-link') === 'off' && /Unplugged/.test(link().textContent) && linkIcon() && linkIcon()[1] === 'midi-disconnected',
+    'I2e: unplugged, the bar says "Unplugged" with the midi-disconnected glyph', link() && [link().textContent, icOf(link())]);
   const nano = new FakeInput('in-2', 'nanoKONTROL2');
   midi.plug(nano);
   await sleep(30);

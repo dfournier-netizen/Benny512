@@ -16,7 +16,7 @@
 .b5-nodes-parent { width: 100%; text-align: left; color: inherit; font: inherit; cursor: pointer; }
 .b5-nodes-parent > span, .b5-nodes-parent > strong { display: block; }
 .b5-nodes-tabs { display: flex; gap: var(--b5-space-2); padding: var(--b5-space-3); flex-shrink: 0; }
-.b5-nodes-tabs [aria-selected="true"] { border-color: var(--b5-color-accent-500); background: var(--b5-color-bg-surface-raised); }
+.b5-nodes-tabs [aria-selected="true"] { border-color: var(--b5-color-accent-border); background: var(--b5-color-bg-surface-raised); }
 .b5-nodes-editor [hidden] { display: none !important; }
 .b5-nodes-editor .b5-row { flex-wrap: wrap; }
 @media (max-width: 767px) {

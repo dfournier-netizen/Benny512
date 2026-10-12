@@ -40,10 +40,11 @@
 // 6× (strength 5) as the gap shrinks to 5 ms.
 //
 // HOW FAR ONE STEP MOVES. Normal: 1 % of the channel's full range (8-bit:
-// 3 values; 16-bit: 655). Fine: 1/4096 of the range, at least one value
-// (8-bit: 1; 16-bit: 16). That is the fader's ± step in normal mode; fine
-// is coarser than the fader's 1-value fine on a 16-bit channel so a fine
-// turn still visibly moves a beam.
+// 3 values; 16-bit: 655). Fine: a tenth of that, at least one value
+// (8-bit: 1; 16-bit: 66) — the owner's fine rule (2026-10-08 design
+// hand-back): 1:10 travel over the WHOLE value, never the fine byte on its
+// own. The write is the complete value, so it carries across the coarse/
+// fine byte boundary. (Was 1/4096 = 16 on a 16-bit channel until I2c.)
 //
 // HOW A TURN IS WRITTEN. A turn is a NUDGE of the value the programmer
 // already holds, sent as absolute DMX values through the Console's own
@@ -123,6 +124,19 @@ const ConsoleMIDI = (() => {
     return b;
   }
   function tag(word, tone) { return h('span', { class: 'b5-pill b5-pill--tag' + (tone ? ' b5-pill--' + tone : ''), text: word }); }
+  function ic(name) {
+    const s = h('span', { class: 'b5-con-ic', 'aria-hidden': 'true' });
+    if (typeof UI !== 'undefined' && UI.icon) s.innerHTML = UI.icon(name);
+    return s;
+  }
+  // I2e: the connection state as a glyph AND a word, in the bar itself.
+  function linkPill() {
+    const on = st.phase === 'ready' && !!st.input && !st.lost;
+    const word = on ? 'Connected' : st.phase === 'ready' && st.lost ? 'Unplugged' : st.phase === 'insecure' ? 'Not available here'
+      : st.phase === 'unsupported' ? 'No Web MIDI' : st.phase === 'denied' ? 'Access refused' : st.phase === 'asking' ? 'Asking…' : 'Not connected';
+    return h('span', { class: 'b5-pill b5-pill--md' + (on ? ' b5-pill--ok' : st.phase === 'denied' ? ' b5-pill--danger' : ' b5-pill--open'), 'data-midi-link': on ? 'on' : 'off' },
+      ic(on ? 'midi-connected' : 'midi-disconnected'), word);
+  }
   const now = () => Date.now();
   const stamp = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
 
@@ -357,6 +371,13 @@ const ConsoleMIDI = (() => {
       list.forEach(a => { const b = bladeOf(a.attribute); by.set(b, (by.get(b) || []).concat([a])); });
       list = [].concat(...by.values());
     }
+    // Colour (I2c2, §9): the tab draws the cards of its open mode (Mix /
+    // Wheel / CTO-CTB) then the other colour channels; the encoders take
+    // exactly those, never an attribute that is not on screen.
+    if (tab === 'colour' && typeof ConsoleControls !== 'undefined' && ConsoleControls.colourOrder) {
+      const order = ConsoleControls.colourOrder();
+      if (order) list = order.map(n => list.find(a => a.attribute === n)).filter(Boolean);
+    }
     out.list = list;
     out.pages = Math.max(1, Math.ceil(list.length / N));
     out.bank = Math.max(0, Math.min(st.bank[tab] || 0, out.pages - 1));
@@ -382,7 +403,7 @@ const ConsoleMIDI = (() => {
   function globalFine() { return !!(typeof ConsoleControls !== 'undefined' && ConsoleControls._state && ConsoleControls._state.fine); }
   function fineFor(i) { return rt(i).fine || globalFine(); }
   const normalStep = max => Math.max(1, Math.round(max / 100));
-  const fineStep = max => Math.max(1, Math.round(max / 4096));
+  const fineStep = max => Math.max(1, Math.round(normalStep(max) / 10));
 
   // --- nudging ---------------------------------------------------------------------------
   function selSig() { const p = prog(); return p ? p.selection.map(s => s.entryId + '/' + s.cell).join(',') : ''; }
@@ -582,7 +603,7 @@ const ConsoleMIDI = (() => {
     if (st.phase === 'idle' && !secure()) st.phase = 'insecure';
     else if (st.phase === 'idle' && !hasWebMIDI()) st.phase = 'unsupported';
     const words = phaseWords();
-    const head = h('div', { class: 'b5-midi-bar' }, h('strong', { class: 'b5-midi-title', text: 'MIDI encoders' }));
+    const head = h('div', { class: 'b5-midi-bar' }, h('strong', { class: 'b5-midi-title', text: 'MIDI encoders' }), linkPill());
     if (st.phase === 'idle' || st.phase === 'denied') head.appendChild(btn('Connect MIDI', { 'data-midi-connect': '' }, () => connect(), 'b5-btn--primary'));
     if (st.phase === 'ready' && st.inputs.length) {
       const sel = h('select', { class: 'b5-select b5-midi-input', 'data-midi-input': '', 'aria-label': 'MIDI controller' });
@@ -654,9 +675,9 @@ const ConsoleMIDI = (() => {
       if (m.tab && m.tab !== 'other') {
         for (let i = 0; i < m.N; i++) {
           const a = m.attrs[i];
-          const fineB = h('button', { type: 'button', class: 'b5-seg b5-midi-fine', 'data-enc-fine': String(i + 1), 'aria-pressed': 'false', onclick: () => toggleFine(i) }, 'Fine: OFF');
+          const fineB = h('button', { type: 'button', class: 'b5-seg b5-midi-fine', 'data-enc-fine': String(i + 1), 'aria-pressed': 'false', onclick: () => toggleFine(i) }, ic('fine'), h('span', { 'data-enc-fine-word': '' }, 'Fine: OFF'));
           strip.appendChild(h('div', { class: 'b5-midi-enc' + (a ? '' : ' is-empty'), role: 'listitem', 'data-enc': String(i + 1) },
-            h('span', { class: 'b5-midi-enc__num', text: 'Enc ' + (i + 1) }),
+            h('span', { class: 'b5-midi-enc__num', text: 'Encoder ' + (i + 1) }),
             h('span', { class: 'b5-midi-enc__attr', 'data-enc-attr': String(i + 1), text: a ? a.attribute : '— nothing on this bank' }),
             h('span', { class: 'b5-text-mono b5-midi-enc__val', 'data-enc-val': String(i + 1) }),
             h('span', { class: 'b5-midi-enc__tags', 'data-enc-tags': String(i + 1) }),
@@ -683,7 +704,7 @@ const ConsoleMIDI = (() => {
       if (!enc[i]) tags.appendChild(tag('not bound', 'open'));
       if (fineFor(i)) tags.appendChild(tag(rt(i).fine ? 'FINE' : 'FINE (Controls)', 'accent'));
       if (a && a.channels.some(c => !c.touched && !c.defaultKnown)) tags.appendChild(tag('default unknown', 'unread'));
-      fb.textContent = rt(i).fine ? 'Fine: ON' : 'Fine: OFF';
+      fb.querySelector('[data-enc-fine-word]').textContent = rt(i).fine ? 'Fine: ON' : 'Fine: OFF';
       fb.setAttribute('aria-pressed', rt(i).fine ? 'true' : 'false');
       fb.classList.toggle('is-on', rt(i).fine);
     }
@@ -776,7 +797,7 @@ const ConsoleMIDI = (() => {
         p.acceleration = { enabled: en.checked, thresholdMs: ms, strength: Number(str.value) };
         save('Acceleration ' + (en.checked ? 'ON (faster than ' + ms + ' ms per click, up to ' + ACCEL_MAX[Number(str.value)] + '×).' : 'OFF.'));
       })));
-    body.appendChild(h('p', { class: 'b5-caption', text: 'One click = 1 % of the channel (fine: 1/4096). A mixed selection moves together by the same number of steps from each fixture’s own value, each stopping at the edge of the function it is in. ' + PLUG_WORDS }));
+    body.appendChild(h('p', { class: 'b5-caption', text: 'One click = 1 % of the channel (fine: a tenth of that, at least one DMX value). A mixed selection moves together by the same number of steps from each fixture’s own value, each stopping at the edge of the function it is in. ' + PLUG_WORDS }));
     d.appendChild(body);
   }
 

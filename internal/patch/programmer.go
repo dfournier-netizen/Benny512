@@ -26,6 +26,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"benny512/internal/session"
 )
@@ -75,13 +76,25 @@ type Programmer struct {
 	highlight bool
 	lowlight  bool
 	lowPct    int
-	wsDigest  string
+	// I2d: Highlight stepping (Previous/Next through the selection, §15).
+	// stepping false = the whole selection is highlighted; otherwise only
+	// selection[step]. Any selection change ends stepping.
+	stepping bool
+	step     int
+	wsDigest string
 	// G2 group faders (faders.go).
 	faderRev    uint64
 	faderSeq    uint64
 	faderClaims map[string]faderClaim
 	faderGroups []FaderGroup
 	faderDigest string
+	// I2d2: one-shot commands in flight (by id) and the last one that
+	// ended, for every browser's progress line; cmdHook is told when one
+	// ends (the web layer broadcasts).
+	cmds    map[uint64]*progCmd
+	lastCmd *ProgCommandView
+	cmdSeq  uint64
+	cmdHook func()
 }
 
 // NewProgrammer builds an empty programmer over dmx. seed is the first
@@ -143,6 +156,7 @@ func (pg *Programmer) Sync(token any, entries []Entry, clear bool) bool {
 	}
 	if clear {
 		pg.selection = nil
+		pg.stepping = false
 		pg.values = map[progKey]uint32{}
 		if pg.highlight {
 			pg.highlight = false
@@ -154,6 +168,9 @@ func (pg *Programmer) Sync(token any, entries []Entry, clear bool) bool {
 			if m := models[t.EntryID]; m != nil && (t.Cell == "" || m.HasCell(t.Cell)) {
 				kept = append(kept, t)
 			}
+		}
+		if len(kept) != len(pg.selection) {
+			pg.stepping = false
 		}
 		pg.selection = kept
 		for k := range pg.values {
@@ -226,13 +243,90 @@ func VirtualDimmerKey(entryID string, off uint16) string {
 	return fmt.Sprintf("%s#%d", entryID, off)
 }
 
+// ColourFillKey (I2f) is the engine key of the colour fill of one colour
+// scope (cell "" = the fixture's own channels) that has a real Dimmer of its
+// own and so no virtual dimmer: a source claiming it at 255 changes nothing
+// but the G1 fill rule — a colour that composed to all zero shows white.
+// The Tests layer claims it while a dimmer test drives that scope, so a
+// dimmer test on unset colour shows white (owner 2026-10-09).
+func ColourFillKey(entryID, cell string) string { return entryID + "#fill#" + cell }
+
+// colourScope is one scope (cell "" = the fixture's own channels) with red,
+// green and blue additive emitters; virtual is its virtual dimmer, if any.
+type colourScope struct {
+	cell     string
+	additive []uint16
+	virtual  *ProgParameter
+}
+
+// colourScopesOf lists m's colour scopes, fixture first then cells in order.
+func colourScopesOf(m *FixtureModel) []colourScope {
+	type acc struct {
+		r, g, b  bool
+		additive []uint16
+	}
+	scopes := map[string]*acc{"": {}}
+	order := []string{""}
+	for _, c := range m.Cells {
+		scopes[c.ID] = &acc{}
+		order = append(order, c.ID)
+	}
+	for _, p := range m.Parameters {
+		a := scopes[p.Cell]
+		if a == nil || p.Virtual {
+			continue
+		}
+		switch p.Attribute {
+		case "ColorAdd_R", "ColorRGB_Red":
+			a.r = true
+		case "ColorAdd_G", "ColorRGB_Green":
+			a.g = true
+		case "ColorAdd_B", "ColorRGB_Blue":
+			a.b = true
+		}
+		if isAdditiveColour(p.Attribute) {
+			a.additive = append(a.additive, p.Offset)
+		}
+	}
+	out := make([]colourScope, 0)
+	for _, cell := range order {
+		a := scopes[cell]
+		if !a.r || !a.g || !a.b {
+			continue
+		}
+		cs := colourScope{cell: cell, additive: a.additive}
+		for i := range m.Parameters {
+			if p := &m.Parameters[i]; p.Virtual && p.Cell == cell {
+				cs.virtual = p
+			}
+		}
+		out = append(out, cs)
+	}
+	return out
+}
+
 // virtualDefsLocked: every virtual dimmer of every patched entry, with the
 // slots of the additive channels it scales (a channel with a byte that
-// cannot be written is left out).
+// cannot be written is left out) — and (I2f) the colour fill of every colour
+// scope that has a real dimmer instead (ColourFillKey).
 func (pg *Programmer) virtualDefsLocked() map[uint16][]session.VirtualDimmer {
 	defs := map[uint16][]session.VirtualDimmer{}
 	for _, id := range pg.order {
 		e, m := pg.entries[id], pg.models[id]
+		for _, cs := range colourScopesOf(m) {
+			if cs.virtual != nil {
+				continue
+			}
+			vd := session.VirtualDimmer{Key: ColourFillKey(id, cs.cell)}
+			for _, off := range cs.additive {
+				if g, ok := scaleGroupOf(e, m.paramAt(off)); ok {
+					vd.Channels = append(vd.Channels, g)
+				}
+			}
+			if len(vd.Channels) > 0 {
+				defs[e.Universe] = append(defs[e.Universe], vd)
+			}
+		}
 		for _, p := range m.Parameters {
 			if !p.Virtual {
 				continue
@@ -439,6 +533,7 @@ func (pg *Programmer) Select(action string, targets []ProgTarget, expected *uint
 		return nil, reqErr("The selection action must be set, add, remove, toggle, all or none; %q is not one of them.", action)
 	}
 	pg.selection = next
+	pg.stepping = false
 	// Highlight and Lowlight follow the selection (C4b).
 	pg.applyOverlayLocked()
 	pg.revision++
@@ -550,6 +645,26 @@ type ProgSetResult struct {
 // ProgNothingApplied is returned when no target could take the value; the
 // result carries every reason.
 type ProgNothingApplied struct{ Result ProgSetResult }
+
+// ProgCommandRefused (I2d3): a value-keeping write (/set, Fan) reached a
+// fixture command. Nothing was stored.
+type ProgCommandRefused struct {
+	Name   string
+	Result ProgSetResult
+}
+
+func (e ProgCommandRefused) Error() string {
+	return e.Name + " is a fixture command (a Control channel, or a Reset or Lamp function). Commands are sent once and never kept, so /api/programmer/set and Fan do not take them; send it to POST /api/programmer/command."
+}
+
+// isCommand: a value of this parameter in function fi (-1: not one
+// function) is a fixture command (IsCommandFunction).
+func (p *ProgParameter) isCommand(fi int) bool {
+	if fi >= 0 && fi < len(p.Functions) {
+		return p.Functions[fi].Command
+	}
+	return p.Group == GroupOther
+}
 
 func (e ProgNothingApplied) Error() string {
 	if len(e.Result.Skipped) == 0 {
@@ -857,6 +972,200 @@ func (pg *Programmer) Set(req ProgSetRequest, expected *uint64) (ProgSetResult, 
 	return pg.commitLocked(res, pending)
 }
 
+// CommandWindow (I2d2, owner decision 2026-10-09: Control commands are
+// one-shot) is how long a fixture command's value stays on the wire before
+// the channel returns to what it was. No profile states one: GDTF's
+// LogicalChannel DMXChangeTimeLimit is not read by the importer and is 0 in
+// every real file in this repository. 1 s is the owner's value (Dom,
+// 2026-10-09, I2d3; the I2d2 placeholder was 5 s).
+const CommandWindow = 1 * time.Second
+
+// ProgOutputNotLive is Command's refusal while output is not armed: the
+// command is not sent and not kept to send at a later Arm.
+type ProgOutputNotLive struct{ Output ProgOutput }
+
+func (e ProgOutputNotLive) Error() string {
+	return "Output is not live, so the command was not sent and is not kept for later. Arm output, then send it again."
+}
+
+// Command (I2d2) sends a fixture command one-shot: the value is resolved
+// exactly as Set resolves it (function, channel set, wheel slot, mode
+// master), put on the wire for CommandWindow by the engine's command
+// source, and never stored in the programmer — afterwards each channel
+// shows its programmer value again, or the profile default. expected is
+// checked like Set's; the revision does not change, because the programmer
+// does not. Refused (ProgOutputNotLive) unless output is armed.
+func (pg *Programmer) Command(req ProgSetRequest, expected *uint64) (ProgSetResult, error) {
+	pg.mu.Lock()
+	defer pg.mu.Unlock()
+	res := newSetResult()
+	if err := pg.checkLocked(expected); err != nil {
+		return res, err
+	}
+	if err := req.validate(); err != nil {
+		return res, err
+	}
+	res.Revision, res.Output = pg.revision, pg.outputLocked()
+	if !res.Output.Live {
+		return res, ProgOutputNotLive{Output: res.Output}
+	}
+	matches, err := pg.matchLocked(req.Targets, req.Attribute, &res)
+	if err != nil {
+		return res, err
+	}
+	pending := map[progKey]uint32{}
+	for _, tm := range matches {
+		for _, p := range tm.params {
+			v, fi, why := req.resolveValue(p)
+			if why != "" {
+				res.Skipped = append(res.Skipped, ProgSkipped{EntryID: tm.target.EntryID, Cell: p.Cell, Offset: p.Offset, Reason: why})
+				continue
+			}
+			pg.placeLocked(&res, tm.target.EntryID, tm.model, p, v, fi, req.namesFunction(), pending)
+		}
+	}
+	if len(res.Applied) == 0 {
+		return res, ProgNothingApplied{Result: res}
+	}
+	frames := map[uint16]session.LayerFrame{}
+	for k, v := range pending {
+		e, m := pg.entries[k.entry], pg.models[k.entry]
+		p := m.paramAt(k.offset)
+		if p == nil || p.Virtual {
+			continue
+		}
+		for i, b := range p.bytesOf(v) {
+			if i >= len(p.Offsets) || !e.addressable(p.Offsets[i]) {
+				continue
+			}
+			f := frames[e.Universe]
+			slot := int(e.StartAddress) + int(p.Offsets[i]) - 2
+			f.Values[slot], f.Owned[slot] = b, true
+			frames[e.Universe] = f
+		}
+	}
+	pg.cmdSeq++
+	id := pg.cmdSeq
+	if err := pg.dmx.FireCommand(frames, CommandWindow, func(finished bool) { pg.commandEnded(id, finished) }); err != nil {
+		if errors.Is(err, session.ErrOutputNotLive) {
+			return res, ProgOutputNotLive{Output: pg.outputLocked()}
+		}
+		return res, err
+	}
+	if pg.cmds == nil {
+		pg.cmds = map[uint64]*progCmd{}
+	}
+	pg.cmds[id] = &progCmd{view: ProgCommandView{ID: id, Name: commandName(req, res), Attribute: req.Attribute,
+		Fixtures: pg.fixtureNamesLocked(res), WindowMs: CommandWindow.Milliseconds(), State: "sending"},
+		ends: pg.dmx.Now().Add(CommandWindow)}
+	return res, nil
+}
+
+// ProgCommandView is one one-shot command (I2d2) as every browser shows
+// it. State is "sending" while it is on the wire, "done" when its window
+// ran out and the channels returned to their previous values, "stopped"
+// when Disarm or a lost lease ended it first. RemainingMs is set while
+// sending.
+type ProgCommandView struct {
+	ID          uint64   `json:"id"`
+	Name        string   `json:"name"`
+	Attribute   string   `json:"attribute"`
+	Fixtures    []string `json:"fixtures"`
+	WindowMs    int64    `json:"windowMs"`
+	RemainingMs int64    `json:"remainingMs"`
+	State       string   `json:"state"`
+}
+
+// ProgCommandsView is GET /api/programmer's "commands": those in flight,
+// oldest first, and the last one that ended (null before any).
+type ProgCommandsView struct {
+	Active []ProgCommandView `json:"active"`
+	Last   *ProgCommandView  `json:"last"`
+}
+
+type progCmd struct {
+	view ProgCommandView
+	ends time.Time
+}
+
+// OnCommandEnd sets fn, called (outside the programmer's lock) whenever a
+// one-shot command ends, so the web layer can tell every browser.
+func (pg *Programmer) OnCommandEnd(fn func()) {
+	pg.mu.Lock()
+	defer pg.mu.Unlock()
+	pg.cmdHook = fn
+}
+
+func (pg *Programmer) commandEnded(id uint64, finished bool) {
+	pg.mu.Lock()
+	c := pg.cmds[id]
+	if c == nil {
+		pg.mu.Unlock()
+		return
+	}
+	delete(pg.cmds, id)
+	v := c.view
+	v.RemainingMs, v.State = 0, "stopped"
+	if finished {
+		v.State = "done"
+	}
+	pg.lastCmd = &v
+	hook := pg.cmdHook
+	pg.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+}
+
+func (pg *Programmer) commandsLocked() ProgCommandsView {
+	out := ProgCommandsView{Active: make([]ProgCommandView, 0, len(pg.cmds))}
+	now := pg.dmx.Now()
+	for _, c := range pg.cmds {
+		v := c.view
+		v.RemainingMs = max(c.ends.Sub(now).Milliseconds(), 0)
+		out.Active = append(out.Active, v)
+	}
+	sort.Slice(out.Active, func(i, j int) bool { return out.Active[i].ID < out.Active[j].ID })
+	if pg.lastCmd != nil {
+		v := *pg.lastCmd
+		out.Last = &v
+	}
+	return out
+}
+
+// commandName is what the operator pressed: the channel set's name, else
+// the function's (with the wheel slot when one was named).
+func commandName(req ProgSetRequest, res ProgSetResult) string {
+	if req.Set != nil {
+		return *req.Set
+	}
+	name := req.Attribute
+	if len(res.Applied) > 0 && res.Applied[0].FunctionName != "" {
+		name = res.Applied[0].FunctionName
+	}
+	if req.Slot != nil {
+		name += fmt.Sprintf(" slot %d", *req.Slot)
+	}
+	return name
+}
+
+// fixtureNamesLocked: the fixtures a result reached, in patch order.
+func (pg *Programmer) fixtureNamesLocked(res ProgSetResult) []string {
+	hit := map[string]bool{}
+	for _, a := range res.Applied {
+		hit[a.EntryID] = true
+	}
+	out := make([]string, 0, len(hit))
+	for _, id := range pg.order {
+		if hit[id] {
+			if m := pg.models[id]; m != nil {
+				out = append(out, m.Name)
+			}
+		}
+	}
+	return out
+}
+
 func newSetResult() ProgSetResult {
 	return ProgSetResult{Applied: make([]ProgApplied, 0), ModeMasters: make([]ProgModeMaster, 0), Skipped: make([]ProgSkipped, 0)}
 }
@@ -896,7 +1205,7 @@ func (pg *Programmer) matchLocked(targets []ProgTarget, attribute string, res *P
 		matched := false
 		for i := range m.Parameters {
 			p := &m.Parameters[i]
-			if p.Attribute != attribute || (t.Cell != "" && p.Cell != t.Cell) {
+			if p.Attribute != attribute || !m.inScope(t, p) {
 				continue
 			}
 			matched = true
@@ -947,11 +1256,26 @@ func (pg *Programmer) placeLocked(res *ProgSetResult, entry string, m *FixtureMo
 	res.Applied = append(res.Applied, a)
 }
 
-// commitLocked stores pending, or refuses when nothing applied.
+// commitLocked stores pending, or refuses when nothing applied — or when
+// any applied value is a fixture command (I2d3: commands are one-shot, so a
+// path that keeps values never takes one; mode masters it moved are kept,
+// they are what makes the requested function work).
 func (pg *Programmer) commitLocked(res ProgSetResult, pending map[progKey]uint32) (ProgSetResult, error) {
 	if len(res.Applied) == 0 {
 		res.Revision, res.Output = pg.revision, pg.outputLocked()
 		return res, ProgNothingApplied{Result: res}
+	}
+	for _, a := range res.Applied {
+		if m := pg.models[a.EntryID]; m != nil {
+			if p := m.paramAt(a.Offset); p != nil && p.isCommand(a.FunctionIndex) {
+				res.Revision, res.Output = pg.revision, pg.outputLocked()
+				name := a.Attribute
+				if a.FunctionIndex >= 0 {
+					name = p.Functions[a.FunctionIndex].Name
+				}
+				return res, ProgCommandRefused{Name: name, Result: res}
+			}
+		}
 	}
 	for k, v := range pending {
 		pg.values[k] = v
@@ -1159,6 +1483,7 @@ func (pg *Programmer) Clear(scope string, group AttributeGroup, expected *uint64
 	}
 	if scope == ClearAll && group == "" {
 		pg.selection = nil
+		pg.stepping = false
 	}
 	pg.applyLocked()
 	pg.revision++

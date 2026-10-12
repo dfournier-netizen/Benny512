@@ -223,17 +223,19 @@ const FILES = ['api.js', 'ws.js', 'programmer.js', 'ui.js', 'console-tests.js', 
   await until('the run bar', () => q('[data-run]'));
   check(/Step 1 of 2 · Dimmers/.test(q('[data-run-step-word]').textContent), 'the run bar says "Step 1 of 2 · Dimmers"', q('[data-run-step-word]').textContent);
   check(/Next step in \d+\.\d s/.test(q('[data-run-remaining]').textContent), 'an auto step shows its time left in words', q('[data-run-remaining]').textContent);
-  check(q('[data-run-step="0"]').getAttribute('aria-current') === 'step' && /NOW/.test(q('[data-run-step="0"]').textContent), 'the current step is marked NOW and aria-current, not by colour');
+  // I2e §17: the word is CURRENT (was NOW).
+  check(q('[data-run-step="0"]').getAttribute('aria-current') === 'step' && /CURRENT/.test(q('[data-run-step="0"]').textContent), 'the current step is marked CURRENT and aria-current, not by colour');
   check(tile('dimmer_toggle').disabled, 'while a sequence runs the test toggles are locked (the step chooses the tests)');
   await until('browser B to see the run', () => bRoot.querySelector('[data-run-step-word]'));
   check(/Step 1 of 2 · Dimmers/.test(bRoot.querySelector('[data-run-step-word]').textContent) && /Next step in/.test(bRoot.querySelector('[data-run-remaining]').textContent),
     'a second browser shows the running step and the time left (tests broadcast)', bRoot.querySelector('[data-run-step-word]').textContent);
 
-  click(q('[data-run-pause]'));
-  await until('paused', () => q('[data-run-resume]'));
-  check(same(lastPost(T + 'run-pause').body, {}) && /Paused with \d+\.\d s left/.test(q('[data-run-remaining]').textContent), 'Pause posts run-pause {} and says "Paused with … left"', q('[data-run-remaining]').textContent);
-  click(q('[data-run-resume]'));
-  await until('resumed', () => q('[data-run-pause]'));
+  // I2e §17: on an auto step, Pause / Resume is the AUTO toggle.
+  click(q('[data-run-auto]'));
+  await until('paused', () => q('[data-run-auto]').getAttribute('aria-pressed') === 'false');
+  check(same(lastPost(T + 'run-pause').body, {}) && /Paused with \d+\.\d s left/.test(q('[data-run-remaining]').textContent), 'AUTO off posts run-pause {} and says "Paused with … left"', q('[data-run-remaining]').textContent);
+  click(q('[data-run-auto]'));
+  await until('resumed', () => q('[data-run-auto]').getAttribute('aria-pressed') === 'true');
   check(same(lastPost(T + 'run-resume').body, {}), 'Resume posts run-resume {}');
   click(q('[data-run-next]'));
   await until('step 2', () => /Step 2 of 2 · Position/.test(q('[data-run-step-word]').textContent));
@@ -305,7 +307,7 @@ const FILES = ['api.js', 'ws.js', 'programmer.js', 'ui.js', 'console-tests.js', 
   const more = document.querySelector('[data-summary-more]');
   check(!!moreBtn && moreBtn.getAttribute('aria-expanded') === 'false', 'the selection bar has a More toggle (collapsed)');
   check(!!more.querySelector('[data-store-group]') && !!more.querySelector('[data-highlight]') && !!more.querySelector('[data-locate]'), 'Store group, Highlight and Locate sit inside the More menu');
-  check(!!document.querySelector('[data-summary] [data-clear-selection]') && !more.querySelector('[data-clear-selection]'), 'Clear stays on the bar itself');
+  check(!!document.querySelector('[data-summary] [data-clear-open]') && !more.querySelector('[data-clear-open]'), 'Clear… stays on the bar itself (I2d §15: it opens the scope chooser)');
   click(moreBtn);
   await until('More open', () => document.querySelector('[data-summary-more-toggle]').getAttribute('aria-expanded') === 'true');
   check(document.querySelector('[data-summary-more]').classList.contains('is-open'), 'More opens the menu (aria-expanded=true)');

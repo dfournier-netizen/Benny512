@@ -194,13 +194,15 @@ func TestVirtualDimmerHighlightLocateLowlight(t *testing.T) {
 	wantSlots(t, "highlight: cell 2 no colour = white", f, 109, 255, 255, 255, 255, 255, 255, 255, 255)
 	r.post(t, "/api/programmer/highlight", map[string]any{"highlight": false}, nil)
 
-	// Lowlight: highlight L1, so B1 and P1 are lowlit at 20%.
+	// Lowlight: highlight L1 (stepped to, first of L1, B1, P1), so B1 and
+	// P1 — selected, not highlighted — are lowlit at 20% (I2d2, §15).
 	r.set(t, map[string]any{"targets": []any{r.target("B1")}, "attribute": "Dimmer", "dmx": 50000})
 	r.set(t, map[string]any{"targets": []any{r.target("P1")}, "attribute": "Dimmer", "dmx": 128})
 	// cell 1 red: floor(40000 x 128 / 255) = 20078, then floor(x 20%) = 4015.
 	// cells 2/3: white 32896, then 6579.
-	r.selectNames(t, "L1")
+	r.selectNames(t, "L1", "B1", "P1")
 	r.post(t, "/api/programmer/highlight", map[string]any{"highlight": true, "lowlight": true}, nil)
+	r.post(t, "/api/programmer/highlight", map[string]any{"step": "next"}, nil)
 	wantSlots(t, "B1 real dimmer lowlit 10000", r.wire(t, 0), 40, 0x27, 0x10)
 	f = r.wire(t, 1)
 	wantSlots(t, "P1 cell 1 red scaled then lowlit", f, 101, byte(4015>>8), byte(4015&0xFF), 0, 0, 0, 0, 0, 0)

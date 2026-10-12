@@ -665,7 +665,7 @@ const WalkScreen = (() => {
       await refresh();
     });
     document.getElementById('walkEndBtn').addEventListener('click', async () => {
-      if (!confirm('End this walk? You can still export results until you start a new one.')) return;
+      if (!(await UI.confirmAsk('End this walk? You can still export results until you start a new one.', 'End walk'))) return;
       try { await Api.endWalk(); } catch (e) { statusMsg = 'error: ' + e.message; }
       showProblemNote = false;
       noteDraft = '';

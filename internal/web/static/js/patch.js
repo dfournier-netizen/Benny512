@@ -519,7 +519,7 @@ const PatchScreen = (() => {
     document.getElementById('patchSort').value = sortMode;
 
     document.getElementById('btnCreateSavedPatch').addEventListener('click', async () => {
-      const name = prompt('Name the new show:', 'New show');
+      const name = await UI.ask({ title: 'Name the new show', field: { label: 'Show name', value: 'New show', maxLength: 80 }, ok: 'Create show' });
       if (name === null) return;
       try {
         patchData = await Api.createSavedPatch(name);
@@ -625,7 +625,7 @@ const PatchScreen = (() => {
   async function runMvrImport(mode) {
     if (!mvrPreview) return;
     const verb = mode === 'fresh' ? 'REPLACE the current patch with' : 'merge into the current patch';
-    if (!confirm(`Import ${mvrPreview.entries.length} fixture(s) from "${mvrPreview.fileName}" — ${verb} entries parsed from this MVR file?`)) return;
+    if (!(await UI.confirmAsk(`Import ${mvrPreview.entries.length} fixture(s) from "${mvrPreview.fileName}" — ${verb} entries parsed from this MVR file?`, 'Import'))) return;
     mvrImporting = true;
     renderMvrImportPreview();
     try {
@@ -811,11 +811,11 @@ const PatchScreen = (() => {
       .map(e => `  ${e.name || e.fixtureType || e.id}: footprint ${e.footprint || 0} → ${mode.footprint}`)
       .join('\n');
     const more = n > 25 ? `\n  ...and ${n - 25} more` : '';
-    if (!confirm(
+    if (!(await UI.confirmAsk(
       `Apply mode "${mode.name || '(unnamed)'}" (${mode.footprint} channels) from "${parsed.fixtureType}" to ${n} matching ` +
       `patch entr${n === 1 ? 'y' : 'ies'}? Only mode/footprint change — name, universe, address, position, fixture ` +
       `number and any confirmed RDM pairing are left exactly as they are.\n\n${lines}${more}`
-    )) return;
+    , 'Apply mode'))) return;
     gdtfApplying = true;
     renderGdtfImportPreview();
     const errors = [];
@@ -865,7 +865,7 @@ const PatchScreen = (() => {
 
   async function runAdopt(mode) {
     const verb = mode === 'fresh' ? 'REPLACE the current patch with' : 'merge into the current patch';
-    if (!confirm(`Adopt the currently discovered rig — ${verb} entries built from live RDM devices (name/type/footprint/universe/address from what's on the network right now, UID pre-confirmed)?`)) return;
+    if (!(await UI.confirmAsk(`Adopt the currently discovered rig — ${verb} entries built from live RDM devices (name/type/footprint/universe/address from what's on the network right now, UID pre-confirmed)?`, 'Adopt'))) return;
     try {
       patchData = await Api.patchAdopt(mode);
       setStatus('adopted from discovered rig');
@@ -1098,7 +1098,7 @@ const PatchScreen = (() => {
 
   async function deleteEntry(id, entries) {
     const e = entries.find(x => x.id === id);
-    if (!confirm(`Delete patch entry "${e ? (e.name || e.fixtureType || id) : id}"? This cannot be undone.`)) return;
+    if (!(await UI.confirmAsk(`Delete patch entry "${e ? (e.name || e.fixtureType || id) : id}"? This cannot be undone.`, 'Delete entry'))) return;
     try {
       patchData = await Api.deletePatchEntry(id);
       setStatus('entry deleted');
@@ -1328,7 +1328,7 @@ const PatchScreen = (() => {
       confirmMsg = `Set position to "${pos}" for ${n} entries?`;
       mutate = (draft) => { draft.position = pos; };
     }
-    if (!confirm(confirmMsg)) return;
+    if (!(await UI.confirmAsk(confirmMsg, 'Apply'))) return;
     bulkApplying = true;
     renderEntryEditor();
     const errors = [];

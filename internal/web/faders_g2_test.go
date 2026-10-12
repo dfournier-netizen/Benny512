@@ -284,7 +284,7 @@ func TestFaderRevisionBroadcastShowSwitchAndDisarmed(t *testing.T) {
 	r := newG2Rig(t)
 	ts := httptest.NewServer(r.h.srv.Handler())
 	defer ts.Close()
-	ws := dialTestWS(t, ts)
+	ws := dialTestWS(t, ts, r.h.srv)
 	bmfl, _ := r.typeOf(t, "B1")
 	v := r.faders(t)
 	id, rev := v.fader(t, bmfl).ID, v.Revision
@@ -323,21 +323,8 @@ func TestFaderRevisionBroadcastShowSwitchAndDisarmed(t *testing.T) {
 }
 
 // fadersMessages collects every {"type":"faders"} revision within d.
-func fadersMessages(c *wsTestClient, d time.Duration) []uint64 {
-	end := time.Now().Add(d)
-	out := make([]uint64, 0)
-	for time.Now().Before(end) {
-		m := c.next(end)
-		if m == "" {
-			break
-		}
-		var msg struct {
-			Type     string  `json:"type"`
-			Revision *uint64 `json:"revision"`
-		}
-		if json.Unmarshal([]byte(m), &msg) == nil && msg.Type == "faders" && msg.Revision != nil {
-			out = append(out, *msg.Revision)
-		}
-	}
-	return out
+func fadersMessages(c *wsTestClient, settle time.Duration) []uint64 {
+	// Waits for the first {"type":"faders"} message (deadline, not delay),
+	// then collects for settle.
+	return c.typedMessages("faders", settle, true)
 }

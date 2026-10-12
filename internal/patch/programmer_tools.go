@@ -29,8 +29,12 @@
 // would otherwise replace the mix with white). Lowlight scales an
 // unselected fixture's virtual dimmers by scaling the additive channels.
 //
-// LOWLIGHT, only while Highlight is on: every patched fixture with no
-// target in the selection has each of its Dimmer-group channels scaled to
+// LOWLIGHT, only while Highlight is on: every selection target (whole
+// fixture or cell, I2d3) that is not highlighted (I2d2, component-specs
+// §15: "applies only to the non-highlighted members of selection" — owner
+// 2026-10-09: dimming everything but the selection would be solo, a
+// different feature) has each of its Dimmer-group channels (a cell: its
+// own; highlight wins where they overlap, see overlayLocked) scaled to
 // LowlightPercent of what it would otherwise show (default 20%). The engine
 // scales the live composition (session.DMXOutputEngine.SetLowlight), so a
 // running Rig Check test is scaled as it moves; floor(v x % / 100) never
@@ -136,10 +140,17 @@ type ProgHighlightView struct {
 	// Unresolved: selected dimmer/shutter/colour channels with no highlight
 	// value; they keep their current value.
 	Unresolved []ProgSkipped `json:"unresolved"`
-	// Lowlit: fixtures whose dimmers Lowlight scales (when both are on).
-	Lowlit int `json:"lowlit"`
-	// NoDimmer: unselected fixtures Lowlight cannot dim (no dimmer channel).
+	// Lowlit: selection targets (whole fixtures or cells) whose dimmers
+	// Lowlight scales (when both are on); LowlitCells: how many of them are
+	// cells (I2d3).
+	Lowlit      int `json:"lowlit"`
+	LowlitCells int `json:"lowlitCells"`
+	// NoDimmer: selected, not highlighted fixtures (or the fixture of such
+	// a cell) Lowlight cannot dim (no dimmer channel).
 	NoDimmer []string `json:"noDimmer"`
+	// Step (I2d): the index in the selection that Highlight is stepped to,
+	// or null when the whole selection is highlighted.
+	Step *int `json:"step"`
 }
 
 // overlayLocked builds the highlight frames, the lowlight groups and the
@@ -150,10 +161,39 @@ func (pg *Programmer) overlayLocked() (map[uint16]session.LayerFrame, map[string
 		Unresolved: make([]ProgSkipped, 0), NoDimmer: make([]string, 0)}
 	frames := map[uint16]session.LayerFrame{}
 	levels := map[string]byte{}
-	selected := map[string]bool{}
 	done := map[progKey]bool{}
-	for _, t := range pg.selection {
-		selected[t.EntryID] = true
+	// Stepping highlights one member; the rest of the selection is then
+	// not highlighted, so Lowlight treats it like any other fixture.
+	lit := pg.selection
+	litIndex := -1 // the stepped-to member; -1 = the whole selection is lit
+	if pg.stepping && pg.step >= 0 && pg.step < len(pg.selection) {
+		lit = pg.selection[pg.step : pg.step+1]
+		step := pg.step
+		view.Step = &step
+		litIndex = step
+	}
+	// What the highlighted targets cover (I2d3): every channel of their
+	// scope, colour channels under a virtual dimmer included; and which
+	// fixtures are highlighted whole or in part.
+	hiOff := map[progKey]bool{}
+	hiWhole, hiPart := map[string]bool{}, map[string]bool{}
+	for _, t := range lit {
+		if m := pg.models[t.EntryID]; m != nil {
+			hiPart[t.EntryID] = true
+			if t.Cell == "" {
+				hiWhole[t.EntryID] = true
+			}
+			for _, p := range m.Parameters {
+				if t.Cell == "" || p.Cell == t.Cell {
+					hiOff[progKey{t.EntryID, p.Offset}] = true
+					for _, off := range p.virtualOf {
+						hiOff[progKey{t.EntryID, off}] = true
+					}
+				}
+			}
+		}
+	}
+	for _, t := range lit {
 		e, m := pg.entries[t.EntryID], pg.models[t.EntryID]
 		if m == nil {
 			continue
@@ -198,49 +238,80 @@ func (pg *Programmer) overlayLocked() (map[uint16]session.LayerFrame, map[string
 			}
 		}
 	}
+	// Lowlight scope (I2d2, cells I2d3; component-specs §15): every
+	// selection TARGET that is not highlighted — only stepping leaves any.
+	// A whole fixture dims all its dimmers (real and virtual); a cell dims
+	// only its own. Highlight wins where they overlap: a channel a
+	// highlighted target covers is never scaled, a fixture highlighted
+	// whole is not lowlit at all, and a whole-fixture (cell-less) real
+	// dimmer is left alone while any of its cells is highlighted, since it
+	// would dim that cell too. Each channel is scaled once. Fixtures
+	// outside the selection are never dimmed (that would be solo).
 	scale := map[uint16][]session.ScaleGroup{}
-	for _, id := range pg.order {
-		if selected[id] {
+	scaled := map[progKey]bool{}
+	noDim := map[string]bool{}
+	for i, t := range pg.selection {
+		if litIndex < 0 || i == litIndex || hiWhole[t.EntryID] {
 			continue
 		}
-		e, m := pg.entries[id], pg.models[id]
+		e, m := pg.entries[t.EntryID], pg.models[t.EntryID]
+		if m == nil {
+			continue
+		}
 		dims := 0
-		for _, p := range m.Parameters {
-			if p.Virtual {
-				n := 0
-				for _, off := range p.virtualOf {
-					if g, ok := scaleGroupOf(e, m.paramAt(off)); ok {
-						scale[e.Universe] = append(scale[e.Universe], g)
-						n++
-					}
-				}
-				if n > 0 {
-					dims++
-				}
-				continue
+		master := m.hasMasterDimmer()
+		add := func(off uint16, p *ProgParameter) {
+			k := progKey{t.EntryID, off}
+			if hiOff[k] {
+				return
 			}
-			if p.Group != GroupDimmer {
-				continue
+			if scaled[k] {
+				dims++
+				return
 			}
-			g := session.ScaleGroup{}
-			for _, off := range p.Offsets {
-				if e.addressable(off) {
-					g.Slots = append(g.Slots, int(e.StartAddress)+int(off)-2)
-				}
-			}
-			if len(g.Slots) == len(p.Offsets) {
+			if g, ok := scaleGroupOf(e, p); ok {
 				scale[e.Universe] = append(scale[e.Universe], g)
+				scaled[k] = true
 				dims++
 			}
 		}
+		for pi := range m.Parameters {
+			p := &m.Parameters[pi]
+			if t.Cell != "" && p.Cell != t.Cell {
+				continue
+			}
+			if p.Virtual {
+				// I2d4: a whole fixture with a master dims the master,
+				// not its cells' virtual dimmers on top — unless one of
+				// its cells is highlighted, when the master is left alone
+				// and the other cells dim through their own.
+				if t.Cell == "" && p.Cell != "" && master && !hiPart[t.EntryID] {
+					continue
+				}
+				for _, off := range p.virtualOf {
+					add(off, m.paramAt(off))
+				}
+				continue
+			}
+			if p.Group != GroupDimmer || (p.Cell == "" && hiPart[t.EntryID]) {
+				continue
+			}
+			add(p.Offset, p)
+		}
 		if dims == 0 {
-			view.NoDimmer = append(view.NoDimmer, id)
-		} else {
-			view.Lowlit++
+			if !noDim[t.EntryID] {
+				noDim[t.EntryID] = true
+				view.NoDimmer = append(view.NoDimmer, t.EntryID)
+			}
+			continue
+		}
+		view.Lowlit++
+		if t.Cell != "" {
+			view.LowlitCells++
 		}
 	}
 	if !pg.highlight || !pg.lowlight {
-		view.Lowlit = 0
+		view.Lowlit, view.LowlitCells = 0, 0
 	}
 	return frames, levels, scale, view
 }
@@ -259,22 +330,69 @@ func (pg *Programmer) applyOverlayLocked() {
 	_ = pg.dmx.SetLowlight(scale, pg.lowPct)
 }
 
+// Highlight steps (I2d, component-specs §15).
+const (
+	StepNext     = "next"
+	StepPrevious = "previous"
+	StepAll      = "all"
+)
+
 // SetHighlight changes Highlight, Lowlight and/or the Lowlight percentage
-// (nil = unchanged).
-func (pg *Programmer) SetHighlight(highlight, lowlight *bool, percent *int, expected *uint64) (uint64, error) {
+// (nil = unchanged), and steps Highlight through the selection (step "" =
+// unchanged). Stepping is non-wrapping: Next on the last member and
+// Previous on the first stay where they are. From the whole selection,
+// Next starts at the first member and Previous at the last. Turning
+// Highlight off, or any selection change, goes back to the whole selection.
+func (pg *Programmer) SetHighlight(highlight, lowlight *bool, percent *int, step string, expected *uint64) (uint64, error) {
 	pg.mu.Lock()
 	defer pg.mu.Unlock()
 	if err := pg.checkLocked(expected); err != nil {
 		return 0, err
 	}
-	if highlight == nil && lowlight == nil && percent == nil {
-		return 0, reqErr("Say what to change: highlight, lowlight or lowlightPercent.")
+	if highlight == nil && lowlight == nil && percent == nil && step == "" {
+		return 0, reqErr("Say what to change: highlight, lowlight, lowlightPercent or step.")
 	}
 	if percent != nil && (*percent < 0 || *percent > 100) {
 		return 0, reqErr("The lowlight level is a whole percentage from 0 to 100.")
 	}
+	switch step {
+	case "", StepAll:
+	case StepNext, StepPrevious:
+		on := pg.highlight
+		if highlight != nil {
+			on = *highlight
+		}
+		if !on {
+			return 0, reqErr("Turn Highlight on before stepping through the selection.")
+		}
+		if len(pg.selection) == 0 {
+			return 0, reqErr("Nothing is selected, so there is nothing to step through.")
+		}
+	default:
+		return 0, reqErr("The highlight step must be next, previous or all; %q is not one of them.", step)
+	}
 	if highlight != nil {
 		pg.highlight = *highlight
+		if !pg.highlight {
+			pg.stepping = false
+		}
+	}
+	last := len(pg.selection) - 1
+	switch step {
+	case StepAll:
+		pg.stepping = false
+	case StepNext:
+		if !pg.stepping {
+			pg.stepping, pg.step = true, 0
+		} else if pg.step < last {
+			pg.step++
+		}
+	case StepPrevious:
+		if !pg.stepping {
+			pg.stepping, pg.step = true, last
+		} else if pg.step > 0 {
+			pg.step--
+		}
 	}
 	if lowlight != nil {
 		pg.lowlight = *lowlight
@@ -433,6 +551,7 @@ const (
 	FanLinear  = "linear"
 	FanReverse = "reverse"
 	FanMirror  = "mirror"
+	FanEdgesIn = "edges-in" // I2d: both ends = From, centre = To (§15)
 )
 
 // ProgValueSpec is one end of a fan, in any C4a value mode.
@@ -465,6 +584,7 @@ func (r ProgFanRequest) end(v ProgValueSpec) ProgSetRequest {
 //	linear  t = i/(n-1)            first = From, last = To
 //	reverse t = 1 - i/(n-1)        first = To,   last = From
 //	mirror  t = |2i-(n-1)|/(n-1)   centre = From, both ends = To (centre out)
+//	edges-in t = 1 - |2i-(n-1)|/(n-1)  both ends = From, centre = To
 func fanPosition(shape string, i, n int) float64 {
 	d := float64(n - 1)
 	switch shape {
@@ -472,6 +592,8 @@ func fanPosition(shape string, i, n int) float64 {
 		return 1 - float64(i)/d
 	case FanMirror:
 		return math.Abs(float64(2*i)-d) / d
+	case FanEdgesIn:
+		return 1 - math.Abs(float64(2*i)-d)/d
 	}
 	return float64(i) / d
 }
@@ -504,10 +626,10 @@ func (pg *Programmer) Fan(req ProgFanRequest, expected *uint64) (ProgSetResult, 
 	need := 2
 	switch req.Shape {
 	case FanLinear, FanReverse:
-	case FanMirror:
+	case FanMirror, FanEdgesIn:
 		need = 3
 	default:
-		return res, reqErr("The fan shape must be linear, reverse or mirror; %q is not one of them.", req.Shape)
+		return res, reqErr("The fan shape must be linear, reverse, mirror or edges-in; %q is not one of them.", req.Shape)
 	}
 	matches, err := pg.matchLocked(req.Targets, req.Attribute, &res)
 	if err != nil {
@@ -650,6 +772,43 @@ func (pg *Programmer) RecallPreset(family AttributeGroup, values []PresetValue, 
 	if len(pg.selection) == 0 {
 		return res, reqErr("Nothing is selected. Select the fixtures to recall the preset onto.")
 	}
+	pending, targets := pg.presetMatchLocked(family, values)
+	res.Targets = targets
+	if len(pending) == 0 {
+		res.Revision, res.Output = pg.revision, pg.outputLocked()
+		return res, ProgRecallNothing{Result: res}
+	}
+	for k, v := range pending {
+		pg.values[k] = v
+	}
+	res.Applied = len(pending)
+	pg.applyLocked()
+	pg.revision++
+	res.Revision, res.Output = pg.revision, pg.outputLocked()
+	return res, nil
+}
+
+// PresetApplies (I2d, component-specs §14 "applies to 6 of 8 selected") is
+// how many of the current selection's targets a recall of values would set
+// at least one channel on — RecallPreset's own matching, nothing written.
+func (pg *Programmer) PresetApplies(family AttributeGroup, values []PresetValue) int {
+	pg.mu.Lock()
+	defer pg.mu.Unlock()
+	_, targets := pg.presetMatchLocked(family, values)
+	n := 0
+	for _, t := range targets {
+		if t.How != "nothing" {
+			n++
+		}
+	}
+	return n
+}
+
+// presetMatchLocked resolves a family preset onto the selection by the
+// rules RecallPreset documents, without writing: the values per channel and
+// the per-target report.
+func (pg *Programmer) presetMatchLocked(family AttributeGroup, values []PresetValue) (map[progKey]uint32, []ProgRecallTarget) {
+	targets := make([]ProgRecallTarget, 0, len(pg.selection))
 	type chKey struct {
 		entry     string
 		offset    uint16
@@ -711,20 +870,9 @@ func (pg *Programmer) RecallPreset(family AttributeGroup, values []PresetValue, 
 			rt.How = "nothing"
 			rt.Reason = "The preset holds no values for this fixture, nor for a fixture of the same type and mode."
 		}
-		res.Targets = append(res.Targets, rt)
+		targets = append(targets, rt)
 	}
-	if len(pending) == 0 {
-		res.Revision, res.Output = pg.revision, pg.outputLocked()
-		return res, ProgRecallNothing{Result: res}
-	}
-	for k, v := range pending {
-		pg.values[k] = v
-	}
-	res.Applied = len(pending)
-	pg.applyLocked()
-	pg.revision++
-	res.Revision, res.Output = pg.revision, pg.outputLocked()
-	return res, nil
+	return pending, targets
 }
 
 // NoteWorkspace records a digest of the show's stored groups and presets;

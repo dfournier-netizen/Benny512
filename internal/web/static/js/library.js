@@ -10,7 +10,7 @@ const LibraryPanel=(()=>{
   async function refresh(){records=(await Api.getLibrary()).records;const p=await Api.getPatch();entries=p.patch?p.patch.entries:[];if(chosen){const r=records.find(r=>r.key===chosen.r.key),m=r?.modes.find(m=>m.name===chosen.m.name);chosen=m?{r,m}:null;}}
   async function open(){
     if(!dialog){dialog=document.createElement('dialog');dialog.className='b5-workspace-dialog';dialog.setAttribute('aria-label','Fixture library');document.body.appendChild(dialog);}
-    try {await refresh();chosen=null;pending=null;render();if(!dialog.open)dialog.showModal();}catch(e){if(!dialog.open){dialog.innerHTML='<p data-library-status></p><form method="dialog"><button class="b5-btn">Close</button></form>';dialog.showModal();}status(e.message);}
+    try {await refresh();chosen=null;pending=null;render();UI.showPanel(dialog,'[data-close-library]');}catch(e){if(!dialog.open){dialog.innerHTML='<p data-library-status></p><form method="dialog"><button class="b5-btn" data-close-library>Close</button></form>';UI.showPanel(dialog,'[data-close-library]');}status(e.message);}
   }
   async function action(fn,message){
     if(busy)return;busy=true;

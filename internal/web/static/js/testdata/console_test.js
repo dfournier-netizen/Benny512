@@ -137,7 +137,10 @@ async function server(method, p, body) {
     check(calls.filter(c => c.method === 'POST').length === posts(SEL).length && !posts(SEL).slice(-1)[0].body.targets.some(t => t.entryId === ids.P1), 'opening the cells selects nothing');
   }
   click(cellBtn);
-  await until('the P1 cell selected', () => selState().join() === ids.P1 + '/' + want);
+  // Wait for the drawn state, not only ProgrammerSync's: its refresh sets
+  // the state before it notifies (programmer.js), so under load the state
+  // can be read here a tick before the grid redraws (I2b: seen once).
+  await until('the P1 cell selected', () => selState().join() === ids.P1 + '/' + want && tile(ids.P1).closest('[data-item-id]').classList.contains('has-cells-selected'));
   check(same(lastPost(SEL).body, { action: 'set', targets: [{ entryId: ids.P1, cell: want }] }), 'tap a cell = select that cell: {action:set, targets:[{P1, cell}]}', lastPost(SEL).body);
   const p1tile = tile(ids.P1).closest('[data-item-id]');
   check(p1tile.classList.contains('has-cells-selected') && tile(ids.P1).getAttribute('aria-pressed') === 'false', 'cell selection reads differently from parent selection (parent not pressed, cells marked)');
@@ -186,9 +189,11 @@ async function server(method, p, body) {
   check(!document.querySelector('[data-ask]'), 'the dialog is gone after saving');
   const chip = document.querySelector('[data-group-chip]');
   check(/Front pair/.test(chip.textContent) && /all selected/.test(chip.textContent), 'the group chip says its state in words', chip.textContent);
-  click(document.querySelector('[data-clear-selection]'));
+  // I2d §15: the bar's Clear… is the programmer scope chooser; emptying
+  // the selection is Select none in the selection tools.
+  click(document.querySelector('[data-select-none]'));
   await until('cleared', () => selState().length === 0);
-  check(same(lastPost(SEL).body, { action: 'none' }), 'Clear selection: {action:none}');
+  check(same(lastPost(SEL).body, { action: 'none' }), 'Select none: {action:none}');
   click(document.querySelector('[data-group-chip]'));
   await until('the group selected', () => selState().length === 2);
   check(same(lastPost(SEL).body, { action: 'set', group: chip.getAttribute('data-group-chip') }), 'tap a stored group: {action:set, group:id}', lastPost(SEL).body);

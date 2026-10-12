@@ -70,6 +70,7 @@ const PS = () => get('ProgrammerSync');
 const posts = p => calls.filter(c => c.method === 'POST' && c.path === p);
 const last = p => { const l = posts(p); return l[l.length - 1]; };
 const SET = '/api/programmer/set';
+const CMD = '/api/programmer/command';
 const q = sel => document.querySelector(sel);
 const qa = sel => document.querySelectorAll(sel);
 const click = (el, init) => el.dispatchEvent(new Event('click', Object.assign({ bubbles: true }, init || {})));
@@ -118,10 +119,14 @@ const settled = async () => { await sleep(120); await until('writes to settle', 
 
   // --- tabs follow the selection ----------------------------------------------
   await select('B1', 'L1');
-  const tabs = qa('[data-tab-group]').map(t => t.getAttribute('data-tab-group'));
+  // I2c (component-specs §14) supersedes "tabs are exactly the groups the
+  // selection has": all seven families are drawn; the ones the selection
+  // lacks say "— not on these fixtures" and are aria-disabled. The owner
+  // named the other group "Control" (was "Control / Other").
+  const tabs = qa('[data-tab-group]').filter(t => t.getAttribute('aria-disabled') !== 'true').map(t => t.getAttribute('data-tab-group'));
   const groups = PS().state().groups.map(g => g.group);
-  check(same(tabs, groups) && !tabs.includes('shaper'), 'tabs are exactly the groups the selection has (no Shaper on a BMFL Spot + LEDBeam)', tabs);
-  check(/Control \/ Other/.test(q('[data-tab-group="other"]').textContent), 'the other group is labelled Control / Other');
+  check(same(tabs, groups) && !tabs.includes('shaper') && q('[data-tab-group="shaper"]').getAttribute('aria-disabled') === 'true', 'the usable tabs are exactly the groups the selection has (Shaper drawn but not on a BMFL Spot + LEDBeam)', tabs);
+  check(/^Control/.test(q('[data-tab-group="other"]').textContent), 'the other group is labelled Control');
 
   // --- position: XY pad in tandem with the faders ---------------------------------
   await tab('position');
@@ -131,7 +136,7 @@ const settled = async () => { await sleep(120); await until('writes to settle', 
   const setsBefore = posts(SET).length;
   pad.dispatchEvent(new Event('pointerdown', { bubbles: true, clientX: 50, clientY: 150, pointerId: 3, button: 0 }));
   pad.dispatchEvent(new Event('pointerup', { bubbles: true, clientX: 50, clientY: 150, pointerId: 3 }));
-  check(/25 %/.test(q('[data-fader-value="Pan#0"]').textContent) && /25 %/.test(q('[data-fader-value="Tilt#0"]').textContent), 'tandem: a pad tap moves the Pan and Tilt faders at once (25 %), before the server answers',
+  check(/25\u00a0%/.test(q('[data-fader-value="Pan#0"]').textContent) && /25\u00a0%/.test(q('[data-fader-value="Tilt#0"]').textContent), 'tandem: a pad tap moves the Pan and Tilt faders at once (25 %), before the server answers',
     [q('[data-fader-value="Pan#0"]').textContent, q('[data-fader-value="Tilt#0"]').textContent]);
   await settled();
   const padWrites = posts(SET).slice(setsBefore).map(c => c.body);
@@ -141,11 +146,11 @@ const settled = async () => { await sleep(120); await until('writes to settle', 
   ]), 'the pad writes Pan and Tilt as fractions of their own function, to the fixtures that have them (Pan by name: the two types list different functions)', padWrites);
   await until('the server to hold pan/tilt at 25 %', () => attr('Pan') && attr('Pan').value === 16384 && attr('Tilt').value === 16384);
   check(attr('Pan').value === 16384 && attr('Tilt').value === 16384 && attr('Pan').allTouched, 'the server holds Pan = Tilt = 16384 on both fixtures, touched');
-  check(/SET/.test(q('[data-markers="Pan"]').textContent) && /16384 \/ 65535/.test(q('[data-readout="Pan"]').textContent), 'the Pan card says SET and reads 16384 / 65535', q('[data-readout="Pan"]').textContent);
+  check(/SET/.test(q('[data-markers="Pan"]').textContent) && /16\u00a0384 \/ 65\u00a0535/.test(q('[data-readout="Pan"]').textContent), 'the Pan card says SET and reads 16 384 / 65 535 (I2c grouped digits)', q('[data-readout="Pan"]').textContent);
   check(/°/.test(q('[data-pad-readout]').textContent), 'the pad reads out degrees where the profile gives a physical range', q('[data-pad-readout]').textContent);
 
   input(q('[data-fader="Pan#0"]'), 49152);
-  check(/Pan 49152 \(75 %/.test(q('[data-pad-readout]').textContent), 'tandem: moving the Pan fader moves the pad', q('[data-pad-readout]').textContent);
+  check(/Pan 75\u00a0% · 49\u00a0152 \/ 65\u00a0535/.test(q('[data-pad-readout]').textContent), 'tandem: moving the Pan fader moves the pad', q('[data-pad-readout]').textContent);
   await settled();
 
   // Rate limit on a drag, and the final value always last.
@@ -229,7 +234,9 @@ const settled = async () => { await sleep(120); await until('writes to settle', 
   // Two fixture types, two Shutter1 layouts: each gets its own section, and
   // its buttons write to that type only, by its own function index.
   check(!!q('[data-variant="Shutter1#0"]') && !!q('[data-variant="Shutter1#1"]') && /LEDBeam/i.test(q('[data-variant="Shutter1#1"]').textContent), 'a mixed-type attribute is split per channel layout, each named by its fixture type', q('[data-variant="Shutter1#1"]') && q('[data-variant="Shutter1#1"] h5').textContent);
-  click(q('[data-set="Shutter1#v1:0#Shutter closed"]'));
+  // I2c2 (§10): the file's "Shutter closed" / "Shutter Open" sets are now the
+  // OPEN / CLOSED radio group of the shutter, not plain set buttons.
+  click(q('[data-shutter="Shutter1#1#closed"]'));
   await settled();
   check(same(last(SET).body, { targets: [T('L1')], attribute: 'Shutter1', functionIndex: 0, set: 'Shutter closed' }), 'the LEDBeam\'s "Shutter closed" posts to the LEDBeam only, by its own function index', last(SET).body);
   await until('L1 shutter closed', () => { const c = attr('Shutter1').channels.find(x => x.entryId === ids.L1); return c.value <= 31 && c.touched; });
@@ -241,29 +248,36 @@ const settled = async () => { await sleep(120); await until('writes to settle', 
   check(qa('[data-panel="other"] input[type="range"]').length === 0, 'the Control tab has no faders at all');
   const lamp = q('[data-set="Control1#12#Lamp On"]');
   check(!!lamp && /HOLD 0\.75 s/.test(lamp.textContent), 'Lamp On is a HOLD 0.75 s button', lamp && lamp.textContent);
-  const lb = posts(SET).length;
+  // I2d2: holds send one-shot commands, only while output is live.
+  await server('POST', '/api/output/arm', { client: 'c6b' });
+  window.dispatchEvent(new CustomEvent('b5-output', { detail: { state: 'armed' } }));
+  const lb = posts(CMD).length;
   lamp.dispatchEvent(new Event('pointerdown', { bubbles: true, pointerId: 9 }));
   await sleep(400);
   lamp.dispatchEvent(new Event('pointerup', { bubbles: true, pointerId: 9 }));
   click(lamp);
   await sleep(1400);
-  check(posts(SET).length === lb, 'a 0.4 s press (and a plain click) sends nothing');
+  check(posts(CMD).length === lb, 'a 0.4 s press (and a plain click) sends nothing');
   lamp.dispatchEvent(new Event('pointerdown', { bubbles: true, pointerId: 9 }));
   await sleep(900);
   lamp.dispatchEvent(new Event('pointerup', { bubbles: true, pointerId: 9 }));
   await settled();
-  check(posts(SET).length === lb + 1 && same(last(SET).body, { targets: [T('B1')], attribute: 'Control1', functionIndex: 12, set: 'Lamp On' }), 'held 0.9 s (past the 0.75 s hold): posts {attribute:Control1, functionIndex:12, set:"Lamp On"}', last(SET).body);
-  await until('Control1 at Lamp On', () => attr('Control1').value >= 130 && attr('Control1').value <= 139);
-  check(attr('Control1').value >= 130 && attr('Control1').value <= 139, 'the server holds Control1 inside Lamp On (130-139)', attr('Control1').value);
+  check(posts(CMD).length === lb + 1 && same(last(CMD).body, { targets: [T('B1')], attribute: 'Control1', functionIndex: 12, set: 'Lamp On' }), 'held 0.9 s (past the 0.75 s hold): posts to /command {attribute:Control1, functionIndex:12, set:"Lamp On"}', last(CMD).body);
+  await PS().refresh();
+  check(!attr('Control1').touched && !(attr('Control1').value >= 130 && attr('Control1').value <= 139), 'I2d2 one-shot: the programmer does NOT hold Lamp On afterwards', attr('Control1'));
+  await server('POST', '/api/output/disarm', { client: 'c6b' });
+  window.dispatchEvent(new CustomEvent('b5-output', { detail: { state: 'disarmed' } }));
 
   // --- toolbar: clear, fan, presets, lowlight ----------------------------------------
   await select('B1', 'B2');
   await tab('position');
-  q('[data-fan]').open = true;
+  // I2d §15: Fan lives in the action bar's panel (Fan… opens it).
+  click(q('[data-fan-open]'));
+  await until('the fan panel', () => q('[data-fan-attr]'));
   const fa = q('[data-fan-attr]'), ff = q('[data-fan-fn]');
   fa.value = 'Pan'; fa.dispatchEvent(new Event('change', { bubbles: true }));
   ff.value = '';
-  q('[data-fan-from]').value = '0'; q('[data-fan-to]').value = '100'; q('[data-fan-shape]').value = 'linear';
+  q('[data-fan-from]').value = '0'; q('[data-fan-to]').value = '100'; // shape: Linear is the default choice
   click(q('[data-fan-go]'));
   await settled();
   check(same(last('/api/programmer/fan').body, { attribute: 'Pan', shape: 'linear', from: { fraction: 0 }, to: { fraction: 1 } }), 'Fan posts {attribute, shape, from, to}', last('/api/programmer/fan').body);
@@ -288,6 +302,8 @@ const settled = async () => { await sleep(120); await until('writes to settle', 
   check(/Recalled \d+ channel/.test(q('[data-cc-status]').textContent), 'the recall report is shown', q('[data-cc-status]').textContent);
   await until('the recalled fan', () => attr('Pan').mixed);
 
+  click(q('[data-clear-open]')); // I2d §15: Clear… opens the scope chooser
+  await until('the clear scopes', () => q('[data-clear-group="position"]'));
   click(q('[data-clear-group="position"]'));
   await settled();
   check(same(last('/api/programmer/clear').body, { scope: 'selection', group: 'position' }), 'Clear Position on selection posts {scope:selection, group:position}');
@@ -295,6 +311,8 @@ const settled = async () => { await sleep(120); await until('writes to settle', 
   await settled();
   check(same(last('/api/programmer/highlight').body, { lowlight: true }), 'Lowlight toggle posts {lowlight:true}');
   await until('Lowlight ON', () => /ON/.test(q('[data-lowlight]').textContent));
+  click(q('[data-lowlight-level-open]')); // I2d §15: the level sits in the action bar's panel
+  await until('the lowlight level', () => q('[data-lowlight-percent]'));
   q('[data-lowlight-percent]').value = '35';
   click(q('[data-lowlight-set]'));
   await settled();

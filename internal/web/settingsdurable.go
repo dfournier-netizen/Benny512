@@ -152,6 +152,10 @@ func loadSettingsFile(path string) (Settings, error) {
 	if loaded.TimeoutProfiles == nil {
 		loaded.TimeoutProfiles = map[string]string{}
 	}
+	// C9: a file from before custom themes has none (never null on the wire).
+	if loaded.CustomThemes == nil {
+		loaded.CustomThemes = make([]CustomTheme, 0)
+	}
 	// The C3 Output fields: an older file has none of them and gets the
 	// defaults (Blackout, every universe Art-Net, sACN on the Art-Net
 	// adapter). A value the engine does not know is damage, reported like

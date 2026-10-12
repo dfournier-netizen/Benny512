@@ -107,7 +107,7 @@ const SettingsScreen = (() => {
     return `
       <div class="b5-page-header">
         <h1 class="b5-page-header__title">Settings</h1>
-        <span class="b5-page-header__meta b5-text-muted b5-text-sm">Nothing here takes effect until you press Apply.</span>
+        <span class="b5-page-header__meta b5-text-muted b5-text-sm">Station settings take effect when you press Apply. The theme applies at once, to this browser only.</span>
       </div>
 
       <section class="b5-step-section" aria-labelledby="setNetHead">
@@ -204,7 +204,7 @@ const SettingsScreen = (() => {
             <option value="blackout">Blackout &mdash; disarm and black out</option>
             <option value="hold">Hold last look &mdash; keep sending what is on the rig</option>
           </select>
-          <span class="b5-field__hint">Any open Benny512 page (laptop, phone, tablet) keeps ARM alive. When all of them have been silent for 5 seconds &mdash; or the last one is closed &mdash; Benny512 does this. <strong>Default: Blackout.</strong> Hold last look keeps the rig exactly as it was and shows <em>Lease lost &mdash; holding</em>; nothing you change reaches the rig until someone presses ARM again. DISARM and Stop all output always black out, whatever is chosen here.</span>
+          <span class="b5-field__hint">Any open Benny512 page (laptop, phone, tablet) keeps ARM alive. When all of them have been silent for 5 seconds &mdash; or the last one is closed &mdash; Benny512 does this. <strong>Default: Blackout.</strong> Hold last look keeps the rig exactly as it was and shows <em>LEASE LOST &middot; LOOK HELD</em>; nothing you change reaches the rig until someone presses ARM again. Blackout shows <em>DISARMED &middot; LEASE LOST</em>. DISARM &middot; BLACKOUT always blacks out, whatever is chosen here.</span>
         </div>
         <div class="b5-group">
           <h3 class="b5-group__head">Protocol per universe</h3>
@@ -235,9 +235,17 @@ const SettingsScreen = (() => {
         </div>
       </section>
 
+      <section class="b5-step-section" aria-labelledby="setThemeHead">
+        <h2 class="b5-step-section__head" id="setThemeHead">
+          <span class="b5-step-num">6</span> Theme
+          <span class="b5-step-section__note">this browser only &mdash; applies at once</span>
+        </h2>
+        <div class="b5-stack" id="themeSettingsRoot"></div>
+      </section>
+
       <section class="b5-step-section" aria-labelledby="setResetHead">
         <h2 class="b5-step-section__head" id="setResetHead">
-          <span class="b5-step-num">6</span> Danger zone &mdash; full reset
+          <span class="b5-step-num">7</span> Danger zone &mdash; full reset
           <span class="b5-step-section__note">deletes the patch and shuts Benny512 down</span>
         </h2>
         <div class="b5-stack" id="resetPanelRoot"></div>

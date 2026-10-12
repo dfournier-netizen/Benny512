@@ -390,7 +390,11 @@ func (s *Server) handleWorkspaceAction(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				s.RigCheck.Stop()
-				st, err := s.RigCheck.SetPatternTests(s.withRDMPhaseWeights(entries), preset.Specs, preset.Isolate)
+				// I2g (owner, 2026-10-09): a preset never restores Isolate —
+				// one saved by the old Rig Check's Isolate loads with it OFF;
+				// only a live action while Armed turns it on
+				// (POST /api/tests/isolate). preset.Isolate is read, not used.
+				st, err := s.RigCheck.SetPatternTests(s.withRDMPhaseWeights(entries), preset.Specs, false)
 				if err != nil {
 					writeRigCheckError(w, err)
 					return

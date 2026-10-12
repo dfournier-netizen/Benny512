@@ -368,7 +368,117 @@ const UI = (() => {
     return refresh;
   }
 
+  // --- non-modal dialogs (I2d2, owner 2026-10-09) ---------------------------
+  // Every in-app question uses the I2d pattern (component-specs §12): a
+  // NON-modal <dialog> below the master strip, so DISARM · BLACKOUT stays
+  // visible and operable while it is open; Cancel has focus first (a
+  // destructive choice is never the default); Escape cancels; focus goes
+  // back to whatever had it when the dialog opened. Native prompt() /
+  // confirm() / alert() block the whole page and are not used.
+  //
+  // ask({title, body, field:{label, value, maxLength}, ok, danger}) resolves
+  // to the trimmed field text, true for a plain confirm, or null on cancel.
+  // choose({title, body, choices:[{label, value, cls}]}) resolves to the
+  // picked value or null. notice({title, body}) resolves when closed.
+  // body may hold line breaks; they are kept.
+  let dialogSeq = 0;
+  function nmDialog(o, build) {
+    return new Promise(resolve => {
+      const opener = document.activeElement;
+      const id = 'b5-nmdialog-' + (++dialogSeq);
+      let done = false;
+      const el = (tag, attrs, text) => {
+        const e = document.createElement(tag);
+        Object.keys(attrs || {}).forEach(k => e.setAttribute(k, attrs[k]));
+        if (text !== undefined) e.textContent = text;
+        return e;
+      };
+      const button = (label, attrs, cls) => el('button', Object.assign({ type: 'button', class: 'b5-btn' + (cls ? ' ' + cls : '') }, attrs), label);
+      const dlg = el('dialog', Object.assign({ class: 'b5-con-floatdialog b5-nmdialog', 'aria-labelledby': id + '-t' }, o.attrs || {}));
+      dlg.appendChild(el('h3', { id: id + '-t' }, o.title));
+      if (o.body) { const p = el('p', { class: 'b5-note b5-nmdialog__body', id: id + '-d' }, o.body); dlg.appendChild(p); dlg.setAttribute('aria-describedby', id + '-d'); }
+      const finish = v => {
+        if (done) return;
+        done = true;
+        try { if (dlg.open) dlg.close(); } catch (_) { /* closed */ }
+        dlg.remove();
+        if (opener && opener.focus && document.body.contains(opener)) opener.focus();
+        resolve(v);
+      };
+      const cancel = button(o.cancel || 'Cancel', o.cancelAttrs || {});
+      cancel.addEventListener('click', () => finish(null));
+      const actions = el('div', { class: 'b5-row b5-con-dialog__actions' });
+      actions.appendChild(cancel);
+      build({ dlg, actions, el, button, finish });
+      dlg.appendChild(actions);
+      dlg.addEventListener('keydown', ev => { if (ev.key === 'Escape') { if (ev.preventDefault) ev.preventDefault(); finish(null); } });
+      dlg.addEventListener('cancel', ev => { if (ev.preventDefault) ev.preventDefault(); finish(null); });
+      document.body.appendChild(dlg);
+      dlg.show();
+      cancel.focus();
+    });
+  }
+  function ask(o) {
+    return nmDialog(Object.assign({ attrs: { 'data-ask': '' }, cancelAttrs: { 'data-ask-cancel': '' } }, o), ({ dlg, actions, el, button, finish }) => {
+      let input = null;
+      if (o.field) {
+        input = el('input', { class: 'b5-input', type: 'text', maxlength: String(o.field.maxLength || 80), 'data-ask-input': '' });
+        input.value = o.field.value || '';
+        const lab = el('label', { class: 'b5-field' });
+        lab.appendChild(el('span', { class: 'b5-field__label' }, o.field.label));
+        lab.appendChild(input);
+        dlg.appendChild(lab);
+      }
+      const err = el('p', { class: 'b5-field__error', role: 'alert', 'data-ask-error': '' });
+      dlg.appendChild(err);
+      const ok = button(o.ok || 'Confirm', { 'data-ask-ok': '' }, o.danger ? 'b5-btn--danger' : 'b5-btn--primary');
+      ok.addEventListener('click', () => {
+        if (!input) return finish(true);
+        const v = input.value.trim();
+        if (!v) { err.textContent = 'Type ' + o.field.label.toLowerCase() + ' first.'; return; }
+        finish(v);
+      });
+      if (input) input.addEventListener('keydown', ev => { if (ev.key === 'Enter') { if (ev.preventDefault) ev.preventDefault(); ok.click(); } });
+      actions.appendChild(ok);
+    });
+  }
+  function choose(o) {
+    return nmDialog(Object.assign({ attrs: { 'data-choose': '' }, cancelAttrs: { 'data-choice': 'cancel' } }, o), ({ actions, button, finish }) => {
+      o.choices.forEach(c => {
+        const b = button(c.label, { 'data-choice': c.value }, c.cls);
+        b.addEventListener('click', () => finish(c.value));
+        actions.appendChild(b);
+      });
+    });
+  }
+  // confirmAsk(text, ok): a yes/no question from one text — its first
+  // paragraph is the title, the rest the body. Resolves true or false.
+  function confirmAsk(text, ok) {
+    const parts = String(text).split('\n\n');
+    return ask({ title: parts[0], body: parts.slice(1).join('\n\n'), ok: ok || 'Confirm' }).then(v => v === true);
+  }
+  // showPanel(dlg, closeSel): open a large tool <dialog> (Show tools, the
+  // Fixture library) NON-modally below the app chrome — the master strip
+  // and DISARM stay operable — with its Close button focused, Escape
+  // closing it and focus returned to the opener on close.
+  function showPanel(dlg, closeSel) {
+    const opener = document.activeElement;
+    dlg.classList.add('b5-nmpanel');
+    if (!dlg.hasAttribute('data-nmpanel')) {
+      dlg.setAttribute('data-nmpanel', '');
+      dlg.addEventListener('keydown', ev => { if (ev.key === 'Escape' && dlg.open) { if (ev.preventDefault) ev.preventDefault(); dlg.close(); } });
+      dlg.addEventListener('close', () => { const o = dlg.b5Opener; dlg.b5Opener = null; if (o && o.focus && document.body.contains(o)) o.focus(); });
+    }
+    if (!dlg.open) { dlg.b5Opener = opener; dlg.show(); }
+    const c = closeSel && dlg.querySelector(closeSel);
+    if (c) c.focus();
+  }
+  function notice(o) {
+    return nmDialog(Object.assign({ attrs: { 'data-notice': '' }, cancel: 'Close', cancelAttrs: { 'data-notice-close': '' } }, o), () => {});
+  }
+
   return {
+    ask, choose, notice, confirmAsk, showPanel,
     icon, badge, tag, spinner, buildApplyField, wireApplyField,
     getArtnetStart, setArtnetStart,
     artnetToUser, userToArtnet,

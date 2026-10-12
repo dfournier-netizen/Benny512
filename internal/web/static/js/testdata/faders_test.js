@@ -46,6 +46,7 @@ document.loadHTML(fs.readFileSync(path.join(jsDir, '..', 'index.html'), 'utf8'))
 window.localStorage.setItem('benny512.faders.collapsed', '1');
 const url = new URL(base);
 const calls = [];
+let slowedHeartbeat = false;
 let hook = null; // (rec) => Response | null: lets a check stand in for the server
 const sandbox = {
   console, setTimeout, clearTimeout, setInterval: () => 0, clearInterval() {}, Promise, JSON, URL, URLSearchParams, btoa, Math, Date, Uint8Array,
@@ -56,6 +57,10 @@ const sandbox = {
     opts = opts || {};
     const rec = { method: opts.method || 'GET', path: String(p), headers: Object.assign({}, opts.headers || {}), body: opts.body ? JSON.parse(opts.body) : undefined };
     calls.push(rec);
+    // The first heartbeat answers late on purpose, so every run meets the
+    // window in which the ARM button is drawn but not yet usable (the race
+    // behind the old 1-in-12 failure is then exercised every time).
+    if (rec.path === '/api/output/heartbeat' && !slowedHeartbeat) { slowedHeartbeat = true; await sleep(300); }
     const fake = hook && hook(rec);
     const res = fake || await fetch(new URL(p, base), opts);
     rec.status = res.status;
@@ -120,7 +125,11 @@ const srvFader = async id => (await server('GET', '/api/faders')).body.faders.fi
   const hint = () => q('[data-faders-hint]');
   await until('the disarmed hint', () => hint() && !hint().hidden && /nothing reaches the rig until ARM/.test(hint().textContent));
   check(/Faders move the programmer-level dimmer; nothing reaches the rig until ARM/.test(hint().textContent), 'disarmed: the one-line hint is shown', hint().textContent);
-  await until('the ARM button', () => q('[data-arm]'));
+  // The ARM button is drawn (disabled, "ARM needs the link") before the
+  // first heartbeat answers; a real browser cannot click it then, but a
+  // dispatched click would land on the link-lost handler and do nothing.
+  // Wait for the heartbeat to enable it (the cause of the 1-in-12 flake).
+  await until('the ARM button, enabled by the first heartbeat', () => q('[data-arm]') && !q('[data-arm]').disabled);
   click(q('[data-arm]'));
   await until('armed: the hint to go', () => hint().hidden);
   check(hint().hidden, 'pressing ARM (workspace.js) hides the hint');

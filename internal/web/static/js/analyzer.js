@@ -198,7 +198,7 @@ const AnalyzerScreen = (() => {
         <td data-label="Detail">${expandBtn}</td>
       `;
       const btn = tr.querySelector('.btn-hex');
-      if (btn) btn.addEventListener('click', () => { alert(e.Hex); });
+      if (btn) btn.addEventListener('click', () => { UI.notice({ title: 'Packet bytes', body: e.Hex }); });
       tbody.appendChild(tr);
     });
     if (nearBottom) box.scrollTop = box.scrollHeight;
@@ -325,7 +325,7 @@ const AnalyzerScreen = (() => {
     tbody.appendChild(tr);
   }
 
-  // wireExpand: same alert() as before, now hung off a real <button> in the
+  // wireExpand: the same detail (a non-modal UI.notice since I2d2, was alert()), now hung off a real <button> in the
   // row's Detail cell rather than the <tr> itself — a clickable <tr> is not
   // keyboard-reachable and has no accessible name.
   function wireExpand(tr, req, resp) {
@@ -336,7 +336,7 @@ const AnalyzerScreen = (() => {
       if (req) lines.push('REQUEST:\n' + describeEntry(req));
       if (resp) lines.push('RESPONSE:\n' + describeEntry(resp));
       if (!req && !resp) return;
-      alert(lines.join('\n\n'));
+      UI.notice({ title: 'Request and response', body: lines.join('\n\n') });
     });
   }
 
