@@ -374,6 +374,9 @@ func New(nodes *session.ArtNetSession, rdmc *session.RDMController, dmx *session
 	// I2d2: a one-shot command's end (window over, or Disarm) reaches every
 	// browser's progress line.
 	s.Programmer.OnCommandEnd(s.broadcastCommands)
+	// I2g: a change of which layer owns a tested channel reaches every
+	// browser's tests view at once (testsLiveCheck).
+	s.DMX.OnOwnershipChange(s.ownershipChanged)
 	s.mux = http.NewServeMux()
 	s.routes()
 	s.syncProgrammer(true)

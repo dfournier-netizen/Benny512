@@ -45,7 +45,6 @@ const ConsoleTests = (() => {
     catalogs: {},      // scope key -> available[] (sequence editor)
     deadline: 0,       // Date.now() when the running auto step advances
     selKey: '',        // programmer selection signature last seen
-    progRev: null,     // programmer revision last seen (I2f masked note)
     armed: null,       // master output state from the strip heartbeat (I2f Isolate)
   };
   const els = {};
@@ -286,7 +285,6 @@ const ConsoleTests = (() => {
   const v = () => st.view;
   const runActive = () => !!(st.view && st.view.run && st.view.run.active);
   const adHoc = () => ((st.view && st.view.adHoc) || []).map(specOf);
-  function testsOn() { return !!(st.view && (st.view.tests || []).length); }
   function statusById() {
     const m = {};
     ((st.view && st.view.tests) || []).forEach(t => { m[t.id] = t; });
@@ -1057,8 +1055,9 @@ const ConsoleTests = (() => {
     if (typeof Live !== 'undefined') {
       Live.on('tests', onTests);
       Live.on('connected', () => { if (els.root) refresh(); });
-      // I2f: a group fader can mask a running test too.
-      Live.on('faders', () => { if (els.root && testsOn()) refresh(); });
+      // I2g: a SET, Highlight, a group fader, raw levels, Identify or
+      // Isolate masking a running test arrives as a 'tests' revision (the
+      // server watches the output engine's ownership), so no re-read here.
       // A layer renamed elsewhere renames it here too.
       Live.on('layout', () => { if (els.root) render(); });
     }
@@ -1068,12 +1067,7 @@ const ConsoleTests = (() => {
     if (typeof ProgrammerSync !== 'undefined') {
       ProgrammerSync.onChange(p => {
         const key = JSON.stringify(((p && p.selection) || []).map(x => x.entryId + '/' + (x.cell || ''))) + '|' + JSON.stringify(((p && p.storedGroups) || []).map(g => g.id + g.name));
-        // I2f: a programmer change (a SET, Highlight) can mask or unmask a
-        // running test, so while tests are on any new revision re-reads.
-        const rev = p && p.revision;
-        const moved = rev !== st.progRev;
-        st.progRev = rev;
-        if (key === st.selKey) { if (moved && testsOn() && els.root) refresh(); return; }
+        if (key === st.selKey) return;
         st.selKey = key;
         if (els.root) refresh();
       });

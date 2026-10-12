@@ -1,6 +1,6 @@
 # Console-lite — decisions after the design hand-back
 
-**For the design agent.** Written 2026-10-09 00:46:57 -0400 (chunk I2d2), updated 2026-10-09 08:49:21 -0400 and 2026-10-09 09:40:15 -0400 (I2d3) 2026-10-09 10:01:46 -0400 (I2d4) 2026-10-09 13:28:22 -0400 (I2e) and 2026-10-09 15:00:06 -0400 (I2f). Precedence is unchanged: owner answers > `docs/plans/console-lite.md` > this design package > the older UI brief. Each line names the spec section in `component-specs.md` and how the shipped UI now differs from it. Details and dates: the plan's Owner decisions and Progress rows I1–I2d2.
+**For the design agent.** Written 2026-10-09 00:46:57 -0400 (chunk I2d2), updated 2026-10-09 08:49:21 -0400 and 2026-10-09 09:40:15 -0400 (I2d3) 2026-10-09 10:01:46 -0400 (I2d4) 2026-10-09 13:28:22 -0400 (I2e) 2026-10-09 15:00:06 -0400 (I2f) and 2026-10-09 20:45:52 -0400 (I2g). Precedence is unchanged: owner answers > `docs/plans/console-lite.md` > this design package > the older UI brief. Each line names the spec section in `component-specs.md` and how the shipped UI now differs from it. Details and dates: the plan's Owner decisions and Progress rows I1–I2d2.
 
 ## Owner decisions of 2026-10-09 (I2d2)
 
@@ -34,6 +34,12 @@
 - **§16 masked test (built):** a test a higher layer overrides stays ON with "Overridden by SET on 2 fixtures." under its tile (icon + words + dashed rule); other layers are worded "a group fader", "Highlight", "a fixture command", "raw universe levels", "Universe Identify"; fixtures and cells are counted apart ("on 1 fixture and 3 cells"). The per-fixture list says "overridden by SET (Dimmer)". The data is the output engine's own per-channel composition.
 - **§16 Isolate (built):** the kit's `.b5-choicecard--caution` card, "Isolate: drive only the tested channel — ON/OFF" with an explanation, below the test tiles (the mockup's place). Every channel of the tested fixtures that no test drives is held at 0; manual values still win. Choices where the spec is silent: a tested cell's master stays open under Isolate; a dimmer test's white still shows. Safety (owner): offered only while Armed with a test on (it says why otherwise); ends by itself on Disarm, on lease loss with either Settings choice (never held isolated) and when the browser that turned it on leaves, and with the tests; the card then says "Isolate ended by itself: output was disarmed." DISARM · BLACKOUT stays the strip's slab; the card is in flow, not a dialog.
 - **§1 P strip (owner):** at phone widths, while ARMED, the show name is hidden visually instead of being squeezed to "D." (still read by assistive technology; Show tools' heading names the show). Other states keep it.
+
+## I2g (owner answers, 2026-10-09 20:17)
+
+- **§16 Isolate is never restored from a preset (owner).** A test preset saved with the old Rig Check's Isolate loads with Isolate OFF; only a live action on the card while Armed turns it on. (The stored field is still read so old show files load; it is not used.)
+- **§16 fades (owner: no snap, overshoot or step).** A dimmer test's white on unset colour fades in and out with the tests' fade time like any other test change; a fixture or cell with a virtual dimmer and no colour set rises from dark to the test's white and falls back to dark. Choice made here: the white is held for the whole fade and released at its end, where the release changes nothing on the wire. With fade 0 everything still snaps.
+- **§16 masked note is live (owner).** "Overridden by …" appears and clears in every open browser at once (within a frame of the change on the server; the browser then re-reads) for raw universe levels, Universe Identify, programmer SET/clear, group faders, Highlight and Isolate — no reload, no wait for the next tests read.
 
 ## Deviations already recorded in I1–I2d
 

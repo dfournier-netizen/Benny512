@@ -2077,8 +2077,8 @@ type patternComposition struct {
 }
 
 // virtualUnit is one virtual dimmer level a test sets (I2e). fill (I2f)
-// marks a white claim (level 255, the G1 fill rule only): it never fades
-// and is released as soon as no dimmer test drives its scope.
+// marks a white claim (level 255, the G1 fill rule only); since I2g it
+// fades in and out by its fill level like any other test change.
 type virtualUnit struct {
 	level  byte
 	source patternSource
@@ -2286,7 +2286,7 @@ func (r *RigCheck) recomputePatternLocked(elapsed float64) {
 	// Virtual levels first: they scale whatever the slots compose to, so
 	// setting them before the slots never shows the new slots under a
 	// stale level.
-	r.out.setVirtual(r.patternVirtual)
+	r.out.setVirtual(r.patternVirtual, r.patternFill)
 	r.out.setFrames(comp.frames, claim, false)
 	// I2f Isolate: the Tests layer's untested channels held at 0 on the
 	// engine's own transient source, only while the engine has Isolate on.
@@ -2332,7 +2332,7 @@ func (r *RigCheck) patternTick() {
 // stops output and deselects nothing.
 func (r *RigCheck) cancelPatternOutputLocked(reason string) {
 	r.patternFrames, r.patternUnits, r.patternFades = nil, nil, nil
-	r.patternVirtual, r.virtualUnits, r.virtualFades = nil, nil, nil
+	r.patternVirtual, r.patternFill, r.virtualUnits, r.virtualFades = nil, nil, nil, nil
 	if r.patternTimer != nil {
 		r.patternTimer.Stop()
 		r.patternTimer = nil
