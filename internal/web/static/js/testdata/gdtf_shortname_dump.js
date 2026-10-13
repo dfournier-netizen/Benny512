@@ -1,7 +1,9 @@
 'use strict';
 
 // gdtf_shortname_dump.js (J1b, owner 2026-10-12: short fixture-type names in
-// fader labels, from the GDTF FixtureType ShortName). Runs the LITERAL
+// fader labels, from the GDTF FixtureType ShortName; J1c, owner 2026-10-13:
+// each mode's geometry tree, so a parent's dimmer can govern its children).
+// Runs the LITERAL
 // gdtfparse.js over the three real vendor extracts and the LITERAL
 // mvrparse.js + mvrimport.js over the real Capture scene extract, and prints
 // {shortNames, entries} as JSON; internal/web/shortname_j1b_test.go posts the
@@ -25,9 +27,11 @@ const read = f => fs.readFileSync(path.join(here, f), 'utf8');
 const GdtfParse = vm.runInContext(fs.readFileSync(path.join(jsDir, 'gdtfparse.js'), 'utf8') + '\nGdtfParse;',
   vm.createContext({ DOMParser, console }), { filename: 'gdtfparse.js' });
 
-const shortNames = {};
+const shortNames = {}, trees = {};
 for (const f of ['paladin_cube_real_extract.xml', 'robe_bmfl_spot_real_extract.xml', 'robe_ledbeam100_real_extract.xml']) {
-  shortNames[f] = GdtfParse.parseDescriptionXml(read(f)).shortName;
+  const r = GdtfParse.parseDescriptionXml(read(f));
+  shortNames[f] = r.shortName;
+  r.modes.forEach(m => { trees[f + '|' + m.name] = m.geometryParents; });
 }
 
 const scene = read('capture_demo_show_real_extract.xml').replace(/<GDTFMode>[^<]*<\/GDTFMode>/g, '<GDTFMode>Cells 24CH</GDTFMode>');
@@ -50,5 +54,5 @@ for (const f of ['mvrparse.js', 'mvrimport.js']) {
   vm.runInContext(fs.readFileSync(path.join(jsDir, f), 'utf8'), ctx, { filename: f });
 }
 vm.runInContext('MvrImport', ctx).parseMvrFile(OUTER).then(res => {
-  process.stdout.write(JSON.stringify({ shortNames, entries: res.entries, warnings: res.warnings }));
+  process.stdout.write(JSON.stringify({ shortNames, trees, entries: res.entries, warnings: res.warnings }));
 }).catch(e => { console.error(e && e.stack || e); process.exit(1); });

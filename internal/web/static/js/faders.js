@@ -154,8 +154,10 @@ const Faders = (() => {
     const nc = f.notControllable.length;
     // J1b: the bar shows the short type name; the full one is the label.
     const shown = names ? names.shown : (f.shortLabel || f.label), full = names ? names.full : f.label;
+    // J1c: a Master over a profile without its geometry tree says so.
+    const note = names && names.note ? names.note : '';
     return `<div class="b5-fader${lv === null ? ' is-untouched' : ''}${f.kind === 'type' && f.hasParts ? ' b5-fader--master' : ''}" data-gfader-id="${esc(f.id)}" role="group" aria-label="${esc(full)}">
-      <div class="b5-fader__label" data-gfader-label title="${esc(full)}">${esc(shown)}</div>
+      <div class="b5-fader__label" data-gfader-label title="${esc(note ? full + ' — ' + note : full)}">${esc(shown)}</div>${note ? `<span class="b5-visually-hidden" data-gfader-tree-note>${esc(note)}</span>` : ''}
       <div class="b5-fader__meta" data-gfader-count>${f.count} ${f.count === 1 ? 'fixture' : 'fixtures'}</div>
       ${nc ? `<div class="b5-fader__meta b5-fader__nc" title="${esc(f.notControllable.join(', '))}">${nc} not controllable</div>` : ''}
       <div class="b5-fader__value" data-gfader-value>${pctText(lv)}</div>
@@ -188,15 +190,20 @@ const Faders = (() => {
   // shape is what a rebuild would change; levels alone are painted in place,
   // so focus and an in-progress drag keep their element.
   let drawnShape = null;
-  const shapeOf = faders => JSON.stringify(faders.map(f => [f.id, f.kind, f.label, f.shortLabel, f.count, f.notControllable, f.hasParts, f.parent]));
+  const shapeOf = faders => JSON.stringify(faders.map(f => [f.id, f.kind, f.label, f.shortLabel, f.count, f.notControllable, f.hasParts, f.parent, f.treeUnknown]));
+  // J1c (owner 2026-10-13): the Master multiplies the parts its master
+  // channel does not dim on the fixture; without the GDTF geometry tree
+  // every part counts as dimmed by it, and the Master says so.
+  const TREE_NOTE = 'Parts counted as dimmed by the master channel — re-import the GDTF to refine.';
 
   // clusterHTML (J1): a type with parts — its name over its Master and its
   // part faders, one group for assistive technology.
   function clusterHTML(t, parts) {
     const at = s => ({ shown: s, full: t.label + ' · ' + s });
+    const master = Object.assign(at('Master'), t.treeUnknown ? { note: TREE_NOTE } : {});
     return `<div class="b5-fader-cluster" data-gfader-cluster="${esc(t.id)}" role="group" aria-label="${esc(t.label)} — master and parts">
       <div class="b5-fader-cluster__label" data-gfader-cluster-label title="${esc(t.label)}">${esc(t.shortLabel || t.label)}</div>
-      <div class="b5-faders__row">${faderHTML(t, at('Master'))}${parts.map(p => faderHTML(p, at(p.label))).join('')}</div></div>`;
+      <div class="b5-faders__row">${faderHTML(t, master)}${parts.map(p => faderHTML(p, at(p.label))).join('')}</div></div>`;
   }
 
   function renderHint() {

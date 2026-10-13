@@ -340,7 +340,7 @@ func TestDemoHasCellBattenWithVirtualDimmers(t *testing.T) {
 			if p.Attribute == "Dimmer" && !p.Virtual && p.Cell == "" {
 				master++
 			}
-			if p.Attribute == "Dimmer" && p.Virtual {
+			if p.Attribute == "Dimmer" && p.Virtual && !p.Master { // J1c: not the batten's virtual master
 				virt[p.Cell] = true
 			}
 		}

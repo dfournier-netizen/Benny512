@@ -368,7 +368,7 @@ const ConsoleControls = (() => {
   function layoutName(a, vi) {
     const ids = [...new Set(a.channels.filter(c => c.variant === vi).map(c => c.entryId))];
     const types = [...new Set(ids.map(id => (st.models[id] && st.models[id].fixtureType) || 'fixture type not known'))];
-    return types.join(', ') + ' · ' + ids.length + (ids.length === 1 ? ' fixture' : ' fixtures') + (a.variants[vi] && a.variants[vi].virtual ? ' · virtual (scales colour)' : '');
+    return types.join(', ') + ' · ' + ids.length + (ids.length === 1 ? ' fixture' : ' fixtures') + (a.variants[vi] && a.variants[vi].master ? ' · master (multiplies the parts)' : a.variants[vi] && a.variants[vi].virtual ? ' · virtual (scales colour)' : '');
   }
 
   // --- generic controls ------------------------------------------------------
@@ -913,13 +913,16 @@ const ConsoleControls = (() => {
   function attributeCard(a, group, title) {
     const control = group === 'other';
     // Anatomy (§6): label → scope → readout → source word → reason.
-    const virt = a.variants.some(v => v.virtual);
+    const virt = a.variants.some(v => v.virtual && !v.master);
+    const vmaster = a.variants.some(v => v.master); // J1c
     const ro = h('span', { class: 'b5-text-mono b5-cc-readout', 'data-readout': a.attribute });
     fillReadout(ro, a);
     const head = h('summary', { class: 'b5-cc-attrhead' },
       h('span', { class: 'b5-cc-attrlabel' }, h('strong', { class: 'b5-cc-attrname', text: title || a.attribute }), title ? h('span', { class: 'b5-caption', text: ' ' + a.attribute }) : null,
         // I2d4: a virtual dimmer has no DMX channel; it scales the colour.
         virt ? h('span', { class: 'b5-caption', text: ' virtual (scales colour)' }) : null,
+        // J1c: a multi-part fixture's master multiplies its parts.
+        vmaster ? h('span', { class: 'b5-caption', text: ' master (multiplies the parts)' }) : null,
         h('span', { class: 'b5-caption b5-cc-scope', 'data-scope': a.attribute, text: scopeText(a) })),
       ro,
       h('span', { class: 'b5-cc-markers', 'data-markers': a.attribute }, markers(a)));

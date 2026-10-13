@@ -176,6 +176,14 @@ type Entry struct {
 	// entry without a profile does not keep one. Fader labels show
 	// ShortTypeName(FixtureType, FixtureTypeShortName).
 	FixtureTypeShortName string `json:"fixtureTypeShortName,omitempty"`
+	// GeometryParents (J1c, owner 2026-10-13) is the GDTF mode's geometry
+	// tree as instance ("Head_Extended:0", the ChannelFunction
+	// GeometryInstance spelling) -> parent instance ("" = the mode's root),
+	// from gdtfparse.js. nil = not known (every entry imported before J1c,
+	// hand-entered, library and RDM-adopted ones): the programmer then
+	// treats a master dimmer as governing every part. Lives in the show
+	// file's profile cache like FixtureTypeShortName.
+	GeometryParents map[string]string `json:"geometryParents,omitempty"`
 	// Footprint is the number of DMX channels this entry occupies, starting
 	// at StartAddress. Zero is tolerated (a splitter/gateway/data device) —
 	// see DetectCollisions for how zero-footprint entries are flagged

@@ -191,6 +191,10 @@ type entryRequest struct {
 	// send with a profile (gdtfparse.js). It travels with ChannelFunctions:
 	// handleUpdatePatchEntry keeps the stored one on a plain field edit.
 	FixtureTypeShortName *string `json:"fixtureTypeShortName"`
+	// GeometryParents (J1c) is the GDTF mode's geometry tree (instance ->
+	// parent instance) the importers send with a profile; it travels with
+	// ChannelFunctions like FixtureTypeShortName. Absent = not known.
+	GeometryParents map[string]string `json:"geometryParents"`
 }
 
 // channelFunctionRequest is entryRequest.ChannelFunctions' value shape,
@@ -386,6 +390,7 @@ func (s *Server) handleUpdatePatchEntry(w http.ResponseWriter, r *http.Request) 
 			entry.Wheels, entry.WheelsKnown = pp.Entries[idx].Wheels, pp.Entries[idx].WheelsKnown
 			// ...and so is the GDTF short type name (J1b).
 			entry.FixtureTypeShortName = pp.Entries[idx].FixtureTypeShortName
+			entry.GeometryParents = pp.Entries[idx].GeometryParents
 		}
 		// No location in the body = not being edited (schema v7).
 		if req.Location == nil {
@@ -425,6 +430,9 @@ func entryFromRequest(id string, req entryRequest) (patch.Entry, error) {
 	if !req.WheelsKnown && len(req.Wheels) > 0 {
 		return patch.Entry{}, fmt.Errorf("wheels sent with wheelsKnown false")
 	}
+	if len(req.GeometryParents) > maxGeometryParents {
+		return patch.Entry{}, fmt.Errorf("geometryParents lists %d geometries; at most %d are accepted", len(req.GeometryParents), maxGeometryParents)
+	}
 	short := ""
 	if req.FixtureTypeShortName != nil {
 		short = strings.TrimSpace(*req.FixtureTypeShortName)
@@ -445,8 +453,14 @@ func entryFromRequest(id string, req entryRequest) (patch.Entry, error) {
 		ChannelFunctions: cf,
 		Wheels:           patch.CloneWheels(req.Wheels), WheelsKnown: req.WheelsKnown,
 		FixtureTypeShortName: short,
+		GeometryParents:      req.GeometryParents,
 	}, nil
 }
+
+// maxGeometryParents bounds a request's geometry tree (J1c): far above any
+// real fixture's geometry count, low enough that a malformed client cannot
+// make every show save carry an unbounded map.
+const maxGeometryParents = 4096
 
 func (s *Server) handleDeletePatchEntry(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")

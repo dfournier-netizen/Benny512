@@ -58,10 +58,12 @@ func newI2d4Rig(t *testing.T) *c4aRig {
 // every cell with red, green and blue and no Dimmer of its own has a
 // virtual dimmer, even when the fixture has a master. Output = the cell's
 // colour x its virtual level, and the master dimmer — a real channel —
-// stays on top. J1b (owner 2026-10-12 20:11, superseding I2d4's "the
-// master only"): a WHOLE-fixture intensity control (Dimmer set, fan,
-// group-fader member, Lowlight) drives every part — the master AND the
-// cells' virtual dimmers. Highlight and presets take the whole look.
+// stays on top. J1c (owner 2026-10-13, superseding J1b): a WHOLE-fixture
+// intensity control (Dimmer set, fan, group-fader member, Lowlight) is the
+// fixture's master level — the master channel and the virtual master,
+// which multiplies only the parts the master channel does not dim on the
+// fixture (this batten has no geometry tree: none). Highlight and presets
+// take the whole look.
 func TestVirtualDimmerCellsUnderMaster(t *testing.T) {
 	r := newI2d4Rig(t)
 	bt, st := r.ids["BT"], r.ids["ST"]
@@ -88,6 +90,7 @@ func TestVirtualDimmerCellsUnderMaster(t *testing.T) {
 				Attribute string
 				Cell      string
 				Virtual   bool
+				Master    bool
 			}
 		}
 	}
@@ -95,7 +98,7 @@ func TestVirtualDimmerCellsUnderMaster(t *testing.T) {
 	virt := map[string]bool{}
 	for _, f := range fx.Fixtures {
 		for _, p := range f.Parameters {
-			if f.EntryID == bt && p.Attribute == "Dimmer" && p.Virtual {
+			if f.EntryID == bt && p.Attribute == "Dimmer" && p.Virtual && !p.Master { // J1c: not its virtual master
 				virt[p.Cell] = true
 			}
 			if f.EntryID == st && p.Attribute == "Dimmer" {
@@ -110,12 +113,13 @@ func TestVirtualDimmerCellsUnderMaster(t *testing.T) {
 	// Cell level: Pixel 2 at 128 scales its colour; the master is untouched.
 	r.set(t, map[string]any{"targets": []any{cell(2)}, "attribute": "Dimmer", "dmx": 128})
 	reds("cell 2 virtual 128", 0, 200, 100, 200, 200)
-	// Whole fixture (J1b): the master and every cell's virtual dimmer.
+	// Whole fixture (J1c): the master level — master channel and virtual
+	// master — never the cells' own levels.
 	res := r.set(t, map[string]any{"targets": []any{r.target("BT")}, "attribute": "Dimmer", "dmx": 77})
-	if len(res.Applied) != 5 {
-		t.Errorf("whole-fixture Dimmer applied to %d channels, want 5 (the master and 4 cells' virtual dimmers): %+v", len(res.Applied), res.Applied)
+	if len(res.Applied) != 2 {
+		t.Errorf("whole-fixture Dimmer applied to %d channels, want 2 (the master channel and the virtual master): %+v", len(res.Applied), res.Applied)
 	}
-	reds("whole Dimmer 77", 77, 60, 60, 60, 60)
+	reds("whole Dimmer 77", 77, 200, 100, 200, 200)
 
 	// Fan over the four cells: their virtual dimmers 0 / 85 / 170 / 255.
 	r.post(t, "/api/programmer/select", map[string]any{"action": "set", "targets": []any{cell(1), cell(2), cell(3), cell(4)}}, nil)
@@ -133,7 +137,8 @@ func TestVirtualDimmerCellsUnderMaster(t *testing.T) {
 	// Lowlight on the cells, stepped to cell 4: cells 1-3 at 20 %.
 	r.post(t, "/api/programmer/highlight", map[string]any{"highlight": true, "lowlight": true}, nil)
 	r.post(t, "/api/programmer/highlight", map[string]any{"step": "previous"}, &v)
-	reds("lowlight, stepped to cell 4", 77, 0, 13, 26, 200)
+	// J1c (owner 2026-10-13): a highlighted cell opens its fixture's master.
+	reds("lowlight, stepped to cell 4", 255, 0, 13, 26, 200)
 	if v.Highlight.Lowlit != 3 || v.Highlight.LowlitCells != 3 {
 		t.Errorf("lowlight: lowlit %d (cells %d), want 3 (3)", v.Highlight.Lowlit, v.Highlight.LowlitCells)
 	}
@@ -163,9 +168,11 @@ func TestVirtualDimmerCellsUnderMaster(t *testing.T) {
 }
 
 // TestGroupFaderCellVirtualDimmer (I2d4): a stored group of cells moves the
-// cells' virtual dimmers; ST cells are listed as not controllable. J1b
-// (owner 2026-10-12): the type fader — the type's Master — moves every
-// part, the master and the cells' virtual dimmers.
+// cells' virtual dimmers; ST cells are listed as not controllable. J1c
+// (owner 2026-10-13): the type fader — the type's Master — is the master
+// level; it multiplies the parts it does not dim on the fixture. The
+// batten's profile has no geometry tree, so its cells count as under the
+// master channel: they are not scaled in software.
 func TestGroupFaderCellVirtualDimmer(t *testing.T) {
 	r := newI2d4Rig(t)
 	bt := r.ids["BT"]
@@ -202,9 +209,8 @@ func TestGroupFaderCellVirtualDimmer(t *testing.T) {
 	r.post(t, "/api/faders/set", map[string]any{"id": typeID, "level": 0.5}, nil)
 	f = r.wire(t, 2)
 	wantSlots(t, "type fader 50 %: master", f, 1, 128)
-	// J1b: the Master moves the cells' virtual dimmers too (red 200 x 50 %).
-	wantSlots(t, "type fader 50 %: cell 1 scaled by it", f, 2, 100)
-	wantSlots(t, "type fader 50 %: cell 3", f, 8, 100)
+	wantSlots(t, "type fader 50 %: cells keep their own level (at rest, dark)", f, 2, 0)
+	wantSlots(t, "type fader 50 %: cell 3", f, 8, 0)
 }
 
 func (r *c4aRig) get(t *testing.T, path string, out any) {

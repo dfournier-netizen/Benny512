@@ -183,8 +183,10 @@ func (pg *Programmer) overlayLocked() (map[uint16]session.LayerFrame, map[string
 			if t.Cell == "" {
 				hiWhole[t.EntryID] = true
 			}
-			for _, p := range m.Parameters {
-				if t.Cell == "" || p.Cell == t.Cell {
+			opens := m.cellOpens(t.Cell)
+			for i := range m.Parameters {
+				p := &m.Parameters[i]
+				if t.Cell == "" || p.Cell == t.Cell || opens[p] {
 					hiOff[progKey{t.EntryID, p.Offset}] = true
 					for _, off := range p.virtualOf {
 						hiOff[progKey{t.EntryID, off}] = true
@@ -204,10 +206,12 @@ func (pg *Programmer) overlayLocked() (map[uint16]session.LayerFrame, map[string
 				scaled[off] = true
 			}
 		}
+		// J1c: a highlighted cell also opens its master and part dimmer.
+		opens := m.cellOpens(t.Cell)
 		for i := range m.Parameters {
 			p := &m.Parameters[i]
 			k := progKey{t.EntryID, p.Offset}
-			if (t.Cell != "" && p.Cell != t.Cell) || done[k] || scaled[p.Offset] {
+			if (t.Cell != "" && p.Cell != t.Cell && !opens[p]) || done[k] || scaled[p.Offset] {
 				continue
 			}
 			done[k] = true
@@ -259,6 +263,9 @@ func (pg *Programmer) overlayLocked() (map[uint16]session.LayerFrame, map[string
 			continue
 		}
 		dims := 0
+		// J1c: a whole multi-part fixture is lowlit through its MASTER —
+		// the master channel and the virtual master's parts — once.
+		viaMaster := t.Cell == "" && m.hasVirtualMaster() && !hiPart[t.EntryID]
 		add := func(off uint16, p *ProgParameter) {
 			k := progKey{t.EntryID, off}
 			if hiOff[k] {
@@ -277,6 +284,20 @@ func (pg *Programmer) overlayLocked() (map[uint16]session.LayerFrame, map[string
 		for pi := range m.Parameters {
 			p := &m.Parameters[pi]
 			if t.Cell != "" && p.Cell != t.Cell {
+				continue
+			}
+			if p.Master {
+				if viaMaster {
+					for _, off := range p.masterOf {
+						add(off, m.paramAt(off))
+					}
+				}
+				continue
+			}
+			if viaMaster {
+				if m.inMasterPart(p) {
+					add(p.Offset, p)
+				}
 				continue
 			}
 			if p.Virtual {

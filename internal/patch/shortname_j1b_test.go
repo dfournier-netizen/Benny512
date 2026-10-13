@@ -98,3 +98,41 @@ func TestShowFileKeepsShortName(t *testing.T) {
 		t.Errorf("decoded short names %q, %q; want PalCube and none", back.Entries[0].FixtureTypeShortName, back.Entries[1].FixtureTypeShortName)
 	}
 }
+
+// TestShowFileKeepsGeometryTree (J1c): a mode's geometry tree travels in
+// the show file's profile cache (optional "geometryParents"; absent = not
+// known, a legacy profile), and a profile without one keeps its key.
+func TestShowFileKeepsGeometryTree(t *testing.T) {
+	cf := map[uint16]ChannelFunction{1: {Source: SourceGDTF, Attribute: "Dimmer", GeometryInstance: "Head:0"}}
+	tree := map[string]string{"Base:0": "", "Head:0": "Base:0"}
+	p := Patch{SchemaVersion: CurrentSchemaVersion, Entries: []Entry{
+		{ID: "a", FixtureType: "T", Mode: "M", GeometryParents: tree, ChannelFunctions: cf, Wheels: []Wheel{}},
+		{ID: "b", FixtureType: "T", Mode: "N", ChannelFunctions: cf, Wheels: []Wheel{}},
+	}}
+	b, err := encodeShowFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var disk struct {
+		Profiles map[string]map[string]any
+	}
+	_ = json.Unmarshal(b, &disk)
+	with, without := 0, 0
+	for _, pr := range disk.Profiles {
+		if gp, ok := pr["geometryParents"].(map[string]any); ok && gp["Head:0"] == "Base:0" {
+			with++
+		} else if _, ok := pr["geometryParents"]; !ok {
+			without++
+		}
+	}
+	if with != 1 || without != 1 {
+		t.Errorf("profiles %v: want one with the tree and one without the key", disk.Profiles)
+	}
+	back, err := decodeShowFile(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.Entries[0].GeometryParents["Head:0"] != "Base:0" || back.Entries[1].GeometryParents != nil {
+		t.Errorf("decoded trees %v, %v; want the tree and none", back.Entries[0].GeometryParents, back.Entries[1].GeometryParents)
+	}
+}

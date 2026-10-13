@@ -96,6 +96,28 @@
 //     master. Rayzor 1960: head is the master; RGBW
 //     pixels and SparkLED are parts. JDC1: no master; Beam and Plate are
 //     parts. A batten with one Dimmer and RGB cells: that Dimmer.
+//   - MASTER MULTIPLIER (J1c, owner 2026-10-13 09:31, superseding J1b's
+//     "the Master sets every part"): "Master should be an overall dimmer.
+//     If master is at 0 but the sub-fixtures are at full: no output. If
+//     master is at full, SparkLED at full and pixels at 0: we see only the
+//     SparkLED." A fixture with more than one intensity part gets one more
+//     parameter, its virtual MASTER (Master, VirtualMasterOffset, resting
+//     at 0 like every intensity). The fixture's master level is set on
+//     the real master channel (the master part's Dimmer, if any) and the
+//     virtual master together — whole-fixture Dimmer in the Console, the
+//     type's Master fader, a stored group's whole-fixture member, Lowlight
+//     and dimmer tests of the whole fixture (inScope). The parts keep
+//     their own levels (part faders, cells). Effective part output =
+//     master x part, WITHOUT double dimming: a part whose geometry lies
+//     under the master channel's geometry (the GDTF tree, Entry.
+//     GeometryParents) is dimmed by that channel on the fixture and is
+//     left alone in software (Governed); every other part is multiplied
+//     in software by the virtual master — a real part dimmer scaled as a
+//     whole value, a virtual part dimmer's colour scaled (session.
+//     VirtualDimmer.Multiplier: no fill, applied last). With no master
+//     channel (GLP JDC1) every part is multiplied in software. A profile
+//     without its tree (imported before J1c) counts every part as governed
+//     by a master channel — the fader says so ("re-import to refine").
 //   - DARK AT ARM (J1, owner 2026-10-12, Dom's bench test: "when armed with
 //     an empty programmer, every intensity starts at 0, whatever the GDTF
 //     default says"). An INTENSITY parameter rests at 0, not at its stated
@@ -128,6 +150,11 @@ const (
 // VirtualDimmerOffset is the synthetic offset of a fixture's own virtual
 // dimmer; a cell's is this plus the cell's index. See the file comment.
 const VirtualDimmerOffset uint16 = 0xFF00
+
+// VirtualMasterOffset (J1c) is the synthetic offset of a multi-part
+// fixture's software master (see MASTER MULTIPLIER in the file comment);
+// above any 512-slot footprint and below every virtual dimmer's.
+const VirtualMasterOffset uint16 = 0xFE00
 
 // ProgSet is one channel set of a function, with the wheel slot it names
 // resolved against the entry's wheels.
@@ -225,6 +252,13 @@ type ProgParameter struct {
 	// bytes of its own; it scales the additive colour channels whose
 	// coarse offsets are virtualOf.
 	Virtual bool `json:"virtual"`
+	// Master (J1c) marks the virtual MASTER of a fixture with several
+	// intensity parts (see MASTER MULTIPLIER in the file comment): a
+	// multiplier over the parts its geometry does not govern, whose coarse
+	// offsets (a real part dimmer) or colour offsets (a virtual part
+	// dimmer's) are masterOf.
+	Master   bool `json:"master"`
+	masterOf []uint16
 	// DarkAtArm (J1): an intensity parameter, resting at 0 whatever the
 	// profile's default (see DARK AT ARM in the file comment).
 	DarkAtArm bool `json:"darkAtArm"`
@@ -248,6 +282,10 @@ type ProgPart struct {
 	Name    string   `json:"name"`
 	Master  bool     `json:"master"`
 	Dimmers []uint16 `json:"dimmers"`
+	// Governed (J1c): the part sits under the master dimmer's geometry, so
+	// the master channel dims it on the fixture and the software master
+	// leaves it alone; false = the software master multiplies it.
+	Governed bool `json:"governed"`
 }
 
 // ProgCell is one cell (sub-fixture). ID is the geometry instance string
@@ -279,6 +317,10 @@ type FixtureModel struct {
 	// Parts (J1) are the fixture's intensity parts in order of their first
 	// parameter; empty when it has no intensity at all.
 	Parts []ProgPart `json:"parts"`
+	// TreeKnown (J1c): the profile carries its GDTF geometry tree. Without
+	// it every part of a fixture with a master dimmer counts as governed by
+	// it (re-import the GDTF to refine).
+	TreeKnown bool `json:"treeKnown"`
 	// RawOffsets are footprint offsets no parameter covers, 8-bit each.
 	RawOffsets []uint16 `json:"rawOffsets"`
 	// Unaddressable lists footprint offsets that fall outside 1-512 at the
@@ -435,6 +477,7 @@ func BuildFixtureModel(e Entry) FixtureModel {
 	assignCells(&m)
 	addVirtualDimmers(&m)
 	assignParts(&m)
+	addVirtualMaster(&m, e.GeometryParents)
 	firstOnly := 0
 	for i := range m.Parameters {
 		p := &m.Parameters[i]
@@ -463,7 +506,8 @@ func BuildFixtureModel(e Entry) FixtureModel {
 		P []ProgParameter
 		R []uint16
 		C []ProgCell
-	}{e.Footprint, m.Parameters, m.RawOffsets, m.Cells})
+		G []ProgPart // J1c: which parts the master governs
+	}{e.Footprint, m.Parameters, m.RawOffsets, m.Cells, m.Parts})
 	sum := sha256.Sum256(b)
 	m.fingerprint = hex.EncodeToString(sum[:])
 	return m
@@ -819,7 +863,7 @@ func assignParts(m *FixtureModel) {
 // partOf is the index in m.Parts of the part p belongs to, -1 when p is
 // not an intensity parameter.
 func (m *FixtureModel) partOf(p *ProgParameter) int {
-	if p.Attribute != "Dimmer" {
+	if p.Attribute != "Dimmer" || p.Master {
 		return -1
 	}
 	key, _ := PartKey(p.Instance)
@@ -881,6 +925,24 @@ func (m *FixtureModel) masterFor(cell string) *ProgParameter {
 	return nil
 }
 
+// cellOpens (J1c, owner 2026-10-13: "Highlight on a single cell must open
+// its fixture's master, and its part dimmer where that applies, the same
+// way Tests do") is what a cell needs open to be seen besides its own
+// channels: masterFor (the fixture's master channel, else its own part's
+// dimmer), cellPartDimmer, and the virtual master — each once.
+func (m *FixtureModel) cellOpens(cell string) map[*ProgParameter]bool {
+	out := map[*ProgParameter]bool{}
+	if cell == "" {
+		return out
+	}
+	for _, p := range []*ProgParameter{m.masterFor(cell), m.cellPartDimmer(cell), m.virtualMaster()} {
+		if p != nil {
+			out[p] = true
+		}
+	}
+	return out
+}
+
 // cellPartDimmer (J1b) is, for a cell with no Dimmer of its own (real or
 // virtual — its part has a real dimmer, so it got no virtual one), the real
 // Dimmer outside the cells in the cell's part (the JDC1's Plate Module
@@ -915,11 +977,119 @@ func (m *FixtureModel) cellPartDimmer(cell string) *ProgParameter {
 // faders): a cell target is its own channels; a whole fixture is every
 // channel, its cells' virtual dimmers included (J1b, owner 2026-10-12: the
 // master drives every part; I2d4 left those out when it had a master).
+//
+// J1c (owner 2026-10-13: the Master multiplies the parts): for a fixture
+// with a software master, a whole-fixture target's Dimmer is its MASTER —
+// the real master channel and the virtual master — never the parts, which
+// keep their own levels (part faders, cells).
 func (m *FixtureModel) inScope(t ProgTarget, p *ProgParameter) bool {
 	if t.Cell != "" {
 		return p.Cell == t.Cell
 	}
-	return true
+	if p.Attribute != "Dimmer" || !m.hasVirtualMaster() {
+		return true
+	}
+	return p.Master || m.inMasterPart(p)
+}
+
+// hasVirtualMaster (J1c): m has several intensity parts, so a software
+// master.
+func (m *FixtureModel) hasVirtualMaster() bool { return m.virtualMaster() != nil }
+
+// virtualMaster is m's virtual master parameter, nil when it has none.
+func (m *FixtureModel) virtualMaster() *ProgParameter {
+	for i := range m.Parameters {
+		if m.Parameters[i].Master {
+			return &m.Parameters[i]
+		}
+	}
+	return nil
+}
+
+// inMasterPart: p is a real Dimmer of m's master part (its master channel).
+func (m *FixtureModel) inMasterPart(p *ProgParameter) bool {
+	pi := m.partOf(p)
+	return pi >= 0 && m.Parts[pi].Master && !p.Virtual
+}
+
+// addVirtualMaster (J1c) gives a fixture with more than one intensity part
+// its software master — see MASTER MULTIPLIER in the file comment. tree is
+// the GDTF geometry tree (instance -> parent), nil when not known.
+func addVirtualMaster(m *FixtureModel, tree map[string]string) {
+	m.TreeKnown = tree != nil
+	if len(m.Parts) < 2 {
+		return
+	}
+	masterInst := map[string]bool{}
+	hasMaster := false
+	for i := range m.Parameters {
+		p := &m.Parameters[i]
+		if m.inMasterPart(p) {
+			hasMaster = true
+			masterInst[p.Instance] = true
+		}
+	}
+	// under: inst is (inside) a geometry holding the master channel.
+	under := func(inst string) bool {
+		if !hasMaster {
+			return false
+		}
+		if tree == nil {
+			return true // not known: the master governs (re-import to refine)
+		}
+		cur := inst
+		for n := 0; n < 256 && cur != ""; n++ {
+			if masterInst[cur] {
+				return true
+			}
+			next, ok := tree[cur]
+			if !ok {
+				return false
+			}
+			cur = next
+		}
+		return false
+	}
+	var src ChannelFunctionSource
+	masterOf := make([]uint16, 0)
+	for pi := range m.Parts {
+		pt := &m.Parts[pi]
+		if pt.Master {
+			pt.Governed = true
+			continue
+		}
+		governed := true
+		params := make([]*ProgParameter, 0)
+		for i := range m.Parameters {
+			if p := &m.Parameters[i]; m.partOf(p) == pi {
+				params = append(params, p)
+				if src == "" {
+					src = p.Source
+				}
+				if !under(p.Instance) {
+					governed = false
+				}
+			}
+		}
+		pt.Governed = governed
+		if governed {
+			continue
+		}
+		for _, p := range params {
+			if p.Virtual {
+				masterOf = append(masterOf, p.virtualOf...)
+			} else {
+				masterOf = append(masterOf, p.Offset)
+			}
+		}
+	}
+	m.Parameters = append(m.Parameters, ProgParameter{
+		Offset: VirtualMasterOffset, Offsets: make([]uint16, 0), ByteCount: 1, Max: 255, Attribute: "Dimmer", Group: GroupDimmer,
+		Source: src, Detail: DetailVirtual, HasDefault: true, Default: 0,
+		Functions: []ProgFunction{{Index: 0, Name: "Master", Attribute: "Dimmer", LogicalAttribute: "Dimmer",
+			DMXFrom: 0, DMXTo: 255, HasDefault: true, Default: 0, Sets: make([]ProgSet, 0)}},
+		Virtual: true, Master: true, masterOf: masterOf,
+	})
 }
 
 func (m FixtureModel) HasCell(id string) bool {

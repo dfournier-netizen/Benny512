@@ -1601,6 +1601,9 @@ type patternSelection struct {
 	// whites (I2f): by scope entry ID, the colour keys a dimmer test shows
 	// at white while their colour is unset — see TestTarget.Whites.
 	whites map[string][]string
+	// holds (J1c): by scope entry ID, real part dimmers no test drives and
+	// the base state holds open — see TestTarget.Hold.
+	holds map[string][][]uint16
 
 	// resolved is rebuilt from scope+tests on every mutation, in canonical
 	// order.
@@ -1658,6 +1661,21 @@ func (sel *patternSelection) rebuild() {
 		pt := &patternTest{spec: spec}
 		for _, e := range sel.scope {
 			t, ok := resolveEntry(spec, e)
+			if hs := sel.holds[e.ID]; len(hs) > 0 && ok {
+				// J1c: a held part dimmer is never driven by a test.
+				held := map[uint16]bool{}
+				for _, h := range hs {
+					held[h[0]] = true
+				}
+				kept := t.functions[:0:0]
+				for _, f := range t.functions {
+					if len(f.offsets) > 0 && held[f.offsets[0]] && strings.HasPrefix(f.attribute, "Dimmer") {
+						continue
+					}
+					kept = append(kept, f)
+				}
+				t.functions = kept
+			}
 			if isDimmerPatternKind(spec.Kind) {
 				for _, k := range sel.virtual[e.ID] {
 					t.functions = append(t.functions, patternFuncTarget{attribute: "Dimmer", role: "level", nbytes: 1, virtualKey: k})
@@ -1689,6 +1707,13 @@ func (sel *patternSelection) rebuild() {
 				n, full = 2, 65535
 			}
 			bs.master = append(bs.master, baseWrite{attribute: "Dimmer", offsets: m, nbytes: n, raw: full})
+		}
+		for _, h := range sel.holds[e.ID] {
+			n, full := 1, uint32(255)
+			if len(h) >= 2 {
+				n, full = 2, 65535
+			}
+			bs.master = append(bs.master, baseWrite{attribute: "Dimmer", offsets: h, nbytes: n, raw: full})
 		}
 		sel.base = append(sel.base, bs)
 	}
@@ -1761,6 +1786,7 @@ func (r *RigCheck) SetPatternScope(entries []Entry) (PatternStatus, error) {
 	r.selection.scope = append([]Entry(nil), entries...)
 	r.selection.owned, r.selection.scopeOrder, r.testsLayer = nil, false, false
 	r.selection.virtual, r.selection.masters, r.selection.whites = nil, nil, nil
+	r.selection.holds = nil
 	r.selection.rebuild()
 	r.afterSelectionChangeLocked()
 	return r.patternStatusLocked(), nil
@@ -1813,6 +1839,7 @@ func (r *RigCheck) SetPatternTests(entries []Entry, specs []PatternSpec, isolate
 	r.selection.scope = append([]Entry(nil), entries...)
 	r.selection.owned, r.selection.scopeOrder, r.testsLayer = nil, false, false
 	r.selection.virtual, r.selection.masters, r.selection.whites = nil, nil, nil
+	r.selection.holds = nil
 	r.selection.tests = make(map[TestID]PatternSpec, len(normalized))
 	for _, spec := range normalized {
 		r.selection.tests[spec.TestID()] = spec
