@@ -50,6 +50,13 @@
 - **C9c (owner, 2026-10-09 23:12):** the C9 rules here are approved; a browser picks up another browser's edit of its custom theme at reload or its next Settings visit (no live update, by choice); the Dark changes (picker frame and error rules on the tone outlines, the three separators) stay.
 - **Not in the package:** where custom themes live (station settings; use per browser), names/limits, export/import JSON, and what a browser does when its theme is deleted or stops passing (back to Dark, in words). Details in the plan's C9 decision line.
 
+## J1 — owner bench test (2026-10-12; recorded 2026-10-12 14:10:22 -0400)
+
+- **Layout (§3/§4):** MVR positions place fixtures automatically; the "Derive from positions" button stays for re-deriving with other settings. Unplaced is now only for fixtures without a position. Hand placements override automatic ones and never move.
+- **Dark at Arm (state S, §6, §13):** with an empty programmer every intensity reads and outputs 0 when armed — real Dimmer and virtual dimmer alike — whatever the GDTF default; other attributes show their GDTF default as before. The Dimmer readout says why it is 0 ("dark at Arm"). Highlight, Locate and Tests still bring intensity up.
+- **§19 fader bar — sub-fixture faders (owner):** a fixture type + mode with several intensity parts is drawn as one framed **cluster** in "Fixture types": the type's name on top, its **Master** fader first (labelled "Master"), then one fader per part labelled with its GDTF-derived word (JDC1: Beam, Plate; Rayzor 1960: Spark LED Strobe Module, RGBW Pixel). Each fader's group, slider and Release labels and its title carry the full "<type> · <part>". A part name may take three lines inside a cluster (read whole at 390 px); everything else in the bar is unchanged (dashed = untouched, "—", Release, Release all, collapse). Grouping is the frame plus the words, never colour. A type with one part keeps its plain fader; Groups unchanged.
+- **Master vs part (behaviour):** both are ordinary faders — the most recently moved wins per channel. Without a real master channel (JDC1) the Master moves every part; with one (Rayzor head) it moves that channel only.
+
 ## Deviations already recorded in I1–I2d
 
 - **Theme (token contract):** ~~dark only; the light block is inert until C9~~ — built in C9 (above).

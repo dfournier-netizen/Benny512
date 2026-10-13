@@ -89,10 +89,11 @@ async function server(method, p, body) {
   const p1cells = fx.fixtures.find(f => f.entryId === ids.P1).cells;
   check(p1cells.length >= 2, 'the Paladin Cube extract has cells to select (' + p1cells.length + ')');
 
-  // Every fixture is on the grid before any derive: the Unplaced layer.
+  // J1: the import derived the layout by itself — two height layers for the
+  // located fixtures, and G1 (no position) on the Unplaced layer.
   const chips = document.querySelectorAll('[data-layer-chip]').map(c => c.getAttribute('data-layer-chip'));
-  check(same(chips, ['all', 'unplaced']), 'layer chips before derive are All + Unplaced', chips);
-  check(['B1', 'B2', 'L1', 'P1', 'G1'].every(n => tile(ids[n])), 'every patched fixture has a selectable tile (Unplaced layer)');
+  check(chips.length === 4 && chips[0] === 'all' && chips[3] === 'unplaced', 'layer chips after the import are All + two derived heights + Unplaced (derived automatically)', chips);
+  check(['B1', 'B2', 'L1', 'P1', 'G1'].every(n => tile(ids[n])), 'every patched fixture has a selectable tile');
   const g1meta = tile(ids.G1).closest('[data-item-id]').querySelector('.b5-con-tile__meta').textContent;
   check(/auto/.test(g1meta) && /no position/.test(g1meta), 'an unplaced fixture says so in words ("auto", "no position")', g1meta);
 
@@ -151,7 +152,7 @@ async function server(method, p, body) {
 
   // Layers: select a layer, filter to a layer, select all on it, select all.
   click(grid().querySelector('[data-select-layer="unplaced"]'));
-  await until('the layer selected', () => selState().length === 5);
+  await until('the layer selected', () => selState().length === 1);
   check(same(lastPost(SEL).body, { action: 'set', layer: 'unplaced' }), 'Select this layer: {action:set, layer:unplaced}', lastPost(SEL).body);
   click(document.querySelector('[data-layer-chip="unplaced"]'));
   check(grid().querySelectorAll('[data-layer-block]').length === 1 && document.querySelector('[data-layer-chip="unplaced"]').getAttribute('aria-pressed') === 'true', 'a layer chip filters the grid to that layer');
@@ -160,7 +161,7 @@ async function server(method, p, body) {
   await until('none selected', () => selState().length === 0);
   check(same(lastPost(SEL).body, { action: 'none' }), 'Select none: {action:none}');
   click(document.querySelector('[data-select-all]'));
-  await until('the layer re-selected', () => selState().length === 5);
+  await until('the layer re-selected', () => selState().length === 1);
   check(same(lastPost(SEL).body, { action: 'set', layer: 'unplaced' }), 'Select all on a shown layer selects that layer', lastPost(SEL).body);
   click(document.querySelector('[data-layer-chip="all"]'));
   click(document.querySelector('[data-select-all]'));

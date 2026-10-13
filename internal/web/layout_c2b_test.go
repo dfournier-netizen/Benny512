@@ -212,8 +212,12 @@ func TestLayoutC2b_MigratesC2LayoutToManual(t *testing.T) {
 func TestLayoutC2b_AutoVsManualThroughDeriveAndRefresh(t *testing.T) {
 	h := newHarness(t)
 	importCaptureExtract(t, h)
-	if rr := layoutPost(t, h, "refresh", `{}`); rr.Code != http.StatusConflict {
-		t.Errorf("refresh before any derive: %d %s, want 409", rr.Code, rr.Body.String())
+	// J1: the import derived the layout by itself, so refresh works at once
+	// (refresh before any derive is refused on a show with no positions:
+	// TestLayoutJ1_RefreshNeedsADerive). An explicit derive of that
+	// automatic layout may choose its own settings.
+	if rr := layoutPost(t, h, "refresh", `{}`); rr.Code != http.StatusOK {
+		t.Errorf("refresh after an import: %d %s, want 200", rr.Code, rr.Body.String())
 	}
 	mustLayoutPost(t, h, "derive", `{"cellMm":2000,"zGapMm":800}`)
 	body := layoutGet(t, h)
@@ -434,22 +438,25 @@ func TestLayoutC2b_UnplacedLayerKeepsEveryFixtureSelectable(t *testing.T) {
 }
 
 // TestLayoutC2b_UnplacedReasons: located fixtures not yet derived are
-// "not-derived"; fixtures with no position are "no-location".
+// "not-derived"; fixtures with no position are "no-location". Since J1 an
+// import derives by itself, so "not-derived" is a located fixture added by
+// hand to a layout that was already derived, until the next derive.
 func TestLayoutC2b_UnplacedReasons(t *testing.T) {
 	h := newHarness(t)
 	importCaptureExtract(t, h)
 	if rr := doBytes(t, h.srv.Handler(), "POST", "/api/patch/entries", []byte(`{"name":"Desk Par","fixtureNumber":"99","startAddress":400,"footprint":4}`)); rr.Code != http.StatusOK {
 		t.Fatal(rr.Body.String())
 	}
+	if rr := doBytes(t, h.srv.Handler(), "POST", "/api/patch/entries", []byte(`{"name":"Hand Spot","fixtureNumber":"98","startAddress":420,"footprint":4,"location":{"known":true,"x":0,"y":0,"z":5600}}`)); rr.Code != http.StatusOK {
+		t.Fatal(rr.Body.String())
+	}
 	body := layoutGet(t, h)
 	r := unplacedReasons(body)
-	if len(r) != 10 {
-		t.Fatalf("unplaced = %v, want all 10", body["unplaced"])
+	if len(r) != 2 {
+		t.Fatalf("unplaced = %v, want Desk Par and Hand Spot", body["unplaced"])
 	}
-	for num := range captureDerived2000 {
-		if r[entryIDByNumber(t, body, num)] != "not-derived" {
-			t.Errorf("%s reason %q, want not-derived", num, r[entryIDByNumber(t, body, num)])
-		}
+	if hand := entryIDByNumber(t, body, "98"); r[hand] != "not-derived" {
+		t.Errorf("Hand Spot reason %q, want not-derived", r[hand])
 	}
 	desk := entryIDByNumber(t, body, "99")
 	if r[desk] != "no-location" {
@@ -471,6 +478,11 @@ func TestLayoutC2b_UnplacedReasons(t *testing.T) {
 func TestLayoutC2b_Objects(t *testing.T) {
 	h := newHarness(t)
 	importCaptureExtract(t, h)
+	// J1: the import placed every located fixture; one with no position
+	// keeps an item on the Unplaced layer for the item-order check below.
+	if rr := doBytes(t, h.srv.Handler(), "POST", "/api/patch/entries", []byte(`{"name":"Desk Par","fixtureNumber":"99","startAddress":400,"footprint":4}`)); rr.Code != http.StatusOK {
+		t.Fatal(rr.Body.String())
+	}
 	mustLayoutPost(t, h, "layer-create", `{"name":"Stage"}`)
 	body := layoutGet(t, h)
 	stage := layerIDByName(t, body, "Stage")
@@ -525,7 +537,7 @@ func TestLayoutC2b_Objects(t *testing.T) {
 	}
 	// Objects are not fixtures: no unplaced entry, no entry view, and they
 	// never block a fixture's cell.
-	if len(asList(body["entries"])) != 9 {
+	if len(asList(body["entries"])) != 10 {
 		t.Errorf("objects leaked into entries")
 	}
 	e11 := entryIDByNumber(t, body, "11")

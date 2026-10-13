@@ -4,7 +4,9 @@
 // touched, and driving two sources of the unified output engine:
 //
 //   - session.SourceBase: every channel of every patched fixture at its
-//     profile default (programmer_model.go's DEFAULT rule), unknown = 0.
+//     profile default (programmer_model.go's DEFAULT rule), unknown = 0;
+//     since J1 every intensity (real Dimmer and virtual dimmer) at 0 —
+//     DARK AT ARM.
 //   - session.SourceProgrammer: exactly the channels the user has touched.
 //
 // Layering (orchestrator decision): base < tests < programmer < raw <
@@ -187,6 +189,7 @@ func (pg *Programmer) Sync(token any, entries []Entry, clear bool) bool {
 	pg.base = pg.baseFramesLocked()
 	_ = pg.dmx.ReplaceSource(session.SourceBase, pg.base)
 	_ = pg.dmx.SetVirtualDimmers(pg.virtualDefsLocked())
+	_ = pg.dmx.SetVirtualDimmerLevels(session.SourceBase, pg.baseVirtualLocked())
 	pg.applyLocked()
 	pg.refreshFadersLocked(clear)
 	if changed {
@@ -234,6 +237,26 @@ func (pg *Programmer) baseFramesLocked() map[uint16]session.LayerFrame {
 	}
 	return frames
 }
+
+// baseVirtualLocked (J1, DARK AT ARM): the base state claims every virtual
+// dimmer at 0 (fill 0), as it writes every real Dimmer at 0, so an untouched
+// virtual dimmer is dark. Every source above (tests, group faders,
+// programmer, highlight) claims over it; nothing claimed = this rest state.
+func (pg *Programmer) baseVirtualLocked() map[string]byte {
+	levels := map[string]byte{}
+	for _, id := range pg.order {
+		for _, p := range pg.models[id].Parameters {
+			if p.Virtual {
+				levels[VirtualDimmerKey(id, p.Offset)] = 0
+			}
+		}
+	}
+	return levels
+}
+
+// IsColourFillKey reports whether k is a ColourFillKey (I2f), not a virtual
+// dimmer's key: unclaimed, it changes nothing (level 255, fill 0).
+func IsColourFillKey(k string) bool { return strings.Contains(k, "#fill#") }
 
 // VirtualDimmerKey is the engine key (session.VirtualDimmer.Key) of the
 // virtual dimmer at synthetic offset off of entryID. Any source that drives

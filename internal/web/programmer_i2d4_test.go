@@ -69,6 +69,8 @@ func TestVirtualDimmerCellsUnderMaster(t *testing.T) {
 	r.arm(t)
 	r.set(t, map[string]any{"targets": []any{r.target("BT")}, "attribute": "ColorAdd_R", "dmx": 200})
 	r.set(t, map[string]any{"targets": []any{r.target("BT")}, "attribute": "ColorAdd_G", "dmx": 100})
+	// J1 (dark at Arm): the cells' virtual dimmers rest at 0; open them.
+	r.set(t, map[string]any{"targets": []any{cell(1), cell(2), cell(3), cell(4)}, "attribute": "Dimmer", "dmx": 255})
 	reds := func(what string, master byte, c1, c2, c3, c4 byte) {
 		t.Helper()
 		f := r.wire(t, 2)
@@ -188,20 +190,22 @@ func TestGroupFaderCellVirtualDimmer(t *testing.T) {
 			if f.Controllable != 1 || len(f.NotControllable) != 1 {
 				t.Errorf("group fader: controllable %d, not %v; want 1 (Pixel 3) and the strobe cell", f.Controllable, f.NotControllable)
 			}
-		} else if strings.Contains(f.ID, "Batten") {
+		} else if f.Kind == "type" && strings.Contains(f.ID, "Batten") { // J1: not its part fader
 			typeID = f.ID
 		}
 	}
 	r.post(t, "/api/faders/set", map[string]any{"id": groupID, "level": 0.5}, nil)
 	f := r.wire(t, 2)
 	wantSlots(t, "group fader 50 %: cell 3 red", f, 8, 100)
-	wantSlots(t, "group fader 50 %: cell 1 red untouched", f, 2, 200)
+	wantSlots(t, "group fader 50 %: cell 1 untouched, dark at Arm (J1)", f, 2, 0)
 	r.post(t, "/api/faders/release-all", map[string]any{}, nil)
 	r.post(t, "/api/faders/set", map[string]any{"id": typeID, "level": 0.5}, nil)
 	f = r.wire(t, 2)
 	wantSlots(t, "type fader 50 %: master", f, 1, 128)
-	wantSlots(t, "type fader 50 %: cells keep their colour (not scaled twice)", f, 2, 200)
-	wantSlots(t, "type fader 50 %: cell 3", f, 8, 200)
+	// The type fader moves the master only; the cells' own virtual
+	// dimmers stay as they are — untouched, dark at Arm (J1).
+	wantSlots(t, "type fader 50 %: cells not scaled by it", f, 2, 0)
+	wantSlots(t, "type fader 50 %: cell 3", f, 8, 0)
 }
 
 func (r *c4aRig) get(t *testing.T, path string, out any) {

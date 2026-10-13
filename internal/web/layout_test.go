@@ -378,7 +378,9 @@ func TestLayout_ValidationAndLimits(t *testing.T) {
 	floor := layerIDByName(t, body, "Floor")
 	e11, e12 := entryIDByNumber(t, body, "11"), entryIDByNumber(t, body, "12")
 	mustLayoutPost(t, h, "place", `{"kind":"entry","ref":"`+e11+`","layer":"`+floor+`","col":0,"row":0,"w":2,"h":2}`)
-	placed := asMap(asList(asMap(layoutGet(t, h)["layout"])["items"])[0])
+	// J1: the import derived every fixture; the hand placement of 11 is
+	// its own item (it replaced 11's automatic one).
+	placed := entryItem(t, layoutGet(t, h), e11)
 	item := placed["id"].(string)
 	if placed["w"] != 2.0 || placed["h"] != 2.0 || placed["rot"] != 0.0 {
 		t.Errorf("placed item = %v", placed)
@@ -447,10 +449,18 @@ func TestLayout_ValidationAndLimits(t *testing.T) {
 		t.Errorf("move between layers: 11 at %q", got["11"])
 	}
 	// Reorder, rename, delete with explicit removal of its items.
-	mustLayoutPost(t, h, "layer-reorder", `{"order":["`+upper+`","`+floor+`","unplaced"]}`)
+	// (J1: the derived height layers come along, after Top and Floor.)
+	order := []string{upper, floor}
+	for _, ly := range asList(asMap(layoutGet(t, h)["layout"])["layers"]) {
+		if id := asMap(ly)["id"].(string); id != upper && id != floor && id != "unplaced" {
+			order = append(order, id)
+		}
+	}
+	reorder, _ := json.Marshal(map[string]any{"order": append(order, "unplaced")})
+	mustLayoutPost(t, h, "layer-reorder", string(reorder))
 	mustLayoutPost(t, h, "layer-rename", `{"id":"`+upper+`","name":"Top"}`)
 	layers := asList(asMap(layoutGet(t, h)["layout"])["layers"])
-	if asMap(layers[0])["name"] != "Top" || asMap(layers[0])["order"] != 0.0 || asMap(layers[1])["order"] != 1.0 {
+	if asMap(layers[0])["name"] != "Top" || asMap(layers[0])["order"] != 0.0 || asMap(layers[1])["order"] != 1.0 || asMap(layers[1])["id"] != floor {
 		t.Errorf("reorder/rename: %v", layers)
 	}
 	mustLayoutPost(t, h, "layer-delete", `{"id":"`+floor+`","removeItems":true}`)

@@ -70,6 +70,21 @@ body.b5-walk-mode .b5-faders { bottom: var(--b5-walk-bar-reserve); }
 .b5-fader.is-untouched .b5-fader__thumb { background: transparent; border: 2px dashed var(--b5-color-text-muted); }
 .b5-fader__release { width: 100%; justify-content: center; }
 
+/* J1 sub-fixture faders: a type with several intensity parts is one framed
+   cluster — the type's name over its Master and its part faders. The frame
+   and the words ("Master", the part names) carry the grouping, not colour. */
+.b5-fader-cluster { flex: 0 0 auto; display: flex; flex-direction: column; gap: 2px; min-width: 0;
+  padding: 2px var(--b5-space-1) var(--b5-space-1); border: var(--b5-border-width-thick) solid var(--b5-color-border-strong);
+  border-radius: var(--b5-radius-sm); }
+.b5-fader-cluster__label { font-size: var(--b5-font-size-xs); font-weight: var(--b5-font-weight-bold); line-height: 1.25;
+  color: var(--b5-color-text-primary); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.b5-fader-cluster > .b5-faders__row { gap: var(--b5-space-1); }
+/* A part's name is its only word on the fader ("Spark LED Strobe Module"):
+   up to three lines, so it is read whole on a phone. */
+.b5-fader-cluster .b5-fader__label { -webkit-line-clamp: 3; }
+/* The Master is the first fader of its cluster: a thick rule after it. */
+.b5-fader--master { border-right-width: var(--b5-border-width-thick); }
+
 /* Phones: a shorter track so the open bar leaves the screen usable. */
 @media (max-width: 767px) {
   .b5-faders__head { padding-inline: var(--b5-space-2); }

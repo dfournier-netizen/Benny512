@@ -229,25 +229,40 @@ type virtualFade struct {
 	duration            time.Duration
 }
 
-// target is what u shows once any fade is done: (level, fill level). A
-// test's level L is (L, L); a white claim is (255, 255) — no set colour is
-// scaled, an unset one is white. A key no test drives any more is
-// (255, 0), which is exactly untouched — a set colour unscaled, an unset
-// one dark — so its release at the end of the fade changes nothing on the
-// wire (I2g).
-func (u virtualUnit) target() (level, fill byte) {
-	if u.source.removed {
+// target is what u, at engine key k, shows once any fade is done: (level,
+// fill level). A test's level L is (L, L); a white claim is (255, 255) — no
+// set colour is scaled, an unset one is white; an opened virtual dimmer
+// (J1) is (255, 0). A key no test drives any more goes to what the key
+// shows unclaimed by the tests (untouchedVirtual), so its release at the
+// end of the fade changes nothing on the wire (I2g).
+func (u virtualUnit) target(k string) (level, fill byte) {
+	switch {
+	case u.source.removed:
+		return untouchedVirtual(k)
+	case u.open:
 		return 255, 0
 	}
 	return u.level, u.level
 }
 
+// untouchedVirtual is what engine key k shows when the tests do not claim
+// it. A colour fill key unclaimed changes nothing: (255, 0), a set colour
+// unscaled and an unset one dark. A virtual dimmer key rests at the base
+// state's 0 since J1 (DARK AT ARM; it was "full" before): (0, 0).
+func untouchedVirtual(k string) (level, fill byte) {
+	if IsColourFillKey(k) {
+		return 255, 0
+	}
+	return 0, 0
+}
+
 // fadeVirtualLocked (I2e) applies the slot rules above to the virtual dimmer
 // levels the tests set, by engine key, and leaves the result in
 // r.patternVirtual and r.patternFill: a changed writer fades from what was
-// showing — the last published level and fill, untouched for a key no test
-// drove, or 0 for a target new to the tests (dimmers start at zero) — and a
-// key no test drives any more fades back to untouched, then is released.
+// showing — the last published level and fill, or untouched for a key no
+// test drove (untouchedVirtual: since J1 a virtual dimmer starts dark) —
+// and a key no test drives any more fades back to untouched, then is
+// released.
 // I2g: untouched is (255, 0), not full: with no colour set it is dark, so
 // a test's level, or a white claim's white, rises from dark and falls to
 // dark over the fade time, held until the fade's end — never via full
@@ -273,17 +288,14 @@ func (r *RigCheck) fadeVirtualLocked(comp patternComposition, now time.Time, pre
 	levels := make(map[string]byte, len(units))
 	fills := make(map[string]byte, len(units))
 	for k, u := range units {
-		level, fill := u.target()
-		if old, exists := r.virtualUnits[k]; !exists || old.source != u.source || old.fill != u.fill {
+		level, fill := u.target(k)
+		if old, exists := r.virtualUnits[k]; !exists || old.source != u.source || old.fill != u.fill || old.open != u.open {
 			delete(r.virtualFades, k)
 			if r.patternFadeTime > 0 {
 				fromLevel, shown := r.patternVirtual[k]
 				fromFill := r.patternFill[k]
 				if !shown {
-					fromLevel, fromFill = 255, 0 // untouched
-					if !u.fill && !previousEntries[u.source.entry] {
-						fromLevel, fromFill = 0, 0
-					}
+					fromLevel, fromFill = untouchedVirtual(k)
 				}
 				r.virtualFades[k] = virtualFade{fromLevel: fromLevel, fromFill: fromFill, start: now, duration: r.patternFadeTime}
 			}

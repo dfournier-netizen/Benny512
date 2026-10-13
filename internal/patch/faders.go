@@ -27,6 +27,21 @@
 //     profile can never leave a level on a channel that is no longer that
 //     fixture's dimmer; a fader whose type or group is gone is dropped with
 //     its claim.
+//
+// J1 (owner 2026-10-12, Dom's bench test): SUB-FIXTURE FADERS. A fixture
+// type + mode whose fixtures have more than one intensity PART
+// (FixtureModel.Parts, programmer_model.go) gets, right after its type
+// fader, one PART fader per part that is not the fixture's master,
+// in part order, labelled with the part's GDTF-derived name. The type
+// fader is then the type's MASTER: with a master part it claims only the
+// master part's dimmers (Rayzor 1960: the head dimmer; its RGBW pixels and
+// SparkLED are parts); with none it claims every part's (GLP JDC1: Beam and
+// Plate move together). A part fader claims every Dimmer, real or virtual,
+// of its part in each member. A type with one part keeps its one fader,
+// unchanged; stored-group faders are unchanged.
+// Master and parts are ordinary faders: where both claim a channel the
+// MOST RECENTLY MOVED wins (the LTP rule above), and releasing one hands
+// its channels back to the other if it is still moved.
 package patch
 
 import (
@@ -66,14 +81,23 @@ type faderClaim struct {
 const (
 	FaderKindType  = "type"
 	FaderKindGroup = "group"
+	// FaderKindPart (J1): one intensity part of a fixture type + mode.
+	FaderKindPart = "part"
 )
 
 // FaderView is one fader in GET /api/faders.
 type FaderView struct {
-	// ID is "type:<fixtureType>|<mode>" or "group:<groupId>".
+	// ID is "type:<fixtureType>|<mode>", "group:<groupId>" or (J1)
+	// "part:<fixtureType>|<mode>|<partKey>".
 	ID    string `json:"id"`
 	Kind  string `json:"kind"`
 	Label string `json:"label"`
+	// HasParts (J1): a type fader that is its type's MASTER, followed by
+	// its part faders. Parent and Part: a part fader's type fader id and
+	// part key ("" otherwise; a part key may itself be "").
+	HasParts bool   `json:"hasParts"`
+	Parent   string `json:"parent"`
+	Part     string `json:"part"`
 	// Count is how many members (fixtures, or cells for a group's cell
 	// members) the fader has; Controllable how many of them it can dim.
 	Count           int      `json:"count"`
@@ -97,6 +121,34 @@ type FadersView struct {
 type faderDef struct {
 	view    FaderView
 	members []ProgTarget
+}
+
+// dimmers is what fader d claims of member t (J1: a part fader its part, a
+// type MASTER its master part when the fixture has one).
+func (d *faderDef) dimmers(m *FixtureModel, t ProgTarget) []*ProgParameter {
+	switch {
+	case d.view.Kind == FaderKindPart:
+		return partDimmers(m, d.view.Part)
+	case d.view.Kind == FaderKindType && len(m.Parts) > 1:
+		for _, pt := range m.Parts {
+			if pt.Master {
+				return partDimmers(m, pt.Key)
+			}
+		}
+	}
+	return dimmersOf(m, t)
+}
+
+// partDimmers is every Dimmer (real or virtual) of m's part key.
+func partDimmers(m *FixtureModel, key string) []*ProgParameter {
+	out := make([]*ProgParameter, 0)
+	for i := range m.Parameters {
+		p := &m.Parameters[i]
+		if pi := m.partOf(p); pi >= 0 && m.Parts[pi].Key == key {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // dimmersOf is t's Dimmer channels (real or virtual) — see the file comment.
@@ -153,6 +205,29 @@ func (pg *Programmer) fadersLocked() []faderDef {
 		}
 		out[i].members = append(out[i].members, ProgTarget{EntryID: id})
 	}
+	// J1: each type whose fixtures have several intensity parts is followed
+	// by one fader per part that is not the master (parts of its first
+	// fixture; every member has the same type + mode).
+	withParts := make([]faderDef, 0, len(out))
+	for _, d := range out {
+		parts := pg.models[d.members[0].EntryID].Parts
+		if len(parts) > 1 {
+			d.view.HasParts = true
+		}
+		withParts = append(withParts, d)
+		if !d.view.HasParts {
+			continue
+		}
+		rest := strings.TrimPrefix(d.view.ID, "type:")
+		for _, pt := range parts {
+			if pt.Master {
+				continue
+			}
+			withParts = append(withParts, faderDef{view: FaderView{ID: "part:" + rest + "|" + pt.Key, Kind: FaderKindPart,
+				Label: pt.Name, Parent: d.view.ID, Part: pt.Key}, members: d.members})
+		}
+	}
+	out = withParts
 	for _, g := range pg.faderGroups {
 		d := faderDef{view: FaderView{ID: "group:" + g.ID, Kind: FaderKindGroup, Label: g.Name}}
 		for _, t := range g.Members {
@@ -167,7 +242,7 @@ func (pg *Programmer) fadersLocked() []faderDef {
 		v.NotControllable = make([]string, 0)
 		v.Count = len(out[i].members)
 		for _, t := range out[i].members {
-			if len(dimmersOf(pg.models[t.EntryID], t)) > 0 {
+			if len(out[i].dimmers(pg.models[t.EntryID], t)) > 0 {
 				v.Controllable++
 			} else {
 				v.NotControllable = append(v.NotControllable, pg.memberLabel(t))
@@ -198,7 +273,7 @@ func (pg *Programmer) applyFadersLocked(defs []faderDef) {
 	keys := make([]progKey, 0)
 	for _, d := range moved {
 		for _, t := range d.members {
-			for _, p := range dimmersOf(pg.models[t.EntryID], t) {
+			for _, p := range d.dimmers(pg.models[t.EntryID], t) {
 				k := progKey{t.EntryID, p.Offset}
 				if _, seen := chans[k]; !seen {
 					keys = append(keys, k)

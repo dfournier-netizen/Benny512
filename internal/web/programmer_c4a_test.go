@@ -462,6 +462,9 @@ func TestProgrammerCellAndParentSelection(t *testing.T) {
 	if cells[r.ids["L1"]] != 0 || cells[r.ids["B1"]] != 0 {
 		t.Errorf("a mover's Yoke/Head/Beam are not cells: %v", cells)
 	}
+	// J1: intensity is dark at Arm; open cell 2's virtual dimmer so its red
+	// can be seen (cells 1 and 3 stay dark: untouched).
+	r.set(t, map[string]any{"targets": []any{map[string]any{"entryId": r.ids["P1"], "cell": "Beam 2:0"}}, "attribute": "Dimmer", "fraction": 1})
 	r.post(t, "/api/programmer/select", map[string]any{"action": "set", "targets": []any{map[string]any{"entryId": r.ids["P1"], "cell": "Beam 2:0"}}}, nil)
 	r.set(t, map[string]any{"attribute": "ColorAdd_R", "dmx": 65535})
 	u1 := r.wire(t, 1)
@@ -471,6 +474,7 @@ func TestProgrammerCellAndParentSelection(t *testing.T) {
 
 	r.selectNames(t, "P1")
 	r.set(t, map[string]any{"attribute": "ColorAdd_G", "fraction": 1})
+	r.set(t, map[string]any{"attribute": "Dimmer", "fraction": 1}) // J1: open every cell
 	u1 = r.wire(t, 1)
 	for _, at := range []int{103, 111, 119} {
 		wantSlots(t, fmt.Sprintf("parent green on every cell (slot %d)", at), u1, at, 255, 255)

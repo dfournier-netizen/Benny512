@@ -102,7 +102,7 @@ func TestDimmerTestsDriveCellVirtualDimmers(t *testing.T) {
 	f = r.wire(t, 2)
 	wantSlots(t, "after the tests: master back at its base default", f, 1, 0)
 	wantSlots(t, "after the tests: cell 1 back at its default colour", f, 2, 0, 0, 0)
-	wantSlots(t, "after the tests: cell 2 red, virtual untouched (full)", f, 5, 200, 0, 0)
+	wantSlots(t, "after the tests: cell 2 red, virtual untouched = dark at Arm (J1)", f, 5, 0, 0, 0)
 }
 
 // TestDimmerTestWholeFixtureScopeRule: the batten selected WHOLE is tested
@@ -260,6 +260,6 @@ func TestDimmerTestShowsWhiteWhereColourIsUnset(t *testing.T) {
 	r.testsPost(t, "clear", map[string]any{})
 	f = r.wire(t, 2)
 	wantSlots(t, "after the test: BT cell 1 back to its unset colour", f, 2, 0, 0, 0)
-	wantSlots(t, "after the test: BT cell 2 keeps its manual blue", f, 5, 0, 0, 60)
+	wantSlots(t, "after the test: BT cell 2 keeps its manual blue, its virtual dimmer untouched = dark at Arm (J1)", f, 5, 0, 0, 0)
 	wantSlots(t, "after the test: PAR colour back to unset", f, 302, 0, 0, 0)
 }
