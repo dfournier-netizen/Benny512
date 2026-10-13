@@ -141,10 +141,19 @@ func entryItemID(id string) string { return "entry-" + id }
 // Schema is 2 from C2b on; a C2 layout has none (0) and is migrated by
 // normalizeLayout. MigratedManual is how many placements that migration
 // turned into manual ones (0 for a layout created by C2b or later).
+//
+// J1 (owner 2026-10-12): AutoDerived is true while the layout was derived by
+// the server on its own (autoLayout) and nobody has derived it by hand since;
+// AutoLayers are the layers that automatic derive created. An explicit derive
+// of such a layout may choose any cell size and gap without replace: it
+// rebuilds the automatic part from scratch (auto placements and the automatic
+// layers they leave empty) and keeps everything made by hand.
 type showLayout struct {
 	Schema         int           `json:"schema"`
 	MigratedManual int           `json:"migratedManual"`
 	Derived        bool          `json:"derived"`
+	AutoDerived    bool          `json:"autoDerived"`
+	AutoLayers     []string      `json:"autoLayers"`
 	CellMM         float64       `json:"cellMm"`
 	ZGapMM         float64       `json:"zGapMm"`
 	OriginXMM      float64       `json:"originXMm"`
@@ -212,6 +221,9 @@ func normalizeLayout(l *showLayout) {
 	}
 	if l.Items == nil {
 		l.Items = make([]layoutItem, 0)
+	}
+	if l.AutoLayers == nil {
+		l.AutoLayers = make([]string, 0)
 	}
 	if l.Schema < layoutSchema {
 		n := 0
@@ -772,6 +784,63 @@ func (s *Server) handleLayoutAction(w http.ResponseWriter, r *http.Request) {
 	s.writeLayoutJSON(w, resp)
 }
 
+// errNoLayoutChange aborts autoLayoutShow's Mutate when the automatic
+// derive changed nothing, so the show file is not rewritten.
+var errNoLayoutChange = errors.New("layout unchanged")
+
+// autoLayoutShow applies autoLayout (J1) to the active show and, when the
+// layout changed, stores it and announces the new layout revision on the
+// WebSocket, so every Console shows the placements without anyone asking.
+// It runs after every show-changing request (showGuard; refresh for an MVR
+// import or a location re-import) and when a show file is opened. A derive
+// that fails (a damaged workspace, more layers than a layout holds) writes
+// nothing: the fixtures stay in the Unplaced grid and Edit layout's
+// "Derive from positions" reports why.
+func (s *Server) autoLayoutShow(refresh bool) {
+	p, ok := s.PatchStore.Get()
+	if !ok {
+		return
+	}
+	if !refresh {
+		ws, err := strictWorkspace(p)
+		if err != nil || ws.Layout.Derived {
+			return
+		}
+		located := false
+		for _, e := range p.Entries {
+			located = located || e.Location.Known
+		}
+		if !located {
+			return
+		}
+	}
+	var rev uint64
+	_, err := s.PatchStore.Mutate(func(p *patch.Patch) error {
+		ws, err := strictWorkspace(*p)
+		if err != nil {
+			return err
+		}
+		normalizeLayout(&ws.Layout)
+		changed, err := autoLayout(p, &ws.Layout, refresh)
+		if err != nil {
+			return err
+		}
+		if !changed {
+			return errNoLayoutChange
+		}
+		encoded, err := json.Marshal(ws)
+		if err != nil {
+			return err
+		}
+		p.Workspace = encoded
+		rev = s.layoutRev.n.Add(1)
+		return nil
+	})
+	if err == nil {
+		s.hub.broadcast(wsMessage{Type: "layout", At: time.Now(), Revision: &rev})
+	}
+}
+
 func renumberLayers(l *showLayout) {
 	sort.SliceStable(l.Layers, func(i, j int) bool { return l.Layers[i].Order < l.Layers[j].Order })
 	for i := range l.Layers {
@@ -910,16 +979,27 @@ func applyLayoutAction(action string, body []byte, p *patch.Patch, ws *showWorks
 		if err := checkGeometry(it.Col, it.Row, it.W, it.H, it.Rot); err != nil {
 			return nil, err
 		}
+		// J1: placing a fixture by hand overrides its automatic placement
+		// (since import derives automatically, most fixtures have one); a
+		// hand placement or a group placement is moved instead.
+		auto := -1
 		for i := range l.Items {
 			if l.Items[i].Kind == it.Kind && l.Items[i].Ref == it.Ref {
+				if it.Kind == "entry" && l.Items[i].Mode == modeAuto {
+					auto = i
+					continue
+				}
 				return nil, layoutErr(http.StatusConflict, "This %s is already on the layout; move it instead.", it.Kind)
 			}
 		}
-		if countKind(l, "entry")+countKind(l, "group") >= len(p.Entries)+len(ws.Groups) {
+		if auto < 0 && countKind(l, "entry")+countKind(l, "group") >= len(p.Entries)+len(ws.Groups) {
 			return nil, layoutErr(http.StatusBadRequest, "The layout already holds as many items as the show has fixtures and groups.")
 		}
-		if o := overlapping(l, it.Layer, it.Col, it.Row, it.W, it.H, ""); o != nil {
+		if o := overlapping(l, it.Layer, it.Col, it.Row, it.W, it.H, it.ID); o != nil {
 			return nil, layoutErr(http.StatusConflict, "Those cells are taken by %s on this layer.", itemLabel(p, ws, o))
+		}
+		if auto >= 0 {
+			l.Items = append(l.Items[:auto], l.Items[auto+1:]...)
 		}
 		l.Items = append(l.Items, it)
 		return map[string]string{"id": it.ID}, nil
@@ -1332,6 +1412,18 @@ func deriveLayout(req layoutDeriveRequest, p *patch.Patch, l *showLayout) (any, 
 	if !req.Replace && req.Confirm != "" {
 		return nil, layoutErr(http.StatusBadRequest, "Confirm is only used with replace.")
 	}
+	if l.Derived && l.AutoDerived && !req.Replace {
+		// J1: the server chose these settings, not the operator; rebuild
+		// the automatic part as a first derive, keeping hand-made items.
+		cell, gap = float64(layoutDefaultCellMM), float64(layoutDefaultZGapMM)
+		if req.CellMM != nil {
+			cell = *req.CellMM
+		}
+		if req.ZGapMM != nil {
+			gap = *req.ZGapMM
+		}
+		dropAutoDerive(l)
+	}
 	if l.Derived && !req.Replace && cell != l.CellMM {
 		return nil, layoutErr(http.StatusConflict, "This layout was derived at %g mm per cell; derive with replace to use a different cell size.", l.CellMM)
 	}
@@ -1368,7 +1460,84 @@ func deriveLayout(req layoutDeriveRequest, p *patch.Patch, l *showLayout) (any, 
 	}
 	res.Discarded = discarded
 	l.Derived, l.CellMM, l.ZGapMM = true, cell, gap
+	l.AutoDerived, l.AutoLayers = false, make([]string, 0)
 	return res, nil
+}
+
+// dropAutoDerive undoes an automatic derive (J1) so the next derive is a
+// first one: automatic fixture placements are taken off, the automatic
+// layers left without any item are removed, and Derived is cleared.
+func dropAutoDerive(l *showLayout) {
+	kept := make([]layoutItem, 0, len(l.Items))
+	used := map[string]bool{}
+	for _, it := range l.Items {
+		if it.Kind == "entry" && it.Mode == modeAuto {
+			continue
+		}
+		kept = append(kept, it)
+		used[it.Layer] = true
+	}
+	l.Items = kept
+	auto := map[string]bool{}
+	for _, id := range l.AutoLayers {
+		auto[id] = true
+	}
+	layers := make([]layoutLayer, 0, len(l.Layers))
+	for _, ly := range l.Layers {
+		if auto[ly.ID] && !used[ly.ID] && !ly.System {
+			continue
+		}
+		layers = append(layers, ly)
+	}
+	l.Layers = layers
+	l.Derived, l.AutoDerived, l.AutoLayers = false, false, make([]string, 0)
+}
+
+// autoLayout is the J1 automatic derive (owner 2026-10-12: "auto placement
+// with manual override"; after a fresh MVR import every fixture showed as
+// Unplaced because only the Edit layout button derived). A layout that was
+// never derived is derived at the defaults as soon as any fixture has a
+// position; with refresh (an MVR import or a location re-import) a derived
+// layout re-runs its automatic placement on its saved settings. Either way
+// only automatic placements are created or moved — a hand placement, a
+// group placement or an object never moves. Reports whether l changed.
+func autoLayout(p *patch.Patch, l *showLayout, refresh bool) (bool, error) {
+	located := false
+	for _, e := range p.Entries {
+		if e.Location.Known {
+			located = true
+			break
+		}
+	}
+	if !located || (l.Derived && !refresh) {
+		return false, nil
+	}
+	before, _ := json.Marshal(l)
+	had := map[string]bool{}
+	for _, ly := range l.Layers {
+		had[ly.ID] = true
+	}
+	wasAuto := l.AutoDerived || !l.Derived
+	if !l.Derived {
+		if _, err := deriveLayout(layoutDeriveRequest{}, p, l); err != nil {
+			return false, err
+		}
+	} else if _, err := autoPlace(p, l, l.CellMM, l.ZGapMM); err != nil {
+		return false, err
+	}
+	if wasAuto {
+		autoLayers := append(make([]string, 0), l.AutoLayers...)
+		for _, ly := range l.Layers {
+			if !had[ly.ID] {
+				autoLayers = append(autoLayers, ly.ID)
+			}
+		}
+		l.AutoDerived, l.AutoLayers = true, autoLayers
+	}
+	renumberLayers(l)
+	renumberItemOrders(l)
+	after, _ := json.Marshal(l)
+	return string(before) != string(after), nil
 }
 
 // autoPlace recomputes every automatic fixture placement (the derive

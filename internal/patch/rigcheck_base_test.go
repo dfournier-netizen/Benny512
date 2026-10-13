@@ -47,8 +47,10 @@ const artDmxSequenceIndex = 12 // "Art-Net\0", OpCode, ProtVer (Art-Net 4, ArtDm
 const artDmxHeaderLen = 18
 
 func baseExtraEntries() []Entry {
+	// Zoom, not Dimmer: since J1 every intensity rests at 0 when armed
+	// (DARK AT ARM), so a Dimmer default would no longer show in the base.
 	def := func(v uint32) map[uint16]ChannelFunction {
-		return map[uint16]ChannelFunction{1: {Source: SourceGDTF, Attribute: "Dimmer", DMXFrom: 0, DMXTo: 255,
+		return map[uint16]ChannelFunction{1: {Source: SourceGDTF, Attribute: "Zoom", DMXFrom: 0, DMXTo: 255,
 			HasDefault: true, Default: v, DefaultByteCount: 1, ChannelSets: make([]ChannelSet, 0)}}
 	}
 	return []Entry{

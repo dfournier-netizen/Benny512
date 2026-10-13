@@ -259,7 +259,6 @@ func (pg *Programmer) overlayLocked() (map[uint16]session.LayerFrame, map[string
 			continue
 		}
 		dims := 0
-		master := m.hasMasterDimmer()
 		add := func(off uint16, p *ProgParameter) {
 			k := progKey{t.EntryID, off}
 			if hiOff[k] {
@@ -281,13 +280,11 @@ func (pg *Programmer) overlayLocked() (map[uint16]session.LayerFrame, map[string
 				continue
 			}
 			if p.Virtual {
-				// I2d4: a whole fixture with a master dims the master,
-				// not its cells' virtual dimmers on top — unless one of
-				// its cells is highlighted, when the master is left alone
-				// and the other cells dim through their own.
-				if t.Cell == "" && p.Cell != "" && master && !hiPart[t.EntryID] {
-					continue
-				}
+				// J1b (owner 2026-10-12): a whole fixture dims every part,
+				// its cells' virtual dimmers included, master or not (I2d4
+				// dimmed only the master). With one of its cells
+				// highlighted the master is left alone below and the other
+				// cells dim through their own, as before.
 				for _, off := range p.virtualOf {
 					add(off, m.paramAt(off))
 				}
@@ -297,6 +294,18 @@ func (pg *Programmer) overlayLocked() (map[uint16]session.LayerFrame, map[string
 				continue
 			}
 			add(p.Offset, p)
+		}
+		if dims == 0 && t.Cell != "" {
+			// J1b: a cell with colour but no dimmer of its own (its part's
+			// real dimmer masters it — the JDC1's plate pixels) dims
+			// through its colour, as its virtual dimmer did before.
+			for _, cs := range colourScopesOf(m) {
+				if cs.cell == t.Cell && cs.virtual == nil {
+					for _, off := range cs.additive {
+						add(off, m.paramAt(off))
+					}
+				}
+			}
 		}
 		if dims == 0 {
 			if !noDim[t.EntryID] {

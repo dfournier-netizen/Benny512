@@ -281,6 +281,13 @@ const settled = async () => { await sleep(120); await until('writes to settle', 
     await select('B1');
     click(q('[data-tab-group="dimmer"]'));
     await until('the Dimmer quick buttons', () => q('[data-dimmer-quick="1"]'));
+    // J1 (owner 2026-10-12): an untouched intensity rests at 0 whatever the
+    // profile's default, and the card says so in words.
+    const dfad = q('[data-fader^="Dimmer#"]');
+    check(dfad && /dark at Arm/.test(dfad.getAttribute('aria-valuetext')) && !/profile default/.test(dfad.getAttribute('aria-valuetext')),
+      'an untouched Dimmer fader says "dark at Arm", not "profile default" (J1)', dfad && dfad.getAttribute('aria-valuetext'));
+    const dmark = q('[data-markers="Dimmer"]');
+    check(dmark && /dark at Arm/.test(dmark.textContent), 'the Dimmer card marker says "dark at Arm" while untouched (J1)', dmark && dmark.textContent);
     if (q('[data-dimmer-quick="1"]')) {
       click(q('[data-dimmer-quick="1"]'));
       await settled();

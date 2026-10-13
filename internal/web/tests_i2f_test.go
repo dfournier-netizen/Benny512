@@ -69,21 +69,41 @@ func TestTestsViewReportsChannelSources(t *testing.T) {
 
 	v := r.i2fTests(t)
 	src := v.sourcesOf()
-	if got := src[bt]; len(got) != 1 || got[0] != "tests" {
-		t.Errorf("BT (its master) sources %v, want [tests]", got)
+	// J1b (owner 2026-10-12): the whole BT is tested through every part —
+	// its master and its 4 cells' virtual dimmers.
+	all := func(got []string, want string, n int) bool {
+		if len(got) != n {
+			return false
+		}
+		for _, g := range got {
+			if g != want {
+				return false
+			}
+		}
+		return true
+	}
+	if got := src[bt]; !all(got, "tests", 5) {
+		t.Errorf("BT (its master and 4 cells' virtual dimmers) sources %v, want 5 x tests", got)
 	}
 	if got := src[rg]; len(got) != 1 || got[0] != "tests" {
 		t.Errorf("RG (its virtual dimmer) sources %v, want [tests]", got)
 	}
+	masters := 0
 	for _, e := range v.Tests[0].Entries {
 		for _, c := range e.Channels {
-			if e.EntryID == bt && (c.Address != 1 || c.Virtual) {
-				t.Errorf("BT tested channel %+v, want the master at address 1", c)
+			if e.EntryID == bt && !c.Virtual {
+				masters++
+				if c.Address != 1 {
+					t.Errorf("BT tested real channel %+v, want the master at address 1", c)
+				}
 			}
 			if e.EntryID == rg && (!c.Virtual || c.Address != 0) {
 				t.Errorf("RG tested channel %+v, want its virtual dimmer (address 0)", c)
 			}
 		}
+	}
+	if masters != 1 {
+		t.Errorf("BT tested %d real channels, want 1 (the master)", masters)
 	}
 	if n := len(v.Tests[0].Overridden); n != 0 {
 		t.Errorf("nothing overrides the test yet, but overridden = %+v", v.Tests[0].Overridden)
@@ -93,8 +113,8 @@ func TestTestsViewReportsChannelSources(t *testing.T) {
 	r.set(t, map[string]any{"targets": []any{r.target("BT"), r.target("RG")}, "attribute": "Dimmer", "dmx": 40})
 	v = r.i2fTests(t)
 	src = v.sourcesOf()
-	if got := src[bt]; len(got) != 1 || got[0] != "programmer" {
-		t.Errorf("BT under a manual dimmer: sources %v, want [programmer]", got)
+	if got := src[bt]; !all(got, "programmer", 5) {
+		t.Errorf("BT under a manual dimmer: sources %v, want 5 x programmer", got)
 	}
 	if got := src[rg]; len(got) != 1 || got[0] != "programmer" {
 		t.Errorf("RG under a manual dimmer: sources %v, want [programmer]", got)
@@ -119,8 +139,8 @@ func TestTestsViewReportsChannelSources(t *testing.T) {
 	if n := len(v.Tests[0].Overridden); n != 0 {
 		t.Errorf("after Clear: overridden = %+v, want none", v.Tests[0].Overridden)
 	}
-	if got := v.sourcesOf()[bt]; len(got) != 1 || got[0] != "tests" {
-		t.Errorf("after Clear: BT sources %v, want [tests]", got)
+	if got := v.sourcesOf()[bt]; !all(got, "tests", 5) {
+		t.Errorf("after Clear: BT sources %v, want 5 x tests", got)
 	}
 }
 

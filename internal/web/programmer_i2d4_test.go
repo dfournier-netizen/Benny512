@@ -58,10 +58,10 @@ func newI2d4Rig(t *testing.T) *c4aRig {
 // every cell with red, green and blue and no Dimmer of its own has a
 // virtual dimmer, even when the fixture has a master. Output = the cell's
 // colour x its virtual level, and the master dimmer — a real channel —
-// stays on top. A WHOLE-fixture intensity control (Dimmer set, fan,
-// group-fader member, Lowlight) is the master when there is one; the cells'
-// virtual dimmers are reached by selecting the cells. Highlight and
-// presets take the whole look.
+// stays on top. J1b (owner 2026-10-12 20:11, superseding I2d4's "the
+// master only"): a WHOLE-fixture intensity control (Dimmer set, fan,
+// group-fader member, Lowlight) drives every part — the master AND the
+// cells' virtual dimmers. Highlight and presets take the whole look.
 func TestVirtualDimmerCellsUnderMaster(t *testing.T) {
 	r := newI2d4Rig(t)
 	bt, st := r.ids["BT"], r.ids["ST"]
@@ -69,6 +69,8 @@ func TestVirtualDimmerCellsUnderMaster(t *testing.T) {
 	r.arm(t)
 	r.set(t, map[string]any{"targets": []any{r.target("BT")}, "attribute": "ColorAdd_R", "dmx": 200})
 	r.set(t, map[string]any{"targets": []any{r.target("BT")}, "attribute": "ColorAdd_G", "dmx": 100})
+	// J1 (dark at Arm): the cells' virtual dimmers rest at 0; open them.
+	r.set(t, map[string]any{"targets": []any{cell(1), cell(2), cell(3), cell(4)}, "attribute": "Dimmer", "dmx": 255})
 	reds := func(what string, master byte, c1, c2, c3, c4 byte) {
 		t.Helper()
 		f := r.wire(t, 2)
@@ -108,12 +110,12 @@ func TestVirtualDimmerCellsUnderMaster(t *testing.T) {
 	// Cell level: Pixel 2 at 128 scales its colour; the master is untouched.
 	r.set(t, map[string]any{"targets": []any{cell(2)}, "attribute": "Dimmer", "dmx": 128})
 	reds("cell 2 virtual 128", 0, 200, 100, 200, 200)
-	// Whole fixture: the master, never the cells' virtual dimmers on top.
+	// Whole fixture (J1b): the master and every cell's virtual dimmer.
 	res := r.set(t, map[string]any{"targets": []any{r.target("BT")}, "attribute": "Dimmer", "dmx": 77})
-	if len(res.Applied) != 1 {
-		t.Errorf("whole-fixture Dimmer applied to %d channels, want 1 (the master): %+v", len(res.Applied), res.Applied)
+	if len(res.Applied) != 5 {
+		t.Errorf("whole-fixture Dimmer applied to %d channels, want 5 (the master and 4 cells' virtual dimmers): %+v", len(res.Applied), res.Applied)
 	}
-	reds("whole Dimmer 77", 77, 200, 100, 200, 200)
+	reds("whole Dimmer 77", 77, 60, 60, 60, 60)
 
 	// Fan over the four cells: their virtual dimmers 0 / 85 / 170 / 255.
 	r.post(t, "/api/programmer/select", map[string]any{"action": "set", "targets": []any{cell(1), cell(2), cell(3), cell(4)}}, nil)
@@ -161,9 +163,9 @@ func TestVirtualDimmerCellsUnderMaster(t *testing.T) {
 }
 
 // TestGroupFaderCellVirtualDimmer (I2d4): a stored group of cells moves the
-// cells' virtual dimmers; the type fader (whole fixtures) moves the master
-// only, so the two never multiply. ST cells are listed as not
-// controllable.
+// cells' virtual dimmers; ST cells are listed as not controllable. J1b
+// (owner 2026-10-12): the type fader — the type's Master — moves every
+// part, the master and the cells' virtual dimmers.
 func TestGroupFaderCellVirtualDimmer(t *testing.T) {
 	r := newI2d4Rig(t)
 	bt := r.ids["BT"]
@@ -188,20 +190,21 @@ func TestGroupFaderCellVirtualDimmer(t *testing.T) {
 			if f.Controllable != 1 || len(f.NotControllable) != 1 {
 				t.Errorf("group fader: controllable %d, not %v; want 1 (Pixel 3) and the strobe cell", f.Controllable, f.NotControllable)
 			}
-		} else if strings.Contains(f.ID, "Batten") {
+		} else if f.Kind == "type" && strings.Contains(f.ID, "Batten") { // J1: not its part fader
 			typeID = f.ID
 		}
 	}
 	r.post(t, "/api/faders/set", map[string]any{"id": groupID, "level": 0.5}, nil)
 	f := r.wire(t, 2)
 	wantSlots(t, "group fader 50 %: cell 3 red", f, 8, 100)
-	wantSlots(t, "group fader 50 %: cell 1 red untouched", f, 2, 200)
+	wantSlots(t, "group fader 50 %: cell 1 untouched, dark at Arm (J1)", f, 2, 0)
 	r.post(t, "/api/faders/release-all", map[string]any{}, nil)
 	r.post(t, "/api/faders/set", map[string]any{"id": typeID, "level": 0.5}, nil)
 	f = r.wire(t, 2)
 	wantSlots(t, "type fader 50 %: master", f, 1, 128)
-	wantSlots(t, "type fader 50 %: cells keep their colour (not scaled twice)", f, 2, 200)
-	wantSlots(t, "type fader 50 %: cell 3", f, 8, 200)
+	// J1b: the Master moves the cells' virtual dimmers too (red 200 x 50 %).
+	wantSlots(t, "type fader 50 %: cell 1 scaled by it", f, 2, 100)
+	wantSlots(t, "type fader 50 %: cell 3", f, 8, 100)
 }
 
 func (r *c4aRig) get(t *testing.T, path string, out any) {

@@ -442,6 +442,7 @@ func (s *Server) SetWalkStorePath(path string) {
 func (s *Server) SetPatchStorePath(path string) {
 	s.PatchStore = patch.NewStore(path)
 	s.patchStorePath = path
+	s.autoLayoutShow(false) // J1: a show with positions never derived
 	s.syncProgrammer(true)
 }
 

@@ -1609,6 +1609,20 @@ type patternSelection struct {
 	base  []entryBaseState
 }
 
+// openVirtual (J1) is every virtual dimmer key in entry id's test scope —
+// the ones a dimmer test drives and the ones it shows white — which the
+// base state opens under any other test (see virtualUnit.open). Colour
+// fill keys are not virtual dimmers and are left out.
+func (sel *patternSelection) openVirtual(id string) []string {
+	out := append([]string(nil), sel.virtual[id]...)
+	for _, k := range sel.whites[id] {
+		if !IsColourFillKey(k) {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
 func newPatternSelection() *patternSelection {
 	return &patternSelection{tests: map[TestID]PatternSpec{}, built: map[TestID]*patternTest{}}
 }
@@ -2078,11 +2092,16 @@ type patternComposition struct {
 
 // virtualUnit is one virtual dimmer level a test sets (I2e). fill (I2f)
 // marks a white claim (level 255, the G1 fill rule only); since I2g it
-// fades in and out by its fill level like any other test change.
+// fades in and out by its fill level like any other test change. open (J1)
+// marks the tests' base state opening a tested target's virtual dimmer
+// under a test that does not drive it: level 255, fill 0 — its colour as
+// composed, unscaled, an unset colour dark — as the base state opens a real
+// dimmer (dark at Arm would otherwise hide what a colour test does).
 type virtualUnit struct {
 	level  byte
 	source patternSource
 	fill   bool
+	open   bool
 }
 
 func slotKey(universe uint16, ch int) uint32 { return uint32(universe)<<16 | uint32(uint16(ch)) }
@@ -2214,6 +2233,12 @@ func (r *RigCheck) composePatternLocked(elapsed float64) patternComposition {
 			isolated = false
 			for _, w := range bs.master {
 				apply(w)
+			}
+			// J1: open the tested targets' virtual dimmers no test drives.
+			for _, k := range sel.openVirtual(bs.entryID) {
+				if _, set := comp.virtual[k]; !set {
+					comp.virtual[k] = virtualUnit{level: 255, source: patternSource{entry: bs.entryID, baseValue: 255}, open: true}
+				}
 			}
 			if opened {
 				comp.base.ShutterOpenedCount++

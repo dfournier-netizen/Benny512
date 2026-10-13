@@ -110,7 +110,9 @@ const srvFader = async id => (await server('GET', '/api/faders')).body.faders.fi
   for (const f of types) {
     const el = fader(f.id);
     const label = el && el.querySelector('[data-gfader-label]');
-    check(label && label.textContent === f.label, 'fader ' + f.label + ': its label', label && label.textContent);
+    // J1b: the bar shows the short type name; the full name is the group label and title.
+    check(label && label.textContent === f.shortLabel && label.getAttribute('title') === f.label && el.getAttribute('aria-label') === f.label,
+      'fader ' + f.label + ': its short label shown, the full name as its group label and title', label && [label.textContent, f.shortLabel]);
     check(el && el.querySelector('[data-gfader-count]').textContent === f.count + (f.count === 1 ? ' fixture' : ' fixtures'), 'fader ' + f.label + ': its count in words', el && el.querySelector('[data-gfader-count]').textContent);
     check(el && el.querySelector('[data-gfader-value]').textContent === '—' && /untouched/.test(el.querySelector('[role="slider"]').getAttribute('aria-valuetext')), 'fader ' + f.label + ': untouched shows "—" (and says untouched)');
   }

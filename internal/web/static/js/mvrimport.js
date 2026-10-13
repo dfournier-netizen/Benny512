@@ -206,6 +206,7 @@ const MvrImport = (() => {
       entries.push({
         name: fixture.name,
         fixtureType: gdtf.fixtureType,
+        fixtureTypeShortName: gdtf.shortName || '', // J1b: fader labels
         mode: fixture.gdtfMode,
         footprint,
         universe: fixture.universe,

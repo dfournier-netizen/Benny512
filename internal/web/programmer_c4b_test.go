@@ -251,6 +251,11 @@ func TestFanLinearReverseMirrorAndCells(t *testing.T) {
 	}
 
 	p1 := r.ids["P1"]
+	// J1: intensity is dark at Arm; open the cells so their red shows. A
+	// trace of white keeps a cell at red 0 from reading as "no colour set"
+	// (the G1 fill rule would show it white).
+	r.set(t, map[string]any{"targets": []any{r.target("P1")}, "attribute": "ColorAdd_W", "dmx": 1})
+	r.set(t, map[string]any{"targets": []any{r.target("P1")}, "attribute": "Dimmer", "fraction": 1})
 	r.post(t, "/api/programmer/select", map[string]any{"action": "set", "targets": []any{cellTarget(p1, "Beam 1:0"), cellTarget(p1, "Beam 2:0"), cellTarget(p1, "Beam 3:0")}}, nil)
 	r.post(t, "/api/programmer/fan", map[string]any{"attribute": "ColorAdd_R", "shape": "linear",
 		"from": map[string]any{"fraction": 0}, "to": map[string]any{"fraction": 1}}, nil)

@@ -1457,7 +1457,7 @@ const ConsoleScreen = (() => {
     const fam = A.label();
     const content = {
       clear: () => [h('h3', { id: 'conActHead', text: 'Clear programmer values' }),
-        h('p', { class: 'b5-caption', text: 'Clearing hands each channel back to what is underneath: a group fader, a running test, or the profile default. Nothing else to apply.' }),
+        h('p', { class: 'b5-caption', text: 'Clearing hands each channel back to what is underneath: a group fader, a running test, or the profile default (every dimmer rests at 0: dark at Arm). Nothing else to apply.' }),
         A.clearScopes(done)],
       fan: () => [h('h3', { id: 'conActHead', text: 'Fan ' + (fam ? fam + ' ' : '') + 'in selection order' }), A.fanForm(done)],
       lowlight: () => [h('h3', { id: 'conActHead', text: 'Lowlight level' }), A.lowlightForm(done)],

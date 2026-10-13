@@ -170,6 +170,11 @@ func (pg *Programmer) CellOffsets(entryID, cell string) ([]uint16, bool) {
 			out = append(out, p.Offsets...)
 		}
 	}
+	// J1b: a cell with no dimmer of its own is tested through its part's
+	// real dimmer (the JDC1's Plate Module dimmer for a plate pixel).
+	if p := m.cellPartDimmer(cell); p != nil {
+		out = append(out, p.Offsets...)
+	}
 	return out, true
 }
 
@@ -179,12 +184,13 @@ func (pg *Programmer) CellOffsets(entryID, cell string) ([]uint16, bool) {
 // programmer (dimmersOf / inScope, I2d4):
 //
 //   - virtual: the engine keys of the virtual dimmers in t's scope. A whole
-//     fixture with no master reaches its own and its cells' virtual
-//     dimmers; a whole fixture WITH a master is tested through the master
-//     (a real channel), so none; a cell, its own virtual dimmer.
-//   - master: for a cell target of a fixture with a real master Dimmer, the
-//     master's offsets (coarse first). The master is the cell's output on
-//     top of its colour, so the base state opens it (owner, 2026-10-09).
+//     fixture reaches its own and its cells' virtual dimmers, master or not
+//     (J1b, owner 2026-10-12: the master drives every part; I2d4 tested a
+//     fixture with a master through the master only); a cell, its own.
+//   - master: for a cell target, the offsets (coarse first) of the real
+//     Dimmer on top of it — the fixture's master, or (J1) the real dimmer of
+//     the cell's own part (FixtureModel.masterFor). It is the cell's output
+//     on top of its colour, so the base state opens it (owner, 2026-10-09).
 //   - whites (I2f, owner 2026-10-09): every other colour scope in t — its
 //     virtual dimmer key, or its ColourFillKey when it has a real dimmer —
 //     which a dimmer test shows at white while its colour is unset.
@@ -218,12 +224,12 @@ func (pg *Programmer) TestDimmers(t ProgTarget) (virtual []string, master []uint
 		}
 	}
 	if t.Cell != "" {
-		for i := range m.Parameters {
-			p := &m.Parameters[i]
-			if p.Attribute == "Dimmer" && p.Cell == "" && !p.Virtual && len(p.Offsets) > 0 {
-				master = append([]uint16(nil), p.Offsets...)
-				break
-			}
+		// J1: the fixture's master, else the cell's own part dimmer (the
+		// JDC1's Plate Module dimmer for a plate pixel, not the Beam's).
+		// A cell tested through its part dimmer (CellOffsets) has that
+		// dimmer driven by the test itself, not held open.
+		if p := m.masterFor(t.Cell); p != nil && p != m.cellPartDimmer(t.Cell) {
+			master = append([]uint16(nil), p.Offsets...)
 		}
 	}
 	return virtual, master, whites

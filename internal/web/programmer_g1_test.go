@@ -67,8 +67,10 @@ type g1Fixtures struct {
 }
 
 // TestVirtualDimmerModelAndUntouchedDefaults: rule 1 (who gets one, flagged
-// virtual in both read models) and rule 2 (untouched = profile defaults on
-// the wire; a colour set without touching it goes out unscaled).
+// virtual in both read models) and rule 2 — changed by J1 (owner
+// 2026-10-12, DARK AT ARM): untouched is 0, so a colour set without
+// touching the dimmer stays dark; with the dimmer at full it goes out
+// unscaled.
 func TestVirtualDimmerModelAndUntouchedDefaults(t *testing.T) {
 	r := newG1Rig(t)
 	var fx g1Fixtures
@@ -79,7 +81,7 @@ func TestVirtualDimmerModelAndUntouchedDefaults(t *testing.T) {
 	for _, f := range fx.Fixtures {
 		for _, p := range f.Parameters {
 			if p.Virtual {
-				if p.Attribute != "Dimmer" || p.Detail != "virtual" || len(p.Offsets) != 0 || p.Default != 255 {
+				if p.Attribute != "Dimmer" || p.Detail != "virtual" || len(p.Offsets) != 0 || p.Default != 0 {
 					t.Errorf("virtual parameter: %+v", p)
 				}
 				virt[f.EntryID] = append(virt[f.EntryID], fmt.Sprintf("%s@%d", p.Cell, p.Offset))
@@ -102,13 +104,15 @@ func TestVirtualDimmerModelAndUntouchedDefaults(t *testing.T) {
 	p1Cells(t, "untouched", r.wire(t, 1), 0, 0, 0, 0)
 	wantSlots(t, "S1 untouched", r.wire(t, 2), 1, 0, 0, 0)
 	r.set(t, map[string]any{"targets": []any{r.target("P1")}, "attribute": "ColorAdd_B", "dmx": 1234})
-	p1Cells(t, "blue set, dimmer untouched = full, unscaled", r.wire(t, 1), 0, 0, 1234, 0)
+	p1Cells(t, "blue set, dimmer untouched = dark at Arm (J1)", r.wire(t, 1), 0, 0, 0, 0)
 
 	r.selectNames(t, "P1")
 	d := r.view(t).attr("Dimmer")
-	if d == nil || len(d.Channels) != 3 || d.Touched || d.Value == nil || *d.Value != 255 {
+	if d == nil || len(d.Channels) != 3 || d.Touched || d.Value == nil || *d.Value != 0 {
 		t.Fatalf("P1 Dimmer in GET /api/programmer: %+v", d)
 	}
+	r.set(t, map[string]any{"targets": []any{r.target("P1")}, "attribute": "Dimmer", "fraction": 1})
+	p1Cells(t, "blue set, dimmer full: unscaled", r.wire(t, 1), 0, 0, 1234, 0)
 	var raw struct {
 		Groups []struct {
 			Attributes []struct {

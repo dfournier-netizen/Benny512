@@ -261,7 +261,8 @@ const ConsoleControls = (() => {
     const out = [];
     if (a.allTouched) out.push(srcTag('SET', true));
     else if (a.touched) { const [n, m] = setCount(a); out.push(srcTag('SET on ' + n + ' of ' + m, true)); }
-    else out.push(srcTag('default', false));
+    // J1: an untouched intensity rests at 0 whatever the profile says.
+    else out.push(srcTag(a.darkAtArm ? 'dark at Arm' : 'default', false));
     if (a.mixed) out.push(tag('MIXED', 'warn'));
     if (a.unknownDefault) out.push(tag('default unknown', 'unread'));
     const d = v0(a).detail;
@@ -485,7 +486,7 @@ const ConsoleControls = (() => {
       if (now() - touchedAt < ACTIVE_MS) return;
       input.value = active ? v : f.dmxFrom;
       exact.value = active ? v : '';
-      const source = at.allTouched ? 'manual set' : at.touched ? 'set on some' : at.unknownDefault ? 'default not stated' : 'profile default';
+      const source = at.allTouched ? 'manual set' : at.touched ? 'set on some' : at.darkAtArm ? 'dark at Arm' : at.unknownDefault ? 'default not stated' : 'profile default';
       shownRef = inFn ? 'MIXED ' + num(Math.min(...vs)) + '–' + num(Math.max(...vs)) + '; slider shows the first selected fixture\'s ' + num(v) + ' as a reference' : '';
       input.setAttribute('aria-valuetext', !active ? 'not active' : shownRef || num(v) + ' DMX, ' + pct(v - f.dmxFrom, span) + ' %, ' + source);
       show(v, active);

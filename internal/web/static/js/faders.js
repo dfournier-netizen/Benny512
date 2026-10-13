@@ -4,7 +4,17 @@
 // is remembered per browser.
 //
 // One fader per fixture type + mode and one per stored group, from
-// GET /api/faders. Each fader SETS its fixtures' dimmer level (0-100 %);
+// GET /api/faders. J1 (owner 2026-10-12): a type whose fixtures have several
+// intensity parts (server: hasParts, then its "part" faders) is drawn as one
+// cluster under the type's name — its MASTER fader first, then one fader per
+// part with the part's GDTF-derived word ("Plate"); the full name ("<type> ·
+// Plate") is the fader's group label, slider label, Release label and title.
+// Master and parts are ordinary faders (most recently moved wins per
+// channel, server side). A type with one part keeps its plain fader.
+// J1b (owner 2026-10-12 20:11): the bar shows each type's SHORT name
+// (shortLabel: the GDTF ShortName, else derived — e.g. "JDC1 Strobe" for
+// "Custom GLP JDC1 Strobe"); the full name stays in every aria-label and
+// title. Each fader SETS its fixtures' dimmer level (0-100 %);
 // untouched reads "—" and says "untouched" — a word, never only a colour.
 // Release gives a fader's fixtures back; Release all gives back every one.
 //
@@ -136,21 +146,25 @@ const Faders = (() => {
   const pctText = lv => (lv === null || lv === undefined) ? '—' : Math.round(lv * 100) + ' %';
   function levelOf(f) { return local.has(f.id) ? local.get(f.id) : (f.touched ? f.level : null); }
 
-  function faderHTML(f) {
+  // names (J1): {shown, full} for a cluster's master and parts; otherwise
+  // the fader's own label is both.
+  function faderHTML(f, names) {
     const lv = levelOf(f);
     const pct = lv === null ? 0 : Math.round(lv * 100);
     const nc = f.notControllable.length;
-    return `<div class="b5-fader${lv === null ? ' is-untouched' : ''}" data-gfader-id="${esc(f.id)}" role="group" aria-label="${esc(f.label)}">
-      <div class="b5-fader__label" data-gfader-label title="${esc(f.label)}">${esc(f.label)}</div>
+    // J1b: the bar shows the short type name; the full one is the label.
+    const shown = names ? names.shown : (f.shortLabel || f.label), full = names ? names.full : f.label;
+    return `<div class="b5-fader${lv === null ? ' is-untouched' : ''}${f.kind === 'type' && f.hasParts ? ' b5-fader--master' : ''}" data-gfader-id="${esc(f.id)}" role="group" aria-label="${esc(full)}">
+      <div class="b5-fader__label" data-gfader-label title="${esc(full)}">${esc(shown)}</div>
       <div class="b5-fader__meta" data-gfader-count>${f.count} ${f.count === 1 ? 'fixture' : 'fixtures'}</div>
       ${nc ? `<div class="b5-fader__meta b5-fader__nc" title="${esc(f.notControllable.join(', '))}">${nc} not controllable</div>` : ''}
       <div class="b5-fader__value" data-gfader-value>${pctText(lv)}</div>
-      <div class="b5-fader__track" data-gfader-track role="slider" tabindex="0" aria-label="${esc(f.label)} dimmer level"
+      <div class="b5-fader__track" data-gfader-track role="slider" tabindex="0" aria-label="${esc(full)} dimmer level"
         aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-valuetext="${lv === null ? 'untouched' : pct + ' percent'}">
         <div class="b5-fader__fill" style="height:${pct}%"></div>
         <div class="b5-fader__thumb" style="bottom:${pct}%"></div>
       </div>
-      <button type="button" class="b5-btn b5-btn--sm b5-fader__release" data-gfader-release ${f.touched || local.has(f.id) ? '' : 'disabled'} aria-label="Release ${esc(f.label)}">Release</button>
+      <button type="button" class="b5-btn b5-btn--sm b5-fader__release" data-gfader-release ${f.touched || local.has(f.id) ? '' : 'disabled'} aria-label="Release ${esc(full)}">Release</button>
     </div>`;
   }
 
@@ -174,7 +188,16 @@ const Faders = (() => {
   // shape is what a rebuild would change; levels alone are painted in place,
   // so focus and an in-progress drag keep their element.
   let drawnShape = null;
-  const shapeOf = faders => JSON.stringify(faders.map(f => [f.id, f.kind, f.label, f.count, f.notControllable]));
+  const shapeOf = faders => JSON.stringify(faders.map(f => [f.id, f.kind, f.label, f.shortLabel, f.count, f.notControllable, f.hasParts, f.parent]));
+
+  // clusterHTML (J1): a type with parts — its name over its Master and its
+  // part faders, one group for assistive technology.
+  function clusterHTML(t, parts) {
+    const at = s => ({ shown: s, full: t.label + ' · ' + s });
+    return `<div class="b5-fader-cluster" data-gfader-cluster="${esc(t.id)}" role="group" aria-label="${esc(t.label)} — master and parts">
+      <div class="b5-fader-cluster__label" data-gfader-cluster-label title="${esc(t.label)}">${esc(t.shortLabel || t.label)}</div>
+      <div class="b5-faders__row">${faderHTML(t, at('Master'))}${parts.map(p => faderHTML(p, at(p.label))).join('')}</div></div>`;
+  }
 
   function renderHint() {
     const h = root && root.querySelector('[data-faders-hint]');
@@ -198,9 +221,10 @@ const Faders = (() => {
     if (shape === drawnShape) { faders.forEach(f => paint(f.id)); return; }
     drawnShape = shape;
     const types = faders.filter(f => f.kind === 'type'), groups = faders.filter(f => f.kind === 'group');
+    const one = f => f.hasParts ? clusterHTML(f, faders.filter(p => p.kind === 'part' && p.parent === f.id)) : faderHTML(f);
     const section = (kind, title, list, empty) => `<section class="b5-faders__section" data-faders-section="${kind}">
       <h3 class="b5-faders__heading">${title}</h3>
-      <div class="b5-faders__row">${list.length ? list.map(faderHTML).join('') : `<p class="b5-faders__empty">${empty}</p>`}</div></section>`;
+      <div class="b5-faders__row">${list.length ? list.map(f => one(f)).join('') : `<p class="b5-faders__empty">${empty}</p>`}</div></section>`;
     body.querySelector('[data-faders-rows]').innerHTML =
       section('type', 'Fixture types', types, 'No fixtures patched.') +
       section('group', 'Groups', groups, 'No stored groups.');

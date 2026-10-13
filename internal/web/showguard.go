@@ -55,6 +55,8 @@ func (s *Server) showGuard(next http.Handler) http.Handler {
 		// pruned after any other change. A no-op when the show did not
 		// change (programmer.go, syncProgrammer).
 		if r.Method != "GET" {
+			// J1: derive the layout from MVR positions without being asked.
+			s.autoLayoutShow(path == "/api/patch/import" || path == "/api/patch/locations")
 			s.syncProgrammer(boundary)
 			s.refreshTests()
 		}

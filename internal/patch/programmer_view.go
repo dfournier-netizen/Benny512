@@ -45,6 +45,8 @@ type ProgChannelView struct {
 	// Function is the index (in its variant) of the function Value lies in,
 	// -1 when that is not one function.
 	Function int `json:"function"`
+	// darkAtArm: the parameter's DarkAtArm, folded into ProgAttrView.
+	darkAtArm bool
 }
 
 // ProgAttrView is one attribute across the selection.
@@ -59,6 +61,9 @@ type ProgAttrView struct {
 	// UnknownDefault: at least one untouched channel's default is unknown,
 	// so the value shown for it (0) is not a claim.
 	UnknownDefault bool `json:"unknownDefault"`
+	// DarkAtArm (J1): every channel of this attribute is intensity, resting
+	// at 0 when untouched whatever the profile's default (DARK AT ARM).
+	DarkAtArm bool `json:"darkAtArm"`
 	// Missing is how many selected targets do not have this attribute.
 	Missing  int               `json:"missing"`
 	Variants []ProgVariant     `json:"variants"`
@@ -154,7 +159,7 @@ func (pg *Programmer) View() ProgView {
 				acc.view.Variants = append(acc.view.Variants, ProgVariant{ByteCount: p.ByteCount, Max: p.Max, Detail: p.Detail, Functions: p.Functions, Virtual: p.Virtual})
 			}
 			cv := ProgChannelView{EntryID: t.EntryID, Cell: p.Cell, Offset: p.Offset, ByteCount: p.ByteCount,
-				DefaultKnown: p.HasDefault, Default: p.Default, Variant: vi, Virtual: p.Virtual}
+				DefaultKnown: p.HasDefault, Default: p.Default, Variant: vi, Virtual: p.Virtual, darkAtArm: p.DarkAtArm}
 			if val, ok := pg.values[k]; ok {
 				cv.Value, cv.Touched = val, true
 			} else {
@@ -184,7 +189,9 @@ func (pg *Programmer) View() ProgView {
 			av := acc.view
 			av.Missing = len(v.Selection) - len(acc.targets)
 			av.AllTouched = len(av.Channels) > 0
+			av.DarkAtArm = len(av.Channels) > 0
 			for i, c := range av.Channels {
+				av.DarkAtArm = av.DarkAtArm && c.darkAtArm
 				av.Touched = av.Touched || c.Touched
 				av.AllTouched = av.AllTouched && c.Touched
 				av.UnknownDefault = av.UnknownDefault || (!c.Touched && !c.DefaultKnown)

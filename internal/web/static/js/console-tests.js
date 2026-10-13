@@ -787,7 +787,8 @@ const ConsoleTests = (() => {
         const words = [e.applied ? 'testing' : 'skipped — no such function on this fixture'];
         if (e.applied && e.virtual) words.push('through its virtual dimmer (scales colour)');
         const over = {};
-        (e.channels || []).forEach(c => { if (OVERRIDE_WORDS[c.source]) (over[c.source] = over[c.source] || []).push(c.attribute); });
+        // Each attribute once (J1b: a whole fixture's dimmer test covers several Dimmer channels).
+        (e.channels || []).forEach(c => { if (!OVERRIDE_WORDS[c.source]) return; const l = over[c.source] = over[c.source] || []; if (!l.includes(c.attribute)) l.push(c.attribute); });
         Object.keys(over).forEach(src => words.push('overridden by ' + overrideWord(src) + ' (' + over[src].join(', ') + ')'));
         if (e.applied && e.inferred) words.push('slots from RDM, not the profile');
         if (e.applied && e.detailMissing) words.push('no slot data');

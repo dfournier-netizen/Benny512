@@ -168,6 +168,14 @@ type Entry struct {
 	// independent of FixtureType/Footprint since one fixture type can have
 	// several modes with different footprints.
 	Mode string `json:"mode,omitempty"`
+	// FixtureTypeShortName (J1b) is the GDTF FixtureType ShortName the
+	// importer read (gdtfparse.js; its Name when ShortName is empty), ""
+	// when not known — every entry imported before J1b, hand-entered,
+	// library and RDM-adopted ones. On disk it lives in the show file's
+	// profile cache with the rest of the GDTF profile (showfile.go), so an
+	// entry without a profile does not keep one. Fader labels show
+	// ShortTypeName(FixtureType, FixtureTypeShortName).
+	FixtureTypeShortName string `json:"fixtureTypeShortName,omitempty"`
 	// Footprint is the number of DMX channels this entry occupies, starting
 	// at StartAddress. Zero is tolerated (a splitter/gateway/data device) —
 	// see DetectCollisions for how zero-footprint entries are flagged
