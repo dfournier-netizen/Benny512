@@ -628,25 +628,47 @@ func applyScale(out *[DMXUniverseSize]byte, groups []ScaleGroup, percent int) {
 // claim at level 255 with fill 0 is exactly "untouched" — a set colour
 // unscaled, an unset one dark — so a source can fade a claim out to it, or
 // in from it, and release or take it at the end without a step.
+//
+// MULTIPLIER (J1c, owner 2026-10-13 09:31: "Master should be an overall
+// dimmer"): a fixture's software master. Its channels are scaled by its
+// level and NEVER filled — channels that composed to zero stay zero, so a
+// master at full over parts at 0 shows nothing — and it is applied after
+// every other virtual dimmer, so it multiplies a pixel's own level (and
+// that pixel's white fill) instead of being undone by it.
 type VirtualDimmer struct {
-	Key      string
-	Channels []ScaleGroup
+	Key        string
+	Channels   []ScaleGroup
+	Multiplier bool
 }
 
 type resolvedVirtual struct {
 	channels    []ScaleGroup
 	level, fill byte
+	multiplier  bool
 }
 
 // applyVirtual applies the claimed virtual dimmers — see VirtualDimmer.
 func applyVirtual(out *[DMXUniverseSize]byte, vds []resolvedVirtual) {
+	// J1c: the ordinary virtual dimmers first, then the multipliers.
+	ordered := make([]resolvedVirtual, 0, len(vds))
 	for _, vd := range vds {
-		dark := true
+		if !vd.multiplier {
+			ordered = append(ordered, vd)
+		}
+	}
+	for _, vd := range vds {
+		if vd.multiplier {
+			ordered = append(ordered, vd)
+		}
+	}
+	for _, vd := range ordered {
+		dark := !vd.multiplier
 		for _, g := range vd.channels {
 			for _, s := range g.Slots {
 				dark = dark && out[s] == 0
 			}
 		}
+		// (A multiplier starts with dark false: it never fills.)
 		level := vd.level
 		if dark {
 			level = vd.fill
@@ -683,7 +705,7 @@ func (e *DMXOutputEngine) virtualLocked(raw uint16) []resolvedVirtual {
 			if !set {
 				fill = lv
 			}
-			out = append(out, resolvedVirtual{channels: d.Channels, level: lv, fill: fill})
+			out = append(out, resolvedVirtual{channels: d.Channels, level: lv, fill: fill, multiplier: d.Multiplier})
 		}
 	}
 	return out

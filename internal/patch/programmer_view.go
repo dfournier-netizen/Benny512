@@ -25,6 +25,9 @@ type ProgVariant struct {
 	// Virtual: a virtual dimmer (G1) — no channel of its own; it scales
 	// the fixture's additive colour.
 	Virtual bool `json:"virtual"`
+	// Master (J1c): the fixture's virtual master — it multiplies the parts
+	// its master channel does not dim on the fixture.
+	Master bool `json:"master"`
 }
 
 // ProgChannelView is one target channel of an attribute.
@@ -156,7 +159,7 @@ func (pg *Programmer) View() ProgView {
 			if !ok {
 				vi = len(acc.view.Variants)
 				acc.variants[p.variantKey] = vi
-				acc.view.Variants = append(acc.view.Variants, ProgVariant{ByteCount: p.ByteCount, Max: p.Max, Detail: p.Detail, Functions: p.Functions, Virtual: p.Virtual})
+				acc.view.Variants = append(acc.view.Variants, ProgVariant{ByteCount: p.ByteCount, Max: p.Max, Detail: p.Detail, Functions: p.Functions, Virtual: p.Virtual, Master: p.Master})
 			}
 			cv := ProgChannelView{EntryID: t.EntryID, Cell: p.Cell, Offset: p.Offset, ByteCount: p.ByteCount,
 				DefaultKnown: p.HasDefault, Default: p.Default, Variant: vi, Virtual: p.Virtual, darkAtArm: p.DarkAtArm}

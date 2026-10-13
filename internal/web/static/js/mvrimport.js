@@ -207,6 +207,8 @@ const MvrImport = (() => {
         name: fixture.name,
         fixtureType: gdtf.fixtureType,
         fixtureTypeShortName: gdtf.shortName || '', // J1b: fader labels
+        // J1c: the mode's geometry tree (instance -> parent), when known.
+        ...(mode && mode.geometryParents ? { geometryParents: mode.geometryParents } : {}),
         mode: fixture.gdtfMode,
         footprint,
         universe: fixture.universe,

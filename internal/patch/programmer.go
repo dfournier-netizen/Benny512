@@ -319,7 +319,7 @@ func colourScopesOf(m *FixtureModel) []colourScope {
 		}
 		cs := colourScope{cell: cell, additive: a.additive}
 		for i := range m.Parameters {
-			if p := &m.Parameters[i]; p.Virtual && p.Cell == cell {
+			if p := &m.Parameters[i]; p.Virtual && !p.Master && p.Cell == cell {
 				cs.virtual = p
 			}
 		}
@@ -355,7 +355,13 @@ func (pg *Programmer) virtualDefsLocked() map[uint16][]session.VirtualDimmer {
 				continue
 			}
 			vd := session.VirtualDimmer{Key: VirtualDimmerKey(id, p.Offset)}
-			for _, off := range p.virtualOf {
+			of := p.virtualOf
+			if p.Master {
+				// J1c: the software master multiplies the parts it does
+				// not govern on the fixture, never filling.
+				of, vd.Multiplier = p.masterOf, true
+			}
+			for _, off := range of {
 				if g, ok := scaleGroupOf(e, m.paramAt(off)); ok {
 					vd.Channels = append(vd.Channels, g)
 				}

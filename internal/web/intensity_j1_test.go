@@ -96,6 +96,12 @@ func j1Entries() []any {
 	// sends it; the ER and PC have none (their labels are derived).
 	jdE, rzE := e("JD", "Test JDC-like strobe", 1, 18, jd), e("RZ", "Test Rayzor-like bar", 31, 20, rz)
 	jdE["fixtureTypeShortName"], rzE["fixtureTypeShortName"] = "JDC-like", "Rayzor-like"
+	// J1c: the RZ carries its GDTF geometry tree — the SparkLED module sits
+	// under the Head (dimmed by the head dimmer on the fixture), the RGBW
+	// pixels on the Base (outside it: multiplied in software). The JD has
+	// none (a legacy profile; no master channel either).
+	rzE["geometryParents"] = map[string]any{"Base:0": "", "Yoke:0": "Base:0", "Head:0": "Yoke:0", "Spark LED Strobe Module:0": "Head:0",
+		"RGBW Pixel:4": "Base:0", "RGBW Pixel:8": "Base:0", "RGBW Pixel:12": "Base:0"}
 	return []any{
 		jdE,
 		rzE,
@@ -253,24 +259,29 @@ func TestJ1_DarkAtArmTestsAndFaders(t *testing.T) {
 // TestJ1_JDCPlateFollowsTheFixture: the JDC-like fixture has two part
 // dimmers (Beam Module, Plate Module) and no master over the whole fixture.
 // Whole-fixture intensity — Dimmer set, the type fader, a dimmer test —
-// reaches every part; the plate pixels follow through the Plate Module
-// dimmer that masters them (J1b: they have no virtual dimmers); a test on a
-// plate pixel opens the PLATE dimmer.
+// is the fixture's master level, which multiplies every part in software
+// (J1c: no master channel); the plate pixels follow through the Plate
+// Module dimmer that masters them (J1b: they have no virtual dimmers); a
+// test on a plate pixel opens the PLATE dimmer.
 func TestJ1_JDCPlateFollowsTheFixture(t *testing.T) {
 	r := newJ1Rig(t)
 	jd := r.ids["JD"]
 	r.arm(t)
 	res := r.set(t, map[string]any{"targets": []any{r.target("JD")}, "attribute": "Dimmer", "dmx": 128})
-	if len(res.Applied) != 5 {
-		t.Errorf("whole JD Dimmer applied to %d channels, want 5 (2 module dimmers, 3 beam pixels)", len(res.Applied))
+	if len(res.Applied) != 1 {
+		t.Errorf("whole JD Dimmer applied to %d channels, want 1 (its virtual master; J1c)", len(res.Applied))
 	}
+	// J1c: the parts keep their own levels — raised here with their faders.
+	fd := j1cFaders(t, r)
+	r.fade(t, fd["Test JDC-like strobe / Beam"].ID, 1)
+	r.fade(t, fd["Test JDC-like strobe / Plate"].ID, 1)
 	f := r.wire(t, 3)
-	wantSlots(t, "JD whole Dimmer 128: Beam Module and Plate Module dimmers", f, 1, 128, 255, 128)
+	wantSlots(t, "JD whole Dimmer 128 over parts at full: Beam Module and Plate Module dimmers", f, 1, 128, 255, 128)
 	wantSlots(t, "JD whole Dimmer 128: plate pixel colour as it is (the Plate Module dimmer masters it)", f, 7, 255, 255, 255, 255, 255, 255, 255, 255, 255)
 	wantSlots(t, "JD whole Dimmer 128: beam pixels", f, 16, 128, 128, 128)
 	r.post(t, "/api/programmer/clear", map[string]any{"scope": "all"}, nil)
 
-	// The type fader moves the whole JD, plate pixels included.
+	// The type fader (the master) multiplies the whole JD, plate included.
 	id := ""
 	for _, fd := range r.faders(t).Faders {
 		if fd.Kind == "type" && strings.HasPrefix(fd.ID, "type:Test JDC-like strobe|") {
@@ -285,7 +296,8 @@ func TestJ1_JDCPlateFollowsTheFixture(t *testing.T) {
 	wantSlots(t, "JD type fader 0: Plate Module dimmer 0 (the plate dark)", f, 3, 0)
 	r.post(t, "/api/faders/release-all", map[string]any{}, nil)
 
-	// A dimmer test on the whole JD drives the plate pixels at its level.
+	// A dimmer test on the whole JD drives its master; the parts are held
+	// open, so each module dimmer shows the test's level once.
 	r.selectNames(t, "JD")
 	r.testsPost(t, "fade", map[string]any{"fadeMs": 0})
 	r.testsPost(t, "set", map[string]any{"tests": []any{map[string]any{"kind": "dimmer_toggle", "on": true, "max": 128}}})
@@ -311,7 +323,7 @@ func TestJ1_JDCPlateFollowsTheFixture(t *testing.T) {
 	wantSlots(t, "colour test on plate pixel 3: Beam Module dimmer left alone, Plate Module dimmer opened", f, 1, 0, 255, 255)
 	r.testsPost(t, "clear", map[string]any{})
 
-	// (The Rayzor-like bar's whole-fixture Dimmer: TestJ1b_MasterDrivesEveryPart.)
+	// (The Rayzor-like bar's whole-fixture Dimmer: TestJ1c_MasterMultipliesTheParts.)
 }
 
 type j1Fader struct {
@@ -325,13 +337,14 @@ type j1Fader struct {
 	Controllable    int
 	NotControllable []string
 	Touched         bool
+	TreeUnknown     bool
 }
 
 // TestJ1_SubFixtureFaders (owner 2026-10-12): for each fixture type + mode
 // with more than one intensity part, a Master fader plus one fader per
-// part, grouped by geometry name. SET semantics below the programmer, last
-// moved wins per channel, Release — G2's, per part. JD (no master): Master
-// moves every part together. RZ: the head is the master channel; the RGBW
+// part, grouped by geometry name. SET semantics below the programmer,
+// Release — G2's, per part. J1c: the Master multiplies the parts (JD: no
+// master channel, every part in software). RZ: the head is the master channel; the RGBW
 // pixels and the SparkLED are parts (J1b: its Master drives them too).
 // Fixtures with one part keep their one fader.
 func TestJ1_SubFixtureFaders(t *testing.T) {
@@ -371,33 +384,29 @@ func TestJ1_SubFixtureFaders(t *testing.T) {
 		t.Errorf("Plate fader = %+v", plate)
 	}
 
-	// A part fader moves only its part.
+	// A part fader sets only its part; J1c: the Master multiplies it — at
+	// rest (0) nothing shows.
 	r.fade(t, plate.ID, 1)
 	f := r.wire(t, 3)
-	wantSlots(t, "Plate 100 %: Beam Module dimmer untouched (0), Plate Module dimmer full", f, 1, 0, 255, 255)
+	wantSlots(t, "Plate 100 %, JD Master at rest: Plate Module dimmer 255 x 0", f, 1, 0, 255, 0)
 	wantSlots(t, "Plate 100 %: plate pixel colour as it is (J1b: its module dimmer masters it)", f, 7, 255, 255, 255, 255, 255, 255, 255, 255, 255)
-	wantSlots(t, "Plate 100 %: beam pixels untouched", f, 16, 0, 0, 0)
-	// JD has no master channel: its Master moves every part together; moved
-	// last, it wins on every channel.
+	r.fade(t, jd.ID, 1)
+	f = r.wire(t, 3)
+	wantSlots(t, "JD Master full: Plate at its level; the Beam part at rest", f, 1, 0, 255, 255)
+	wantSlots(t, "JD Master full: beam pixels at rest", f, 16, 0, 0, 0)
 	r.fade(t, jd.ID, 0.5)
 	f = r.wire(t, 3)
-	wantSlots(t, "JD Master 50 %: both module dimmers", f, 1, 128, 255, 128)
-	wantSlots(t, "JD Master 50 %: beam pixels", f, 16, 128, 128, 128)
-	// The Plate moved again wins its channels; the beam keeps the Master's.
-	r.fade(t, plate.ID, 1)
-	f = r.wire(t, 3)
-	wantSlots(t, "Plate moved last: plate full, beam at the Master's 50 %", f, 1, 128, 255, 255)
-	// Release the Plate: its channels go back to the Master.
+	wantSlots(t, "JD Master 50 %: the Plate multiplied", f, 3, 128)
+	// Releasing the Plate leaves its part at rest; the Master is untouched.
 	r.post(t, "/api/faders/release", map[string]any{"id": plate.ID}, nil)
 	f = r.wire(t, 3)
-	wantSlots(t, "Plate released: back to the Master's 50 %", f, 3, 128)
-	r.fade(t, beam.ID, 0)
+	wantSlots(t, "Plate released: at rest", f, 3, 0)
+	r.fade(t, beam.ID, 1)
 	f = r.wire(t, 3)
-	wantSlots(t, "Beam 0: beam dimmers 0, plate untouched by it", f, 1, 0, 255, 128)
-	wantSlots(t, "Beam 0: beam pixels 0", f, 16, 0, 0, 0)
+	wantSlots(t, "Beam full under the Master's 50 %: beam dimmers", f, 1, 128, 255, 0)
+	wantSlots(t, "Beam full under the Master's 50 %: beam pixels", f, 16, 128, 128, 128)
 
-	// RZ: the parts moved after the Master take their own channels (the
-	// Master drives every part: TestJ1b_MasterDrivesEveryPart).
+	// RZ: parts under the Master (J1c: TestJ1c_MasterMultipliesTheParts).
 	r.fade(t, rz.ID, 1)
 	f = r.wire(t, 3)
 	wantSlots(t, "RZ Master full: head dimmer", f, 31, 255, 255)
@@ -425,6 +434,14 @@ func TestJ1_SubFixtureFaders(t *testing.T) {
 func TestFaderBar_J1Parts(t *testing.T) {
 	nodePath := nodeOrSkip(t)
 	r := newJ1Rig(t)
+	// J1c: a Rayzor-like bar from a profile without its geometry tree.
+	legacy := j1Entries()[1].(map[string]any)
+	delete(legacy, "geometryParents")
+	delete(legacy, "fixtureTypeShortName")
+	legacy["name"], legacy["fixtureType"], legacy["startAddress"] = "RZL", "Test Rayzor-like bar (legacy)", 101
+	if rr := r.do(t, "POST", "/api/patch/import", map[string]any{"mode": "merge", "entries": []any{legacy}}, nil); rr.Code != http.StatusOK {
+		t.Fatalf("import: %d %s", rr.Code, rr.Body.String())
+	}
 	ts := httptest.NewServer(r.h.srv.Handler())
 	defer ts.Close()
 	jsDir, _ := filepath.Abs("static/js")
@@ -433,80 +450,6 @@ func TestFaderBar_J1Parts(t *testing.T) {
 	if err != nil || !strings.Contains(string(out), "ALL PASS") {
 		t.Fatalf("faders_j1_test.js failed: %v", err)
 	}
-}
-
-// TestJ1b_MasterDrivesEveryPart (owner 2026-10-12 20:11): a fixture's
-// MASTER intensity drives every part — the real master channel if there is
-// one plus every part's dimmers, cells' virtual dimmers included — so the
-// Rayzor-like Master sets head, pixels and SparkLED together. A part fader
-// moved after the Master takes its own part (last moved wins per channel).
-// Whole-fixture selection in the Console (Dimmer set, Lowlight, dimmer
-// tests) and stored-group faders follow the same rule.
-func TestJ1b_MasterDrivesEveryPart(t *testing.T) {
-	r := newJ1Rig(t)
-	r.arm(t)
-	var fv struct{ Faders []j1Fader }
-	r.get(t, "/api/faders", &fv)
-	ids := map[string]string{}
-	for _, f := range fv.Faders {
-		ids[f.Label] = f.ID
-	}
-	rz, rgbw := ids["Test Rayzor-like bar"], ids["RGBW Pixel"]
-	r.fade(t, rz, 1)
-	f := r.wire(t, 3)
-	wantSlots(t, "RZ Master full: head dimmer", f, 31, 255, 255)
-	wantSlots(t, "RZ Master full: pixels lit (their virtual dimmers follow the Master)", f, 34, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255)
-	wantSlots(t, "RZ Master full: SparkLED", f, 46, 255, 255)
-	r.fade(t, rgbw, 0)
-	f = r.wire(t, 3)
-	wantSlots(t, "RGBW Pixel 0 after the Master: pixels dark", f, 34, 0, 0, 0, 0)
-	wantSlots(t, "RGBW Pixel 0 after the Master: head and SparkLED keep the Master's", f, 31, 255, 255)
-	wantSlots(t, "SparkLED keeps the Master's", f, 46, 255, 255)
-	r.fade(t, rz, 0.5)
-	f = r.wire(t, 3)
-	wantSlots(t, "Master moved again to 50 %: head", f, 31, 128, 0)
-	wantSlots(t, "Master moved again: it takes the pixels back", f, 34, 128, 128, 128, 128)
-	r.post(t, "/api/faders/release-all", map[string]any{}, nil)
-
-	// Console: whole-fixture Dimmer is every part.
-	res := r.set(t, map[string]any{"targets": []any{r.target("RZ")}, "attribute": "Dimmer", "dmx": 255})
-	if len(res.Applied) != 5 {
-		t.Errorf("whole RZ Dimmer applied to %d channels, want 5 (head, SparkLED, 3 pixels' virtual dimmers)", len(res.Applied))
-	}
-	f = r.wire(t, 3)
-	wantSlots(t, "whole RZ Dimmer full: pixels lit", f, 34, 255, 255, 255, 255)
-	// Lowlight of the whole RZ (stepped to the ER): every part is dimmed.
-	r.set(t, map[string]any{"targets": []any{r.target("ER")}, "attribute": "Dimmer", "dmx": 255})
-	r.selectNames(t, "ER", "RZ")
-	r.post(t, "/api/programmer/highlight", map[string]any{"highlight": true, "lowlight": true}, nil)
-	r.post(t, "/api/programmer/highlight", map[string]any{"step": "next"}, nil)
-	f = r.wire(t, 3)
-	wantSlots(t, "RZ lowlit: pixels at 20 %", f, 34, 51, 51, 51, 51)
-	r.post(t, "/api/programmer/highlight", map[string]any{"highlight": false, "lowlight": false}, nil)
-	r.post(t, "/api/programmer/clear", map[string]any{"scope": "all"}, nil)
-
-	// A dimmer test on the whole RZ pulses the pixels too (white: no colour set).
-	r.selectNames(t, "RZ")
-	r.testsPost(t, "fade", map[string]any{"fadeMs": 0})
-	r.testsPost(t, "set", map[string]any{"tests": []any{map[string]any{"kind": "dimmer_toggle", "on": true, "max": 128}}})
-	f = r.wire(t, 3)
-	wantSlots(t, "dimmer test on whole RZ: head", f, 31, 128, 128)
-	wantSlots(t, "dimmer test on whole RZ: pixels at the test's 128", f, 34, 128, 128, 128, 128)
-	r.testsPost(t, "clear", map[string]any{})
-
-	// A stored group of the whole RZ: its fader drives every part.
-	r.post(t, "/api/programmer/groups/store", map[string]any{"name": "Bars"}, nil)
-	r.get(t, "/api/faders", &fv)
-	gid := ""
-	for _, fd := range fv.Faders {
-		if fd.Kind == "group" {
-			gid = fd.ID
-		}
-	}
-	r.fade(t, gid, 1)
-	f = r.wire(t, 3)
-	wantSlots(t, "group fader full: pixels lit", f, 34, 255, 255, 255, 255)
-	wantSlots(t, "group fader full: head and SparkLED", f, 31, 255, 255)
 }
 
 // TestJ1b_PartDimmerMastersItsCells (owner 2026-10-12 20:11, refining
@@ -526,6 +469,7 @@ func TestJ1b_PartDimmerMastersItsCells(t *testing.T) {
 				Attribute string
 				Cell      string
 				Virtual   bool
+				Master    bool
 			}
 			Parts []struct {
 				Key     string
@@ -539,7 +483,7 @@ func TestJ1b_PartDimmerMastersItsCells(t *testing.T) {
 	for _, f := range fx.Fixtures {
 		virt := 0
 		for _, p := range f.Parameters {
-			if p.Attribute == "Dimmer" && p.Virtual {
+			if p.Attribute == "Dimmer" && p.Virtual && !p.Master { // J1c: not the virtual master
 				virt++
 			}
 		}
@@ -568,21 +512,25 @@ func TestJ1b_PartDimmerMastersItsCells(t *testing.T) {
 		}
 	}
 	r.fade(t, plate, 1)
+	r.set(t, map[string]any{"targets": []any{r.target("JD")}, "attribute": "Dimmer", "dmx": 255}) // J1c: the JD master up
 	f = r.wire(t, 3)
 	wantSlots(t, "Plate fader full: the Plate Module dimmer only", f, 1, 0, 255, 255)
 	wantSlots(t, "Plate fader full: plate pixel colour untouched", f, 7, 255, 255, 255)
 	r.post(t, "/api/faders/release-all", map[string]any{}, nil)
+	r.post(t, "/api/programmer/clear", map[string]any{"scope": "all"}, nil)
 
 	// The Console: a plate pixel has no Dimmer of its own.
 	rr := r.do(t, "POST", "/api/programmer/set", map[string]any{"targets": []any{cellTarget(jd, "Plate Pixel:0")}, "attribute": "Dimmer", "dmx": 10}, nil)
 	if rr.Code == http.StatusOK || !strings.Contains(rr.Body.String(), "has no Dimmer") {
 		t.Errorf("Dimmer on a plate pixel: %d %s, want a refusal saying it has no Dimmer", rr.Code, strings.TrimSpace(rr.Body.String()))
 	}
-	// The whole JD at Dimmer full: the Plate is lit through its module dimmer.
+	// The whole JD at Dimmer full is its master (J1c); with the Plate part
+	// up, the Plate is lit through its module dimmer.
 	res := r.set(t, map[string]any{"targets": []any{r.target("JD")}, "attribute": "Dimmer", "dmx": 255})
-	if len(res.Applied) != 5 {
-		t.Errorf("whole JD Dimmer applied to %d channels, want 5 (2 module dimmers, 3 beam pixels)", len(res.Applied))
+	if len(res.Applied) != 1 {
+		t.Errorf("whole JD Dimmer applied to %d channels, want 1 (its virtual master)", len(res.Applied))
 	}
+	r.fade(t, plate, 1)
 	// Lowlight on plate pixels, stepped to pixel 0: pixel 3 and 6 dim
 	// through their colour; the Plate Module dimmer is left alone (a
 	// plate pixel is highlighted).

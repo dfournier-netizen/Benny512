@@ -94,3 +94,29 @@ Non-intensity channels keep their GDTF defaults (JDC1 ch1–2 = 128, Rayzor ch9 
 - **Console, whole fixture:** JDC1 Dimmer reaches 14 channels (ch3, ch8, 12 beam pixels); Rayzor 21 (head, SparkLED, 19 pixel virtual dimmers). Dimmer on Plate Pixel:0 is refused: "Cell Plate Pixel of GLP JDC1 Strobe has no Dimmer."
 - **Tests:** a dimmer test on the whole Rayzor drives all 19 pixel virtual dimmers; on the whole JDC1 none (it has none) and its 13 colour scopes show white while unset. A test on Plate Pixel:0 drives ch15–17 and **ch8**; on RGBW Pixel:21 its virtual dimmer, with the head (ch10–11) held open.
 - **Short labels:** ERA 800 Performance, Proteus Rayzor 1960 (+ Spark LED Strobe Module, RGBW Pixel), Rogue Outcast 2X Wash, JDC1 Strobe (+ Beam, Plate), Paladin Cube — derived (the show predates kept short names).
+
+## 7. J1c — the Master as a multiplier (owner 2026-10-13 09:31), on the real show
+
+**Written:** 2026-10-13 10:09:01 -0400, at `4e92803`. Same method; raw output `J1c-domshow-after.txt`. Dom's show file was imported before J1c and carries **no geometry tree**, and his MVR/GDTF files are not in the folders connected to this session, so the show could not be re-imported with its tree here: the Rayzor runs under the legacy rule and which Rayzor parts sit under Head_Extended is **not yet determined** (re-run the harness on his re-imported show).
+
+- 590 intensity parameters (the 566 of §6 + 24 virtual masters: 8 JDC1, 16 Rayzor); armed, empty programmer, faders untouched: **0 above zero**.
+- **JDC1 405** — no master channel, so both parts are multiplied in software (virtual master over ch3, ch51–62 and ch8):
+
+| Faders | On the wire |
+|---|---|
+| Beam 100 %, Master at rest | ch3 0, ch51–62 0 |
+| Beam 100 %, Master 50 % | ch3 128, ch51–62 128 |
+| Plate 100 %, Master at rest | ch8 0 |
+| Plate 100 %, Master 50 % | ch8 128 |
+
+- **Rayzor 516** — legacy (no tree): the Master fader is marked treeUnknown; the SparkLED and the RGBW pixels count as governed by the head dimmer (no software multiply):
+
+| Faders | On the wire |
+|---|---|
+| RGBW Pixel 100 %, Master at rest | pixels ch22–97 255, head ch10–11 0 |
+| RGBW Pixel 100 %, Master 50 % | pixels 255, head 128/0 (32 768) |
+| Spark 100 %, Master at rest | SparkLED ch99–100 255, head 0 |
+| Spark 100 %, Master 50 % | SparkLED 255, head 128/0 |
+
+  Whether this is dark on the fixture at Master 0 depends on the head dimmer actually governing the pixels and the SparkLED; the tree from his re-import decides it.
+- **Highlight on a cell** (temp copy in a real build): RGBW Pixel:21 → 3 channels (its virtual dimmer, the head, the virtual master); a JDC1 plate pixel → 5 (its RGB, ch8, the virtual master).

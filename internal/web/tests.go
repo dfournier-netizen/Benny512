@@ -447,7 +447,7 @@ func (s *Server) resolveTestScope(sc testScopeJSON) ([]resolvedTarget, []program
 		// I2e: virtual dimmers a dimmer test drives, and a cell's master the
 		// base state opens (the programmer's scope rule); I2f: the colour
 		// scopes a dimmer test shows at white while their colour is unset.
-		rt.target.VirtualDimmers, rt.target.Master, rt.target.Whites = s.Programmer.TestDimmers(t)
+		rt.target.VirtualDimmers, rt.target.Master, rt.target.Whites, rt.target.Hold = s.Programmer.TestDimmers(t)
 		out = append(out, rt)
 	}
 	return out, ignored, note

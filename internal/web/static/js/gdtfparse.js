@@ -710,8 +710,17 @@ const GdtfParse = (() => {
   // it has no role in the tree other than being a replication wrapper, so a
   // real channel declared on it is unambiguously a claim on the whole
   // wrapped group, not a sibling detail alongside other unrelated geometry.
-  function resolveGeometryChannels(rootEl, channelsByGeometryName, geometryIndex, warnings) {
+  function resolveGeometryChannels(rootEl, channelsByGeometryName, geometryIndex, warnings, parents) {
     const resolved = [];
+    // parents (J1c, owner 2026-10-13: "a dimmer on a parent geometry
+    // physically governs its child geometries"): every geometry INSTANCE
+    // the walk reaches ("<Name>:<offsetBase>", the same spelling as
+    // geometryInstance below) -> the instance it was reached from ("" for
+    // the mode's root). A <GeometryReference>'s target is reached from the
+    // geometry the reference sits in, so a referenced pixel's parent is the
+    // head that holds the reference, not wherever its template is defined.
+    // First reach wins.
+    parents = parents || {};
 
     // contribute: pushes name's literal channels (if this mode declares
     // any) at offsetBase, and reports whether it actually pushed a real
@@ -751,12 +760,14 @@ const GdtfParse = (() => {
       return chosen;
     }
 
-    function walk(el, offsetBase, visited, depth) {
+    function walk(el, offsetBase, visited, depth, parentInstance) {
       if (depth > MAX_GEOMETRY_DEPTH) {
         warnings.push(`geometry tree exceeds ${MAX_GEOMETRY_DEPTH} levels at "${el.getAttribute('Name') || '(unnamed)'}" — stopped descending (possible malformed/cyclic GDTF).`);
         return;
       }
       const name = el.getAttribute('Name');
+      const instance = (name || '') + ':' + offsetBase;
+      if (name && !Object.prototype.hasOwnProperty.call(parents, instance)) parents[instance] = parentInstance;
       const contributedReal = name ? contribute(name, offsetBase) : false;
 
       // pure-array-container guard: only engages when this node itself has
@@ -813,7 +824,7 @@ const GdtfParse = (() => {
         const c = el.children[i];
         const tag = c.tagName || c.localName;
         if (tag !== GEOMETRY_REFERENCE_TAG) {
-          walk(c, offsetBase, visited, depth + 1);
+          walk(c, offsetBase, visited, depth + 1, name ? instance : parentInstance);
           continue;
         }
         if (blockReferenceChildren) continue;
@@ -835,11 +846,11 @@ const GdtfParse = (() => {
         }
         const nextVisited = new Set(visited);
         nextVisited.add(refName);
-        walk(target, offsetBase + (breakOffsetNum - 1), nextVisited, depth + 1);
+        walk(target, offsetBase + (breakOffsetNum - 1), nextVisited, depth + 1, name ? instance : parentInstance);
       }
     }
 
-    if (rootEl) walk(rootEl, 0, new Set(), 0);
+    if (rootEl) walk(rootEl, 0, new Set(), 0, '');
     return resolved;
   }
 
@@ -993,8 +1004,14 @@ const GdtfParse = (() => {
     const rootEl = rootGeomName ? geometryIndex.get(rootGeomName) : null;
 
     let placements;
+    // geometryParents (J1c): the mode's geometry tree as instance -> parent
+    // instance (see resolveGeometryChannels); absent when there is no tree
+    // to walk (the fallback below), which the programmer reads as "not
+    // known".
+    let geometryParents;
     if (rootEl) {
-      placements = resolveGeometryChannels(rootEl, channelsByGeometryName, geometryIndex, modeWarnings);
+      geometryParents = {};
+      placements = resolveGeometryChannels(rootEl, channelsByGeometryName, geometryIndex, modeWarnings, geometryParents);
     } else {
       // No usable geometry tree for this mode (missing <Geometries>
       // altogether, or DMXMode/@Geometry doesn't resolve to anything in
@@ -1161,7 +1178,7 @@ const GdtfParse = (() => {
     });
 
     if (modeWarnings.length) fixtureWarnings.push(...modeWarnings);
-    return { name, footprint, channels, channelFunctions, wheels };
+    return { name, footprint, channels, channelFunctions, wheels, geometryParents };
   }
 
   // parseDescriptionXml(xmlString) -> {

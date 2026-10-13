@@ -59,10 +59,18 @@
 
 ## J1b — owner answers (2026-10-12 20:11; recorded 2026-10-12 20:44:11 -0400)
 
-- **Master overrides the subs (behaviour; refines the J1 cluster above):** a type's Master fader sets the whole fixture — the real master channel if any plus every part (Rayzor: head + RGBW pixels + SparkLED). A part fader moved after it takes its part; last moved wins per channel. Selecting a whole fixture in the Console (Dimmer, fan, Lowlight, dimmer tests) and stored-group faders do the same; I2d4's "whole fixture = the master only" is superseded.
+- ~~**Master overrides the subs**~~ (superseded by J1c below: the Master multiplies the parts) **(behaviour; refines the J1 cluster above):** a type's Master fader sets the whole fixture — the real master channel if any plus every part (Rayzor: head + RGBW pixels + SparkLED). A part fader moved after it takes its part; last moved wins per channel. Selecting a whole fixture in the Console (Dimmer, fan, Lowlight, dimmer tests) and stored-group faders do the same; I2d4's "whole fixture = the master only" is superseded.
 - **Virtual dimmer rule refined (owner; refines I2d4 §9 "virtual (scales colour)")**: a cell gets a virtual dimmer only when its part has no real dimmer. JDC1 plate pixels have none — the Plate Module dimmer drives the plate; their Dimmer row is absent, and Dimmer on a plate pixel is refused in words. Rayzor pixels, Paladin beams and batten pixels keep "virtual (scales colour)". Lowlight dims a lowlit plate pixel through its colour; a Tests target on a plate pixel drives the Plate dimmer.
 - **§19 fader labels — short type names (owner):** a plain type fader and a cluster heading show the short type name (GDTF ShortName, else derived: "JDC1 Strobe", "Proteus Rayzor 1960"); two modes read "Paladin Cube — 24ch" / "— 3ch". Parts still show their part word under the heading. Every aria-label, slider label, Release label and title keep the full name ("Custom GLP JDC1 Strobe · Plate").
 - **Tests per-fixture note:** each overriding attribute is named once ("overridden by SET (Dimmer)"), however many Dimmer channels a whole-fixture test covers.
+
+## J1c — owner answers (2026-10-13 09:31; recorded 2026-10-13 10:09:01 -0400)
+
+- **The Master is a multiplier (behaviour):** a type's Master fader — and a whole fixture's Dimmer in the Console, a stored group's whole-fixture member, Lowlight, a whole-fixture dimmer test — sets the fixture's master level; part faders set each part beneath it; output = master × part; moving the Master never changes a part's level. "Master 0, parts at full: no output. Master full, SparkLED full, pixels 0: only the SparkLED." No double dimming: parts under the master dimmer's GDTF geometry are dimmed by that channel on the fixture; other parts are multiplied in software.
+- **§19 fader bar — legacy profiles:** the Master of a type whose profile has no GDTF geometry tree says "Parts counted as dimmed by the master channel — re-import the GDTF to refine." in its tooltip and to assistive technology (visually hidden text). Nothing else in the bar changes.
+- **§6 Dimmer card:** the master row says "master (multiplies the parts)" (words); "virtual (scales colour)" stays for a cell's own virtual dimmer. A whole fixture with a 16-bit master channel shows MIXED layouts (16-bit channel + 8-bit master) — owner question.
+- **§15 Highlight on a cell:** opens the cell's fixture master and its part dimmer, so a highlighted pixel is visible on the rig (as Tests open them).
+- **Stored groups:** a whole-fixture member is its master level; a cell member its own dimmer.
 
 ## Deviations already recorded in I1–I2d
 

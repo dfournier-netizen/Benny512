@@ -121,6 +121,18 @@ const srvFader = async id => (await server('GET', '/api/faders')).body.faders.fi
   }
   check(!q('[data-faders-section="group"] [data-gfader-cluster]'), 'no clusters under Groups');
 
+  // --- J1c: a Master over a profile without its geometry tree says so ----
+  const legacy = byLabel('Test Rayzor-like bar (legacy)');
+  check(legacy && legacy.treeUnknown && !rz.treeUnknown && !jd.treeUnknown, 'the server marks only the legacy Master treeUnknown', [legacy && legacy.treeUnknown, rz.treeUnknown, jd.treeUnknown]);
+  if (legacy) {
+    const m = fader(legacy.id);
+    const note = m && m.querySelector('[data-gfader-tree-note]');
+    const words = 'Parts counted as dimmed by the master channel — re-import the GDTF to refine.';
+    check(m && m.querySelector('[data-gfader-label]').getAttribute('title').indexOf(words) >= 0 && note && note.textContent === words,
+      'the legacy Master says in words, in its tooltip and to assistive technology: "' + words + '"', m && [m.querySelector('[data-gfader-label]').getAttribute('title'), note && note.textContent]);
+    check(!fader(rz.id).querySelector('[data-gfader-tree-note]') && !/re-import/.test(fader(rz.id).querySelector('[data-gfader-label]').getAttribute('title')), 'a Master whose tree is known says nothing of it');
+  }
+
   // --- the part and master faders write their own ids ------------------------
   const plate = partsOf(jd).find(p => p.label === 'Plate');
   key(fader(plate.id).querySelector('[role="slider"]'), 'End');

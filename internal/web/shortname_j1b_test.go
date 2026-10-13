@@ -97,3 +97,64 @@ func TestJ1b_ShortLabelDerivedAndModes(t *testing.T) {
 		}
 	}
 }
+
+// TestJ1c_GeometryTreeFromGDTF (owner 2026-10-13 09:31: "a dimmer on a
+// parent geometry physically governs its child geometries"): the literal
+// gdtfparse.js records each mode's geometry tree as instance -> parent
+// instance; mvrimport.js sends it with each entry; the real import handler
+// keeps it, and a plain field edit does not drop it.
+func TestJ1c_GeometryTreeFromGDTF(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not found on PATH")
+	}
+	cmd := exec.Command(node, "static/js/testdata/gdtf_shortname_dump.js")
+	var out, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("dump: %v\n%s", err, stderr.String())
+	}
+	var d struct {
+		Trees map[string]map[string]string
+	}
+	if err := json.Unmarshal(out.Bytes(), &d); err != nil {
+		t.Fatal(err)
+	}
+	// Read off robe_ledbeam100_real_extract.xml by hand: <Geometry Base>
+	// holds <Axis Yoke>, which holds <Axis Head>, which holds <Beam Beam>
+	// and the three ring beams; mode 3's root is Base.
+	want := map[string]string{"Base:0": "", "Yoke:0": "Base:0", "Head:0": "Yoke:0", "Beam:0": "Head:0", "halfring1:0": "Head:0", "halfring2:0": "Head:0", "middlering:0": "Head:0"}
+	got := d.Trees["robe_ledbeam100_real_extract.xml|mode 3"]
+	if len(got) != len(want) {
+		t.Errorf("LEDBeam mode 3 tree %v, want %v", got, want)
+	}
+	for k, v := range want {
+		if p, ok := got[k]; !ok || p != v {
+			t.Errorf("LEDBeam mode 3: parent of %q = %q (%v), want %q", k, p, ok, v)
+		}
+	}
+	// Paladin Cube Cells 24CH: Base Individual > Individual Head > Beam 1..3.
+	if p := d.Trees["paladin_cube_real_extract.xml|Cells 24CH"]["Beam 2:0"]; p != "Individual Head:0" {
+		t.Errorf("Paladin Cells 24CH: parent of Beam 2:0 = %q, want Individual Head:0", p)
+	}
+	h := newHarness(t)
+	entries := importDump(t, h, out.Bytes(), "fresh")
+	for _, e := range entries {
+		gp, _ := e["geometryParents"].(map[string]any)
+		if gp["Beam 2:0"] != "Individual Head:0" {
+			t.Errorf("entry %v: geometryParents %v, want the Paladin Cells 24CH tree", e["name"], e["geometryParents"])
+		}
+	}
+	id := entries[0]["id"].(string)
+	if rr := doJSON(t, h.srv.Handler(), "PUT", "/api/patch/entries/"+id, map[string]any{"name": "Renamed", "fixtureType": entries[0]["fixtureType"], "mode": entries[0]["mode"],
+		"footprint": entries[0]["footprint"], "universe": entries[0]["universe"], "startAddress": entries[0]["startAddress"]}); rr.Code != http.StatusOK {
+		t.Fatalf("edit: %d %s", rr.Code, rr.Body.String())
+	}
+	for _, e := range getPatchEntries(t, h) {
+		if e["id"] == id {
+			if gp, _ := e["geometryParents"].(map[string]any); gp["Beam 2:0"] != "Individual Head:0" {
+				t.Errorf("a plain field edit dropped the geometry tree: %v", e["geometryParents"])
+			}
+		}
+	}
+}

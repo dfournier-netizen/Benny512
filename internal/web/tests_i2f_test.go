@@ -69,8 +69,8 @@ func TestTestsViewReportsChannelSources(t *testing.T) {
 
 	v := r.i2fTests(t)
 	src := v.sourcesOf()
-	// J1b (owner 2026-10-12): the whole BT is tested through every part —
-	// its master and its 4 cells' virtual dimmers.
+	// J1c (owner 2026-10-13): the whole BT is tested through its master —
+	// the master channel and its virtual master.
 	all := func(got []string, want string, n int) bool {
 		if len(got) != n {
 			return false
@@ -82,8 +82,8 @@ func TestTestsViewReportsChannelSources(t *testing.T) {
 		}
 		return true
 	}
-	if got := src[bt]; !all(got, "tests", 5) {
-		t.Errorf("BT (its master and 4 cells' virtual dimmers) sources %v, want 5 x tests", got)
+	if got := src[bt]; !all(got, "tests", 2) {
+		t.Errorf("BT (its master channel and virtual master) sources %v, want 2 x tests", got)
 	}
 	if got := src[rg]; len(got) != 1 || got[0] != "tests" {
 		t.Errorf("RG (its virtual dimmer) sources %v, want [tests]", got)
@@ -113,8 +113,8 @@ func TestTestsViewReportsChannelSources(t *testing.T) {
 	r.set(t, map[string]any{"targets": []any{r.target("BT"), r.target("RG")}, "attribute": "Dimmer", "dmx": 40})
 	v = r.i2fTests(t)
 	src = v.sourcesOf()
-	if got := src[bt]; !all(got, "programmer", 5) {
-		t.Errorf("BT under a manual dimmer: sources %v, want 5 x programmer", got)
+	if got := src[bt]; !all(got, "programmer", 2) {
+		t.Errorf("BT under a manual dimmer: sources %v, want 2 x programmer", got)
 	}
 	if got := src[rg]; len(got) != 1 || got[0] != "programmer" {
 		t.Errorf("RG under a manual dimmer: sources %v, want [programmer]", got)
@@ -139,8 +139,8 @@ func TestTestsViewReportsChannelSources(t *testing.T) {
 	if n := len(v.Tests[0].Overridden); n != 0 {
 		t.Errorf("after Clear: overridden = %+v, want none", v.Tests[0].Overridden)
 	}
-	if got := v.sourcesOf()[bt]; !all(got, "tests", 5) {
-		t.Errorf("after Clear: BT sources %v, want 5 x tests", got)
+	if got := v.sourcesOf()[bt]; !all(got, "tests", 2) {
+		t.Errorf("after Clear: BT sources %v, want 2 x tests", got)
 	}
 }
 

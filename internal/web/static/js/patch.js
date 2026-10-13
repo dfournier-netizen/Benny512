@@ -826,6 +826,8 @@ const PatchScreen = (() => {
         position: e.position || '', fixtureNumber: e.fixtureNumber || '', notes: e.notes || '',
         // J1b: the GDTF's short type name travels with its profile.
         fixtureTypeShortName: parsed.shortName || '',
+        // J1c: and the mode's geometry tree.
+        ...(mode.geometryParents ? { geometryParents: mode.geometryParents } : {}),
         // Apply this GDTF mode's channel functions too — a re-import is
         // exactly the case that SHOULD replace whatever channel-function
         // data (if any) the entry had before, same as it replaces footprint.

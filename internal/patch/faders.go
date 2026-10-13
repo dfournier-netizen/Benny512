@@ -33,16 +33,18 @@
 // (FixtureModel.Parts, programmer_model.go) gets, right after its type
 // fader, one PART fader per part that is not the fixture's master,
 // in part order, labelled with the part's GDTF-derived name. The type
-// fader is then the type's MASTER and, like every whole-fixture intensity
-// control, drives EVERY part (J1b, owner 2026-10-12 20:11: "the Master
-// overrides the subs") — the real master channel if there is one (Rayzor
-// 1960: the head) plus every other part (its RGBW pixels' virtual dimmers
-// and SparkLED; GLP JDC1: Beam and Plate). A part fader claims every
-// Dimmer, real or virtual, of its part in each member. A type with one part keeps its one fader,
+// fader is then the type's MASTER: like every whole-fixture intensity
+// control it sets the fixture's master level — the real master channel if
+// there is one and the virtual master — which MULTIPLIES the parts (J1c,
+// owner 2026-10-13 09:31, superseding J1b's "the Master sets every part";
+// programmer_model.go MASTER MULTIPLIER). A part fader claims every
+// Dimmer, real or virtual, of its part in each member: the part's own
+// level beneath the master. Stored-group faders: a whole-fixture member is
+// its master level, a cell member that cell's own dimmer. A type with one part keeps its one fader,
 // unchanged; stored-group faders are unchanged.
-// Master and parts are ordinary faders: where both claim a channel the
-// MOST RECENTLY MOVED wins (the LTP rule above), and releasing one hands
-// its channels back to the other if it is still moved.
+// Master and parts claim different parameters (J1c), so neither overwrites
+// the other; the LTP rule above still decides between two faders claiming
+// the same parameter (a type Master and a stored group of those fixtures).
 package patch
 
 import (
@@ -106,6 +108,11 @@ type FaderView struct {
 	// type's; a group fader its label. Label stays the full name (the
 	// accessible label and tooltip).
 	ShortLabel string `json:"shortLabel"`
+	// TreeUnknown (J1c): a type Master over parts whose profile has no
+	// GDTF geometry tree, so every part counts as dimmed by the master
+	// channel on the fixture (no software multiply) — re-import the GDTF
+	// to refine.
+	TreeUnknown bool `json:"treeUnknown"`
 	// Count is how many members (fixtures, or cells for a group's cell
 	// members) the fader has; Controllable how many of them it can dim.
 	Count           int      `json:"count"`
@@ -221,9 +228,13 @@ func (pg *Programmer) fadersLocked() []faderDef {
 	// fixture; every member has the same type + mode).
 	withParts := make([]faderDef, 0, len(out))
 	for _, d := range out {
-		parts := pg.models[d.members[0].EntryID].Parts
+		m0 := pg.models[d.members[0].EntryID]
+		parts := m0.Parts
 		if len(parts) > 1 {
 			d.view.HasParts = true
+			for _, pt := range parts {
+				d.view.TreeUnknown = d.view.TreeUnknown || (pt.Master && !m0.TreeKnown)
+			}
 		}
 		withParts = append(withParts, d)
 		if !d.view.HasParts {

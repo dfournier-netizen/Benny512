@@ -49,6 +49,9 @@ type Profile struct {
 	// build reading a newer file ignores it (tolerant reader) and falls
 	// back to the derived name. No schema bump: absence means "not known".
 	ShortName string `json:"shortName,omitempty"`
+	// GeometryParents (J1c) is the entries' geometry tree; optional and
+	// omitted when unknown, by the same reasoning as ShortName.
+	GeometryParents map[string]string `json:"geometryParents,omitempty"`
 }
 
 // diskEntry is an Entry as written to a show file: the profile fields are
@@ -61,6 +64,7 @@ type diskEntry struct {
 	WheelsKnown      *struct{} `json:"wheelsKnown,omitempty"`
 	// FixtureTypeShortName is in the profile (J1b).
 	FixtureTypeShortName *struct{} `json:"fixtureTypeShortName,omitempty"`
+	GeometryParents      *struct{} `json:"geometryParents,omitempty"`
 	Profile              string    `json:"profile,omitempty"`
 }
 
@@ -84,7 +88,7 @@ func encodeShowFile(p Patch) ([]byte, error) {
 		de := diskEntry{Entry: e}
 		if entryHasProfile(e) {
 			prof := Profile{FixtureType: e.FixtureType, Mode: e.Mode, ChannelFunctions: e.ChannelFunctions, Wheels: CloneWheels(e.Wheels), WheelsKnown: e.WheelsKnown,
-				ShortName: e.FixtureTypeShortName}
+				ShortName: e.FixtureTypeShortName, GeometryParents: e.GeometryParents}
 			b, err := json.Marshal(prof)
 			if err != nil {
 				return nil, err
@@ -143,6 +147,13 @@ func decodeShowFile(data []byte) (Patch, error) {
 		p.Entries[i].Wheels = CloneWheels(prof.Wheels)
 		p.Entries[i].WheelsKnown = prof.WheelsKnown
 		p.Entries[i].FixtureTypeShortName = prof.ShortName
+		if prof.GeometryParents != nil {
+			gp := make(map[string]string, len(prof.GeometryParents))
+			for k, v := range prof.GeometryParents {
+				gp[k] = v
+			}
+			p.Entries[i].GeometryParents = gp
+		}
 	}
 	migrate(&p)
 	return p, nil

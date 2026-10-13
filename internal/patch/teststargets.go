@@ -44,6 +44,12 @@ type TestTarget struct {
 	// (claimed at 255: the G1 fill rule), beyond VirtualDimmers. From
 	// Programmer.TestDimmers.
 	Whites []string
+	// Hold (J1c) are real part dimmers (each its offsets, coarse first) of
+	// a whole multi-part fixture: a test never drives them; the base state
+	// holds them open at full, so a dimmer test drives the fixture through
+	// its master (master channel + virtual master) and every part shows at
+	// the master's level once. From Programmer.TestDimmers.
+	Hold [][]uint16
 }
 
 // CellTestTarget narrows e to one cell whose channels are offsets: a copy of
@@ -98,6 +104,7 @@ func (r *RigCheck) SetTests(targets []TestTarget, specs []PatternSpec, fade *tim
 	virtual := map[string][]string{}
 	masters := map[string][]uint16{}
 	whites := map[string][]string{}
+	holds := map[string][][]uint16{}
 	for _, t := range targets {
 		entries = append(entries, t.Entry)
 		if t.Offsets != nil {
@@ -111,6 +118,9 @@ func (r *RigCheck) SetTests(targets []TestTarget, specs []PatternSpec, fade *tim
 		}
 		if len(t.Whites) > 0 {
 			whites[t.Entry.ID] = append([]string(nil), t.Whites...)
+		}
+		if len(t.Hold) > 0 {
+			holds[t.Entry.ID] = t.Hold
 		}
 	}
 	r.mu.Lock()
@@ -129,6 +139,7 @@ func (r *RigCheck) SetTests(targets []TestTarget, specs []PatternSpec, fade *tim
 	r.selection.scope = entries
 	r.selection.owned, r.selection.scopeOrder, r.selection.isolate = owned, true, false
 	r.selection.virtual, r.selection.masters, r.selection.whites = virtual, masters, whites
+	r.selection.holds = holds
 	r.selection.tests = make(map[TestID]PatternSpec, len(normalized))
 	for _, spec := range normalized {
 		r.selection.tests[spec.TestID()] = spec
@@ -147,6 +158,7 @@ func (r *RigCheck) ReleaseTests() PatternStatus {
 	r.selection.scope = nil
 	r.selection.owned, r.selection.scopeOrder, r.selection.isolate = nil, true, false
 	r.selection.virtual, r.selection.masters, r.selection.whites = nil, nil, nil
+	r.selection.holds = nil
 	r.selection.tests = map[TestID]PatternSpec{}
 	r.selection.rebuild()
 	r.stopLocked("manual")
@@ -195,13 +207,20 @@ func (pg *Programmer) CellOffsets(entryID, cell string) ([]uint16, bool) {
 //     virtual dimmer key, or its ColourFillKey when it has a real dimmer —
 //     which a dimmer test shows at white while its colour is unset.
 //
+// J1c (owner 2026-10-13, the Master multiplies the parts): a whole
+// fixture with a virtual master is tested through its MASTER — the master
+// channel (a real Dimmer the test finds itself) and the virtual master are
+// driven; every part is held open (hold: its real part dimmers; whites:
+// its virtual part dimmers), so each part shows once at the test's level.
+// A cell target also opens the fixture's virtual master (in whites).
+//
 // Unknown fixture or cell: nothing.
-func (pg *Programmer) TestDimmers(t ProgTarget) (virtual []string, master []uint16, whites []string) {
+func (pg *Programmer) TestDimmers(t ProgTarget) (virtual []string, master []uint16, whites []string, hold [][]uint16) {
 	pg.mu.Lock()
 	defer pg.mu.Unlock()
 	m := pg.models[t.EntryID]
 	if m == nil || (t.Cell != "" && !m.HasCell(t.Cell)) {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	pulsed := map[string]bool{}
 	for _, p := range dimmersOf(m, t) {
@@ -231,8 +250,17 @@ func (pg *Programmer) TestDimmers(t ProgTarget) (virtual []string, master []uint
 		if p := m.masterFor(t.Cell); p != nil && p != m.cellPartDimmer(t.Cell) {
 			master = append([]uint16(nil), p.Offsets...)
 		}
+		if vm := m.virtualMaster(); vm != nil {
+			whites = append(whites, VirtualDimmerKey(t.EntryID, vm.Offset))
+		}
+	} else if m.hasVirtualMaster() {
+		for i := range m.Parameters {
+			if p := &m.Parameters[i]; m.partOf(p) >= 0 && !p.Virtual && !m.inMasterPart(p) && len(p.Offsets) > 0 {
+				hold = append(hold, append([]uint16(nil), p.Offsets...))
+			}
+		}
 	}
-	return virtual, master, whites
+	return virtual, master, whites, hold
 }
 
 // AvailableTestsForTargets is AvailableTests over targets (I2e): a target
