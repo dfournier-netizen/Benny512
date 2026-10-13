@@ -106,10 +106,10 @@ func TestDimmerTestsDriveCellVirtualDimmers(t *testing.T) {
 }
 
 // TestDimmerTestWholeFixtureScopeRule: the batten selected WHOLE is tested
-// through its master — the cells' virtual dimmers are left alone (the
-// I2d4 scope rule) — and an RGB-only fixture with no dimmer channel, which
-// used to offer no dimmer test at all, is tested through its own virtual
-// dimmer.
+// through every part — its master and (J1b, owner 2026-10-12, superseding
+// I2d4's "the master only") its cells' virtual dimmers — and an RGB-only
+// fixture with no dimmer channel, which used to offer no dimmer test at
+// all, is tested through its own virtual dimmer.
 func TestDimmerTestWholeFixtureScopeRule(t *testing.T) {
 	r := newI2eTestsRig(t)
 	r.arm(t)
@@ -127,14 +127,14 @@ func TestDimmerTestWholeFixtureScopeRule(t *testing.T) {
 		if !e.Applied {
 			t.Errorf("%s: the dimmer test is not applied", e.EntryID)
 		}
-		if want := e.EntryID == r.ids["RG"]; e.Virtual != want {
-			t.Errorf("%s: virtual = %v, want %v (BT through its master, RG through its virtual dimmer)", e.EntryID, e.Virtual, want)
+		if !e.Virtual {
+			t.Errorf("%s: virtual = false, want true (BT through its master and its cells' virtual dimmers, RG through its own)", e.EntryID)
 		}
 	}
 	f := r.wire(t, 2)
 	wantSlots(t, "BT whole: the master carries the test", f, 1, 128)
 	for c := 0; c < 4; c++ {
-		wantSlots(t, fmt.Sprintf("BT whole: cell %d colour unscaled (its virtual dimmer is not the fixture's intensity)", c+1), f, 2+3*c, 0, 90, 0)
+		wantSlots(t, fmt.Sprintf("BT whole: cell %d colour scaled by the test through its virtual dimmer (J1b)", c+1), f, 2+3*c, 0, 45, 0)
 	}
 	wantSlots(t, "RG: no colour set = white at the test's 128", f, 201, 128, 128, 128)
 
@@ -223,9 +223,10 @@ func TestDimmerTestShowsWhiteWhereColourIsUnset(t *testing.T) {
 	r.testsPost(t, "set", map[string]any{"tests": []any{map[string]any{"kind": "dimmer_toggle", "on": true, "max": 128}}})
 	f := r.wire(t, 2)
 	wantSlots(t, "BT master carries the test", f, 1, 128)
-	wantSlots(t, "BT cell 1: colour unset = white for the test", f, 2, 255, 255, 255)
-	wantSlots(t, "BT cell 2: manual blue wins over the test's white", f, 5, 0, 0, 60)
-	wantSlots(t, "BT cell 4: white", f, 11, 255, 255, 255)
+	// J1b: the cells' virtual dimmers carry the test too (128 of 255).
+	wantSlots(t, "BT cell 1: colour unset = white for the test, at the test's level", f, 2, 128, 128, 128)
+	wantSlots(t, "BT cell 2: manual blue wins over the test's white, at the test's level", f, 5, 0, 0, 30)
+	wantSlots(t, "BT cell 4: white", f, 11, 128, 128, 128)
 	wantSlots(t, "PAR: dimmer carries the test, colour unset = white", f, 301, 128, 255, 255, 255)
 
 	// Never written into the programmer.

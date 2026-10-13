@@ -1167,6 +1167,7 @@ const GdtfParse = (() => {
   // parseDescriptionXml(xmlString) -> {
   //   manufacturer: string,
   //   model: string,
+  //   shortName: string,     // J1b: FixtureType ShortName, else Name
   //   fixtureType: string,   // "Manufacturer Model", same convention as
   //                          // patch.go's handlePatchAdopt
   //                          // (fixtureType := strings.TrimSpace(mfr+" "+model))
@@ -1207,6 +1208,10 @@ const GdtfParse = (() => {
     const manufacturer = (fixtureTypeEl.getAttribute('Manufacturer') || '').trim();
     const model = (fixtureTypeEl.getAttribute('Name') || '').trim();
     const fixtureType = (manufacturer + ' ' + model).trim();
+    // shortName (J1b, owner 2026-10-12: short type names in fader labels):
+    // the FixtureType ShortName ("Shortened name of the fixture type"),
+    // else its Name — the model, without the manufacturer.
+    const shortName = (fixtureTypeEl.getAttribute('ShortName') || '').trim() || model;
 
     const geometriesEl = childByTag(fixtureTypeEl, 'Geometries');
     const geometryIndex = buildGeometryIndex(geometriesEl);
@@ -1233,7 +1238,7 @@ const GdtfParse = (() => {
     // this fixture. There is deliberately ONE warnings channel: a second
     // one would need a second surfacing path in every caller, and the one
     // that got wired up last would be the one nobody sees.
-    return { manufacturer, model, fixtureType, modes, wheels, warnings };
+    return { manufacturer, model, fixtureType, shortName, modes, wheels, warnings };
   }
 
   return { parseDescriptionXml };

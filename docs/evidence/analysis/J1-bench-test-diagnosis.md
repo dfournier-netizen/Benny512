@@ -75,3 +75,22 @@ Non-intensity channels keep their GDTF defaults (JDC1 ch1–2 = 128, Rayzor ch9 
 | Rayzor · Spark LED Strobe Module | ch99–100 only |
 | Rayzor · RGBW Pixel | the 19 pixels' colour ch22–97 only |
 
+## 6. J1b — owner answers (2026-10-12 20:11), re-verified on the real show
+
+**Written:** 2026-10-12 20:44:11 -0400, at `fbe7632`. Same method; raw output `J1b-domshow-after.txt` (session scratchpad).
+
+- **Plate pixels have no virtual dimmers** (the Plate Module dimmer masters them on the fixture). JDC1 405: 0 virtual dimmers; parts Beam (ch3 + ch51–62) and Plate (ch8 only); no master. The show now has 566 intensity parts (the 96 plate-pixel virtual dimmers are gone); armed with an empty programmer **0 are above zero**. At Arm the plate pixels sit at their GDTF colour (255) behind ch8 = 0.
+- **The Master drives every part.** Each fader alone at 100 %:
+
+| Fader | Drives |
+|---|---|
+| JDC1 Master | ch3, ch8, ch51–62 (plate pixels follow ch8) |
+| JDC1 · Beam | ch3 and ch51–62 only |
+| JDC1 · Plate | ch8 only |
+| Rayzor Master | head ch10–11, the 19 pixels' colour ch22–97 (their virtual dimmers), SparkLED ch99–100 |
+| Rayzor · Spark LED Strobe Module | ch99–100 only |
+| Rayzor · RGBW Pixel | ch22–97 only |
+
+- **Console, whole fixture:** JDC1 Dimmer reaches 14 channels (ch3, ch8, 12 beam pixels); Rayzor 21 (head, SparkLED, 19 pixel virtual dimmers). Dimmer on Plate Pixel:0 is refused: "Cell Plate Pixel of GLP JDC1 Strobe has no Dimmer."
+- **Tests:** a dimmer test on the whole Rayzor drives all 19 pixel virtual dimmers; on the whole JDC1 none (it has none) and its 13 colour scopes show white while unset. A test on Plate Pixel:0 drives ch15–17 and **ch8**; on RGBW Pixel:21 its virtual dimmer, with the head (ch10–11) held open.
+- **Short labels:** ERA 800 Performance, Proteus Rayzor 1960 (+ Spark LED Strobe Module, RGBW Pixel), Rogue Outcast 2X Wash, JDC1 Strobe (+ Beam, Plate), Paladin Cube — derived (the show predates kept short names).

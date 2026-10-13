@@ -186,6 +186,11 @@ type entryRequest struct {
 	// the wire type, so the shape cannot drift; DisallowUnknownFields applies
 	// to its keys and Validate refuses flags that disagree with the numbers.
 	Location *patch.Location `json:"location"`
+
+	// FixtureTypeShortName (J1b) is the GDTF short type name the importers
+	// send with a profile (gdtfparse.js). It travels with ChannelFunctions:
+	// handleUpdatePatchEntry keeps the stored one on a plain field edit.
+	FixtureTypeShortName *string `json:"fixtureTypeShortName"`
 }
 
 // channelFunctionRequest is entryRequest.ChannelFunctions' value shape,
@@ -379,6 +384,8 @@ func (s *Server) handleUpdatePatchEntry(w http.ResponseWriter, r *http.Request) 
 			entry.ChannelFunctions = pp.Entries[idx].ChannelFunctions
 			// Wheels are part of the same profile (schema v6).
 			entry.Wheels, entry.WheelsKnown = pp.Entries[idx].Wheels, pp.Entries[idx].WheelsKnown
+			// ...and so is the GDTF short type name (J1b).
+			entry.FixtureTypeShortName = pp.Entries[idx].FixtureTypeShortName
 		}
 		// No location in the body = not being edited (schema v7).
 		if req.Location == nil {
@@ -418,6 +425,10 @@ func entryFromRequest(id string, req entryRequest) (patch.Entry, error) {
 	if !req.WheelsKnown && len(req.Wheels) > 0 {
 		return patch.Entry{}, fmt.Errorf("wheels sent with wheelsKnown false")
 	}
+	short := ""
+	if req.FixtureTypeShortName != nil {
+		short = strings.TrimSpace(*req.FixtureTypeShortName)
+	}
 	var loc patch.Location
 	if req.Location != nil {
 		if err := req.Location.Validate(); err != nil {
@@ -433,6 +444,7 @@ func entryFromRequest(id string, req entryRequest) (patch.Entry, error) {
 		Position: req.Position, FixtureNumber: req.FixtureNumber, Notes: req.Notes,
 		ChannelFunctions: cf,
 		Wheels:           patch.CloneWheels(req.Wheels), WheelsKnown: req.WheelsKnown,
+		FixtureTypeShortName: short,
 	}, nil
 }
 

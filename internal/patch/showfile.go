@@ -43,6 +43,12 @@ type Profile struct {
 	ChannelFunctions map[uint16]ChannelFunction `json:"channelFunctions"`
 	Wheels           []Wheel                    `json:"wheels"`
 	WheelsKnown      bool                       `json:"wheelsKnown"`
+	// ShortName (J1b) is the entries' FixtureTypeShortName. Optional and
+	// omitted when empty, so a profile without one encodes — and hashes —
+	// exactly as before, older show files keep their keys, and an older
+	// build reading a newer file ignores it (tolerant reader) and falls
+	// back to the derived name. No schema bump: absence means "not known".
+	ShortName string `json:"shortName,omitempty"`
 }
 
 // diskEntry is an Entry as written to a show file: the profile fields are
@@ -53,7 +59,9 @@ type diskEntry struct {
 	ChannelFunctions *struct{} `json:"channelFunctions,omitempty"`
 	Wheels           *struct{} `json:"wheels,omitempty"`
 	WheelsKnown      *struct{} `json:"wheelsKnown,omitempty"`
-	Profile          string    `json:"profile,omitempty"`
+	// FixtureTypeShortName is in the profile (J1b).
+	FixtureTypeShortName *struct{} `json:"fixtureTypeShortName,omitempty"`
+	Profile              string    `json:"profile,omitempty"`
 }
 
 // diskPatch is a show file: Patch with its entries dehydrated and the
@@ -75,7 +83,8 @@ func encodeShowFile(p Patch) ([]byte, error) {
 	for i, e := range p.Entries {
 		de := diskEntry{Entry: e}
 		if entryHasProfile(e) {
-			prof := Profile{FixtureType: e.FixtureType, Mode: e.Mode, ChannelFunctions: e.ChannelFunctions, Wheels: CloneWheels(e.Wheels), WheelsKnown: e.WheelsKnown}
+			prof := Profile{FixtureType: e.FixtureType, Mode: e.Mode, ChannelFunctions: e.ChannelFunctions, Wheels: CloneWheels(e.Wheels), WheelsKnown: e.WheelsKnown,
+				ShortName: e.FixtureTypeShortName}
 			b, err := json.Marshal(prof)
 			if err != nil {
 				return nil, err
@@ -133,6 +142,7 @@ func decodeShowFile(data []byte) (Patch, error) {
 		p.Entries[i].ChannelFunctions = cfs
 		p.Entries[i].Wheels = CloneWheels(prof.Wheels)
 		p.Entries[i].WheelsKnown = prof.WheelsKnown
+		p.Entries[i].FixtureTypeShortName = prof.ShortName
 	}
 	migrate(&p)
 	return p, nil

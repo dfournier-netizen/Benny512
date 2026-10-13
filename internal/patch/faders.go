@@ -8,9 +8,9 @@
 //   - An untouched fader claims nothing. A moved fader claims the Dimmer
 //     channels of its members until it is released (one fader, or all).
 //     A whole-fixture member is every Dimmer of the fixture (all its
-//     cells'; I2d4: not the cells' virtual dimmers when it has a real
-//     master — FixtureModel.inScope); a cell member is that cell's Dimmer
-//     only. A member without
+//     cells', virtual dimmers included — J1b; I2d4 left those out under a
+//     real master — FixtureModel.inScope); a cell member is that cell's
+//     Dimmer only. A member without
 //     a real Dimmer uses its G1 virtual dimmer(s); a member with neither is
 //     listed as not controllable on that fader, never skipped silently.
 //   - A channel in two moved faders follows the MOST RECENTLY MOVED one
@@ -33,11 +33,12 @@
 // (FixtureModel.Parts, programmer_model.go) gets, right after its type
 // fader, one PART fader per part that is not the fixture's master,
 // in part order, labelled with the part's GDTF-derived name. The type
-// fader is then the type's MASTER: with a master part it claims only the
-// master part's dimmers (Rayzor 1960: the head dimmer; its RGBW pixels and
-// SparkLED are parts); with none it claims every part's (GLP JDC1: Beam and
-// Plate move together). A part fader claims every Dimmer, real or virtual,
-// of its part in each member. A type with one part keeps its one fader,
+// fader is then the type's MASTER and, like every whole-fixture intensity
+// control, drives EVERY part (J1b, owner 2026-10-12 20:11: "the Master
+// overrides the subs") — the real master channel if there is one (Rayzor
+// 1960: the head) plus every other part (its RGBW pixels' virtual dimmers
+// and SparkLED; GLP JDC1: Beam and Plate). A part fader claims every
+// Dimmer, real or virtual, of its part in each member. A type with one part keeps its one fader,
 // unchanged; stored-group faders are unchanged.
 // Master and parts are ordinary faders: where both claim a channel the
 // MOST RECENTLY MOVED wins (the LTP rule above), and releasing one hands
@@ -98,6 +99,13 @@ type FaderView struct {
 	HasParts bool   `json:"hasParts"`
 	Parent   string `json:"parent"`
 	Part     string `json:"part"`
+	// ShortLabel (J1b, owner 2026-10-12 20:11) is what the bar shows: a
+	// type fader's short type name (ShortTypeName), with its mode's short
+	// form when the type is patched in several modes ("<n>ch" when their
+	// footprints differ, else the mode name); a part fader carries its
+	// type's; a group fader its label. Label stays the full name (the
+	// accessible label and tooltip).
+	ShortLabel string `json:"shortLabel"`
 	// Count is how many members (fixtures, or cells for a group's cell
 	// members) the fader has; Controllable how many of them it can dim.
 	Count           int      `json:"count"`
@@ -123,18 +131,11 @@ type faderDef struct {
 	members []ProgTarget
 }
 
-// dimmers is what fader d claims of member t (J1: a part fader its part, a
-// type MASTER its master part when the fixture has one).
+// dimmers is what fader d claims of member t (J1: a part fader its part;
+// J1b: a type Master, like a group member, the whole fixture — every part).
 func (d *faderDef) dimmers(m *FixtureModel, t ProgTarget) []*ProgParameter {
-	switch {
-	case d.view.Kind == FaderKindPart:
+	if d.view.Kind == FaderKindPart {
 		return partDimmers(m, d.view.Part)
-	case d.view.Kind == FaderKindType && len(m.Parts) > 1:
-		for _, pt := range m.Parts {
-			if pt.Master {
-				return partDimmers(m, pt.Key)
-			}
-		}
 	}
 	return dimmersOf(m, t)
 }
@@ -179,10 +180,15 @@ func (pg *Programmer) memberLabel(t ProgTarget) string {
 func (pg *Programmer) fadersLocked() []faderDef {
 	out := make([]faderDef, 0)
 	modes := map[string]map[string]bool{}
+	feet := map[string]map[uint16]bool{} // J1b: the type's mode footprints
 	for _, id := range pg.order {
 		m := pg.models[id]
 		if modes[m.FixtureType] == nil {
 			modes[m.FixtureType] = map[string]bool{}
+			feet[m.FixtureType] = map[uint16]bool{}
+		}
+		if !modes[m.FixtureType][m.Mode] {
+			feet[m.FixtureType][m.Footprint] = true
 		}
 		modes[m.FixtureType][m.Mode] = true
 	}
@@ -192,16 +198,21 @@ func (pg *Programmer) fadersLocked() []faderDef {
 		fid := "type:" + m.FixtureType + "|" + m.Mode
 		i, ok := idx[fid]
 		if !ok {
-			label := m.FixtureType
+			label, short := m.FixtureType, m.ShortType
 			if label == "" {
-				label = "No fixture type"
+				label, short = "No fixture type", "No fixture type"
 			}
-			if len(modes[m.FixtureType]) > 1 {
+			if n := len(modes[m.FixtureType]); n > 1 {
 				label += " — " + m.Mode
+				if len(feet[m.FixtureType]) == n {
+					short += fmt.Sprintf(" — %dch", m.Footprint)
+				} else {
+					short += " — " + m.Mode
+				}
 			}
 			i = len(out)
 			idx[fid] = i
-			out = append(out, faderDef{view: FaderView{ID: fid, Kind: FaderKindType, Label: label}})
+			out = append(out, faderDef{view: FaderView{ID: fid, Kind: FaderKindType, Label: label, ShortLabel: short}})
 		}
 		out[i].members = append(out[i].members, ProgTarget{EntryID: id})
 	}
@@ -224,12 +235,12 @@ func (pg *Programmer) fadersLocked() []faderDef {
 				continue
 			}
 			withParts = append(withParts, faderDef{view: FaderView{ID: "part:" + rest + "|" + pt.Key, Kind: FaderKindPart,
-				Label: pt.Name, Parent: d.view.ID, Part: pt.Key}, members: d.members})
+				Label: pt.Name, Parent: d.view.ID, Part: pt.Key, ShortLabel: d.view.ShortLabel}, members: d.members})
 		}
 	}
 	out = withParts
 	for _, g := range pg.faderGroups {
-		d := faderDef{view: FaderView{ID: "group:" + g.ID, Kind: FaderKindGroup, Label: g.Name}}
+		d := faderDef{view: FaderView{ID: "group:" + g.ID, Kind: FaderKindGroup, Label: g.Name, ShortLabel: g.Name}}
 		for _, t := range g.Members {
 			if m := pg.models[t.EntryID]; m != nil && (t.Cell == "" || m.HasCell(t.Cell)) {
 				d.members = append(d.members, t)
@@ -333,7 +344,7 @@ func (pg *Programmer) refreshFadersLocked(clear bool) {
 	}
 	var b strings.Builder
 	for _, d := range defs {
-		fmt.Fprintf(&b, "%s\x00%s\x00%d\x00%d\x00%s\n", d.view.ID, d.view.Label, d.view.Count, d.view.Controllable, strings.Join(d.view.NotControllable, "\x01"))
+		fmt.Fprintf(&b, "%s\x00%s\x00%s\x00%d\x00%d\x00%s\n", d.view.ID, d.view.Label, d.view.ShortLabel, d.view.Count, d.view.Controllable, strings.Join(d.view.NotControllable, "\x01"))
 	}
 	if b.String() != pg.faderDigest {
 		pg.faderDigest = b.String()

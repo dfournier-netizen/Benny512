@@ -49,14 +49,22 @@
 //     Dimmer — "if a fixture or subfixture doesn't have a dimmer channel,
 //     we'll need a virtual dimmer channel". The cell's output is its
 //     colour x its virtual level; the master, a real channel, stays on top.
-//     A WHOLE-fixture intensity control (Dimmer set, fan, a group-fader
-//     member, Lowlight) is that master; the cells' virtual dimmers are
-//     reached by selecting the cells (inScope), so the two never multiply
-//     by accident. Highlight and presets still take the whole look.
-//     J1: "the master" is the fixture's MASTER part (PARTS below), not any
-//     real Dimmer outside the cells — a fixture without one (the GLP
-//     JDC1: Beam Module and Plate Module dimmers, each over its own
-//     pixels) has its whole-fixture intensity reach every part.
+//     J1b (owner 2026-10-12 20:11, refining I2d4): a cell gets one only
+//     when its PART (PARTS below) has no real Dimmer of its own. The GLP
+//     JDC1's Plate Module dimmer masters its plate pixels on the real
+//     fixture, so the plate pixels have none and the Plate is driven by
+//     that dimmer; the Rayzor 1960's RGBW pixels (the head dimmer is the
+//     separate master part), the Paladin Cube's beams and a batten's
+//     pixels keep theirs.
+//     J1b (owner 2026-10-12 20:11, superseding I2d4's "a whole-fixture
+//     intensity control is the master only"): a WHOLE-fixture intensity
+//     control (Dimmer set, fan, the type's Master fader, a group-fader
+//     member, Lowlight, a dimmer test) drives EVERY part — the real master
+//     channel if there is one AND every other Dimmer, the cells' virtual
+//     dimmers included ("the Master overrides the subs"). Where a real
+//     master physically masters its cells too, the two levels multiply on
+//     the fixture (the owner's call). A cell target is still its own
+//     channels. Highlight and presets take the whole look, as before.
 //     It scales EVERY additive channel of the scope: every ColorAdd_*
 //     (W, WW/CW, amber, lime, UV, ...) and ColorRGB_* channel.
 //     UNVERIFIED: GDTF describes ColorRGB_* as "emitter or subtractive
@@ -83,8 +91,9 @@
 //     The MASTER part is the one part made only of real Dimmer channels
 //     that are not cells' — the only such part, or, when there are
 //     several, the only one whose key is a body geometry (base, body,
-//     head, yoke, main) or "". A part that also holds cells is a part
-//     dimmer, never the master. Rayzor 1960: head is the master; RGBW
+//     head, yoke, main) or "". A part that also holds cells (any cell
+//     whose geometry is in the part, J1b) is a part dimmer, never the
+//     master. Rayzor 1960: head is the master; RGBW
 //     pixels and SparkLED are parts. JDC1: no master; Beam and Plate are
 //     parts. A batten with one Dimmer and RGB cells: that Dimmer.
 //   - DARK AT ARM (J1, owner 2026-10-12, Dom's bench test: "when armed with
@@ -251,9 +260,12 @@ type ProgCell struct {
 
 // FixtureModel is one entry's parameter model.
 type FixtureModel struct {
-	EntryID       string `json:"entryId"`
-	Name          string `json:"name"`
-	FixtureType   string `json:"fixtureType"`
+	EntryID     string `json:"entryId"`
+	Name        string `json:"name"`
+	FixtureType string `json:"fixtureType"`
+	// ShortType (J1b) is ShortTypeName(FixtureType, the entry's GDTF
+	// short name): what fader labels show.
+	ShortType     string `json:"shortType"`
 	Mode          string `json:"mode"`
 	FixtureNumber string `json:"fixtureNumber"`
 	Universe      uint16 `json:"universe"`
@@ -297,7 +309,7 @@ func geometryName(instance string) string {
 // BuildFixtureModel derives e's parameter model. See the file comment.
 func BuildFixtureModel(e Entry) FixtureModel {
 	m := FixtureModel{
-		EntryID: e.ID, Name: e.Name, FixtureType: e.FixtureType, Mode: e.Mode, FixtureNumber: e.FixtureNumber,
+		EntryID: e.ID, Name: e.Name, FixtureType: e.FixtureType, ShortType: ShortTypeName(e.FixtureType, e.FixtureTypeShortName), Mode: e.Mode, FixtureNumber: e.FixtureNumber,
 		Universe: e.Universe, StartAddress: e.StartAddress, Footprint: e.Footprint,
 		Profiled: len(e.ChannelFunctions) > 0, Cells: make([]ProgCell, 0), Parts: make([]ProgPart, 0),
 		Parameters: make([]ProgParameter, 0), RawOffsets: make([]uint16, 0),
@@ -671,8 +683,21 @@ func addVirtualDimmers(m *FixtureModel) {
 			sc.additive = append(sc.additive, p.Offset)
 		}
 	}
+	// J1b (owner 2026-10-12 20:11): a CELL gets a virtual dimmer only
+	// when its PART (PartKey) has no real Dimmer — the JDC1's Plate Module
+	// dimmer masters its plate pixels on the fixture, so they have none.
+	realPart := map[string]bool{}
+	for _, p := range m.Parameters {
+		if p.Attribute == "Dimmer" && !p.Virtual {
+			key, _ := PartKey(p.Instance)
+			realPart[key] = true
+		}
+	}
 	add := func(sc *scope, off uint16) {
 		if sc.dimmer || !sc.r || !sc.g || !sc.b {
+			return
+		}
+		if key, _ := PartKey(sc.instance); sc.cellID != "" && realPart[key] {
 			return
 		}
 		m.Parameters = append(m.Parameters, ProgParameter{
@@ -718,6 +743,13 @@ func assignParts(m *FixtureModel) {
 	idx := map[string]int{}
 	names := map[string][]string{}
 	cells := map[string]bool{}
+	// J1b: a part holds cells when any cell's geometry is in it, dimmer or
+	// not — the JDC1's plate pixels have no virtual dimmers now (their
+	// Plate Module dimmer masters them), and the Plate is still a part.
+	for _, c := range m.Cells {
+		key, _ := PartKey(c.ID)
+		cells[key] = true
+	}
 	for _, p := range m.Parameters {
 		if p.Attribute != "Dimmer" {
 			continue
@@ -740,6 +772,18 @@ func assignParts(m *FixtureModel) {
 		names[key] = common[:n]
 		if p.Cell != "" || p.Virtual {
 			cells[key] = true
+		}
+	}
+	// J1b: the part's name also spans its cells' geometry names (the
+	// JDC1's Plate Module dimmer and its plate pixels = "Plate").
+	for _, c := range m.Cells {
+		key, words := PartKey(c.ID)
+		if common, ok := names[key]; ok {
+			n := 0
+			for n < len(common) && n < len(words) && common[n] == words[n] {
+				n++
+			}
+			names[key] = common[:n]
 		}
 	}
 	candidates := make([]int, 0)
@@ -837,16 +881,45 @@ func (m *FixtureModel) masterFor(cell string) *ProgParameter {
 	return nil
 }
 
+// cellPartDimmer (J1b) is, for a cell with no Dimmer of its own (real or
+// virtual — its part has a real dimmer, so it got no virtual one), the real
+// Dimmer outside the cells in the cell's part (the JDC1's Plate Module
+// dimmer for a plate pixel). nil: the cell has its own, or none is found.
+func (m *FixtureModel) cellPartDimmer(cell string) *ProgParameter {
+	key := "\x00"
+	for i := range m.Parameters {
+		p := &m.Parameters[i]
+		if p.Cell != cell {
+			continue
+		}
+		if p.Attribute == "Dimmer" {
+			return nil
+		}
+		if key == "\x00" && p.Instance != "" {
+			key, _ = PartKey(p.Instance)
+		}
+	}
+	for i := range m.Parameters {
+		p := &m.Parameters[i]
+		if p.Attribute == "Dimmer" && p.Cell == "" && !p.Virtual && len(p.Offsets) > 0 {
+			if k, _ := PartKey(p.Instance); k == key {
+				return p
+			}
+		}
+	}
+	return nil
+}
+
 // inScope (I2d4) reports whether p is one of target t's channels for a
 // control that acts by attribute (set, fan, command, the read model, group
 // faders): a cell target is its own channels; a whole fixture is every
-// channel EXCEPT the cells' virtual dimmers when the fixture has a real
-// master Dimmer (the master is its intensity; see VIRTUAL DIMMER above).
+// channel, its cells' virtual dimmers included (J1b, owner 2026-10-12: the
+// master drives every part; I2d4 left those out when it had a master).
 func (m *FixtureModel) inScope(t ProgTarget, p *ProgParameter) bool {
 	if t.Cell != "" {
 		return p.Cell == t.Cell
 	}
-	return !(p.Virtual && p.Cell != "" && m.hasMasterDimmer())
+	return true
 }
 
 func (m FixtureModel) HasCell(id string) bool {

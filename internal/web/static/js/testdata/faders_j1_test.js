@@ -6,6 +6,9 @@
 // several intensity parts is drawn as one labelled cluster: its MASTER
 // fader first, then one fader per part, each named "<type> · <part>" for
 // assistive technology; a type with one part keeps its one plain fader.
+// J1b (owner 2026-10-12 20:11): the bar SHOWS the short type name
+// (shortLabel: the GDTF short name, else derived); the full name stays in
+// every accessible label and tooltip.
 //
 // usage: node faders_j1_test.js <jsDir> <baseURL>
 'use strict';
@@ -81,6 +84,7 @@ const srvFader = async id => (await server('GET', '/api/faders')).body.faders.fi
   const partsOf = f => srv.faders.filter(p => p.kind === 'part' && p.parent === f.id);
   const jd = byLabel('Test JDC-like strobe'), rz = byLabel('Test Rayzor-like bar'), er = byLabel('Test ERA-like spot'), pc = byLabel('Test Paladin-like cube');
   check(jd && rz && er && pc && jd.hasParts && rz.hasParts && !er.hasParts && !pc.hasParts, 'the server says which types have parts (JD, RZ) and which do not (ER, PC)');
+  check(jd.shortLabel === 'JDC-like' && rz.shortLabel === 'Rayzor-like', 'the server gives the GDTF short type names', [jd.shortLabel, rz.shortLabel]);
 
   // --- a type with parts: one cluster, Master first, then its parts ----------
   for (const [t, want] of [[jd, ['Beam', 'Plate']], [rz, ['Spark LED Strobe Module', 'RGBW Pixel']]]) {
@@ -89,7 +93,7 @@ const srvFader = async id => (await server('GET', '/api/faders')).body.faders.fi
     if (!cl) continue;
     check(cl.getAttribute('role') === 'group' && cl.getAttribute('aria-label') === t.label + ' — master and parts', t.label + ': the cluster is a group named in words', cl.getAttribute('aria-label'));
     const head = cl.querySelector('[data-gfader-cluster-label]');
-    check(head && head.textContent === t.label, t.label + ': the cluster heading is the type name', head && head.textContent);
+    check(head && head.textContent === t.shortLabel && head.getAttribute('title') === t.label, t.label + ': the cluster heading shows the short type name, the full one as its title', head && [head.textContent, head.getAttribute('title')]);
     const ids = [...cl.querySelectorAll('[data-gfader-id]')].map(e => e.getAttribute('data-gfader-id'));
     const parts = partsOf(t);
     check(same(ids, [t.id, ...parts.map(p => p.id)]) && same(parts.map(p => p.label), want), t.label + ': Master first, then ' + want.join(', '), ids);
@@ -111,8 +115,9 @@ const srvFader = async id => (await server('GET', '/api/faders')).body.faders.fi
   // --- a type with one part keeps its one plain fader ------------------------
   for (const t of [er, pc]) {
     const el = fader(t.id);
-    check(el && !el.closest('[data-gfader-cluster]') && el.querySelector('[data-gfader-label]').textContent === t.label && el.getAttribute('aria-label') === t.label,
-      t.label + ': one plain fader, as before', el && el.getAttribute('aria-label'));
+    check(el && !el.closest('[data-gfader-cluster]') && el.querySelector('[data-gfader-label]').textContent === t.shortLabel && el.getAttribute('aria-label') === t.label
+      && el.querySelector('[data-gfader-label]').getAttribute('title') === t.label,
+      t.label + ': one plain fader showing its short label, the full name in its group label and title', el && el.getAttribute('aria-label'));
   }
   check(!q('[data-faders-section="group"] [data-gfader-cluster]'), 'no clusters under Groups');
 
