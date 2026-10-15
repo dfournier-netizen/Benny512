@@ -120,3 +120,26 @@ Non-intensity channels keep their GDTF defaults (JDC1 ch1–2 = 128, Rayzor ch9 
 
   Whether this is dark on the fixture at Master 0 depends on the head dimmer actually governing the pixels and the SparkLED; the tree from his re-import decides it.
 - **Highlight on a cell** (temp copy in a real build): RGBW Pixel:21 → 3 channels (its virtual dimmer, the head, the virtual master); a JDC1 plate pixel → 5 (its RGB, ch8, the virtual master).
+
+## 8. J1d — no double dimming inside a part (owner 2026-10-13 10:39), on the real show
+
+**Written:** 2026-10-13 11:06:10 -0400, branch `feat/intensity-polish` at `4c5c106`. Same method; raw output `J1d-domshow-after.txt`. Dom's show still has **no geometry tree** (not re-imported), so as stored nothing changes; to exercise the rule on his real JDC1 profile the harness also gives it a **synthetic** tree built from its own instance names (each beam/plate pixel under its part's non-cell dimmer geometry, the modules on a root). Whether the real JDC1 GDTF nests the beam pixels under the Beam Module is **not yet read**.
+
+- Rule: inside one part, a dimmer whose geometry descends from the geometry of another dimmer of the same part is inner. A part fader sets the outermost dimmer(s) and holds the inner ones open (weakest claim); the software master multiplies only outer dimmers.
+- **JDC1 405**, as stored (no tree): inner none; software master over ch3, ch51–62, ch8 — J1c unchanged:
+
+| Faders | ch3 | ch8 | ch51–62 |
+|---|---|---|---|
+| Master 100 %, Beam 50 % | 128 | 0 | 128 each (25 % on the fixture if the pixels sit under ch3) |
+| Beam 100 %, Master 50 % | 128 | 0 | 128 each |
+
+- **JDC1 405**, synthetic tree: inner ch51–62; software master over ch3 and ch8 only:
+
+| Faders | ch3 | ch8 | ch51–62 |
+|---|---|---|---|
+| Master 100 %, Beam 50 % | 128 | 0 | 255 each (held open: 50 % on the fixture) |
+| Beam 100 %, Master 50 % | 128 | 0 | 255 each |
+| released | 0 | 0 | 0 |
+
+- **Rayzor whole-fixture Dimmer card:** no longer MIXED at equal levels (16-bit head 32 768 and 8-bit virtual master 128 read "50 %"); J1c showed "MIXED 0–0 %" at rest.
+- **Re-run 2026-10-13 12:52:35 -0400 at `14ca193`** (`J1d-domshow-final.txt`): unchanged frames as above; 590 intensity parameters, 0 above zero at Arm. Fader flags: treeUnknown on the Rayzor Master (J1c note) and on the JDC1 **Beam** part (Beam Module + 12 beam-pixel dimmers, no tree: "Every dimmer of this part takes this level — re-import the GDTF to refine."); not on the Plate (one dimmer), the Rayzor SparkLED (one) or RGBW Pixel (virtual dimmers only).

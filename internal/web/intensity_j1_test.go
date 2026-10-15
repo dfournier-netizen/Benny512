@@ -439,7 +439,11 @@ func TestFaderBar_J1Parts(t *testing.T) {
 	delete(legacy, "geometryParents")
 	delete(legacy, "fixtureTypeShortName")
 	legacy["name"], legacy["fixtureType"], legacy["startAddress"] = "RZL", "Test Rayzor-like bar (legacy)", 101
-	if rr := r.do(t, "POST", "/api/patch/import", map[string]any{"mode": "merge", "entries": []any{legacy}}, nil); rr.Code != http.StatusOK {
+	// J1d: a single-part type with nested real dimmers, imported without
+	// its tree (its plain type fader says so).
+	nbl := map[string]any{"name": "NBL", "fixtureType": "Test nested bar (legacy)", "mode": "Test", "footprint": 4, "universe": 3, "startAddress": 161,
+		"channelFunctions": j1Functions([]j1Row{{1, "Head:0", "Dimmer", 1, 0}, {2, "Head Pixel:0", "Dimmer", 1, 0}, {3, "Head Pixel:1", "Dimmer", 1, 0}, {4, "Head Pixel:2", "Dimmer", 1, 0}})}
+	if rr := r.do(t, "POST", "/api/patch/import", map[string]any{"mode": "merge", "entries": []any{legacy, nbl}}, nil); rr.Code != http.StatusOK {
 		t.Fatalf("import: %d %s", rr.Code, rr.Body.String())
 	}
 	ts := httptest.NewServer(r.h.srv.Handler())

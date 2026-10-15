@@ -118,6 +118,16 @@
 //     channel (GLP JDC1) every part is multiplied in software. A profile
 //     without its tree (imported before J1c) counts every part as governed
 //     by a master channel — the fader says so ("re-import to refine").
+//   - INNER DIMMERS (J1d, owner 2026-10-13 10:39: no double dimming
+//     INSIDE a part). Inside one part, a dimmer whose geometry descends
+//     (Entry.GeometryParents) from the geometry of another dimmer of the
+//     same part — the JDC1's beam pixels under its Beam Module dimmer, if
+//     the GDTF tree puts them there — is dimmed by that outer dimmer on the
+//     fixture. The part's own level goes to its OUTERMOST dimmer(s) only:
+//     a part fader sets them and holds the inner ones open (faders.go), and
+//     the software master multiplies only them. The same tree rule as the
+//     master versus its parts. Without the tree (a legacy profile) nothing
+//     is inner: every dimmer of the part takes the part level (J1c).
 //   - DARK AT ARM (J1, owner 2026-10-12, Dom's bench test: "when armed with
 //     an empty programmer, every intensity starts at 0, whatever the GDTF
 //     default says"). An INTENSITY parameter rests at 0, not at its stated
@@ -262,6 +272,9 @@ type ProgParameter struct {
 	// DarkAtArm (J1): an intensity parameter, resting at 0 whatever the
 	// profile's default (see DARK AT ARM in the file comment).
 	DarkAtArm bool `json:"darkAtArm"`
+	// inner (J1d): a dimmer of a part whose geometry lies under another
+	// dimmer of the same part (INNER DIMMERS in the file comment).
+	inner     bool
 	virtualOf []uint16
 	// channelName is the GDTF DMXChannel name a ModeMaster link starts
 	// with: geometry name + "_" + first logical channel attribute (DIN SPEC
@@ -477,6 +490,7 @@ func BuildFixtureModel(e Entry) FixtureModel {
 	assignCells(&m)
 	addVirtualDimmers(&m)
 	assignParts(&m)
+	markInnerDimmers(&m, e.GeometryParents)
 	addVirtualMaster(&m, e.GeometryParents)
 	firstOnly := 0
 	for i := range m.Parameters {
@@ -1076,6 +1090,9 @@ func addVirtualMaster(m *FixtureModel, tree map[string]string) {
 			continue
 		}
 		for _, p := range params {
+			if p.inner {
+				continue // J1d: dimmed on the fixture by its part's outer dimmer
+			}
 			if p.Virtual {
 				masterOf = append(masterOf, p.virtualOf...)
 			} else {
@@ -1090,6 +1107,41 @@ func addVirtualMaster(m *FixtureModel, tree map[string]string) {
 			DMXFrom: 0, DMXTo: 255, HasDefault: true, Default: 0, Sets: make([]ProgSet, 0)}},
 		Virtual: true, Master: true, masterOf: masterOf,
 	})
+}
+
+// markInnerDimmers (J1d) marks each intensity parameter whose geometry lies
+// under the geometry of another intensity parameter of the same part — see
+// INNER DIMMERS in the file comment. tree is the GDTF geometry tree
+// (instance -> parent); nil (a profile without it) marks nothing.
+func markInnerDimmers(m *FixtureModel, tree map[string]string) {
+	if tree == nil {
+		return
+	}
+	insts := map[int]map[string]bool{} // part -> geometries holding its dimmers
+	for i := range m.Parameters {
+		p := &m.Parameters[i]
+		if pi := m.partOf(p); pi >= 0 && p.Instance != "" {
+			if insts[pi] == nil {
+				insts[pi] = map[string]bool{}
+			}
+			insts[pi][p.Instance] = true
+		}
+	}
+	for i := range m.Parameters {
+		p := &m.Parameters[i]
+		pi := m.partOf(p)
+		if pi < 0 || p.Instance == "" {
+			continue
+		}
+		cur, ok := tree[p.Instance]
+		for n := 0; ok && n < 256 && cur != ""; n++ {
+			if insts[pi][cur] {
+				p.inner = true
+				break
+			}
+			cur, ok = tree[cur]
+		}
+	}
 }
 
 func (m FixtureModel) HasCell(id string) bool {
