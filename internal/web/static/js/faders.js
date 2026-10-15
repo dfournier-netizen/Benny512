@@ -155,7 +155,7 @@ const Faders = (() => {
     // J1b: the bar shows the short type name; the full one is the label.
     const shown = names ? names.shown : (f.shortLabel || f.label), full = names ? names.full : f.label;
     // J1c: a Master over a profile without its geometry tree says so.
-    const note = names && names.note ? names.note : '';
+    const note = names && names.note ? names.note : (!names && f.kind === 'type' && f.treeUnknown ? PART_NOTE : '');
     return `<div class="b5-fader${lv === null ? ' is-untouched' : ''}${f.kind === 'type' && f.hasParts ? ' b5-fader--master' : ''}" data-gfader-id="${esc(f.id)}" role="group" aria-label="${esc(full)}">
       <div class="b5-fader__label" data-gfader-label title="${esc(note ? full + ' — ' + note : full)}">${esc(shown)}</div>${note ? `<span class="b5-visually-hidden" data-gfader-tree-note>${esc(note)}</span>` : ''}
       <div class="b5-fader__meta" data-gfader-count>${f.count} ${f.count === 1 ? 'fixture' : 'fixtures'}</div>
@@ -195,6 +195,9 @@ const Faders = (() => {
   // channel does not dim on the fixture; without the GDTF geometry tree
   // every part counts as dimmed by it, and the Master says so.
   const TREE_NOTE = 'Parts counted as dimmed by the master channel — re-import the GDTF to refine.';
+  // J1d: a part fader (or a single-part type's plain fader) over a part with
+  // several real dimmers and no tree sets every one of them.
+  const PART_NOTE = 'Every dimmer of this part takes this level — re-import the GDTF to refine.';
 
   // clusterHTML (J1): a type with parts — its name over its Master and its
   // part faders, one group for assistive technology.
@@ -203,7 +206,7 @@ const Faders = (() => {
     const master = Object.assign(at('Master'), t.treeUnknown ? { note: TREE_NOTE } : {});
     return `<div class="b5-fader-cluster" data-gfader-cluster="${esc(t.id)}" role="group" aria-label="${esc(t.label)} — master and parts">
       <div class="b5-fader-cluster__label" data-gfader-cluster-label title="${esc(t.label)}">${esc(t.shortLabel || t.label)}</div>
-      <div class="b5-faders__row">${faderHTML(t, master)}${parts.map(p => faderHTML(p, at(p.label))).join('')}</div></div>`;
+      <div class="b5-faders__row">${faderHTML(t, master)}${parts.map(p => faderHTML(p, Object.assign(at(p.label), p.treeUnknown ? { note: PART_NOTE } : {}))).join('')}</div></div>`;
   }
 
   function renderHint() {

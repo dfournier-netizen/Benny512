@@ -234,6 +234,21 @@ const ConsoleControls = (() => {
     const max = v0(a).max, bc = v0(a).byteCount || 1;
     const fi = activeFn(a);
     const f = fi >= 0 ? v0(a).functions[fi] : null;
+    // J1d: channels of different resolutions (a whole fixture's 16-bit
+    // master channel and its 8-bit virtual master) are one range only in
+    // normalized percent; each DMX value is said on its own scale.
+    const vmax = c => (a.variants[c.variant] || v0(a)).max || max;
+    if (a.mixed && a.channels.some(c => vmax(c) !== max)) {
+      const fr = a.channels.map(c => c.value / vmax(c));
+      const raw = [...new Set(a.channels.map(vmax))].map(m => {
+        const vs = a.channels.filter(c => vmax(c) === m).map(c => c.value);
+        const lo = Math.min(...vs), hi = Math.max(...vs);
+        return (lo === hi ? num(lo) : num(lo) + '–' + num(hi)) + ' / ' + num(m);
+      });
+      const bits = [...new Set(a.variants.map(v => 8 * (v.byteCount || 1) + '-bit'))];
+      return { main: 'MIXED ' + Math.round(Math.min(...fr) * 100) + '–' + Math.round(Math.max(...fr) * 100) + NB + '%',
+        sub: raw.join(' · ') + ' · reference (first selected) ' + num(a.channels[0].value) + ' / ' + num(vmax(a.channels[0])), bits: bits.length > 1 || bc > 1 ? bits.join(' + ') : '' };
+    }
     if (a.mixed) return Object.assign(mixfmt(a.channels.map(c => c.value), max, f), { bits: bc > 1 ? 8 * bc + '-bit' : '' });
     const r = vfmt(a.attribute, chanValue(a), max, f, bc);
     if (f && v0(a).functions.length > 1) r.sub += ' · ' + f.name;

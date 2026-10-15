@@ -55,8 +55,10 @@ type ProgChannelView struct {
 // ProgAttrView is one attribute across the selection.
 type ProgAttrView struct {
 	Attribute string `json:"attribute"`
-	// Mixed: the channels do not all hold the same value at the same byte
-	// count. Value is the shared value, null when Mixed.
+	// Mixed: the channels do not all hold the same level — the same value
+	// at one resolution, the same normalized value at the coarser one
+	// across resolutions (sameLevel, J1d). Value is the first channel's
+	// value (at its own resolution), null when Mixed.
 	Mixed      bool    `json:"mixed"`
 	Value      *uint32 `json:"value"`
 	Touched    bool    `json:"touched"`
@@ -198,7 +200,7 @@ func (pg *Programmer) View() ProgView {
 				av.Touched = av.Touched || c.Touched
 				av.AllTouched = av.AllTouched && c.Touched
 				av.UnknownDefault = av.UnknownDefault || (!c.Touched && !c.DefaultKnown)
-				if i > 0 && (c.Value != av.Channels[0].Value || c.ByteCount != av.Channels[0].ByteCount) {
+				if i > 0 && !sameLevel(c, av.Channels[0], av.Variants) {
 					av.Mixed = true
 				}
 			}
@@ -211,6 +213,26 @@ func (pg *Programmer) View() ProgView {
 		v.Groups = append(v.Groups, gv)
 	}
 	return v
+}
+
+// sameLevel (J1d, owner 2026-10-13 10:39) reports whether channels a and b
+// hold the same level. At one resolution that is the same value; across
+// resolutions (a whole fixture's 16-bit master channel and its 8-bit
+// virtual master, always set together) it is the same normalized value
+// (value / max) at the coarser resolution, rounded to its nearest count —
+// so 32768 of 65535 and 128 of 255 are one level, 128 and 129 of 255 are
+// not.
+func sameLevel(a, b ProgChannelView, variants []ProgVariant) bool {
+	ma, mb := uint64(variants[a.Variant].Max), uint64(variants[b.Variant].Max)
+	if ma == mb || ma == 0 || mb == 0 {
+		return a.Value == b.Value && a.ByteCount == b.ByteCount
+	}
+	coarse := ma
+	if mb < coarse {
+		coarse = mb
+	}
+	at := func(v, max uint64) uint64 { return (v*coarse*2 + max) / (2 * max) }
+	return at(uint64(a.Value), ma) == at(uint64(b.Value), mb)
 }
 
 // Selection returns the current selection.

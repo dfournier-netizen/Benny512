@@ -107,7 +107,8 @@ const srvFader = async id => (await server('GET', '/api/faders')).body.faders.fi
       check(el.querySelector('[data-gfader-label]').textContent === p.label && el.getAttribute('aria-label') === name
         && el.querySelector('[role="slider"]').getAttribute('aria-label') === name + ' dimmer level'
         && el.querySelector('[data-gfader-release]').getAttribute('aria-label') === 'Release ' + name
-        && el.querySelector('[data-gfader-label]').getAttribute('title') === name,
+        // J1d: a part over a profile without its tree adds a note (checked below).
+        && el.querySelector('[data-gfader-label]').getAttribute('title') === (p.treeUnknown ? name + ' — Every dimmer of this part takes this level — re-import the GDTF to refine.' : name),
       'part fader "' + name + '": its part word on the fader, the full name in its group, slider, Release and title', [el.getAttribute('aria-label'), el.querySelector('[data-gfader-label]').textContent]);
       check(el.querySelector('[data-gfader-value]').textContent === '—', '"' + name + '" starts untouched ("—")');
     }
@@ -131,6 +132,28 @@ const srvFader = async id => (await server('GET', '/api/faders')).body.faders.fi
     check(m && m.querySelector('[data-gfader-label]').getAttribute('title').indexOf(words) >= 0 && note && note.textContent === words,
       'the legacy Master says in words, in its tooltip and to assistive technology: "' + words + '"', m && [m.querySelector('[data-gfader-label]').getAttribute('title'), note && note.textContent]);
     check(!fader(rz.id).querySelector('[data-gfader-tree-note]') && !/re-import/.test(fader(rz.id).querySelector('[data-gfader-label]').getAttribute('title')), 'a Master whose tree is known says nothing of it');
+  }
+
+  // --- J1d: a part fader over a profile without its tree says so -----------
+  // Without the GDTF tree nothing is known to be inner, so every dimmer of
+  // the part takes the part's level (J1c); a part with more than one real
+  // dimmer (the JD's Beam: Beam Module + 3 beam pixels) says so. One dimmer
+  // (the Plate) or virtual dimmers only (the RZ pixels) have nothing to say.
+  {
+    const PART_NOTE = 'Every dimmer of this part takes this level — re-import the GDTF to refine.';
+    const beam = partsOf(jd).find(p => p.label === 'Beam'), plateP = partsOf(jd).find(p => p.label === 'Plate');
+    const pix = partsOf(rz).find(p => p.label === 'RGBW Pixel');
+    check(beam.treeUnknown && !plateP.treeUnknown && !pix.treeUnknown, 'the server marks the JD Beam part treeUnknown, not the Plate or the RZ pixels', [beam.treeUnknown, plateP.treeUnknown, pix.treeUnknown]);
+    const el = fader(beam.id), note = el && el.querySelector('[data-gfader-tree-note]');
+    check(note && note.textContent === PART_NOTE && el.querySelector('[data-gfader-label]').getAttribute('title').indexOf(PART_NOTE) >= 0,
+      'the Beam part fader says "' + PART_NOTE + '" in its tooltip and to assistive technology', el && [el.querySelector('[data-gfader-label]').getAttribute('title'), note && note.textContent]);
+    check(!fader(plateP.id).querySelector('[data-gfader-tree-note]') && !fader(pix.id).querySelector('[data-gfader-tree-note]'), 'the Plate and the RZ pixels carry no such note');
+    // A single-part type's plain fader is that part's fader (J1d): the same words.
+    const nbl = byLabel('Test nested bar (legacy)');
+    const nel = nbl && fader(nbl.id), nnote = nel && nel.querySelector('[data-gfader-tree-note]');
+    check(nbl && nbl.treeUnknown && !nbl.hasParts && nnote && nnote.textContent === PART_NOTE && nel.querySelector('[data-gfader-label]').getAttribute('title').indexOf(PART_NOTE) >= 0,
+      'a single-part type with nested dimmers and no tree: its plain fader says so too', nel && [nbl.treeUnknown, nel.querySelector('[data-gfader-label]').getAttribute('title')]);
+    check(!fader(er.id).querySelector('[data-gfader-tree-note]'), 'a type with one dimmer says nothing');
   }
 
   // --- the part and master faders write their own ids ------------------------

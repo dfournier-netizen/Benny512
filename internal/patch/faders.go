@@ -39,7 +39,16 @@
 // owner 2026-10-13 09:31, superseding J1b's "the Master sets every part";
 // programmer_model.go MASTER MULTIPLIER). A part fader claims every
 // Dimmer, real or virtual, of its part in each member: the part's own
-// level beneath the master. Stored-group faders: a whole-fixture member is
+// level beneath the master. J1d (owner 2026-10-13 10:39, no double dimming
+// inside a part; programmer_model.go INNER DIMMERS): where the GDTF tree
+// puts a dimmer of the part under another dimmer of the same part, the
+// part fader sets only the OUTERMOST dimmer(s) and holds the inner ones
+// open at full — the weakest claim, taken only where no moved fader gives
+// them a level (a stored group's cell members keep theirs; the programmer
+// is above every fader) — so Beam at 50 % shows 50 %, not 25 %. Without
+// the tree every dimmer of the part takes the level (J1c). The plain type
+// fader of a type with ONE intensity part is that part's fader and follows
+// the same rule (coordinator decision, 2026-10-13). Stored-group faders: a whole-fixture member is
 // its master level, a cell member that cell's own dimmer. A type with one part keeps its one fader,
 // unchanged; stored-group faders are unchanged.
 // Master and parts claim different parameters (J1c), so neither overwrites
@@ -111,7 +120,10 @@ type FaderView struct {
 	// TreeUnknown (J1c): a type Master over parts whose profile has no
 	// GDTF geometry tree, so every part counts as dimmed by the master
 	// channel on the fixture (no software multiply) — re-import the GDTF
-	// to refine.
+	// to refine. J1d: also a part fader — or the plain type fader of a
+	// single-part type, which is its part's fader — over a part with more
+	// than one real dimmer and no tree: nothing is known to be inner, so
+	// every dimmer of the part takes the level.
 	TreeUnknown bool `json:"treeUnknown"`
 	// Count is how many members (fixtures, or cells for a group's cell
 	// members) the fader has; Controllable how many of them it can dim.
@@ -144,15 +156,61 @@ func (d *faderDef) dimmers(m *FixtureModel, t ProgTarget) []*ProgParameter {
 	if d.view.Kind == FaderKindPart {
 		return partDimmers(m, d.view.Part)
 	}
+	if d.singlePart(m) {
+		return partDimmers(m, m.Parts[0].Key)
+	}
 	return dimmersOf(m, t)
 }
 
-// partDimmers is every Dimmer (real or virtual) of m's part key.
+// held (J1d) is what fader d holds open of member t: a part fader's inner
+// dimmers, and a single-part type fader's (it is that part's fader).
+func (d *faderDef) held(m *FixtureModel, t ProgTarget) []*ProgParameter {
+	if d.view.Kind == FaderKindPart {
+		return partInner(m, d.view.Part)
+	}
+	if d.singlePart(m) {
+		return partInner(m, m.Parts[0].Key)
+	}
+	return nil
+}
+
+// singlePart (J1d, coordinator 2026-10-13): d is the plain type fader of a
+// type with ONE intensity part — its part's fader, so the inner-dimmer
+// rule applies to it as to a part fader.
+func (d *faderDef) singlePart(m *FixtureModel) bool {
+	return d.view.Kind == FaderKindType && !d.view.HasParts && len(m.Parts) == 1
+}
+
+// realDimmerCount (J1d) is how many real Dimmer channels part pt has
+// (virtual dimmers have synthetic offsets above any footprint).
+func realDimmerCount(pt ProgPart) int {
+	n := 0
+	for _, off := range pt.Dimmers {
+		if off < VirtualMasterOffset {
+			n++
+		}
+	}
+	return n
+}
+
+// partDimmers is every Dimmer (real or virtual) of m's part key that is
+// not inner (J1d): the part's outermost dimmers, which take its level.
 func partDimmers(m *FixtureModel, key string) []*ProgParameter {
+	return partParams(m, key, false)
+}
+
+// partInner (J1d) is every inner Dimmer of m's part key: a part fader holds
+// them open (full) where no other fader gives them a level, so the part
+// shows at its fader's level once — never outer x inner.
+func partInner(m *FixtureModel, key string) []*ProgParameter {
+	return partParams(m, key, true)
+}
+
+func partParams(m *FixtureModel, key string, inner bool) []*ProgParameter {
 	out := make([]*ProgParameter, 0)
 	for i := range m.Parameters {
 		p := &m.Parameters[i]
-		if pi := m.partOf(p); pi >= 0 && m.Parts[pi].Key == key {
+		if pi := m.partOf(p); pi >= 0 && m.Parts[pi].Key == key && p.inner == inner {
 			out = append(out, p)
 		}
 	}
@@ -235,6 +293,8 @@ func (pg *Programmer) fadersLocked() []faderDef {
 			for _, pt := range parts {
 				d.view.TreeUnknown = d.view.TreeUnknown || (pt.Master && !m0.TreeKnown)
 			}
+		} else if len(parts) == 1 {
+			d.view.TreeUnknown = !m0.TreeKnown && realDimmerCount(parts[0]) > 1
 		}
 		withParts = append(withParts, d)
 		if !d.view.HasParts {
@@ -246,7 +306,8 @@ func (pg *Programmer) fadersLocked() []faderDef {
 				continue
 			}
 			withParts = append(withParts, faderDef{view: FaderView{ID: "part:" + rest + "|" + pt.Key, Kind: FaderKindPart,
-				Label: pt.Name, Parent: d.view.ID, Part: pt.Key, ShortLabel: d.view.ShortLabel}, members: d.members})
+				Label: pt.Name, Parent: d.view.ID, Part: pt.Key, ShortLabel: d.view.ShortLabel,
+				TreeUnknown: !m0.TreeKnown && realDimmerCount(pt) > 1}, members: d.members})
 		}
 	}
 	out = withParts
@@ -301,6 +362,19 @@ func (pg *Programmer) applyFadersLocked(defs []faderDef) {
 					keys = append(keys, k)
 				}
 				chans[k] = assign{p, *d.view.Level}
+			}
+		}
+	}
+	// J1d: a moved part fader holds its part's inner dimmers open — the
+	// weakest claim, taken only where no moved fader sets a level.
+	for _, d := range moved {
+		for _, t := range d.members {
+			for _, p := range d.held(pg.models[t.EntryID], t) {
+				k := progKey{t.EntryID, p.Offset}
+				if _, seen := chans[k]; !seen {
+					keys = append(keys, k)
+					chans[k] = assign{p, 1}
+				}
 			}
 		}
 	}
