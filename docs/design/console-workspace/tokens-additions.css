@@ -1,0 +1,33 @@
+/* Proposed workspace roles only; load after production console-tokens.css. */
+:root, [data-theme="dark"] {
+  --b5-workspace-window-bg: var(--b5-color-bg-surface);
+  --b5-workspace-window-border: var(--b5-color-border-control);
+  --b5-workspace-dock-border: var(--b5-color-border-strong);
+  --b5-workspace-drop-bg: var(--b5-color-accent-fill);
+  --b5-workspace-drop-border: var(--b5-color-accent-border);
+  --b5-workspace-intensity-track: var(--b5-color-bg-inset);
+  --b5-workspace-intensity-fill: var(--b5-color-accent-fill);
+  --b5-workspace-intensity-text: var(--b5-color-text-primary);
+  --b5-workspace-intensity-edge: var(--b5-color-accent-border);
+  --b5-workspace-tag-bg: var(--b5-color-bg-surface);
+  --b5-workspace-tag-set: var(--b5-color-text-accent);
+  --b5-workspace-tag-test: var(--b5-color-text-info);
+  --b5-workspace-tag-highlight: var(--b5-color-text-warning);
+  --b5-workspace-shadow: var(--b5-shadow-lg); /* decorative; boundary carries contrast */
+}
+[data-theme="light"] {
+  --b5-workspace-window-bg: var(--b5-color-bg-surface);
+  --b5-workspace-window-border: var(--b5-color-border-control);
+  --b5-workspace-dock-border: var(--b5-color-border-strong);
+  --b5-workspace-drop-bg: var(--b5-color-accent-fill);
+  --b5-workspace-drop-border: var(--b5-color-accent-border);
+  --b5-workspace-intensity-track: var(--b5-color-bg-inset);
+  --b5-workspace-intensity-fill: var(--b5-color-accent-fill);
+  --b5-workspace-intensity-text: var(--b5-color-text-primary);
+  --b5-workspace-intensity-edge: var(--b5-color-accent-border);
+  --b5-workspace-tag-bg: var(--b5-color-bg-surface);
+  --b5-workspace-tag-set: var(--b5-color-text-accent);
+  --b5-workspace-tag-test: var(--b5-color-text-info);
+  --b5-workspace-tag-highlight: var(--b5-color-text-warning);
+  --b5-workspace-shadow: var(--b5-shadow-lg); /* decorative; boundary carries contrast */
+}

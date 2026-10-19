@@ -1,6 +1,14 @@
 # Benny512 — Session Handoff Brief (current)
 
-**Last updated:** 2026-10-18 22:49:27 -0400
+**Last updated:** 2026-10-19 15:03:50 -04:00
+
+## Current delta — Console Workspace W1 design package (`codex/console-workspace-design`)
+
+Owner asked to carry out the latest Console-Workspace brief. Delivered design-only W1 in `docs/design/console-workspace/`: start with `README.md` and `index.html`. Includes 19 metadata-free icons, new-role aliases, 62 passing contrast pairs, component/keyboard/ARIA specs and 18 interactive review scenes at four laptop sizes with Dark/Daylight/greyscale/dim and coarse-target previews. Controls docks right at 440 px by default, can float/resize/hide, and other windows start hidden; Plan/Compact, grid-only Fit, live fixture/cell grammar and separate Tests tab are illustrated. At 1024, the Active layer selector keeps the toolbar to one row. At 1440×900 the default grid is 1000×616 with the existing 60 px Disarm target retained.
+
+Proposals, not newly confirmed decisions: right-only dock; Raw DMX/Tools remain in Controls; full selection tools on Tests; no new global shortcuts; programmer-colour swatch labelled honestly. Current C9/C9c and J1c/J1d behavior supersedes the historical Console-lite notes below. Engine-composed fixture/cell intensity/source telemetry is still unverified; production must not substitute programmer values or unknown zeros. Owner asset/mockup review remains the gate before production work. Dated W0 inputs, production code, engine/show data, phone/tablet, group-fader design and theme editor were not changed.
+
+Validation: 576 browser layout cases and 14 keyboard/focus/state checks pass; 42 screenshots and JSON evidence saved. All seven package scripts pass Node syntax checks; both generators pass; 19 SVG symbols parse without metadata or ID collisions. Go/gofmt absent, so Go gates and a disposable --demo build could not run; standalone loopback Chrome render used. Physical touch/glove/dark-venue and screen-reader checks remain. `verification.md` records exact scope and limitations.
 
 ## Current delta — Console workspace redesign, mockup + brief (`docs/console-workspace-design`)
 
