@@ -77,6 +77,9 @@ Diagnosis and re-verification on Dom's real show: `docs/evidence/analysis/J1-ben
 - **Follow-up (Dom, 22:46; recorded 2026-10-18 22:49:27 -0400):** windows are **resizable**; **Controls docks on the right edge** (the grid's Fit uses the space left of the dock); any window can float.
 - Brief for the design agent: `docs/design/console-workspace/ui-brief_2026-10-18_2249.md`; reference mockup: `docs/design/console-workspace/mockup_2026-10-18_2249.html` (the 22:42 versions are kept, superseded).
 
+## Owner request (Dom, 2026-10-19 14:46; recorded 2026-10-19 15:57:11 -0400)
+- Prep the design agent to make choices for **screen organization and UI optimization** across the app, with Claude's recommendations. Brief: `docs/design/ui-organization/brief_2026-10-19_1557.md` (written on top of W1; an earlier 14:47 draft predating W1 was never committed). Sequenced after the owner's W1 review.
+
 ## Chunks (each is one or more commits, gates green, docs updated)
 | # | Chunk | Depends on |
 |---|-------|-----------|
@@ -120,6 +123,7 @@ Diagnosis and re-verification on Dom's real show: `docs/evidence/analysis/J1-ben
 | J1d | Owner answers to J1c (2026-10-13 10:39; branch `feat/intensity-polish` from main `ded8d4a`): no double dimming inside a part (outermost dimmers by the tree), MIXED across resolutions, C2PA-free icon sprite + static-file guard; stored-group and non-cell-part rules confirmed | J1c |
 | W0 | Console workspace redesign — mockup + design brief (branch `docs/console-workspace-design`), owner review of the mockup | J1d |
 | W1 | Design agent package per the W0 brief (icons, component-spec addendum, tokens, contrast, scenes) | W0 approved |
+| W1b | App-wide screen organization per `docs/design/ui-organization/brief_2026-10-19_1557.md`: reuses W1 components; the design agent decides layout/density/menus/help placement, proposes nav order, removals, default changes and any W1-component change as options; Claude's recommendations and three W1 review notes included | W1 owner review |
 
 ## Delivery to Dom's desktop
 The desktop clone has no shell for the agent and remote tools may not write inside `.git`. Each chunk's changed files are staged under `dist\_incoming\<chunk>\` (dist/ is gitignored) with a `b512-<chunk>-console-lite.bat` in the repo root that checks the tree is clean, switches to `feat/console-lite`, copies the files in, adds by path and commits. Run the scripts in order: `b512-commit-unresponsive.bat` first (it also creates `feat/console-lite`), then C1, C2, …

@@ -1,6 +1,10 @@
 # Benny512 — Session Handoff Brief (current)
 
-**Last updated:** 2026-10-19 15:03:50 -04:00
+**Last updated:** 2026-10-19 15:57:11 -0400
+
+## Current delta — app-wide UI organization brief, W1b (`docs/ui-organization-brief-v2`)
+
+Owner request 2026-10-19 14:46. `docs/design/ui-organization/brief_2026-10-19_1557.md`, written on top of W1: decision tiers (decide / propose with options / fixed), a reuse table of W1 components (header, toolbar + menus, toggle, dock as the inspector, selection bar), measurements of every screen at 1440×900 on the owner's show (186 px chrome today, about 128 px with W1's header; Patch 9,256 px, 93 px rows, 370 row buttons, non-sticky header; Settings 4,698 px, ~690 help words; Devices leads with a destructive disclosure), Claude's recommendations, deliverables in their own package, and three W1 review notes: tile colour swatch near-black in Dark (brightness 0.12 filter), "Beam/Gobo" tab breaks mid-word in the 440 px dock, Plan + Fit still scrolls sideways at 1440. Sequenced after the owner's W1 review; W1's five open proposals are not treated as decided. Docs only.
 
 ## Current delta — Console Workspace W1 design package (`codex/console-workspace-design`)
 
