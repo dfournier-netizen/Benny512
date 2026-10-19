@@ -74,7 +74,8 @@ Diagnosis and re-verification on Dom's real show: `docs/evidence/analysis/J1-ben
 - **Bench result (v0.2.1):** dark at Arm and the part faders work on the real show.
 - **Design is the priority now:** the selection grid gets most of the screen; fixture controls become **floating, hideable windows**; the grid's functional visibility improves; Tests moves to **its own tab**.
 - **Laptop first** (1024–1920 px); phone/tablet later. **Mockup first**, approved before production. **Only Controls opens by default.** A **Plan / Compact** spacing switch (Compact packs fixtures tight, ignoring real spacing).
-- Brief for the design agent: `docs/design/console-workspace/ui-brief_2026-10-18_2242.md`; reference mockup: `docs/design/console-workspace/mockup_2026-10-18_2242.html`.
+- **Follow-up (Dom, 22:46; recorded 2026-10-18 22:49:27 -0400):** windows are **resizable**; **Controls docks on the right edge** (the grid's Fit uses the space left of the dock); any window can float.
+- Brief for the design agent: `docs/design/console-workspace/ui-brief_2026-10-18_2249.md`; reference mockup: `docs/design/console-workspace/mockup_2026-10-18_2249.html` (the 22:42 versions are kept, superseded).
 
 ## Chunks (each is one or more commits, gates green, docs updated)
 | # | Chunk | Depends on |
