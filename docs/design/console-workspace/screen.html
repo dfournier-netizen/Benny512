@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Console Workspace Mockup</title>
+<link rel="stylesheet" href="../../../internal/web/static/css/benny512-tokens.css"><link rel="stylesheet" href="../../../internal/web/static/css/console-tokens.css"><link rel="stylesheet" href="tokens-additions.css"><link rel="stylesheet" href="reference-layout.css"><link rel="stylesheet" href="workspace.css">
+</head>
+<body>
+
+
+<div class="app">
+  <header class="hdr">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">B5</span>Benny512</div>
+    <div class="show"><b>Imported</b><span class="wide-only"> · eth0 (192.0.2.2)</span></div>
+    <span class="pill pill--ok"><svg class="ico-sm"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-link-ok"/></svg>Connected<span class="wide-only">&nbsp;· Shared control</span></span>
+    <button class="btn btn--sm mock" title="Design-only examples; no output connection" id="notesBtn" type="button">Mockup notes</button>
+    <div class="hdr-spacer"></div>
+    <div class="out" role="group" aria-label="Output">
+      <span class="state" id="outState"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-disarm"/></svg><span id="outWord">DISARMED · no output</span></span>
+      <button class="arm" id="armBtn" type="button"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-arm"/></svg>ARM</button>
+      <button class="stop" id="stopBtn" type="button"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-blackout"/></svg>DISARM<br>BLACKOUT</button>
+    </div>
+    <button class="btn" type="button" data-menu="m-show" aria-haspopup="menu" aria-expanded="false">Show <svg class="ico-sm"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-chevron-expand"/></svg></button>
+  </header>
+
+  <nav class="nav" aria-label="Screens">
+    <button type="button"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-nav-nodes"/></svg>Nodes</button>
+    <button type="button"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-nav-devices"/></svg>Devices</button>
+    <button type="button"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-layers"/></svg>Patch</button>
+    <button type="button"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-nav-analyzer"/></svg>Analyzer</button>
+    <button type="button" data-screen="console" aria-current="page"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-nav-console"/></svg>Console</button>
+    <button type="button" data-screen="tests"><svg class="ico"><use href="console-workspace-icons.svg#b5-icon-nav-tests"/></svg>Tests </button>
+    <button type="button"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-nav-rig-walk"/></svg>Rig Walk</button>
+    <button type="button"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-nav-settings"/></svg>Settings</button>
+  </nav>
+
+  <main style="min-height:0;display:grid">
+    <div class="narrow-note">This mockup is for a laptop screen (1024 px and wider). A phone layout comes later.</div>
+
+    <!-- ===== CONSOLE ===== -->
+    <section class="screen on" id="scr-console" aria-label="Console">
+      <div class="toolbar" role="toolbar" aria-label="Grid tools">
+        <label class="layer-picker"><span class="sr">Active layer</span><select id="layerPicker"><option value="all">All layers · 58</option><option value="truss" selected>Truss 6.4 m · 44</option><option value="floor">Floor 0 m · 14</option><option value="unplaced">Unplaced · 0</option></select></label><div class="seg layers" id="layerSeg">
+          <button type="button" data-layer="all">All</button>
+          <button type="button" data-layer="truss" aria-pressed="true">Truss 6.4 m <span class="n">· 44</span></button>
+          <button type="button" data-layer="floor">Floor 0 m <span class="n">· 14</span></button>
+          <button type="button" data-layer="unplaced">Unplaced <span class="n">· 0</span></button>
+        </div>
+        <span class="sep"></span>
+        <span class="lbl">Spacing</span>
+        <div class="seg" id="spacingSeg">
+          <button type="button" data-spacing="plan" aria-pressed="true">Plan</button>
+          <button type="button" data-spacing="compact">Compact</button>
+        </div>
+        <span class="sep"></span>
+        <div class="seg"><button type="button" id="fitBtn" aria-pressed="true">Fit</button><button type="button" id="zoomOut" aria-label="Zoom out">−</button><button type="button" id="zoomIn" aria-label="Zoom in">+</button></div>
+        <button class="btn" type="button" id="lassoBtn" aria-pressed="false"><span class="chk"><svg class="ico-sm" aria-hidden="true"><use href="console-workspace-icons.svg#b5-icon-check"/></svg></span><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-lasso"/></svg>Lasso</button>
+        <button class="btn" type="button" id="addBtn" aria-pressed="false"><span class="chk"><svg class="ico-sm" aria-hidden="true"><use href="console-workspace-icons.svg#b5-icon-check"/></svg></span>Add</button>
+        <button class="btn" type="button" data-menu="m-select" aria-haspopup="menu" aria-expanded="false"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-select-all"/></svg>Select <svg class="ico-sm"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-chevron-expand"/></svg></button>
+        <button class="btn" type="button" data-menu="m-view" aria-haspopup="menu" aria-expanded="false">View <svg class="ico-sm"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-chevron-expand"/></svg></button>
+        <span style="flex:1"></span>
+        <button class="btn" type="button" data-menu="m-windows" aria-haspopup="menu" aria-expanded="false"><svg class="ico"><use href="console-workspace-icons.svg#b5-icon-window"/></svg>Windows <svg class="ico-sm"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-chevron-expand"/></svg></button>
+      </div>
+
+      <div class="selbar" aria-label="Selection">
+        <span class="selcount" id="selCount"></span>
+        <span class="selwhat" id="selWhat"></span>
+        <button class="btn" type="button" data-act="clear"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-clear"/></svg>Clear…</button>
+        <button class="btn" type="button" id="hlBtn" aria-pressed="false"><span class="chk"><svg class="ico-sm" aria-hidden="true"><use href="console-workspace-icons.svg#b5-icon-check"/></svg></span><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-highlight"/></svg>Highlight</button>
+        <button class="btn" type="button" data-act="locate"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-locate"/></svg>Locate</button>
+        <button class="btn" type="button" data-act="level">Level 20 %…</button>
+        <button class="btn" type="button" data-menu="m-more" aria-haspopup="menu" aria-expanded="false">More <svg class="ico-sm"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-chevron-expand"/></svg></button>
+      </div>
+
+      <div class="ws" id="wsConsole">
+        <div class="gridwrap"><div class="gridpane" id="gridConsole"></div></div>
+        <aside class="dock" id="dock" aria-label="Docked windows" hidden>
+          <button class="dock-edge" id="dockEdge" type="button" aria-label="Dock width: drag, or use the left and right arrow keys"></button>
+          <div class="dock-stack" id="dockStack"></div>
+        </aside>
+
+        <!-- Controls window (open by default) -->
+        <section class="fw" id="fw-controls" aria-labelledby="fwt-controls" data-default="right">
+          <div class="fw-bar" data-drag>
+            <svg class="fw-grip"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-drag-handle"/></svg>
+            <span class="fw-title" id="fwt-controls">Controls<small id="ctlFor">for the selection</small></span>
+            <button class="btn btn--sm fw-dock" type="button" data-dock aria-label="Dock Controls on the right">Dock</button>
+            <button class="btn btn--sm btn--icon" type="button" data-collapse aria-expanded="true" aria-label="Collapse Controls"><svg class="ico-sm"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-chevron-collapse"/></svg></button>
+            <button class="btn btn--sm btn--icon" type="button" data-close aria-label="Hide Controls"><svg class="ico" aria-hidden="true"><use href="console-workspace-icons.svg#b5-icon-close"/></svg></button>
+          </div>
+          <button class="fw-resize" type="button" data-resize aria-label="Resize: drag, or use the arrow keys"></button>
+          <div class="fw-body">
+            <div class="tabs" role="tablist" id="attrTabs"></div>
+            <div id="attrBody"></div>
+          </div>
+        </section>
+
+        <section class="fw" id="fw-order" aria-labelledby="fwt-order" hidden data-default="left">
+          <div class="fw-bar" data-drag>
+            <svg class="fw-grip"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-drag-handle"/></svg>
+            <span class="fw-title" id="fwt-order">Selection order</span>
+            <button class="btn btn--sm fw-dock" type="button" data-dock aria-label="Dock Selection order on the right">Dock</button>
+            <button class="btn btn--sm btn--icon" type="button" data-collapse aria-expanded="true" aria-label="Collapse Selection order"><svg class="ico-sm"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-chevron-collapse"/></svg></button>
+            <button class="btn btn--sm btn--icon" type="button" data-close aria-label="Hide Selection order"><svg class="ico" aria-hidden="true"><use href="console-workspace-icons.svg#b5-icon-close"/></svg></button>
+          </div>
+          <button class="fw-resize" type="button" data-resize aria-label="Resize: drag, or use the arrow keys"></button>
+          <div class="fw-body"><ol class="olist" id="orderList"></ol><p class="muted">Fan and Highlight Previous/Next follow this order.</p></div>
+        </section>
+
+        <section class="fw" id="fw-groups" aria-labelledby="fwt-groups" hidden data-default="left2">
+          <div class="fw-bar" data-drag>
+            <svg class="fw-grip"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-drag-handle"/></svg>
+            <span class="fw-title" id="fwt-groups">Groups &amp; presets</span>
+            <button class="btn btn--sm fw-dock" type="button" data-dock aria-label="Dock Groups and presets on the right">Dock</button>
+            <button class="btn btn--sm btn--icon" type="button" data-collapse aria-expanded="true" aria-label="Collapse Groups and presets"><svg class="ico-sm"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-chevron-collapse"/></svg></button>
+            <button class="btn btn--sm btn--icon" type="button" data-close aria-label="Hide Groups and presets"><svg class="ico" aria-hidden="true"><use href="console-workspace-icons.svg#b5-icon-close"/></svg></button>
+          </div>
+          <button class="fw-resize" type="button" data-resize aria-label="Resize: drag, or use the arrow keys"></button>
+          <div class="fw-body">
+            <div class="gtiles">
+              <button type="button"><b>All washes</b><small>12 fixtures</small></button>
+              <button type="button"><b>US profiles</b><small>10 fixtures</small></button>
+              <button type="button"><b>Pixel bars odd</b><small>6 cells</small></button>
+              <button type="button"><b>Floor strobes</b><small>8 fixtures</small></button>
+            </div>
+            <p class="muted">Presets for the open Controls tab appear here too.</p>
+            <button class="btn btn--sm" type="button"><svg class="ico-sm"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-store-group"/></svg>Store group…</button>
+          </div>
+        </section>
+
+        <section class="fw" id="fw-midi" aria-labelledby="fwt-midi" hidden data-default="bl">
+          <div class="fw-bar" data-drag>
+            <svg class="fw-grip"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-drag-handle"/></svg>
+            <span class="fw-title" id="fwt-midi">MIDI encoders</span>
+            <button class="btn btn--sm fw-dock" type="button" data-dock aria-label="Dock MIDI encoders on the right">Dock</button>
+            <button class="btn btn--sm btn--icon" type="button" data-collapse aria-expanded="true" aria-label="Collapse MIDI encoders"><svg class="ico-sm"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-chevron-collapse"/></svg></button>
+            <button class="btn btn--sm btn--icon" type="button" data-close aria-label="Hide MIDI encoders"><svg class="ico" aria-hidden="true"><use href="console-workspace-icons.svg#b5-icon-close"/></svg></button>
+          </div>
+          <button class="fw-resize" type="button" data-resize aria-label="Resize: drag, or use the arrow keys"></button>
+          <div class="fw-body"><div class="row"><span class="pill"><svg class="ico-sm"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-midi-disconnected"/></svg>Not connected</span><button class="btn btn--sm" type="button">Connect MIDI</button></div><p class="muted">The controller must be plugged into the computer running this browser.</p></div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ===== TESTS ===== -->
+    <section class="screen" id="scr-tests" aria-label="Tests">
+      <div style="display:grid;grid-template-rows:auto 1fr;min-height:0">
+        <div class="selbar">
+          <span class="selcount" id="selCount2"></span>
+          <span class="selwhat" id="selWhat2"></span>
+          <div class="seg" id="spacingSeg2"><button type="button" data-spacing="plan" aria-pressed="true">Plan</button><button type="button" data-spacing="compact">Compact</button></div>
+        </div>
+        <div class="ws" id="wsTests"><div class="gridpane" id="gridTests"></div></div>
+      </div>
+      <div class="tpanel">
+        <div class="row" style="justify-content:space-between">
+          <h2 style="margin:0;font-size:var(--b5-font-size-lg)">Tests</h2>
+          <button class="btn btn--sm" type="button" id="allOff">All tests off</button>
+        </div>
+        <p class="muted">Same selection as Console — pick fixtures on the grid here or there. Tests run under manual values and reach the rig only while Armed.</p>
+        <h3>SCOPE</h3>
+        <div class="seg"><button type="button" aria-pressed="true">Selection</button><button type="button">Stored group</button><button type="button">Layer</button><button type="button">All fixtures</button></div>
+        <div class="row" style="margin-top:8px"><span class="muted">Fade time</span><div class="seg"><button type="button">0 s</button><button type="button" aria-pressed="true">1 s</button><button type="button">3 s</button></div></div>
+        <h3>DIMMER</h3>
+        <div class="ttiles" data-tests>
+          <button class="ttile" type="button" aria-pressed="false"><span class="row"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-attr-dimmer"/></svg><b>Dimmer on/off</b><span class="st">OFF</span></span><span class="muted" data-has>—</span></button>
+          <button class="ttile" type="button" aria-pressed="false"><span class="row"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-attr-dimmer"/></svg><b>Dimmer chase</b><span class="st">OFF</span></span><span class="muted" data-has>—</span></button>
+        </div>
+        <h3>POSITION</h3>
+        <div class="ttiles" data-tests>
+          <button class="ttile" type="button" aria-pressed="false"><span class="row"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-attr-position"/></svg><b>Pan/tilt centre</b><span class="st">OFF</span></span><span class="muted" data-has>—</span></button>
+          <button class="ttile" type="button" aria-pressed="false"><span class="row"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-attr-position"/></svg><b>Ballyhoo</b><span class="st">OFF</span></span><span class="muted" data-has>—</span></button>
+        </div>
+        <h3>COLOUR · BEAM · FOCUS</h3>
+        <div class="ttiles" data-tests>
+          <button class="ttile" type="button" aria-pressed="false"><span class="row"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-attr-colour"/></svg><b>Colour mix sweep</b><span class="st">OFF</span></span><span class="muted" data-has>—</span></button>
+          <button class="ttile" type="button" aria-pressed="false"><span class="row"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-attr-beam"/></svg><b>Gobo wheel step</b><span class="st">OFF</span></span><span class="muted" data-has>—</span></button>
+          <button class="ttile" type="button" aria-pressed="false"><span class="row"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-zoom"/></svg><b>Zoom wide/narrow</b><span class="st">OFF</span></span><span class="muted" data-has>—</span></button>
+          <button class="ttile" type="button" aria-pressed="false"><span class="row"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-attr-focus"/></svg><b>Focus sweep</b><span class="st">OFF</span></span><span class="muted" data-has>—</span></button>
+        </div>
+        <h3>ISOLATE · SEQUENCES</h3>
+        <div class="card"><label class="row"><input type="checkbox"> <b>Isolate: drive only the tested channel</b></label><p class="muted" style="margin:4px 0 0">Everything else on the tested fixtures is held at zero. Ends on Disarm.</p></div>
+        <div class="card"><div class="row"><b>Sequences · 0</b><button class="btn btn--sm" type="button" style="margin-left:auto">New sequence…</button></div></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="fbar">
+    <button class="btn btn--sm" type="button">Faders · show</button>
+    <span class="muted">Group-fader bar · collapsed (existing behavior)</span>
+    <button class="btn btn--sm btn--ghost" type="button">Release all</button>
+  </footer>
+</div>
+
+<!-- Menus -->
+<div class="menu" id="m-show" role="menu" hidden>
+  <button role="menuitem" type="button">Show tools…</button>
+  <button role="menuitem" type="button">Fixture library…</button>
+</div>
+<div class="menu" id="m-select" role="menu" hidden>
+  <button role="menuitem" type="button" data-sel="all"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-select-all"/></svg>Select all fixtures</button>
+  <button role="menuitem" type="button" data-sel="layer"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-layers"/></svg>Select this layer</button>
+  <button role="menuitem" type="button" data-sel="none"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-select-none"/></svg>Select none</button>
+  <button role="menuitem" type="button" data-sel="invert"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-select-invert"/></svg>Invert</button>
+  <hr><div class="mh">Pick</div>
+  <button role="menuitem" type="button"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-select-parent"/></svg>Whole fixtures</button>
+  <button role="menuitem" type="button"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-select-cell"/></svg>Cells</button>
+</div>
+<div class="menu" id="m-view" role="menu" hidden>
+  <button role="menuitemcheckbox" type="button" aria-checked="false" data-view="ghosts"><span class="mchk"></span>Ghosts</button>
+  <button role="menuitemcheckbox" type="button" aria-checked="true" data-view="names"><span class="mchk">✓</span>Names on tiles</button>
+  <button role="menuitemcheckbox" type="button" aria-checked="true" data-view="live"><span class="mchk">✓</span>Live values on tiles</button>
+  <hr>
+  <button role="menuitem" type="button"><svg class="ico"><use href="console-workspace-icons.svg#b5-icon-edit-layout"/></svg>Edit layout…</button>
+  <button role="menuitem" type="button"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-refresh"/></svg>Reload layout from MVR</button>
+</div>
+<div class="menu" id="m-windows" role="menu" hidden>
+  <button role="menuitemcheckbox" type="button" data-win="fw-controls"><span class="mchk"></span>Controls<span class="mwhere muted" style="margin-left:auto"></span></button>
+  <button role="menuitemcheckbox" type="button" data-win="fw-order"><span class="mchk"></span>Selection order<span class="mwhere muted" style="margin-left:auto"></span></button>
+  <button role="menuitemcheckbox" type="button" data-win="fw-groups"><span class="mchk"></span>Groups &amp; presets<span class="mwhere muted" style="margin-left:auto"></span></button>
+  <button role="menuitemcheckbox" type="button" data-win="fw-midi"><span class="mchk"></span>MIDI encoders<span class="mwhere muted" style="margin-left:auto"></span></button>
+  <hr>
+  <button role="menuitem" type="button" id="resetWins">Reset window positions</button>
+</div>
+<div class="menu" id="m-more" role="menu" hidden>
+  <button role="menuitem" type="button"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-lowlight"/></svg>Lowlight</button>
+  <button role="menuitem" type="button"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-fan-linear"/></svg>Fan…</button>
+  <button role="menuitem" type="button"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-highlight"/></svg>Highlight previous / next</button>
+  <button role="menuitem" type="button"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-store-group"/></svg>Store group…</button>
+  <hr>
+  <button role="menuitem" type="button" data-go="tests"><svg class="ico"><use href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-test"/></svg>Open Tests for the selection</button>
+</div>
+
+<dialog id="notes" aria-labelledby="notesH">
+  <h2 id="notesH">Console workspace — mockup</h2>
+  <p>A proposal to look at and click through. It doesn't connect to anything, and the fixtures are made up.</p>
+  <ul>
+    <li><b>Grid fills the screen.</b> Page title and help sentences are gone. The header is one row, and Show tools and Fixture library sit under <b>Show</b>.</li>
+    <li><b>One toolbar:</b> layer tabs, <b>Plan / Compact</b> spacing, <b>Fit</b> and zoom, Lasso, Add, <b>Select</b> menu, <b>View</b> menu (Ghosts, Edit layout) and a <b>Windows</b> menu.</li>
+    <li><b>Windows:</b> <b>Controls</b> opens docked on the right, so the grid fits beside it. Drag the dock's edge to make it wider or narrower. <b>Float</b> pops a window over the grid; <b>Dock</b>, or dropping it on the right edge, puts it back. Floating windows drag by the title bar and resize from the bottom-right corner. Collapse with the chevron, hide with ✕, bring back from <b>Windows</b>. Everything is remembered per browser.</li>
+    <li><b>Tiles:</b> FID + short name, selection order number, SET / TEST / HL tags, colour swatch, intensity bar with its %. Pixel bars show their cells as segments you can pick.</li>
+    <li><b>Compact</b> packs each row tight in plan order and drops empty rows; <b>Plan</b> keeps the MVR spacing. Fit zooms to show the whole layer.</li>
+    <li><b>Tests</b> is its own tab with the same grid and the same selection.</li>
+    <li>Toggles show ON with a check, a thicker border and bold text, so colour is never the only sign.</li>
+  </ul>
+  <p class="muted">Try it: click tiles (Ctrl/⌘ or <b>Add</b> to add), drag on empty grid with <b>Lasso</b>, move the Dimmer fader, pick a colour, then switch to Tests and turn a test on.</p>
+  <form method="dialog"><button class="btn" type="submit">Close</button></form>
+</dialog>
+
+<script src="workspace.js"></script>
+</body>
+</html>

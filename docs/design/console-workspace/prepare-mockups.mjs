@@ -1,0 +1,67 @@
+// Repackage the owner's reference without changing the original proposal.
+import fs from 'node:fs';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+const dir=path.dirname(fileURLToPath(import.meta.url));
+const source=fs.readFileSync(path.join(dir,'mockup_2026-10-18_2249.html'),'utf8');
+const write=(name,text)=>fs.writeFileSync(path.join(dir,name),text);
+let css=source.slice(source.indexOf('/* ===== Mockup styles'),source.indexOf('</style>'));
+css=css.replace('var(--b5-color-accent-500)','var(--b5-color-text-accent)').replace('color: #fff; text-shadow: 0 0 3px #000, 0 0 2px #000;','color: var(--b5-color-text-primary); text-shadow: none;').replace('rgba(0,0,0,.6)','var(--b5-color-scrim)');
+write('reference-layout.css',css);
+let html=source.replace(/<style>[\s\S]*?<\/style>/,'<link rel="stylesheet" href="../../../internal/web/static/css/benny512-tokens.css"><link rel="stylesheet" href="../../../internal/web/static/css/console-tokens.css"><link rel="stylesheet" href="tokens-additions.css"><link rel="stylesheet" href="reference-layout.css"><link rel="stylesheet" href="workspace.css">');
+html=html.replace(/<svg[^>]*>\s*<defs>[\s\S]*?<\/svg>/,'');
+html=html.replace(/href="#b5-icon-/g,'href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-');
+html=html.replace(/<span class="chk">✓<\/span>/g,'<span class="chk"><svg class="ico-sm" aria-hidden="true"><use href="console-workspace-icons.svg#b5-icon-check"/></svg></span>');
+html=html.replace(/>✕<\/button>/g,'><svg class="ico" aria-hidden="true"><use href="console-workspace-icons.svg#b5-icon-close"/></svg></button>');
+html=html.replace('id="notesBtn"','title="Design-only examples; no output connection" id="notesBtn"');
+html=html.replace('<div class="seg layers" id="layerSeg">','<label class="layer-picker"><span class="sr">Active layer</span><select id="layerPicker"><option value="all">All layers · 58</option><option value="truss" selected>Truss 6.4 m · 44</option><option value="floor">Floor 0 m · 14</option><option value="unplaced">Unplaced · 0</option></select></label><div class="seg layers" id="layerSeg">');
+html=html.replace('<span class="new">new tab</span>','');
+html=html.replace('href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-test"/></svg>Tests','href="console-workspace-icons.svg#b5-icon-nav-tests"/></svg>Tests');
+html=html.replace('href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-layers"/></svg>Windows','href="console-workspace-icons.svg#b5-icon-window"/></svg>Windows');
+html=html.replace('href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-grid-snap"/></svg>Edit layout','href="console-workspace-icons.svg#b5-icon-edit-layout"/></svg>Edit layout');
+html=html.replace('Group-fader bar — unchanged','Group-fader bar · collapsed (existing behavior)');
+html=html.replace(/<script>[\s\S]*?<\/script>/,'<script src="workspace.js"></script>');
+write('screen.html',html);
+let js=source.match(/<script>([\s\S]*?)<\/script>/)[1];
+js=js.replace("'use strict';","'use strict';\nconst query=new URLSearchParams(location.search),scene=query.get('scene')||'default';\ndocument.documentElement.dataset.theme=query.get('theme')==='light'?'light':'dark';\nif(query.get('grey')==='1')document.documentElement.classList.add('greyscale');\nif(query.get('dim')==='1')document.documentElement.classList.add('dim-screen');\nconst icon=name=>'<svg class=\"ico\" aria-hidden=\"true\"><use href=\"console-workspace-icons.svg#b5-icon-'+name+'\"/></svg>';\nconst oldIcon=name=>'<svg class=\"ico\" aria-hidden=\"true\"><use href=\"../../../internal/web/static/icons/benny512-icons.svg#b5-icon-'+name+'\"/></svg>';\nconst check=icon('check');");
+js=js.replaceAll('b5mock.','b5workspace.v1.'+"'+scene+'"+'.');
+// The replacement above appears inside quoted storage keys, so scene views
+// remember their own positions without changing the owner's original mockup.
+js=js.replace("return 0;\n}","return 0;\n}");
+js=js.replace("'✓' : ''","check : ''").replace("b.querySelector('.mchk').textContent", "b.querySelector('.mchk').innerHTML");
+js=js.replace("el.textContent = n ? `✓ ${n} selected` : 'Nothing selected';","el.innerHTML = n ? check+' '+n+' selected' : 'Nothing selected';");
+js=js.replace("$(w).textContent = n ? describe(S.sel) : 'Click fixtures on the grid, or use Select.';","$(w).textContent = n ? describe(S.sel) : 'Click fixtures on the grid, or use Select.'; $(w).title=$(w).textContent; $(w).setAttribute('aria-label',$(w).textContent);");
+js=js.replaceAll('href="#b5-icon-','href="../../../internal/web/static/icons/benny512-icons.svg#b5-icon-');
+js=js.replaceAll("'#b5-icon-", "'../../../internal/web/static/icons/benny512-icons.svg#b5-icon-");
+js=js.replaceAll("'#b5-icon-chevron-expand'", "'console-workspace-icons.svg#b5-icon-window-expand'");
+js=js.replaceAll("'#b5-icon-chevron-collapse'", "'console-workspace-icons.svg#b5-icon-window-collapse'");
+js=js.replace('test = S.tests.size && (sel','test = S.tests.size && v.unset && (sel');
+js=js.replace("const pct = Math.round((v.dim || 0) * 100);","let pct = S.hl&&sel?100:test?80:Math.round((v.dim || 0) * 100);\n  const levels=f.cells?Array.from({length:f.cells},(_,i)=>Math.round((valOf(k+'/'+(i+1)).dim||0)*100)):[];\n  const mixed=levels.length&&Math.min(...levels)!==Math.max(...levels);\n  if(levels.length)pct=Math.max(...levels);\n  const intensityWord=mixed?Math.min(...levels)+'–'+Math.max(...levels)+'% MIXED':pct+'%';");
+js=js.replace('title="Colour set"','title="Programmer colour set"');
+js=js.replace('(live ? `<div class="t-int">','(live || tags.length ? `<div class="t-int">');
+js=js.replace('intensity ${pct}%','intensity ${intensityWord}, ${S.armed?\'sample composed output\':\'not on the wire; sample Arm preview\'}${test?\', test driving\':\'\'}${S.hl&&sel?\', highlighted\':\'\'}${!v.unset?\', programmer SET\':\'\'}');
+js=js.replace('${pct}%</span>','${intensityWord}</span>');
+js=js.replace("background:' + cv.col", "--sample-colour:' + cv.col");
+js=js.replace('style="background:${v.col}"','style="--sample-colour:${v.col}"');
+js=js.replace("$('#zoomIn').onclick = () => { S.fit = false; press($('#fitBtn'), false); S.zoom = Math.min(2, S.zoom * 1.15); renderAll(); };","$('#zoomIn').onclick = () => { S.fit = false; press($('#fitBtn'), false); S.zoom = Math.min(1.6, S.zoom * 1.15); renderAll(); };");
+js=js.replace('Math.max(0.5, S.zoom / 1.15)',"Math.max(S.spacing==='compact'?0.8:0.85, S.zoom / 1.15)");
+js=js.replace("const cw = Math.max(TWMIN, CW * z), ch = Math.max(TH, CH * z), gp = GAP * z;","const coarse=matchMedia('(pointer:coarse)').matches||query.get('coarse')==='1';\n  const cw = Math.max(coarse?104:TWMIN, CW * z), ch = Math.max(coarse?72:TH, CH * z), gp = GAP * z;\n  const cellExtra=coarse?52:CELLH;");
+js=js.replace('L.rowCells[r] ? CELLH : 0','L.rowCells[r] ? cellExtra : 0').replace('f.cells ? CELLH : 0','f.cells ? cellExtra : 0');
+js=js.replace('const w = f.w * (cw + gp) - gp;',"const w = Math.max(f.w * (cw + gp) - gp,coarse&&f.cells?f.cells*48+12:0);");
+// Full-window clamp: retain size and chrome inside workspace at every resize.
+js=js.replace('ws.clientWidth - 120','ws.clientWidth - w').replace('ws.clientHeight - 44',"ws.clientHeight - Math.min(s.h||fw.offsetHeight||140,ws.clientHeight-16)");
+js=js.replace('wr.width - 120','wr.width - r.width').replace('wr.height - 44','wr.height - r.height');
+js=js.replace('const ws = wsEl(), anyDocked', 'const ws = wsEl(); if(!ws.clientWidth)return; const anyDocked');
+js=js.replace("s.h = Math.max(140, r.height + m[1]);","s.h = Math.min(wsEl().clientHeight-16,Math.max(140, r.height + m[1]));");
+js=js.replace("$('#notes').showModal()","($('#notes').show(),$('#notes button').focus())");
+js=js.replace("document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenus(); });","document.addEventListener('keydown', e => { if(e.key==='Escape'){const trigger=openMenu?.b;closeMenus();trigger?.focus();if($('#notes').open){$('#notes').close();$('#notesBtn').focus();}} if(openMenu&&['ArrowDown','ArrowUp','Home','End'].includes(e.key)){e.preventDefault();const items=[...openMenu.m.querySelectorAll('button:not(:disabled)')];const i=items.indexOf(document.activeElement),n=e.key==='Home'?0:e.key==='End'?items.length-1:(i+(e.key==='ArrowDown'?1:-1)+items.length)%items.length;items[n]?.focus();} });");
+js=js.replace("const first = m.querySelector('button');", "m.style.maxHeight=Math.max(120,innerHeight-r.bottom-64)+'px'; const first = m.querySelector('button');");
+js=js.replace("placeAll(); closeMenus(); if (s.open) front(fw);", "placeAll(); closeMenus(); if(s.open){front(fw);fw.querySelector('[data-drag]').focus();}");
+js=js.replace("st(fw.id).open = false; save(); placeAll();", "st(fw.id).open = false; save(); placeAll(); $('[data-menu=\"m-windows\"]').focus();");
+js=js.replace("renderAll(); renderAttr();\nif (!store", "renderAll(); renderAttr();\nif (!store");
+js=js.replace("renderAll();\n}\n$$('.nav [data-screen]')", ()=>"if(id==='console')placeAll(); renderAll();\n}\n$$('.nav [data-screen]')");
+// Insert authored scenes and final behaviors before the owner's initializer.
+const at="addEventListener('resize', () => { placeAll(); if (S.fit) renderAll(); });";
+js=js.replace(at,()=>fs.readFileSync(path.join(dir,'workspace-scenes.js'),'utf8')+'\n'+at);
+write('workspace.js',js);
+console.log('Prepared review screen, layout and interactions from the 22:49 reference');
