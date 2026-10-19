@@ -1,6 +1,12 @@
 # Benny512 — Session Handoff Brief (current)
 
-**Last updated:** 2026-10-13 12:52:35 -0400
+**Last updated:** 2026-10-18 22:42:53 -0400
+
+## Current delta — Console workspace redesign, mockup + brief (`docs/console-workspace-design`)
+
+Owner priority (2026-10-18 22:33): grid takes the screen, controls become floating hideable windows, Tests gets its own tab, Plan/Compact spacing, laptop first, only Controls open by default. Delivered docs only: a clickable self-contained mockup (`docs/design/console-workspace/mockup_2026-10-18_2242.html`, inlines production tokens + sprite from `9a714a8`, made-up fixtures) and the design-agent brief beside it. No production code changed. Next: owner reviews the mockup (W0), then the design agent builds the W1 package; production work after that.
+
+Verified: mockup rendered in Chromium at 1024×768, 1440×900, 1920×1080 — no console errors, no page-level horizontal scroll, lasso selects, windows open/drag/collapse/persist across reload, Compact packs rows, a Tests-tab test marks the selected tiles TEST. Grid height 636 px at 1440×900 (today's Console showed ≈250 px of grid). At 1024 the toolbar wraps to two rows (brief asks the designer for a better 1024 composition).
 
 ## Current delta — Console-lite design refresh (`codex/console-lite-design-refresh`)
 

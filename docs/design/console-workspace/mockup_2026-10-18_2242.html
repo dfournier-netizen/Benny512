@@ -1,0 +1,1332 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Console Workspace Mockup</title>
+<style>
+/*
+  Benny512 design tokens
+  Dark theme is the default (:root). Light theme overrides live in [data-theme="light"].
+  Every component style must reference these variables — never a hardcoded hex or px value.
+*/
+
+:root {
+  /* ---- Neutral ramp (near-black family from the logo, 950 darkest -> 050 lightest) ---- */
+  --b5-color-neutral-950: #100e0b;
+  --b5-color-neutral-900: #1c1815;
+  --b5-color-neutral-800: #241f1a;
+  --b5-color-neutral-700: #2c261f;
+  --b5-color-neutral-600: #3a332b;
+  --b5-color-neutral-500: #4c443a;
+  --b5-color-neutral-400: #6b6255;
+  --b5-color-neutral-300: #8f8778;
+  --b5-color-neutral-200: #c7c0b6;
+  --b5-color-neutral-100: #ececea;
+  --b5-color-neutral-050: #fefefe;
+
+  /* ---- Accent teal — functional accent: selection, focus, active state ---- */
+  --b5-color-accent-900: #04302c;
+  --b5-color-accent-800: #065852;
+  --b5-color-accent-700: #06958b;
+  --b5-color-accent-600: #1a938a;
+  --b5-color-accent-500: #26a39a;
+  --b5-color-accent-400: #52b7b1;
+  --b5-color-accent-300: #7fd0c9;
+  --b5-color-accent-200: #b1dfdf;
+  --b5-color-accent-100: #dcf0ee;
+  --b5-color-accent-500-a15: rgba(38, 163, 154, 0.15);
+  --b5-color-accent-500-a30: rgba(38, 163, 154, 0.30);
+
+  /* ---- Info navy — secondary / informational tone ---- */
+  --b5-color-info-900: #14213a;
+  --b5-color-info-800: #1c3357;
+  --b5-color-info-700: #23406e;
+  --b5-color-info-600: #274678;
+  --b5-color-info-500: #2a4d85;
+  --b5-color-info-400: #4a6ba8;
+  --b5-color-info-300: #6f8fc4;
+  --b5-color-info-200: #a9c0e0;
+  --b5-color-info-100: #dbe6f5;
+
+  /* ---- Danger red — reserved strictly for errors / destructive actions ---- */
+  --b5-color-danger-900: #4d0300;
+  --b5-color-danger-800: #7a0400;
+  --b5-color-danger-700: #a10500;
+  --b5-color-danger-600: #b80300;
+  --b5-color-danger-500: #c80100;
+  --b5-color-danger-400: #e2382f;
+  --b5-color-danger-300: #ff6b63;
+  --b5-color-danger-200: #ffaca6;
+  --b5-color-danger-100: #ffe0dd;
+
+  /* ---- Success green — distinct hue from accent teal ---- */
+  --b5-color-success-900: #123018;
+  --b5-color-success-700: #1f5c33;
+  --b5-color-success-500: #2f8a4e;
+  --b5-color-success-400: #56b568;
+  --b5-color-success-300: #8fd39c;
+  --b5-color-success-100: #d8f2dd;
+
+  /* ---- Warning amber ---- */
+  --b5-color-warning-900: #3d2a06;
+  --b5-color-warning-700: #7a5410;
+  --b5-color-warning-500: #b8790f;
+  --b5-color-warning-400: #d99a2b;
+  --b5-color-warning-300: #f0c163;
+  --b5-color-warning-100: #fbe8c4;
+
+  /* ---- Semantic surface / text / border roles (dark theme) ---- */
+  --b5-color-bg-canvas: var(--b5-color-neutral-950);
+  --b5-color-bg-surface: var(--b5-color-neutral-900);
+  --b5-color-bg-surface-raised: var(--b5-color-neutral-800);
+  --b5-color-bg-surface-overlay: var(--b5-color-neutral-700);
+  --b5-color-bg-inset: #0b0a08;
+  --b5-color-bg-hover: var(--b5-color-neutral-700);
+  --b5-color-bg-selected: var(--b5-color-accent-500-a15);
+  --b5-color-bg-stale: repeating-linear-gradient(135deg, var(--b5-color-neutral-800) 0 6px, var(--b5-color-neutral-700) 6px 12px);
+
+  --b5-color-text-primary: var(--b5-color-neutral-050);
+  --b5-color-text-secondary: var(--b5-color-neutral-200);
+  --b5-color-text-muted: var(--b5-color-neutral-300);
+  --b5-color-text-disabled: var(--b5-color-neutral-500);
+  --b5-color-text-accent: var(--b5-color-accent-300);
+  --b5-color-text-info: var(--b5-color-info-300);
+  --b5-color-text-danger: var(--b5-color-danger-300);
+  --b5-color-text-success: var(--b5-color-success-400);
+  --b5-color-text-warning: var(--b5-color-warning-400);
+  --b5-color-text-on-accent: var(--b5-color-neutral-950);
+  --b5-color-text-on-danger: var(--b5-color-neutral-050);
+
+  --b5-color-border-subtle: var(--b5-color-neutral-700);
+  --b5-color-border-default: var(--b5-color-neutral-600);
+  --b5-color-border-strong: var(--b5-color-neutral-400);
+  --b5-color-border-accent: var(--b5-color-accent-500);
+  --b5-color-border-danger: var(--b5-color-danger-500);
+  --b5-color-border-focus: var(--b5-color-accent-400);
+
+  /* ---- Typography ---- */
+  /* Segoe UI / system-ui distinguish 1 / l / I clearly (serif foot on capital I, distinct lowercase l);
+     the monospace stack below adds a slashed zero, important for hex/DMX data at a glance. */
+  --b5-font-body: -apple-system, "Segoe UI", "Noto Sans", Roboto, Helvetica, Arial, sans-serif;
+  --b5-font-mono: "Cascadia Mono", Consolas, "SF Mono", "Segoe UI Mono", "Liberation Mono", monospace;
+
+  --b5-font-size-xs: 0.8125rem;   /* 13px */
+  --b5-font-size-sm: 0.9375rem;   /* 15px */
+  --b5-font-size-md: 1rem;        /* 16px */
+  --b5-font-size-lg: 1.125rem;    /* 18px */
+  --b5-font-size-xl: 1.375rem;    /* 22px */
+  --b5-font-size-2xl: 1.75rem;    /* 28px */
+  --b5-font-size-3xl: 2.5rem;     /* 40px — Rig Walk counter */
+
+  --b5-font-weight-regular: 400;
+  --b5-font-weight-medium: 500;
+  --b5-font-weight-bold: 700;
+
+  --b5-line-height-body: 1.55;
+  --b5-line-height-tight: 1.3;
+  --b5-letter-spacing-sm: 0.01em; /* slight increase for small text, dyslexia-friendly */
+
+  /* ---- Spacing ---- */
+  --b5-space-1: 0.25rem;
+  --b5-space-2: 0.5rem;
+  --b5-space-3: 0.75rem;
+  --b5-space-4: 1rem;
+  --b5-space-5: 1.25rem;
+  --b5-space-6: 1.5rem;
+  --b5-space-8: 2rem;
+  --b5-space-10: 2.5rem;
+  --b5-space-12: 3rem;
+  --b5-space-16: 4rem;
+
+  /* ---- Radius (crisp, minimal — console gear, not bubbly) ---- */
+  --b5-radius-none: 0;
+  --b5-radius-sm: 3px;
+  --b5-radius-md: 5px;
+  --b5-radius-lg: 8px;
+  --b5-radius-full: 999px;
+
+  /* ---- Borders ---- */
+  --b5-border-width-thin: 1px;
+  --b5-border-width-thick: 2px;
+
+  /* ---- Shadow (ambient darkness, dark ground) ---- */
+  --b5-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --b5-shadow-md: 0 4px 14px rgba(0, 0, 0, 0.5);
+  --b5-shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.6);
+  --b5-shadow-focus: 0 0 0 3px var(--b5-color-accent-500-a30);
+
+  /* ---- Z-index ---- */
+  --b5-z-base: 0;
+  --b5-z-sticky: 10;
+  --b5-z-dropdown: 20;
+  --b5-z-overlay: 30;
+  --b5-z-modal: 40;
+  --b5-z-toast: 50;
+
+  /* ---- Touch targets ---- */
+  --b5-size-touch-min: 44px;
+  --b5-size-touch-walk: 76px;
+
+  /* ---- Motion ---- */
+  --b5-motion-fast: 120ms;
+  --b5-motion-base: 180ms;
+  --b5-motion-ease: ease;
+}
+
+/*
+  Light theme — daylight / outdoor override. Dark theme stays the default and primary target;
+  this block only reassigns the semantic roles, so every component keeps working unmodified.
+*/
+[data-theme="light"] {
+  --b5-color-bg-canvas: #eeece6;
+  --b5-color-bg-surface: #fefefe;
+  --b5-color-bg-surface-raised: #f7f5f0;
+  --b5-color-bg-surface-overlay: #ffffff;
+  --b5-color-bg-inset: #e7e4dc;
+  --b5-color-bg-hover: #e7e4dc;
+  --b5-color-bg-selected: rgba(6, 149, 139, 0.12);
+  --b5-color-bg-stale: repeating-linear-gradient(135deg, #efece4 0 6px, #e5e1d7 6px 12px);
+
+  --b5-color-text-primary: #1c1815;
+  --b5-color-text-secondary: #423c33;
+  --b5-color-text-muted: #6b6255;
+  --b5-color-text-disabled: #a29a8c;
+  --b5-color-text-accent: #06958b;
+  --b5-color-text-info: #2a4d85;
+  --b5-color-text-danger: #a10500;
+  --b5-color-text-success: #1f5c33;
+  --b5-color-text-warning: #7a5410;
+  --b5-color-text-on-accent: #fefefe;
+  --b5-color-text-on-danger: #fefefe;
+
+  --b5-color-border-subtle: #ddd8cc;
+  --b5-color-border-default: #c7c0b0;
+  --b5-color-border-strong: #948a76;
+  --b5-color-border-accent: #06958b;
+  --b5-color-border-danger: #a10500;
+  --b5-color-border-focus: #06958b;
+
+  --b5-shadow-sm: 0 1px 2px rgba(28, 24, 21, 0.12);
+  --b5-shadow-md: 0 4px 14px rgba(28, 24, 21, 0.16);
+  --b5-shadow-lg: 0 16px 40px rgba(28, 24, 21, 0.22);
+  --b5-shadow-focus: 0 0 0 3px rgba(6, 149, 139, 0.28);
+}
+
+/* Semantic-role layer (I1). Copied verbatim from
+   docs/design/console-lite/console-tokens.css below this header.
+   Load immediately after benny512-tokens.css: the dark block overrides the
+   base file's roles, repairing muted-text contrast, the translucent focus
+   ring and the accent (theme-contract.md). Components use these roles;
+   palette ramps stay private to benny512-tokens.css.
+   C9: the [data-theme="light"] block is the Daylight theme. js/theme.js
+   sets data-theme on <html> from this browser's choice before first paint;
+   a custom theme sets the opaque roles below as inline custom properties
+   on <html> over its base block. Every role is defined in BOTH blocks
+   (console_c9_test.go). */
+:root, [data-theme="dark"] {
+  --b5-color-bg-canvas: #100e0b; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-bg-surface: #1c1815; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-bg-surface-raised: #241f1a; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-bg-surface-overlay: #2c261f; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-bg-inset: #0b0a08; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-bg-hover: #2c261f; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-bg-selected: #23332f; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-text-primary: #f3f0e9; /* 7:1 minimum; pairs in contrast.json */
+  --b5-color-text-secondary: #cbc5ba; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-muted: #b2a99b; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-disabled: #80786b; /* exempt:1 Disabled: reason word required; exempt */
+  --b5-color-text-accent: #7fd0c9; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-info: #aac3ec; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-danger: #ff9a93; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-success: #a2dba8; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-warning: #f0c163; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-on-accent: #100e0b; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-on-danger: #ffffff; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-border-control: #a29a8c; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-border-focus: #b1dfdf; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-border-subtle: #3a332b; /* exempt:1 Decoration only; never an essential boundary */
+  --b5-color-border-default: #3a332b; /* exempt:1 Decoration only; never an essential boundary */
+  --b5-color-border-strong: #a29a8c; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-ok-border: #a2dba8; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-ok-fill: #18291d; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-warn-border: #f0c163; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-warn-fill: #2b230e; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-danger-border: #ff9a93; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-danger-fill: #341c19; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-accent-border: #7fd0c9; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-accent-fill: #152923; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-armed-border: #c2aff0; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-armed-fill: #292335; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-armed-text: #ded2ff; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-disarm-slab-bg: #931b18; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-disarm-slab-text: #ffffff; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-arm-pill-border: #7fd0c9; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-arm-pill-text: #7fd0c9; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-simulated-text: #cbc5ba; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-lease-lost-border: #f0c163; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-idle: #b2a99b; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-selected: #7fd0c9; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-cell-selected: #b1dfdf; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-touched: #cbc5ba; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-test: #aac3ec; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-highlight: #f0c163; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-ghost: #a29a8c; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-unprofiled: #b2a99b; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-offline: #f0c163; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-value-set: #7fd0c9; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-value-default: #b2a99b; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-value-test: #aac3ec; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-value-mixed-band: #a29a8c; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-grid-bg: #15130f; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-grid-line: #29251e; /* exempt:1 Decoration only; never an essential boundary */
+  --b5-color-grid-line-major: #40392f; /* exempt:1 Decoration only; never an essential boundary */
+  --b5-color-grid-layer-label: #cbc5ba; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-track: #0b0a08; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-track-border: #a29a8c; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-thumb: #cbc5ba; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-thumb-border: #f3f0e9; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-xypad-bg: #15130f; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-xypad-crosshair: #a29a8c; /* 3:1 minimum; pairs in contrast.json */
+  /* I1b additions (not in the design package): measured with the same contract as build-assets.mjs;
+     ratios in docs/notes/2026-10.md (I1b). */
+  --b5-color-bg-pressed: #3a332b; /* 4.5:1 Background: pressed control surface; measured against text */
+  --b5-color-info-border: #aac3ec; /* 3:1 minimum; info tone outline */
+  --b5-color-info-fill: #1a2233; /* 4.5:1 Background: info tone tint; measured against text */
+  --b5-color-scrim: rgba(0, 0, 0, 0.6); /* exempt: modal backdrop; dialogs sit on their own opaque surface */
+  /* C9: the stale-row hatch, from roles so a theme re-colours it (was the
+     base file's neutral-800/700, the same two colours as raised/overlay). */
+  --b5-color-bg-stale: repeating-linear-gradient(135deg, var(--b5-color-bg-surface-raised) 0 6px, var(--b5-color-bg-surface-overlay) 6px 12px);
+  --b5-color-simulated-bg: repeating-linear-gradient(135deg, var(--b5-color-bg-surface) 0 6px, var(--b5-color-bg-surface-overlay) 6px 12px);
+  --b5-shadow-focus: 0 0 0 3px var(--b5-color-border-focus);
+}
+[data-theme="light"] {
+  --b5-color-bg-canvas: #eeece6; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-bg-surface: #fefefe; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-bg-surface-raised: #f7f5f0; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-bg-surface-overlay: #ffffff; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-bg-inset: #e7e4dc; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-bg-hover: #e7e4dc; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-bg-selected: #d6e8e3; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-text-primary: #1c1815; /* 7:1 minimum; pairs in contrast.json */
+  --b5-color-text-secondary: #423c33; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-muted: #5d5448; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-disabled: #80786b; /* exempt:1 Disabled: reason word required; exempt */
+  --b5-color-text-accent: #075e58; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-info: #2a4d85; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-danger: #a10500; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-success: #23522b; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-warning: #684400; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-on-accent: #ffffff; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-text-on-danger: #ffffff; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-border-control: #6b6255; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-border-focus: #075e58; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-border-subtle: #c7c0b0; /* exempt:1 Decoration only; never an essential boundary */
+  --b5-color-border-default: #c7c0b0; /* exempt:1 Decoration only; never an essential boundary */
+  --b5-color-border-strong: #6b6255; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-ok-border: #23522b; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-ok-fill: #dcebdd; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-warn-border: #684400; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-warn-fill: #f3e6c9; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-danger-border: #a10500; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-danger-fill: #f8e2dd; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-accent-border: #075e58; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-accent-fill: #d6e8e3; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-armed-border: #674283; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-armed-fill: #ece3f4; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-armed-text: #573474; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-disarm-slab-bg: #931b18; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-disarm-slab-text: #ffffff; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-arm-pill-border: #075e58; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-arm-pill-text: #075e58; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-simulated-text: #423c33; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-lease-lost-border: #684400; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-idle: #5d5448; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-selected: #075e58; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-cell-selected: #2a4d85; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-touched: #423c33; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-test: #2a4d85; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-highlight: #684400; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-ghost: #6b6255; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-unprofiled: #5d5448; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-fixture-offline: #684400; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-value-set: #075e58; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-value-default: #5d5448; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-value-test: #2a4d85; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-value-mixed-band: #6b6255; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-grid-bg: #f7f5f0; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-grid-line: #ded9ce; /* exempt:1 Decoration only; never an essential boundary */
+  --b5-color-grid-line-major: #c7c0b0; /* exempt:1 Decoration only; never an essential boundary */
+  --b5-color-grid-layer-label: #423c33; /* 4.5:1 minimum; pairs in contrast.json */
+  --b5-color-track: #e7e4dc; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-track-border: #6b6255; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-thumb: #423c33; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-thumb-border: #1c1815; /* 3:1 minimum; pairs in contrast.json */
+  --b5-color-xypad-bg: #f7f5f0; /* 4.5:1 Background: measured against text; tone borders checked separately */
+  --b5-color-xypad-crosshair: #6b6255; /* 3:1 minimum; pairs in contrast.json */
+  /* I1b additions; see the dark block. */
+  --b5-color-bg-pressed: #d9d4c9; /* 4.5:1 Background: pressed control surface; measured against text */
+  --b5-color-info-border: #2a4d85; /* 3:1 minimum; info tone outline */
+  --b5-color-info-fill: #dfe6f3; /* 4.5:1 Background: info tone tint; measured against text */
+  --b5-color-scrim: rgba(28, 24, 21, 0.45); /* exempt: modal backdrop */
+  /* C9: stale-row hatch from roles (was the base file's #efece4 / #e5e1d7);
+     both endpoints are contract surfaces. */
+  --b5-color-bg-stale: repeating-linear-gradient(135deg, var(--b5-color-bg-surface-raised) 0 6px, var(--b5-color-bg-inset) 6px 12px);
+  --b5-color-simulated-bg: repeating-linear-gradient(135deg, var(--b5-color-bg-surface) 0 6px, var(--b5-color-bg-surface-overlay) 6px 12px);
+  --b5-shadow-focus: 0 0 0 3px var(--b5-color-border-focus);
+}
+:root {
+  --b5-size-icon-xl: 32px;
+  --b5-size-control-lg: 60px;
+  --b5-size-tile-min: 88px;
+  --b5-size-xypad-min: 240px;
+  --b5-size-xypad-max: 340px;
+  --b5-size-slot-btn: 64px;
+  --b5-size-fader-track: 8px;
+  --b5-size-fixture-glyph: 48px;
+  --b5-size-thumb-mouse: 28px;
+  --b5-size-fader-length: 176px;
+  --b5-size-fader-dimmer-length: 240px;
+  --b5-size-pad-handle: var(--b5-size-touch-min);
+  --b5-size-state-border: 3px;
+  --b5-size-group-fader-width: 160px;
+  --b5-preview-max-brightness: 0.12; /* content only; not a state signal */
+}
+/* C9c (owner, 2026-10-09): Daylight shows colour previews (the colour
+   picker's swatches) at full brightness. The 0.12 default and 0.15 cap are
+   dark-venue limits (theme-contract.md); Dark keeps them. */
+[data-theme="light"] {
+  --b5-preview-max-brightness: 1;
+}
+
+
+/* ===== Mockup styles (proposal only — not production CSS) ===== */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+:root { color-scheme: dark; }
+body {
+  background: var(--b5-color-bg-canvas);
+  color: var(--b5-color-text-primary);
+  font-family: var(--b5-font-body);
+  font-size: var(--b5-font-size-sm);
+  line-height: var(--b5-line-height-tight);
+  letter-spacing: var(--b5-letter-spacing-sm);
+  overflow: hidden;
+}
+button { font: inherit; color: inherit; letter-spacing: inherit; }
+.ico { width: 18px; height: 18px; flex: none; }
+.ico-sm { width: 14px; height: 14px; flex: none; }
+:focus-visible { outline: 2px solid var(--b5-color-border-focus); outline-offset: 2px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.app { display: grid; grid-template-rows: auto auto 1fr auto; grid-template-columns: minmax(0, 1fr); height: 100%; }
+main { grid-template-columns: minmax(0, 1fr); }
+
+/* --- Header: one row --- */
+.hdr { display: flex; align-items: center; gap: var(--b5-space-3); padding: 6px var(--b5-space-4); border-bottom: 1px solid var(--b5-color-border-subtle); background: var(--b5-color-bg-surface); min-height: 56px; }
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: var(--b5-font-size-md); }
+.brand-mark { width: 26px; height: 26px; border-radius: 6px; background: var(--b5-color-accent-fill); border: 1px solid var(--b5-color-accent-border); display: grid; place-items: center; font-size: 12px; color: var(--b5-color-text-accent); }
+.show { color: var(--b5-color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.show b { color: var(--b5-color-text-primary); }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: var(--b5-radius-full); border: 1px solid var(--b5-color-border-default); font-size: var(--b5-font-size-xs); white-space: nowrap; }
+.pill--ok { border-color: var(--b5-color-ok-border); color: var(--b5-color-text-success); }
+.hdr-spacer { flex: 1; }
+.out { flex: none; display: flex; align-items: center; gap: 8px; padding: 4px; border: 1px solid var(--b5-color-border-subtle); border-radius: var(--b5-radius-lg); background: var(--b5-color-bg-inset); }
+.state { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border: 2px dashed var(--b5-color-border-strong); border-radius: var(--b5-radius-md); font-weight: 700; white-space: nowrap; }
+.state.armed { border-style: solid; border-color: var(--b5-color-armed-border); background: var(--b5-color-armed-fill); color: var(--b5-color-armed-text); }
+.arm { display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 16px; border-radius: var(--b5-radius-full); border: 2px solid var(--b5-color-arm-pill-border); color: var(--b5-color-arm-pill-text); background: transparent; font-weight: 700; cursor: pointer; }
+.stop { display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 12px; border-radius: 0; border: 2px solid var(--b5-color-danger-border); background: var(--b5-color-disarm-slab-bg); color: var(--b5-color-disarm-slab-text); font-weight: 700; line-height: 1; cursor: pointer; font-size: var(--b5-font-size-xs); }
+
+/* --- Nav --- */
+.nav { display: flex; gap: 2px; padding: 0 var(--b5-space-4); border-bottom: 1px solid var(--b5-color-border-subtle); background: var(--b5-color-bg-surface); overflow-x: auto; }
+.nav button { display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; background: none; border: 0; border-bottom: 3px solid transparent; color: var(--b5-color-text-secondary); cursor: pointer; white-space: nowrap; }
+.nav button[aria-current="page"] { color: var(--b5-color-text-primary); border-bottom-color: var(--b5-color-accent-border); background: var(--b5-color-bg-selected); font-weight: 700; }
+.nav .new { font-size: 11px; padding: 1px 6px; border-radius: 4px; border: 1px dashed var(--b5-color-info-border); color: var(--b5-color-text-info); }
+
+/* --- Buttons --- */
+.btn { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 12px; border-radius: var(--b5-radius-md); border: 1px solid var(--b5-color-border-control, var(--b5-color-border-default)); background: var(--b5-color-bg-surface-raised); cursor: pointer; white-space: nowrap; }
+.btn:hover { background: var(--b5-color-bg-hover); }
+.btn[aria-pressed="true"] { background: var(--b5-color-bg-pressed, var(--b5-color-bg-selected)); border: 2px solid var(--b5-color-accent-border); color: var(--b5-color-text-primary); font-weight: 700; }
+.btn .chk { display: none; }
+.btn[aria-pressed="true"] .chk { display: inline; }
+.btn--ghost { background: transparent; }
+.btn--sm { min-height: 32px; padding: 0 8px; font-size: var(--b5-font-size-xs); }
+.btn--icon { padding: 0 10px; }
+@media (pointer: coarse) { .btn, .arm, .stop { min-height: var(--b5-size-touch-min); } }
+.seg { display: inline-flex; border: 1px solid var(--b5-color-border-default); border-radius: var(--b5-radius-md); overflow: hidden; }
+.seg button { min-height: 38px; padding: 0 12px; border: 0; background: transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.seg button + button { border-left: 1px solid var(--b5-color-border-default); }
+.seg button[aria-pressed="true"] { background: var(--b5-color-bg-pressed, var(--b5-color-bg-selected)); font-weight: 700; box-shadow: inset 0 -3px 0 var(--b5-color-accent-border); }
+.lbl { font-size: var(--b5-font-size-xs); color: var(--b5-color-text-muted); margin-right: 2px; }
+.sep { width: 1px; align-self: stretch; background: var(--b5-color-border-subtle); margin: 4px 2px; }
+
+/* --- Screens --- */
+.screen { position: relative; min-height: 0; display: none; }
+.screen.on { display: grid; }
+#scr-console { grid-template-rows: auto auto 1fr; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px var(--b5-space-4); border-bottom: 1px solid var(--b5-color-border-subtle); background: var(--b5-color-bg-surface); }
+.layers button .n { color: var(--b5-color-text-muted); font-weight: 400; }
+.selbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px var(--b5-space-4); border-bottom: 1px solid var(--b5-color-border-subtle); background: var(--b5-color-bg-canvas); min-height: 54px; }
+.selcount { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: var(--b5-radius-full); border: 2px solid var(--b5-color-accent-border); font-weight: 700; white-space: nowrap; }
+.selcount.none { border: 1px dashed var(--b5-color-border-strong); font-weight: 400; color: var(--b5-color-text-secondary); }
+.selwhat { color: var(--b5-color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 120px; }
+
+/* --- Workspace + grid --- */
+.ws { position: relative; min-height: 0; overflow: hidden; }
+.gridpane { position: absolute; inset: 0; overflow: auto; background: var(--b5-color-grid-bg, var(--b5-color-bg-inset)); }
+.layerblock { position: relative; }
+.layerhead { position: sticky; left: 0; display: flex; align-items: center; gap: 10px; padding: 8px 14px 4px; color: var(--b5-color-grid-layer-label, var(--b5-color-text-secondary)); font-size: var(--b5-font-size-xs); }
+.layerhead b { color: var(--b5-color-text-primary); font-size: var(--b5-font-size-sm); }
+.canvas { position: relative; margin: 6px 14px 18px; background-image: linear-gradient(90deg, var(--b5-color-grid-line) 1px, transparent 1px); }
+.lasso { position: absolute; border: 2px dashed var(--b5-color-accent-border); background: var(--b5-color-accent-fill); pointer-events: none; z-index: 5; }
+
+.tile { position: absolute; display: flex; flex-direction: column; border: 1px solid var(--b5-color-border-default); border-radius: var(--b5-radius-md); background: var(--b5-color-bg-surface-raised); overflow: hidden; }
+.tile.sel { border: var(--b5-size-state-border) solid var(--b5-color-fixture-selected, var(--b5-color-accent-border)); background: var(--b5-color-bg-selected); }
+.tile.hl { box-shadow: 0 0 0 3px var(--b5-color-fixture-highlight, var(--b5-color-warn-border)); }
+.tile.test { outline: 2px dashed var(--b5-color-fixture-test, var(--b5-color-info-border)); outline-offset: 2px; }
+.t-main { flex: 1; display: flex; flex-direction: column; justify-content: flex-start; gap: 1px; padding: 4px 6px 2px; background: none; border: 0; text-align: left; cursor: pointer; min-height: 0; }
+.t-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.t-fid { font-weight: 700; font-size: 15px; }
+.t-name { color: var(--b5-color-text-secondary); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.t-glyph { width: 20px; height: 20px; color: var(--b5-color-text-muted); flex: none; }
+.t-order { margin-left: auto; min-width: 20px; height: 20px; border-radius: 10px; padding: 0 5px; display: inline-grid; place-items: center; background: var(--b5-color-text-accent); color: var(--b5-color-text-on-accent); font-size: 12px; font-weight: 700; }
+.t-sw { margin-left: auto; width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--b5-color-border-strong); flex: none; }
+.t-order + .t-sw { margin-left: 4px; }
+.t-tags { position: absolute; right: 3px; top: 1px; display: flex; gap: 3px; }
+.tag { font-size: 10px; font-weight: 700; padding: 0 3px; border-radius: 3px; line-height: 13px; border: 1px solid; background: var(--b5-color-bg-surface); }
+.tag--set { border-color: var(--b5-color-accent-border); color: var(--b5-color-text-accent); }
+.tag--test { border-color: var(--b5-color-info-border); color: var(--b5-color-text-info); border-style: dashed; }
+.tag--hl { border-color: var(--b5-color-warn-border); color: var(--b5-color-text-warning); }
+.t-int { position: relative; flex: none; height: 18px; margin: 2px 0 0; border-top: 1px solid var(--b5-color-border-subtle); background: var(--b5-color-bg-inset); }
+.t-int-fill { position: absolute; inset: 0 auto 0 0; background: var(--b5-color-value-set, var(--b5-color-accent-fill)); border-right: 2px solid var(--b5-color-accent-border); }
+.t-int-fill.zero { border-right: 0; }
+.t-int-word { position: relative; font-size: 11px; font-family: var(--b5-font-mono); padding-left: 5px; line-height: 17px; font-weight: 700; color: var(--b5-color-text-primary); }
+.cells { display: flex; gap: 3px; padding: 3px 6px 4px; }
+.cell { flex: 1; min-width: 0; height: 22px; border: 1px solid var(--b5-color-border-default); border-radius: 3px; background: var(--b5-color-bg-inset); cursor: pointer; padding: 0; font-size: 10px; color: var(--b5-color-text-muted); position: relative; overflow: hidden; }
+.cell .cf { position: absolute; inset: auto 0 0 0; background: var(--b5-color-value-set, var(--b5-color-accent-fill)); }
+.cell span { position: relative; }
+.cell.csel { border: 2px solid var(--b5-color-fixture-cell-selected, var(--b5-color-accent-border)); color: var(--b5-color-text-primary); font-weight: 700; }
+
+/* --- Floating windows --- */
+.fw { position: absolute; z-index: 10; display: flex; flex-direction: column; min-width: 280px; max-height: calc(100% - 16px); background: var(--b5-color-bg-surface); border: 1px solid var(--b5-color-border-strong); border-radius: var(--b5-radius-lg); box-shadow: var(--b5-shadow-lg); }
+.fw[hidden] { display: none; }
+.fw.front { z-index: 12; }
+.fw-bar { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 8px; border-bottom: 1px solid var(--b5-color-border-subtle); background: var(--b5-color-bg-surface-raised); border-radius: var(--b5-radius-lg) var(--b5-radius-lg) 0 0; cursor: grab; user-select: none; touch-action: none; }
+.fw-bar:active { cursor: grabbing; }
+.fw-title { font-weight: 700; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fw-title small { font-weight: 400; color: var(--b5-color-text-muted); margin-left: 6px; }
+.fw-bar .btn { min-height: 34px; }
+.fw-body { overflow: auto; padding: 10px 12px 12px; min-height: 0; }
+.fw.collapsed .fw-body { display: none; }
+.fw.collapsed .fw-bar { border-bottom: 0; border-radius: var(--b5-radius-lg); }
+.fw-grip { width: 18px; height: 18px; color: var(--b5-color-text-muted); }
+
+/* Controls window content */
+.tabs { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-bottom: 10px; }
+.tabs button { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border: 1px solid var(--b5-color-border-default); border-radius: var(--b5-radius-md); background: var(--b5-color-bg-surface-raised); cursor: pointer; font-size: 11.5px; }
+.tabs button[aria-selected="true"] { border: 2px solid var(--b5-color-accent-border); background: var(--b5-color-bg-pressed, var(--b5-color-bg-selected)); font-weight: 700; }
+.tabs .n { font-size: 10.5px; color: var(--b5-color-text-muted); font-weight: 400; }
+.card { border: 1px solid var(--b5-color-border-subtle); border-radius: var(--b5-radius-md); padding: 10px; margin-bottom: 10px; background: var(--b5-color-bg-surface-raised); }
+.card h4 { margin: 0 0 6px; font-size: var(--b5-font-size-sm); display: flex; align-items: baseline; gap: 8px; }
+.card h4 .v { margin-left: auto; font-family: var(--b5-font-mono); }
+.muted { color: var(--b5-color-text-muted); font-size: var(--b5-font-size-xs); }
+.row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+input[type=range] { width: 100%; accent-color: var(--b5-color-accent-500); height: 28px; }
+details.more { margin-top: 6px; }
+details.more summary { cursor: pointer; color: var(--b5-color-text-secondary); font-size: var(--b5-font-size-xs); padding: 4px 0; }
+.sw-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.sw-grid button { height: 40px; border-radius: var(--b5-radius-md); border: 1px solid var(--b5-color-border-strong); cursor: pointer; font-size: 10.5px; color: #fff; text-shadow: 0 0 3px #000, 0 0 2px #000; }
+.xy { position: relative; height: 200px; border: 1px solid var(--b5-color-border-default); border-radius: var(--b5-radius-md); background: var(--b5-color-xypad-bg, var(--b5-color-bg-inset)); background-image: linear-gradient(var(--b5-color-xypad-crosshair, var(--b5-color-border-subtle)) 1px, transparent 1px), linear-gradient(90deg, var(--b5-color-xypad-crosshair, var(--b5-color-border-subtle)) 1px, transparent 1px); background-size: 50% 50%; background-position: center; }
+.xy .h { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px; border-radius: 50%; border: 2px solid var(--b5-color-accent-border); background: var(--b5-color-bg-surface); }
+.olist { margin: 0; padding-left: 26px; }
+.olist li { padding: 4px 0; border-bottom: 1px solid var(--b5-color-border-subtle); }
+.gtiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.gtiles button { text-align: left; padding: 8px; border-radius: var(--b5-radius-md); border: 1px solid var(--b5-color-border-default); background: var(--b5-color-bg-surface-raised); cursor: pointer; }
+.gtiles small { display: block; color: var(--b5-color-text-muted); }
+
+/* Menus */
+.menu { position: absolute; z-index: 30; min-width: 220px; padding: 6px; background: var(--b5-color-bg-surface-overlay); border: 1px solid var(--b5-color-border-strong); border-radius: var(--b5-radius-md); box-shadow: var(--b5-shadow-md); }
+.menu[hidden] { display: none; }
+.menu button { display: flex; width: 100%; align-items: center; gap: 8px; min-height: 40px; padding: 0 10px; background: none; border: 0; border-radius: var(--b5-radius-sm); text-align: left; cursor: pointer; }
+.menu button:hover { background: var(--b5-color-bg-hover); }
+.menu .mchk { width: 18px; text-align: center; font-weight: 700; }
+.menu hr { border: 0; border-top: 1px solid var(--b5-color-border-subtle); margin: 4px 0; }
+.menu .mh { font-size: 11px; color: var(--b5-color-text-muted); padding: 4px 10px; }
+
+/* Fader bar (unchanged) */
+.fbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 12px; border-top: 1px solid var(--b5-color-border-default); background: var(--b5-color-bg-surface); }
+
+/* Tests screen */
+#scr-tests { grid-template-columns: minmax(360px, 1fr) minmax(420px, 560px); }
+#scr-tests .ws { border-right: 1px solid var(--b5-color-border-subtle); }
+.tpanel { overflow: auto; padding: 12px 16px 20px; }
+.tpanel h3 { margin: 14px 0 6px; font-size: var(--b5-font-size-xs); color: var(--b5-color-text-muted); letter-spacing: .04em; }
+.ttiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.ttile { display: flex; flex-direction: column; gap: 4px; padding: 10px; border: 1px solid var(--b5-color-border-default); border-radius: var(--b5-radius-md); background: var(--b5-color-bg-surface-raised); text-align: left; cursor: pointer; }
+.ttile[aria-pressed="true"] { border: 2px dashed var(--b5-color-info-border); background: var(--b5-color-info-fill); }
+.ttile .st { margin-left: auto; font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 3px; border: 1px solid var(--b5-color-border-strong); }
+.ttile[aria-pressed="true"] .st { border-color: var(--b5-color-info-border); color: var(--b5-color-text-info); }
+
+/* Mockup notes */
+.mock { border: 1px dashed var(--b5-color-info-border); color: var(--b5-color-text-info); background: transparent; }
+dialog { max-width: 640px; background: var(--b5-color-bg-surface); color: var(--b5-color-text-primary); border: 1px solid var(--b5-color-border-strong); border-radius: var(--b5-radius-lg); padding: 18px 22px; line-height: var(--b5-line-height-body); }
+dialog::backdrop { background: rgba(0,0,0,.6); }
+dialog h2 { margin: 0 0 8px; font-size: var(--b5-font-size-lg); }
+dialog li { margin: 4px 0; }
+.narrow-note { display: none; padding: 10px 16px; background: var(--b5-color-warn-fill); border-bottom: 1px solid var(--b5-color-warn-border); }
+@media (max-width: 899px) { .narrow-note { display: block; } }
+@media (max-width: 1279px) { .wide-only { display: none !important; } }
+</style>
+</head>
+<body>
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+<defs>
+  <symbol id="b5-icon-nav-nodes" viewBox="0 0 24 24">
+    <rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="8.5" y="14" width="7" height="7" rx="1"></rect><path d="M6.5 10v2.5a1 1 0 0 0 1 1H9M17.5 10v2.5a1 1 0 0 0-1 1H15" fill="none"></path>
+  </symbol>
+  <symbol id="b5-icon-nav-devices" viewBox="0 0 24 24">
+    <path d="M8 3h8l3 7H5l3-7Z"></path><path d="M5 10h14v3a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-3Z"></path><path d="M12 15v3M9 21h6"></path>
+  </symbol>
+  <symbol id="b5-icon-nav-rig-walk" viewBox="0 0 24 24">
+    <ellipse cx="9" cy="6" rx="2.1" ry="3" transform="rotate(-18 9 6)"></ellipse><ellipse cx="15.5" cy="13" rx="2.1" ry="3" transform="rotate(18 15.5 13)"></ellipse><ellipse cx="8.5" cy="19.5" rx="1.8" ry="2.5" transform="rotate(-14 8.5 19.5)"></ellipse>
+  </symbol>
+  <symbol id="b5-icon-nav-analyzer" viewBox="0 0 24 24">
+    <path d="M2 12h4l2-7 4 14 3-10 2 3h5"></path>
+  </symbol>
+  <symbol id="b5-icon-nav-send" viewBox="0 0 24 24">
+    <path d="M12 20V6M6 11l6-6 6 6"></path><path d="M4 20h16" stroke-dasharray="2.5 2.5"></path>
+  </symbol>
+  <symbol id="b5-icon-nav-settings" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="3.2"></circle><path d="M12 3v2.4M12 18.6V21M4.9 4.9l1.7 1.7M17.4 17.4l1.7 1.7M3 12h2.4M18.6 12H21M4.9 19.1l1.7-1.7M17.4 6.6l1.7-1.7"></path>
+  </symbol>
+  <symbol id="b5-icon-sort-asc" viewBox="0 0 24 24">
+    <path d="M7 20V6M4 9l3-3 3 3"></path><path d="M13 8h7M13 13h5M13 18h3"></path>
+  </symbol>
+  <symbol id="b5-icon-sort-desc" viewBox="0 0 24 24">
+    <path d="M7 4v14M4 15l3 3 3-3"></path><path d="M13 18h7M13 13h5M13 8h3"></path>
+  </symbol>
+  <symbol id="b5-icon-filter" viewBox="0 0 24 24">
+    <path d="M3 4h18l-7 8.5V19l-4 2v-8.5L3 4Z"></path>
+  </symbol>
+  <symbol id="b5-icon-status-warning" viewBox="0 0 24 24">
+    <path d="M12 3.5 22 20H2L12 3.5Z"></path><path d="M12 10v4.5"></path><circle cx="12" cy="17.3" r="0.9" fill="currentColor" stroke="none"></circle>
+  </symbol>
+  <symbol id="b5-icon-status-error" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="9"></circle><path d="M8.5 8.5l7 7M15.5 8.5l-7 7"></path>
+  </symbol>
+  <symbol id="b5-icon-status-ok" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="9"></circle><path d="M7.5 12.5l3 3 6-6.5"></path>
+  </symbol>
+  <symbol id="b5-icon-status-pending" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="9"></circle><path d="M12 7v5.5l4 2.2"></path>
+  </symbol>
+  <symbol id="b5-icon-refresh" viewBox="0 0 24 24">
+    <path d="M20 11A8 8 0 0 0 6.3 6.3L4 8.5"></path><path d="M4 4v4.5h4.5"></path><path d="M4 13a8 8 0 0 0 13.7 4.7L20 15.5"></path><path d="M20 20v-4.5h-4.5"></path>
+  </symbol>
+  <symbol id="b5-icon-chevron-expand" viewBox="0 0 24 24">
+    <path d="M6 9l6 6 6-6"></path>
+  </symbol>
+  <symbol id="b5-icon-chevron-collapse" viewBox="0 0 24 24">
+    <path d="M6 15l6-6 6 6"></path>
+  </symbol>
+  <symbol id="b5-icon-identify" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="9" stroke-dasharray="1.5 3"></circle><path d="M13 6.5 8.5 13H12l-1 4.5 4.5-6.5H12l1-4.5Z" fill="currentColor" stroke="none"></path>
+  </symbol>
+  <symbol id="b5-icon-signal" viewBox="0 0 24 24">
+    <rect x="3" y="14" width="3.4" height="7" rx="0.6"></rect><rect x="8.3" y="10.5" width="3.4" height="10.5" rx="0.6"></rect><rect x="13.6" y="6.5" width="3.4" height="14.5" rx="0.6"></rect><rect x="18.9" y="3" width="3.4" height="18" rx="0.6"></rect>
+  </symbol>
+  <symbol id="b5-icon-network-node" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="2.6"></circle><circle cx="12" cy="3.5" r="1.6"></circle><circle cx="4" cy="19" r="1.6"></circle><circle cx="20" cy="19" r="1.6"></circle><path d="M12 6.1V9.4M10.1 13.9 5.6 17.5M13.9 13.9l4.5 3.6"></path>
+  </symbol>
+  <symbol id="b5-icon-export" viewBox="0 0 24 24">
+    <path d="M12 3v11.5M8 11l4 4 4-4"></path><path d="M4 16.5V19a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2.5"></path>
+  </symbol>
+  <symbol id="b5-icon-apply" viewBox="0 0 24 24">
+    <rect x="3" y="3" width="18" height="18" rx="2.5"></rect><path d="M7.5 12.5l3 3 6-6.5"></path>
+  </symbol>
+  <symbol id="b5-icon-revert" viewBox="0 0 24 24">
+    <path d="M7 7 3.5 10.5 7 14"></path><path d="M3.5 10.5H14a6 6 0 1 1 0 12h-1.5"></path>
+  </symbol>
+  <!-- Console-lite (I1): 72 symbols appended verbatim from docs/design/console-lite/console-icons.svg.
+       Each carries its own fill/stroke attributes, independent of this file's root. -->
+<symbol id="b5-icon-nav-console" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 8v8M12 8v8M17 8v8M5 11h4M10 14h4M15 10h4"/></symbol>
+<symbol id="b5-icon-arm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H4v18h4M16 3h4v18h-4M10 8l6 4-6 4Z"/></symbol>
+<symbol id="b5-icon-disarm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" /><path d="M7 17 17 7"/></symbol>
+<symbol id="b5-icon-armed-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10" width="14" height="11" rx="1"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/></symbol>
+<symbol id="b5-icon-lease-lost" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m9 5 2-2a5 5 0 0 1 7 7l-2 2M8 12l-2 2a5 5 0 0 0 7 7l2-2M3 3l18 18"/></symbol>
+<symbol id="b5-icon-link-ok" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m9 7 2-2a5 5 0 0 1 7 7l-2 2M8 10l-2 2a5 5 0 0 0 7 7l2-2M8 16l8-8"/></symbol>
+<symbol id="b5-icon-simulated" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="3 3"/><path d="m9 7 8 5-8 5Z"/></symbol>
+<symbol id="b5-icon-blackout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M6 18 18 6M6 6l12 12"/></symbol>
+<symbol id="b5-icon-highlight" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/></symbol>
+<symbol id="b5-icon-lowlight" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 5a8 8 0 1 0 3 12 7 7 0 0 1-3-12ZM4 21h16"/></symbol>
+<symbol id="b5-icon-locate" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 3v5M12 16v5M3 12h5M16 12h5"/></symbol>
+<symbol id="b5-icon-fan-linear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18V15M9 18v-6M14 18V9M19 18V6M3 3h17l-3 3M20 3l-3 3"/></symbol>
+<symbol id="b5-icon-fan-reverse" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5 18V6M10 18V9M15 18v-6M20 18v-3M21 3H4l3 3"/></symbol>
+<symbol id="b5-icon-fan-center-out" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18V7M8 18v-5M12 18v-2M16 18v-5M20 18V7M10 5H3l3-2M3 5l3 2M14 5h7l-3-2M21 5l-3 2"/></symbol>
+<symbol id="b5-icon-fan-edges-in" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18v-2M8 18v-5M12 18V8M16 18v-5M20 18v-2M3 5h7L7 3M10 5 7 7M21 5h-7l3-2M14 5l3 2"/></symbol>
+<symbol id="b5-icon-clear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m4 14 9-10 7 6-9 10H8l-4-4ZM8 10l7 6M12 20h9"/></symbol>
+<symbol id="b5-icon-group" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="7" height="6" rx="1"/><rect x="14" y="4" width="7" height="6" rx="1"/><rect x="8.5" y="14" width="7" height="6" rx="1"/><path d="M6 10v2h12v-2M12 12v2"/></symbol>
+<symbol id="b5-icon-store-group" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="6" height="6" /><rect x="13" y="3" width="6" height="6" /><rect x="3" y="13" width="6" height="6" /><path d="M16 12v9M12 16h9"/></symbol>
+<symbol id="b5-icon-store-preset" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 3h12l4 4v14H4ZM8 3v6h8V3M8 21v-7h8v7M12 15v5M10 17h4"/></symbol>
+<symbol id="b5-icon-attr-dimmer" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 4v16M12 6l5 5M12 11l6 6M12 16l3 3"/></symbol>
+<symbol id="b5-icon-attr-position" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/></symbol>
+<symbol id="b5-icon-attr-colour" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="4"/><circle cx="15" cy="8" r="4"/><circle cx="12" cy="15" r="4"/></symbol>
+<symbol id="b5-icon-attr-beam" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3h8v5H8ZM9 8 4 21M15 8l5 13M12 11v10M4 21h16"/></symbol>
+<symbol id="b5-icon-attr-focus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5"/><circle cx="12" cy="12" r="4"/></symbol>
+<symbol id="b5-icon-attr-shaper" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M5 8h12M16 5v12M19 16H7M8 19V7"/></symbol>
+<symbol id="b5-icon-attr-control" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3v18M12 3v18M19 3v18M3 8h4M10 16h4M17 10h4"/></symbol>
+<symbol id="b5-icon-gobo-placeholder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M12 4v3M12 17v3M4 12h3M17 12h3"/></symbol>
+<symbol id="b5-icon-colour-slot-placeholder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M10 9a2 2 0 1 1 3 2c-1 .5-1 1-1 2M12 16h.01"/></symbol>
+<symbol id="b5-icon-slot-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/></symbol>
+<symbol id="b5-icon-shutter-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4H3v16h5M16 4h5v16h-5M7 12h10M9 10l-2 2 2 2M15 10l2 2-2 2"/></symbol>
+<symbol id="b5-icon-shutter-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" /><path d="M12 4v16M7 9l10 6M17 9 7 15"/></symbol>
+<symbol id="b5-icon-strobe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3 5 14h6l-1 7 9-12h-6ZM3 4l2 2M19 18l2 2"/></symbol>
+<symbol id="b5-icon-prism" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 17H3ZM12 3v17M3 20l9-7 9 7"/></symbol>
+<symbol id="b5-icon-frost" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M8 8h.01M16 8h.01M12 12h.01M8 16h.01M16 16h.01"/></symbol>
+<symbol id="b5-icon-iris" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="m8 5 8 3 3 8-8 3-6-8ZM8 5l3 14M16 8 5 11M19 16 8 5"/></symbol>
+<symbol id="b5-icon-zoom" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="6"/><path d="M15 15l6 6M7 10h6M10 7v6"/></symbol>
+<symbol id="b5-icon-focus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5l9 7-9 7M21 5l-9 7 9 7M12 3v3M12 18v3"/></symbol>
+<symbol id="b5-icon-shaper" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M5 8h14M16 5v14M5 16h11"/></symbol>
+<symbol id="b5-icon-gobo-rotate-cw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M19 10a7 7 0 1 0 0 5M19 4v6h-6"/><circle cx="12" cy="12" r="2"/></symbol>
+<symbol id="b5-icon-gobo-rotate-ccw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5 10a7 7 0 1 1 0 5M5 4v6h6"/><circle cx="12" cy="12" r="2"/></symbol>
+<symbol id="b5-icon-gobo-shake" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M3 6v12M6 8l-3-2M6 16l-3 2M21 6v12M18 8l3-2M18 16l3 2"/></symbol>
+<symbol id="b5-icon-lamp" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17h6M9 20h6M8 13a6 6 0 1 1 8 0l-1 4H9ZM12 9v5"/></symbol>
+<symbol id="b5-icon-reset" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3h8v5l-3 4 3 4v5H8v-5l3-4-3-4ZM5 3h14M5 21h14"/></symbol>
+<symbol id="b5-icon-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5ZM3 12l9 5 9-5M3 16l9 5 9-5"/></symbol>
+<symbol id="b5-icon-layer-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 16 7 4 7-4M3 12l7 4 7-4M17 12V3M14 6l3-3 3 3"/></symbol>
+<symbol id="b5-icon-layer-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 5 7 4 7-4M3 9l7 4 7-4M17 12v9M14 18l3 3 3-3"/></symbol>
+<symbol id="b5-icon-grid-snap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h18M3 16h18M8 3v18M16 3v18"/><rect x="9" y="9" width="6" height="6" /></symbol>
+<symbol id="b5-icon-select-parent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="1"/><path d="M9 8v8M15 8v8"/></symbol>
+<symbol id="b5-icon-select-cell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="1" stroke-dasharray="3 2"/><rect x="9" y="7" width="6" height="10"/></symbol>
+<symbol id="b5-icon-select-all" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" stroke-dasharray="3 2"/><path d="M7 12l3 3 7-7"/></symbol>
+<symbol id="b5-icon-select-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" stroke-dasharray="3 2"/><path d="M7 7l10 10M17 7 7 17"/></symbol>
+<symbol id="b5-icon-select-invert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" /><path d="M12 3v18M12 5l7 7M12 11l7 7M12 17l3 3"/></symbol>
+<symbol id="b5-icon-lasso" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5 16C1 10 5 3 12 4s10 6 7 10-12 5-14 2Zm0 0c-4 8 8 4 3-1"/></symbol>
+<symbol id="b5-icon-seq-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4v16M19 4 8 12l11 8Z"/></symbol>
+<symbol id="b5-icon-seq-next" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M19 4v16M5 4l11 8-11 8Z"/></symbol>
+<symbol id="b5-icon-seq-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h14l-3-3M20 18H6l3 3M9 8l7 4-7 4Z"/></symbol>
+<symbol id="b5-icon-test" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6M10 3v6L4 19a1 1 0 0 0 1 2h14a1 1 0 0 0 1-2L14 9V3M7 15h10"/></symbol>
+<symbol id="b5-icon-fine" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M6 3v6M10 4v4M14 3v6M18 4v4M3 17h18M9 13l-4 4 4 4M15 13l4 4-4 4"/></symbol>
+<symbol id="b5-icon-midi-connected" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M7 13h.01M9 8h.01M15 8h.01M17 13h.01M12 6h.01M9 20v-4h6v4"/></symbol>
+<symbol id="b5-icon-midi-disconnected" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M7 13h.01M9 8h.01M15 8h.01M17 13h.01M12 6h.01M3 3l18 18"/></symbol>
+<symbol id="b5-icon-proto-artnet" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="10" rx="1"/><path d="M7 8h.01M11 8h.01M12 14v5M4 19h16"/></symbol>
+<symbol id="b5-icon-proto-sacn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h7v14H4ZM11 12h10M16 7l5 5-5 5"/></symbol>
+<symbol id="b5-icon-theme" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 4v16M12 6l5 5M12 11l6 6"/></symbol>
+<symbol id="b5-icon-rdm-only" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" stroke-dasharray="3 2"/><path d="M7 10h10l-2-2M17 14H7l2 2"/></symbol>
+<symbol id="b5-icon-drag-handle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5h.01M16 5h.01M8 12h.01M16 12h.01M8 19h.01M16 19h.01"/></symbol>
+<symbol id="b5-icon-preset-dimmer" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(1 0) scale(.75)"><circle vector-effect="non-scaling-stroke" cx="12" cy="12" r="8"/><path vector-effect="non-scaling-stroke" d="M12 4v16M12 6l5 5M12 11l6 6M12 16l3 3"/></g><path d="M16 15h5v6l-2.5-2-2.5 2Z"/></symbol>
+<symbol id="b5-icon-preset-position" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(1 0) scale(.75)"><path vector-effect="non-scaling-stroke" d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/></g><path d="M16 15h5v6l-2.5-2-2.5 2Z"/></symbol>
+<symbol id="b5-icon-preset-colour" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(1 0) scale(.75)"><circle vector-effect="non-scaling-stroke" cx="9" cy="8" r="4"/><circle vector-effect="non-scaling-stroke" cx="15" cy="8" r="4"/><circle vector-effect="non-scaling-stroke" cx="12" cy="15" r="4"/></g><path d="M16 15h5v6l-2.5-2-2.5 2Z"/></symbol>
+<symbol id="b5-icon-preset-beam" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(1 0) scale(.75)"><path vector-effect="non-scaling-stroke" d="M8 3h8v5H8ZM9 8 4 21M15 8l5 13M12 11v10M4 21h16"/></g><path d="M16 15h5v6l-2.5-2-2.5 2Z"/></symbol>
+<symbol id="b5-icon-preset-focus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(1 0) scale(.75)"><path vector-effect="non-scaling-stroke" d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5"/><circle vector-effect="non-scaling-stroke" cx="12" cy="12" r="4"/></g><path d="M16 15h5v6l-2.5-2-2.5 2Z"/></symbol>
+<symbol id="b5-icon-preset-shaper" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(1 0) scale(.75)"><circle vector-effect="non-scaling-stroke" cx="12" cy="12" r="8"/><path vector-effect="non-scaling-stroke" d="M5 8h12M16 5v12M19 16H7M8 19V7"/></g><path d="M16 15h5v6l-2.5-2-2.5 2Z"/></symbol>
+<symbol id="b5-icon-preset-control" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(1 0) scale(.75)"><path vector-effect="non-scaling-stroke" d="M5 3v18M12 3v18M19 3v18M3 8h4M10 16h4M17 10h4"/></g><path d="M16 15h5v6l-2.5-2-2.5 2Z"/></symbol>
+  <!-- Console-lite fixture glyphs (I1): 8 symbols on a 48 grid, verbatim from fixture-glyphs.svg.
+       data-beam / data-cell mark reserved areas for overlays; the pixel-bar cells are a drawing
+       reference only - real cells are generated as component geometry (component-specs.md 3). -->
+<symbol id="b5-icon-fx-moving-head" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v14q0 7 12 7t12-7V17M24 38v5M16 43h16"/><rect x="16" y="11" width="16" height="22" rx="6"/><ellipse data-beam="" cx="24" cy="17" rx="6" ry="3"/></symbol>
+<symbol id="b5-icon-fx-wash" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10 18v15q14 12 28 0V18M24 39v4M17 43h14"/><circle cx="24" cy="24" r="13"/><circle data-beam="" cx="24" cy="24" r="9"/></symbol>
+<symbol id="b5-icon-fx-profile" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="16" y="10" width="16" height="27" rx="2"/><path d="M13 22h22M13 26h22M20 37v6h8v-6M14 10h20"/><path data-beam="" d="M19 14h10v6H19Z"/></symbol>
+<symbol id="b5-icon-fx-pixel-bar" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="15" width="38" height="19" rx="2"/><rect data-cell="1" data-beam="" x="8" y="19" width="6" height="11"/><rect data-cell="2" data-beam="" x="17" y="19" width="6" height="11"/><rect data-cell="3" data-beam="" x="26" y="19" width="6" height="11"/><rect data-cell="4" data-beam="" x="35" y="19" width="6" height="11"/></symbol>
+<symbol id="b5-icon-fx-strobe" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="15" width="34" height="20" rx="2"/><path data-beam="" d="M10 19h28v12H10Z"/><path d="m25 18-6 8h6l-2 7 8-10h-6"/></symbol>
+<symbol id="b5-icon-fx-dimmer" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="24" cy="24" r="13"/><circle data-beam="" cx="24" cy="24" r="9"/><path d="M18 18l12 12M30 18 18 30M24 37v6"/></symbol>
+<symbol id="b5-icon-fx-unknown" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="10" y="11" width="28" height="29" rx="3" stroke-dasharray="4 3"/><path d="M19 20a5 5 0 1 1 8 4c-3 2-3 3-3 5M24 34h.01"/></symbol>
+<symbol id="b5-icon-fx-group" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="16" width="27" height="23" rx="2"/><path d="M14 12h26v22M18 8h25v22M15 25h15M15 31h9"/></symbol>
+</defs>
+</svg>
+
+<div class="app">
+  <header class="hdr">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">B5</span>Benny512</div>
+    <div class="show"><b>Imported</b><span class="wide-only"> · eth0 (192.0.2.2)</span></div>
+    <span class="pill pill--ok"><svg class="ico-sm"><use href="#b5-icon-link-ok"/></svg>Connected<span class="wide-only">&nbsp;· Shared control</span></span>
+    <button class="btn btn--sm mock" id="notesBtn" type="button">Mockup notes</button>
+    <div class="hdr-spacer"></div>
+    <div class="out" role="group" aria-label="Output">
+      <span class="state" id="outState"><svg class="ico"><use href="#b5-icon-disarm"/></svg><span id="outWord">DISARMED · no output</span></span>
+      <button class="arm" id="armBtn" type="button"><svg class="ico"><use href="#b5-icon-arm"/></svg>ARM</button>
+      <button class="stop" id="stopBtn" type="button"><svg class="ico"><use href="#b5-icon-blackout"/></svg>DISARM<br>BLACKOUT</button>
+    </div>
+    <button class="btn" type="button" data-menu="m-show" aria-haspopup="menu" aria-expanded="false">Show <svg class="ico-sm"><use href="#b5-icon-chevron-expand"/></svg></button>
+  </header>
+
+  <nav class="nav" aria-label="Screens">
+    <button type="button"><svg class="ico"><use href="#b5-icon-nav-nodes"/></svg>Nodes</button>
+    <button type="button"><svg class="ico"><use href="#b5-icon-nav-devices"/></svg>Devices</button>
+    <button type="button"><svg class="ico"><use href="#b5-icon-layers"/></svg>Patch</button>
+    <button type="button"><svg class="ico"><use href="#b5-icon-nav-analyzer"/></svg>Analyzer</button>
+    <button type="button" data-screen="console" aria-current="page"><svg class="ico"><use href="#b5-icon-nav-console"/></svg>Console</button>
+    <button type="button" data-screen="tests"><svg class="ico"><use href="#b5-icon-test"/></svg>Tests <span class="new">new tab</span></button>
+    <button type="button"><svg class="ico"><use href="#b5-icon-nav-rig-walk"/></svg>Rig Walk</button>
+    <button type="button"><svg class="ico"><use href="#b5-icon-nav-settings"/></svg>Settings</button>
+  </nav>
+
+  <main style="min-height:0;display:grid">
+    <div class="narrow-note">This mockup is for a laptop screen (1024 px and wider). A phone layout comes later.</div>
+
+    <!-- ===== CONSOLE ===== -->
+    <section class="screen on" id="scr-console" aria-label="Console">
+      <div class="toolbar" role="toolbar" aria-label="Grid tools">
+        <div class="seg layers" id="layerSeg">
+          <button type="button" data-layer="all">All</button>
+          <button type="button" data-layer="truss" aria-pressed="true">Truss 6.4 m <span class="n">· 44</span></button>
+          <button type="button" data-layer="floor">Floor 0 m <span class="n">· 14</span></button>
+          <button type="button" data-layer="unplaced">Unplaced <span class="n">· 0</span></button>
+        </div>
+        <span class="sep"></span>
+        <span class="lbl">Spacing</span>
+        <div class="seg" id="spacingSeg">
+          <button type="button" data-spacing="plan" aria-pressed="true">Plan</button>
+          <button type="button" data-spacing="compact">Compact</button>
+        </div>
+        <span class="sep"></span>
+        <div class="seg"><button type="button" id="fitBtn" aria-pressed="true">Fit</button><button type="button" id="zoomOut" aria-label="Zoom out">−</button><button type="button" id="zoomIn" aria-label="Zoom in">+</button></div>
+        <button class="btn" type="button" id="lassoBtn" aria-pressed="false"><span class="chk">✓</span><svg class="ico"><use href="#b5-icon-lasso"/></svg>Lasso</button>
+        <button class="btn" type="button" id="addBtn" aria-pressed="false"><span class="chk">✓</span>Add</button>
+        <button class="btn" type="button" data-menu="m-select" aria-haspopup="menu" aria-expanded="false"><svg class="ico"><use href="#b5-icon-select-all"/></svg>Select <svg class="ico-sm"><use href="#b5-icon-chevron-expand"/></svg></button>
+        <button class="btn" type="button" data-menu="m-view" aria-haspopup="menu" aria-expanded="false">View <svg class="ico-sm"><use href="#b5-icon-chevron-expand"/></svg></button>
+        <span style="flex:1"></span>
+        <button class="btn" type="button" data-menu="m-windows" aria-haspopup="menu" aria-expanded="false"><svg class="ico"><use href="#b5-icon-layers"/></svg>Windows <svg class="ico-sm"><use href="#b5-icon-chevron-expand"/></svg></button>
+      </div>
+
+      <div class="selbar" aria-label="Selection">
+        <span class="selcount" id="selCount"></span>
+        <span class="selwhat" id="selWhat"></span>
+        <button class="btn" type="button" data-act="clear"><svg class="ico"><use href="#b5-icon-clear"/></svg>Clear…</button>
+        <button class="btn" type="button" id="hlBtn" aria-pressed="false"><span class="chk">✓</span><svg class="ico"><use href="#b5-icon-highlight"/></svg>Highlight</button>
+        <button class="btn" type="button" data-act="locate"><svg class="ico"><use href="#b5-icon-locate"/></svg>Locate</button>
+        <button class="btn" type="button" data-act="level">Level 20 %…</button>
+        <button class="btn" type="button" data-menu="m-more" aria-haspopup="menu" aria-expanded="false">More <svg class="ico-sm"><use href="#b5-icon-chevron-expand"/></svg></button>
+      </div>
+
+      <div class="ws" id="wsConsole">
+        <div class="gridpane" id="gridConsole"></div>
+
+        <!-- Controls window (open by default) -->
+        <section class="fw" id="fw-controls" aria-labelledby="fwt-controls" data-default="right">
+          <div class="fw-bar" data-drag>
+            <svg class="fw-grip"><use href="#b5-icon-drag-handle"/></svg>
+            <span class="fw-title" id="fwt-controls">Controls<small id="ctlFor">for the selection</small></span>
+            <button class="btn btn--sm btn--icon" type="button" data-collapse aria-expanded="true" aria-label="Collapse Controls"><svg class="ico-sm"><use href="#b5-icon-chevron-collapse"/></svg></button>
+            <button class="btn btn--sm btn--icon" type="button" data-close aria-label="Hide Controls">✕</button>
+          </div>
+          <div class="fw-body">
+            <div class="tabs" role="tablist" id="attrTabs"></div>
+            <div id="attrBody"></div>
+          </div>
+        </section>
+
+        <section class="fw" id="fw-order" aria-labelledby="fwt-order" hidden data-default="left">
+          <div class="fw-bar" data-drag>
+            <svg class="fw-grip"><use href="#b5-icon-drag-handle"/></svg>
+            <span class="fw-title" id="fwt-order">Selection order</span>
+            <button class="btn btn--sm btn--icon" type="button" data-collapse aria-expanded="true" aria-label="Collapse Selection order"><svg class="ico-sm"><use href="#b5-icon-chevron-collapse"/></svg></button>
+            <button class="btn btn--sm btn--icon" type="button" data-close aria-label="Hide Selection order">✕</button>
+          </div>
+          <div class="fw-body"><ol class="olist" id="orderList"></ol><p class="muted">Fan and Highlight Previous/Next follow this order.</p></div>
+        </section>
+
+        <section class="fw" id="fw-groups" aria-labelledby="fwt-groups" hidden data-default="left2">
+          <div class="fw-bar" data-drag>
+            <svg class="fw-grip"><use href="#b5-icon-drag-handle"/></svg>
+            <span class="fw-title" id="fwt-groups">Groups &amp; presets</span>
+            <button class="btn btn--sm btn--icon" type="button" data-collapse aria-expanded="true" aria-label="Collapse Groups and presets"><svg class="ico-sm"><use href="#b5-icon-chevron-collapse"/></svg></button>
+            <button class="btn btn--sm btn--icon" type="button" data-close aria-label="Hide Groups and presets">✕</button>
+          </div>
+          <div class="fw-body">
+            <div class="gtiles">
+              <button type="button"><b>All washes</b><small>12 fixtures</small></button>
+              <button type="button"><b>US profiles</b><small>10 fixtures</small></button>
+              <button type="button"><b>Pixel bars odd</b><small>6 cells</small></button>
+              <button type="button"><b>Floor strobes</b><small>8 fixtures</small></button>
+            </div>
+            <p class="muted">Presets for the open Controls tab appear here too.</p>
+            <button class="btn btn--sm" type="button"><svg class="ico-sm"><use href="#b5-icon-store-group"/></svg>Store group…</button>
+          </div>
+        </section>
+
+        <section class="fw" id="fw-midi" aria-labelledby="fwt-midi" hidden data-default="bl">
+          <div class="fw-bar" data-drag>
+            <svg class="fw-grip"><use href="#b5-icon-drag-handle"/></svg>
+            <span class="fw-title" id="fwt-midi">MIDI encoders</span>
+            <button class="btn btn--sm btn--icon" type="button" data-collapse aria-expanded="true" aria-label="Collapse MIDI encoders"><svg class="ico-sm"><use href="#b5-icon-chevron-collapse"/></svg></button>
+            <button class="btn btn--sm btn--icon" type="button" data-close aria-label="Hide MIDI encoders">✕</button>
+          </div>
+          <div class="fw-body"><div class="row"><span class="pill"><svg class="ico-sm"><use href="#b5-icon-midi-disconnected"/></svg>Not connected</span><button class="btn btn--sm" type="button">Connect MIDI</button></div><p class="muted">The controller must be plugged into the computer running this browser.</p></div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ===== TESTS ===== -->
+    <section class="screen" id="scr-tests" aria-label="Tests">
+      <div style="display:grid;grid-template-rows:auto 1fr;min-height:0">
+        <div class="selbar">
+          <span class="selcount" id="selCount2"></span>
+          <span class="selwhat" id="selWhat2"></span>
+          <div class="seg" id="spacingSeg2"><button type="button" data-spacing="plan" aria-pressed="true">Plan</button><button type="button" data-spacing="compact">Compact</button></div>
+        </div>
+        <div class="ws" id="wsTests"><div class="gridpane" id="gridTests"></div></div>
+      </div>
+      <div class="tpanel">
+        <div class="row" style="justify-content:space-between">
+          <h2 style="margin:0;font-size:var(--b5-font-size-lg)">Tests</h2>
+          <button class="btn btn--sm" type="button" id="allOff">All tests off</button>
+        </div>
+        <p class="muted">Same selection as Console — pick fixtures on the grid here or there. Tests run under manual values and reach the rig only while Armed.</p>
+        <h3>SCOPE</h3>
+        <div class="seg"><button type="button" aria-pressed="true">Selection</button><button type="button">Stored group</button><button type="button">Layer</button><button type="button">All fixtures</button></div>
+        <div class="row" style="margin-top:8px"><span class="muted">Fade time</span><div class="seg"><button type="button">0 s</button><button type="button" aria-pressed="true">1 s</button><button type="button">3 s</button></div></div>
+        <h3>DIMMER</h3>
+        <div class="ttiles" data-tests>
+          <button class="ttile" type="button" aria-pressed="false"><span class="row"><svg class="ico"><use href="#b5-icon-attr-dimmer"/></svg><b>Dimmer on/off</b><span class="st">OFF</span></span><span class="muted" data-has>—</span></button>
+          <button class="ttile" type="button" aria-pressed="false"><span class="row"><svg class="ico"><use href="#b5-icon-attr-dimmer"/></svg><b>Dimmer chase</b><span class="st">OFF</span></span><span class="muted" data-has>—</span></button>
+        </div>
+        <h3>POSITION</h3>
+        <div class="ttiles" data-tests>
+          <button class="ttile" type="button" aria-pressed="false"><span class="row"><svg class="ico"><use href="#b5-icon-attr-position"/></svg><b>Pan/tilt centre</b><span class="st">OFF</span></span><span class="muted" data-has>—</span></button>
+          <button class="ttile" type="button" aria-pressed="false"><span class="row"><svg class="ico"><use href="#b5-icon-attr-position"/></svg><b>Ballyhoo</b><span class="st">OFF</span></span><span class="muted" data-has>—</span></button>
+        </div>
+        <h3>COLOUR · BEAM · FOCUS</h3>
+        <div class="ttiles" data-tests>
+          <button class="ttile" type="button" aria-pressed="false"><span class="row"><svg class="ico"><use href="#b5-icon-attr-colour"/></svg><b>Colour mix sweep</b><span class="st">OFF</span></span><span class="muted" data-has>—</span></button>
+          <button class="ttile" type="button" aria-pressed="false"><span class="row"><svg class="ico"><use href="#b5-icon-attr-beam"/></svg><b>Gobo wheel step</b><span class="st">OFF</span></span><span class="muted" data-has>—</span></button>
+          <button class="ttile" type="button" aria-pressed="false"><span class="row"><svg class="ico"><use href="#b5-icon-zoom"/></svg><b>Zoom wide/narrow</b><span class="st">OFF</span></span><span class="muted" data-has>—</span></button>
+          <button class="ttile" type="button" aria-pressed="false"><span class="row"><svg class="ico"><use href="#b5-icon-attr-focus"/></svg><b>Focus sweep</b><span class="st">OFF</span></span><span class="muted" data-has>—</span></button>
+        </div>
+        <h3>ISOLATE · SEQUENCES</h3>
+        <div class="card"><label class="row"><input type="checkbox"> <b>Isolate: drive only the tested channel</b></label><p class="muted" style="margin:4px 0 0">Everything else on the tested fixtures is held at zero. Ends on Disarm.</p></div>
+        <div class="card"><div class="row"><b>Sequences · 0</b><button class="btn btn--sm" type="button" style="margin-left:auto">New sequence…</button></div></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="fbar">
+    <button class="btn btn--sm" type="button">Faders · show</button>
+    <span class="muted">Group-fader bar — unchanged</span>
+    <button class="btn btn--sm btn--ghost" type="button">Release all</button>
+  </footer>
+</div>
+
+<!-- Menus -->
+<div class="menu" id="m-show" role="menu" hidden>
+  <button role="menuitem" type="button">Show tools…</button>
+  <button role="menuitem" type="button">Fixture library…</button>
+</div>
+<div class="menu" id="m-select" role="menu" hidden>
+  <button role="menuitem" type="button" data-sel="all"><svg class="ico"><use href="#b5-icon-select-all"/></svg>Select all fixtures</button>
+  <button role="menuitem" type="button" data-sel="layer"><svg class="ico"><use href="#b5-icon-layers"/></svg>Select this layer</button>
+  <button role="menuitem" type="button" data-sel="none"><svg class="ico"><use href="#b5-icon-select-none"/></svg>Select none</button>
+  <button role="menuitem" type="button" data-sel="invert"><svg class="ico"><use href="#b5-icon-select-invert"/></svg>Invert</button>
+  <hr><div class="mh">Pick</div>
+  <button role="menuitem" type="button"><svg class="ico"><use href="#b5-icon-select-parent"/></svg>Whole fixtures</button>
+  <button role="menuitem" type="button"><svg class="ico"><use href="#b5-icon-select-cell"/></svg>Cells</button>
+</div>
+<div class="menu" id="m-view" role="menu" hidden>
+  <button role="menuitemcheckbox" type="button" aria-checked="false" data-view="ghosts"><span class="mchk"></span>Ghosts</button>
+  <button role="menuitemcheckbox" type="button" aria-checked="true" data-view="names"><span class="mchk">✓</span>Names on tiles</button>
+  <button role="menuitemcheckbox" type="button" aria-checked="true" data-view="live"><span class="mchk">✓</span>Live values on tiles</button>
+  <hr>
+  <button role="menuitem" type="button"><svg class="ico"><use href="#b5-icon-grid-snap"/></svg>Edit layout…</button>
+  <button role="menuitem" type="button"><svg class="ico"><use href="#b5-icon-refresh"/></svg>Reload layout from MVR</button>
+</div>
+<div class="menu" id="m-windows" role="menu" hidden>
+  <button role="menuitemcheckbox" type="button" data-win="fw-controls"><span class="mchk"></span>Controls</button>
+  <button role="menuitemcheckbox" type="button" data-win="fw-order"><span class="mchk"></span>Selection order</button>
+  <button role="menuitemcheckbox" type="button" data-win="fw-groups"><span class="mchk"></span>Groups &amp; presets</button>
+  <button role="menuitemcheckbox" type="button" data-win="fw-midi"><span class="mchk"></span>MIDI encoders</button>
+  <hr>
+  <button role="menuitem" type="button" id="resetWins">Reset window positions</button>
+</div>
+<div class="menu" id="m-more" role="menu" hidden>
+  <button role="menuitem" type="button"><svg class="ico"><use href="#b5-icon-lowlight"/></svg>Lowlight</button>
+  <button role="menuitem" type="button"><svg class="ico"><use href="#b5-icon-fan-linear"/></svg>Fan…</button>
+  <button role="menuitem" type="button"><svg class="ico"><use href="#b5-icon-highlight"/></svg>Highlight previous / next</button>
+  <button role="menuitem" type="button"><svg class="ico"><use href="#b5-icon-store-group"/></svg>Store group…</button>
+  <hr>
+  <button role="menuitem" type="button" data-go="tests"><svg class="ico"><use href="#b5-icon-test"/></svg>Open Tests for the selection</button>
+</div>
+
+<dialog id="notes" aria-labelledby="notesH">
+  <h2 id="notesH">Console workspace — mockup</h2>
+  <p>A proposal to look at and click through. It doesn't connect to anything, and the fixtures are made up.</p>
+  <ul>
+    <li><b>Grid fills the screen.</b> Page title and help sentences are gone. The header is one row, and Show tools and Fixture library sit under <b>Show</b>.</li>
+    <li><b>One toolbar:</b> layer tabs, <b>Plan / Compact</b> spacing, <b>Fit</b> and zoom, Lasso, Add, <b>Select</b> menu, <b>View</b> menu (Ghosts, Edit layout) and a <b>Windows</b> menu.</li>
+    <li><b>Floating windows:</b> drag a window by its title bar, collapse it with the chevron, hide it with ✕, and bring it back from <b>Windows</b>. Only <b>Controls</b> opens by default. Positions are remembered per browser.</li>
+    <li><b>Tiles:</b> FID + short name, selection order number, SET / TEST / HL tags, colour swatch, intensity bar with its %. Pixel bars show their cells as segments you can pick.</li>
+    <li><b>Compact</b> packs each row tight in plan order and drops empty rows; <b>Plan</b> keeps the MVR spacing. Fit zooms to show the whole layer.</li>
+    <li><b>Tests</b> is its own tab with the same grid and the same selection.</li>
+    <li>Toggles show ON with a check, a thicker border and bold text, so colour is never the only sign.</li>
+  </ul>
+  <p class="muted">Try it: click tiles (Ctrl/⌘ or <b>Add</b> to add), drag on empty grid with <b>Lasso</b>, move the Dimmer fader, pick a colour, then switch to Tests and turn a test on.</p>
+  <form method="dialog"><button class="btn" type="submit">Close</button></form>
+</dialog>
+
+<script>
+(() => {
+'use strict';
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const store = { get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (_) { return null; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (_) {} } };
+
+// ---------- Made-up rig (grid columns/rows like the app's layout grid) ----------
+const FX = [];
+const add = (fid, name, glyph, layer, col, row, w, cells) => FX.push({ id: 'f' + fid, fid, name, glyph, layer, col, row, w: w || 1, cells: cells || 0 });
+for (let i = 0; i < 10; i++) add(101 + i, 'Profile', 'fx-profile', 'truss', 2 + i * 2, 0);
+for (let i = 0; i < 12; i++) add(201 + i, 'Wash', 'fx-wash', 'truss', 1 + i * 2, 4);
+for (let i = 0; i < 8; i++) add(301 + i, 'Beam', 'fx-moving-head', 'truss', 2 + i * 3, 8);
+for (let i = 0; i < 6; i++) add(401 + i, 'Pixel bar', 'fx-pixel-bar', 'truss', 1 + i * 4, 9, 2, 4);
+for (let i = 0; i < 8; i++) add(501 + i, 'Strobe', 'fx-strobe', 'floor', 2 + i * 3, 1);
+for (let i = 0; i < 6; i++) add(601 + i, 'Uplight', 'fx-wash', 'floor', 3 + i * 4, 5);
+// The truss layer count says 44; 10+12+8+6 = 36 fixtures + 8 extra profiles off to the side keeps the plan realistic.
+for (let i = 0; i < 4; i++) add(111 + i, 'Side profile', 'fx-profile', 'truss', 0, 2 + i * 2);
+for (let i = 0; i < 4; i++) add(115 + i, 'Side profile', 'fx-profile', 'truss', 24, 2 + i * 2);
+const byId = Object.fromEntries(FX.map(f => [f.id, f]));
+const LAYERS = { truss: 'Truss 6.4 m', floor: 'Floor 0 m' };
+
+// ---------- State ----------
+const S = {
+  sel: [],                // ordered keys: 'f201' or 'f401/2'
+  vals: {},               // key -> { dim, col }
+  hl: false, tests: new Set(), armed: false,
+  layer: 'truss', spacing: 'plan', fit: true, zoom: 1, add: false, lasso: false,
+};
+// A believable starting look
+['f201', 'f202', 'f203'].forEach(k => S.sel.push(k));
+['f201', 'f202', 'f203', 'f204'].forEach(k => S.vals[k] = { dim: 0.75, col: '#3d6bff' });
+S.vals['f105'] = { dim: 1, col: null };
+S.vals['f401/2'] = { dim: 0.5, col: '#ff3a3a' };
+
+const keyFx = k => byId[k.split('/')[0]];
+const isSel = k => S.sel.includes(k);
+const valOf = k => S.vals[k] || { dim: 0, col: null, unset: true };
+
+// ---------- Grid rendering ----------
+const CW = 92, CH = 64, GAP = 10, TH = 64, CELLH = 30, TWMIN = 86; // tile cell at zoom 1
+function layoutFor(layer) {
+  const fx = FX.filter(f => f.layer === layer);
+  let cols = new Set(), rows = new Set();
+  fx.forEach(f => { for (let c = 0; c < f.w; c++) cols.add(f.col + c); rows.add(f.row); });
+  let maxC = Math.max(...cols), maxR = Math.max(...rows);
+  const pos = {};
+  if (S.spacing === 'compact') {
+    // Compact: empty rows removed; each row packed left to right in plan order.
+    const rs = [...rows].sort((a, b) => a - b);
+    maxC = 0;
+    rs.forEach((r, ri) => {
+      let c = 0;
+      fx.filter(f => f.row === r).sort((a, b) => a.col - b.col).forEach(f => { pos[f.id] = { c, r: ri }; c += f.w; });
+      maxC = Math.max(maxC, c - 1);
+    });
+    maxR = rs.length - 1;
+  } else fx.forEach(f => { pos[f.id] = { c: f.col, r: f.row }; });
+  // Each row is as tall as its tallest tile, so tiles never overlap the next row.
+  const rowCells = Array.from({ length: maxR + 1 }, () => false);
+  fx.forEach(f => { if (f.cells) rowCells[pos[f.id].r] = true; });
+  return { fx, pos, rowCells, ncols: maxC + 1, nrows: maxR + 1 };
+}
+function fitZoom(pane, layouts) {
+  const w = pane.clientWidth - 40, h = pane.clientHeight - 30 - layouts.length * 40;
+  const nc = Math.max(...layouts.map(l => l.ncols));
+  const nr = layouts.reduce((a, l) => a + l.nrows, 0);
+  const extra = layouts.reduce((a, l) => a + l.rowCells.filter(Boolean).length * CELLH, 0);
+  const z = Math.min(w / (nc * (CW + GAP)), (h - extra) / (nr * (CH + GAP)));
+  return Math.max(S.spacing === 'compact' ? 0.8 : 0.85, Math.min(1.6, z));
+}
+function tileHTML(f, z) {
+  const k = f.id, v = valOf(k), selIdx = S.sel.indexOf(k);
+  const sel = selIdx >= 0, test = S.tests.size && (sel || f.cells && S.sel.some(s => s.startsWith(k + '/')));
+  const tags = [];
+  if (!v.unset || (f.cells && [1, 2, 3, 4].some(c => S.vals[k + '/' + c]))) tags.push('<span class="tag tag--set">SET</span>');
+  if (test) tags.push('<span class="tag tag--test">TEST</span>');
+  if (S.hl && sel) tags.push('<span class="tag tag--hl">HL</span>');
+  const pct = Math.round((v.dim || 0) * 100);
+  const sw = v.col ? `<span class="t-sw" title="Colour set" style="background:${v.col}"></span>` : '';
+  const ord = sel ? `<span class="t-order" aria-label="selection ${selIdx + 1}">${selIdx + 1}</span>` : '';
+  const names = S.viewNames !== false;
+  let cells = '';
+  if (f.cells) {
+    cells = '<div class="cells">' + Array.from({ length: f.cells }, (_, i) => {
+      const ck = k + '/' + (i + 1), cv = valOf(ck), cs = isSel(ck);
+      const o = S.sel.indexOf(ck);
+      return `<button type="button" class="cell${cs ? ' csel' : ''}" data-key="${ck}" aria-pressed="${cs}" aria-label="${f.name} ${f.fid} cell ${i + 1}${cs ? ', selected ' + (o + 1) : ''}">` +
+        `<span class="cf" style="height:${Math.round((cv.dim || 0) * 100)}%;${cv.col ? 'background:' + cv.col : ''}"></span><span>${cs ? (o + 1) : i + 1}</span></button>`;
+    }).join('') + '</div>';
+  }
+  const live = S.viewLive !== false;
+  return `<div class="tile${sel ? ' sel' : ''}${S.hl && sel ? ' hl' : ''}${test ? ' test' : ''}" style="--z:${z}" data-fx="${k}">` +
+    `<button type="button" class="t-main" data-key="${k}" aria-pressed="${sel}" aria-label="${f.name} ${f.fid}${sel ? ', selected ' + (selIdx + 1) : ''}, intensity ${pct}%">` +
+    `<span class="t-row"><svg class="t-glyph"><use href="#b5-icon-${f.glyph}"/></svg><span class="t-fid">${f.fid}</span>${ord}${live ? sw : ''}</span>` +
+    (names ? `<span class="t-name">${f.name}</span>` : '') +
+    `</button>` + cells +
+    (live ? `<div class="t-int"><span class="t-int-fill${pct ? '' : ' zero'}" style="width:${pct}%" aria-hidden="true"></span><span class="t-int-word" aria-hidden="true">${pct}%</span><span class="t-tags">${tags.join('')}</span></div>` : '') +
+    `</div>`;
+}
+function renderGrid(paneId) {
+  const pane = document.getElementById(paneId);
+  if (!pane || !pane.offsetParent) return;
+  const layers = S.layer === 'all' ? ['truss', 'floor'] : S.layer === 'unplaced' ? [] : [S.layer];
+  if (!layers.length) { pane.innerHTML = '<p class="muted" style="padding:20px">No unplaced fixtures — every fixture has a position from the MVR.</p>'; return; }
+  const lays = layers.map(layoutFor);
+  const z = S.fit ? fitZoom(pane, lays) : S.zoom;
+  if (S.fit) S.zoom = z;
+  const cw = Math.max(TWMIN, CW * z), ch = Math.max(TH, CH * z), gp = GAP * z;
+  let html = '';
+  layers.forEach((ly, i) => {
+    const L = lays[i];
+    const rowY = []; let yy = 0;
+    for (let r = 0; r < L.nrows; r++) { rowY[r] = yy; yy += ch + (L.rowCells[r] ? CELLH : 0) + gp; }
+    const W = L.ncols * (cw + gp), H = yy;
+    html += `<div class="layerblock"><div class="layerhead"><b>${LAYERS[ly]}</b><span>${L.fx.length} fixtures · ${S.spacing === 'compact' ? 'compact — packed in plan order, real spacing ignored' : 'plan spacing from MVR'}</span></div>` +
+      `<div class="canvas" data-layer="${ly}" style="width:${W}px;height:${H}px;background-size:${cw + gp}px 100%">`;
+    L.fx.forEach(f => {
+      const x = L.pos[f.id].c * (cw + gp), y = rowY[L.pos[f.id].r];
+      const w = f.w * (cw + gp) - gp;
+      html += tileHTML(f, z).replace('style="--z', `style="left:${x}px;top:${y}px;width:${w}px;height:${ch + (f.cells ? CELLH : 0)}px;--z`);
+    });
+    html += '</div></div>';
+  });
+  pane.innerHTML = html;
+}
+function renderAll() {
+  renderGrid('gridConsole'); renderGrid('gridTests');
+  renderSel(); renderOrder(); renderCtlHeader(); renderTestsHas();
+}
+
+// ---------- Selection ----------
+function describe(keys) {
+  if (!keys.length) return '';
+  const groups = {};
+  keys.forEach(k => { const f = keyFx(k); const c = k.split('/')[1]; (groups[f.name] = groups[f.name] || []).push(c ? f.fid + '.' + c : String(f.fid)); });
+  return Object.entries(groups).map(([n, ids]) => ids.length > 3 ? `${n} ${ids[0]}–${ids[ids.length - 1]} (${ids.length})` : `${n} ${ids.join(', ')}`).join(' · ');
+}
+function renderSel() {
+  const n = S.sel.length;
+  [['#selCount', '#selWhat'], ['#selCount2', '#selWhat2']].forEach(([c, w]) => {
+    const el = $(c); el.className = 'selcount' + (n ? '' : ' none');
+    el.textContent = n ? `✓ ${n} selected` : 'Nothing selected';
+    $(w).textContent = n ? describe(S.sel) : 'Click fixtures on the grid, or use Select.';
+  });
+}
+function renderOrder() { $('#orderList').innerHTML = S.sel.map(k => `<li>${describe([k])}</li>`).join('') || '<li class="muted">Nothing selected</li>'; }
+function renderCtlHeader() { $('#ctlFor').textContent = S.sel.length ? `${S.sel.length} selected` : 'nothing selected'; }
+function pick(k, additive) {
+  if (additive || S.add) { const i = S.sel.indexOf(k); i >= 0 ? S.sel.splice(i, 1) : S.sel.push(k); }
+  else S.sel = (S.sel.length === 1 && S.sel[0] === k) ? [] : [k];
+  renderAll(); renderAttr();
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-key]');
+  if (b && b.closest('.gridpane')) { if (S._lassoMoved) return; pick(b.dataset.key, e.ctrlKey || e.metaKey || e.shiftKey); }
+});
+
+// Lasso: drag on empty grid when Lasso is on (or Shift-drag)
+let lz = null;
+document.addEventListener('pointerdown', e => {
+  const cv = e.target.closest('.canvas');
+  if (!cv || e.target.closest('.tile') || !(S.lasso || e.shiftKey)) return;
+  const r = cv.getBoundingClientRect();
+  lz = { cv, x0: e.clientX - r.left, y0: e.clientY - r.top, el: document.createElement('div') };
+  lz.el.className = 'lasso'; cv.appendChild(lz.el); S._lassoMoved = false;
+  cv.setPointerCapture(e.pointerId); e.preventDefault();
+});
+document.addEventListener('pointermove', e => {
+  if (!lz) return;
+  const r = lz.cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  Object.assign(lz.el.style, { left: Math.min(x, lz.x0) + 'px', top: Math.min(y, lz.y0) + 'px', width: Math.abs(x - lz.x0) + 'px', height: Math.abs(y - lz.y0) + 'px' });
+  S._lassoMoved = true;
+});
+document.addEventListener('pointerup', () => {
+  if (!lz) return;
+  const box = lz.el.getBoundingClientRect();
+  const hits = [...lz.cv.querySelectorAll('.tile')].filter(t => { const b = t.getBoundingClientRect(); return b.left < box.right && b.right > box.left && b.top < box.bottom && b.bottom > box.top; }).map(t => t.dataset.fx);
+  if (!S.add) S.sel = [];
+  hits.forEach(k => { if (!S.sel.includes(k)) S.sel.push(k); });
+  lz.el.remove(); lz = null; renderAll(); renderAttr();
+  setTimeout(() => { S._lassoMoved = false; }, 0);
+});
+
+// ---------- Toolbar ----------
+function segBind(sel, attr, apply) {
+  $$(sel + ' button').forEach(b => b.addEventListener('click', () => { apply(b.dataset[attr]); }));
+}
+function syncSeg(sel, attr, val) { $$(sel + ' button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset[attr] === val))); }
+segBind('#layerSeg', 'layer', v => { S.layer = v; syncSeg('#layerSeg', 'layer', v); renderAll(); });
+const setSpacing = v => { S.spacing = v; syncSeg('#spacingSeg', 'spacing', v); syncSeg('#spacingSeg2', 'spacing', v); renderAll(); };
+segBind('#spacingSeg', 'spacing', setSpacing); segBind('#spacingSeg2', 'spacing', setSpacing);
+const press = (el, on) => el.setAttribute('aria-pressed', String(on));
+$('#fitBtn').onclick = () => { S.fit = !S.fit; press($('#fitBtn'), S.fit); renderAll(); };
+$('#zoomIn').onclick = () => { S.fit = false; press($('#fitBtn'), false); S.zoom = Math.min(2, S.zoom * 1.15); renderAll(); };
+$('#zoomOut').onclick = () => { S.fit = false; press($('#fitBtn'), false); S.zoom = Math.max(0.5, S.zoom / 1.15); renderAll(); };
+$('#lassoBtn').onclick = () => { S.lasso = !S.lasso; press($('#lassoBtn'), S.lasso); };
+$('#addBtn').onclick = () => { S.add = !S.add; press($('#addBtn'), S.add); };
+$('#hlBtn').onclick = () => { S.hl = !S.hl; press($('#hlBtn'), S.hl); renderAll(); };
+$('#armBtn').onclick = () => { S.armed = true; $('#outState').classList.add('armed'); $('#outWord').textContent = 'ARMED · LIVE'; $('#outState use').setAttribute('href', '#b5-icon-armed-lock'); };
+$('#stopBtn').onclick = () => { S.armed = false; $('#outState').classList.remove('armed'); $('#outWord').textContent = 'DISARMED · no output'; $('#outState use').setAttribute('href', '#b5-icon-disarm'); };
+$('[data-act="clear"]').onclick = () => { S.sel = []; S.vals = {}; S.hl = false; press($('#hlBtn'), false); renderAll(); renderAttr(); };
+
+// Menus
+let openMenu = null;
+function closeMenus() { if (openMenu) { openMenu.m.hidden = true; openMenu.b.setAttribute('aria-expanded', 'false'); openMenu = null; } }
+$$('[data-menu]').forEach(b => b.addEventListener('click', e => {
+  e.stopPropagation();
+  const m = document.getElementById(b.dataset.menu);
+  if (openMenu && openMenu.m === m) return closeMenus();
+  closeMenus(); syncWinMenu();
+  const r = b.getBoundingClientRect();
+  m.hidden = false;
+  m.style.top = (r.bottom + 4) + 'px';
+  m.style.left = Math.min(r.left, innerWidth - m.offsetWidth - 8) + 'px';
+  b.setAttribute('aria-expanded', 'true'); openMenu = { m, b };
+  const first = m.querySelector('button'); if (first) first.focus();
+}));
+document.addEventListener('click', e => { if (openMenu && !e.target.closest('.menu')) closeMenus(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenus(); });
+$$('#m-select [data-sel]').forEach(b => b.onclick = () => {
+  const vis = FX.filter(f => S.layer === 'all' || f.layer === S.layer).map(f => f.id);
+  const v = b.dataset.sel;
+  if (v === 'all') S.sel = FX.map(f => f.id);
+  if (v === 'layer') S.sel = vis;
+  if (v === 'none') S.sel = [];
+  if (v === 'invert') S.sel = vis.filter(k => !S.sel.includes(k));
+  closeMenus(); renderAll(); renderAttr();
+});
+$$('#m-view [data-view]').forEach(b => b.onclick = () => {
+  const on = b.getAttribute('aria-checked') !== 'true';
+  b.setAttribute('aria-checked', String(on)); b.querySelector('.mchk').textContent = on ? '✓' : '';
+  if (b.dataset.view === 'names') S.viewNames = on;
+  if (b.dataset.view === 'live') S.viewLive = on;
+  renderAll();
+});
+$('[data-go="tests"]').onclick = () => { closeMenus(); show('tests'); };
+
+// ---------- Floating windows ----------
+const WKEY = 'b5mock.windows';
+const wstate = store.get(WKEY) || {};
+function defaultPos(fw) {
+  const ws = $('#wsConsole'), W = ws.clientWidth, H = ws.clientHeight;
+  switch (fw.dataset.default) {
+    case 'right': return { x: W - 440 - 12, y: 12, w: 440 };
+    case 'left': return { x: 12, y: 12, w: 300 };
+    case 'left2': return { x: 12, y: Math.min(260, H - 220), w: 320 };
+    default: return { x: 12, y: H - 140, w: 320 };
+  }
+}
+function placeWin(fw) {
+  const ws = $('#wsConsole');
+  const st = wstate[fw.id] || {};
+  const d = defaultPos(fw);
+  const w = st.w || d.w;
+  let x = st.x != null ? st.x : d.x, y = st.y != null ? st.y : d.y;
+  x = Math.max(0, Math.min(x, ws.clientWidth - 120)); y = Math.max(0, Math.min(y, ws.clientHeight - 44));
+  Object.assign(fw.style, { left: x + 'px', top: y + 'px', width: w + 'px' });
+  fw.hidden = st.open != null ? !st.open : fw.id !== 'fw-controls';
+  fw.classList.toggle('collapsed', !!st.collapsed);
+  const cb = fw.querySelector('[data-collapse]'); cb.setAttribute('aria-expanded', String(!st.collapsed));
+  cb.querySelector('use').setAttribute('href', st.collapsed ? '#b5-icon-chevron-expand' : '#b5-icon-chevron-collapse');
+}
+const save = () => store.set(WKEY, wstate);
+const front = fw => { $$('.fw').forEach(x => x.classList.remove('front')); fw.classList.add('front'); };
+$$('.fw').forEach(fw => {
+  fw.addEventListener('pointerdown', () => front(fw));
+  fw.querySelector('[data-close]').onclick = () => { (wstate[fw.id] = wstate[fw.id] || {}).open = false; save(); placeWin(fw); };
+  fw.querySelector('[data-collapse]').onclick = () => { const s = (wstate[fw.id] = wstate[fw.id] || {}); s.collapsed = !s.collapsed; save(); placeWin(fw); };
+  const bar = fw.querySelector('[data-drag]');
+  bar.addEventListener('pointerdown', e => {
+    if (e.target.closest('button')) return;
+    const ws = $('#wsConsole').getBoundingClientRect(), r = fw.getBoundingClientRect();
+    const dx = e.clientX - r.left, dy = e.clientY - r.top;
+    bar.setPointerCapture(e.pointerId);
+    const mv = ev => {
+      const x = Math.max(0, Math.min(ev.clientX - ws.left - dx, ws.width - 120));
+      const y = Math.max(0, Math.min(ev.clientY - ws.top - dy, ws.height - 44));
+      fw.style.left = x + 'px'; fw.style.top = y + 'px';
+    };
+    const up = () => { bar.removeEventListener('pointermove', mv); bar.removeEventListener('pointerup', up); const s = (wstate[fw.id] = wstate[fw.id] || {}); s.x = parseFloat(fw.style.left); s.y = parseFloat(fw.style.top); save(); };
+    bar.addEventListener('pointermove', mv); bar.addEventListener('pointerup', up);
+  });
+  // Keyboard: arrow keys move a focused title bar
+  bar.tabIndex = 0; bar.setAttribute('aria-label', fw.querySelector('.fw-title').firstChild.textContent + ' window — arrow keys move it');
+  bar.addEventListener('keydown', e => {
+    const step = e.shiftKey ? 40 : 10, m = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+    if (!m) return; e.preventDefault();
+    const s = (wstate[fw.id] = wstate[fw.id] || {}); s.x = parseFloat(fw.style.left) + m[0]; s.y = parseFloat(fw.style.top) + m[1]; save(); placeWin(fw);
+  });
+});
+function syncWinMenu() {
+  $$('#m-windows [data-win]').forEach(b => { const on = !document.getElementById(b.dataset.win).hidden; b.setAttribute('aria-checked', String(on)); b.querySelector('.mchk').textContent = on ? '✓' : ''; });
+}
+$$('#m-windows [data-win]').forEach(b => b.onclick = () => {
+  const fw = document.getElementById(b.dataset.win); const s = (wstate[fw.id] = wstate[fw.id] || {});
+  s.open = fw.hidden; s.collapsed = false; save(); placeWin(fw); closeMenus(); if (!fw.hidden) front(fw);
+});
+$('#resetWins').onclick = () => { Object.keys(wstate).forEach(k => delete wstate[k]); save(); $$('.fw').forEach(placeWin); syncWinMenu(); closeMenus(); };
+
+// ---------- Controls window content ----------
+const TABS = [['dimmer', 'Dimmer', 'attr-dimmer'], ['position', 'Position', 'attr-position'], ['colour', 'Colour', 'attr-colour'], ['beam', 'Beam/Gobo', 'attr-beam'], ['focus', 'Focus', 'attr-focus'], ['shaper', 'Shaper', 'attr-shaper'], ['control', 'Control', 'attr-control']];
+let tab = 'dimmer';
+function setCount(t) {
+  if (t === 'dimmer') return S.sel.filter(k => S.vals[k] && S.vals[k].dim != null && !S.vals[k].unset).length;
+  if (t === 'colour') return S.sel.filter(k => S.vals[k] && S.vals[k].col).length;
+  return 0;
+}
+function renderTabs() {
+  $('#attrTabs').innerHTML = TABS.map(([id, w, ic]) => `<button type="button" role="tab" aria-selected="${tab === id}" data-tab="${id}"><svg class="ico"><use href="#b5-icon-${ic}"/></svg>${w}<span class="n">${setCount(id)} set</span></button>`).join('');
+  $$('#attrTabs button').forEach(b => b.onclick = () => { tab = b.dataset.tab; renderAttr(); });
+}
+function selDim() { const v = S.sel.map(k => valOf(k).dim || 0); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : 0; }
+function setVals(fn) { S.sel.forEach(k => { const v = Object.assign({ dim: 0, col: null }, S.vals[k] || {}); delete v.unset; fn(v); S.vals[k] = v; }); renderAll(); renderTabs(); }
+function renderAttr() {
+  renderTabs();
+  const body = $('#attrBody');
+  if (!S.sel.length) { body.innerHTML = '<p class="muted">Select fixtures on the grid to control them.</p>'; return; }
+  if (tab === 'dimmer') {
+    const d = Math.round(selDim() * 100);
+    body.innerHTML = `<div class="card"><h4>Dimmer <span class="muted">master — multiplies the parts</span><span class="v" id="dimV">${d} %</span></h4>
+      <input type="range" min="0" max="100" value="${d}" id="dimR" aria-label="Dimmer master">
+      <div class="row"><button class="btn btn--sm" data-d="0">0</button><button class="btn btn--sm" data-d="50">50 %</button><button class="btn btn--sm" data-d="100">FULL</button><button class="btn btn--sm" style="margin-left:auto" aria-pressed="false"><span class="chk">✓</span><svg class="ico-sm"><use href="#b5-icon-fine"/></svg>Fine</button></div>
+      <details class="more"><summary>Channel details — modes, delay, raw DMX</summary><p class="muted">The function buttons (Dimming modes, Delay time…) and raw DMX readouts from today's card fold away here.</p></details></div>
+      <div class="card"><h4>Parts</h4><p class="muted" style="margin:0">Fixtures with parts (e.g. head + SparkLED) list one fader per part here, under the Master.</p></div>`;
+    $('#dimR').oninput = e => { const f = e.target.value / 100; $('#dimV').textContent = e.target.value + ' %'; setVals(v => v.dim = f); };
+    $$('[data-d]').forEach(b => b.onclick = () => { setVals(v => v.dim = b.dataset.d / 100); renderAttr(); });
+  } else if (tab === 'colour') {
+    const cols = [['Red', '#ff2a2a'], ['Amber', '#ff9a1a'], ['Yellow', '#ffe14a'], ['Green', '#2ad44a'], ['Cyan', '#2ad4e8'], ['Blue', '#3d6bff'], ['Magenta', '#e83ae0'], ['Lavender', '#b49aff'], ['CTO', '#ffc58a'], ['White', '#ffffff'], ['UV', '#6a2aff'], ['Open', '']];
+    body.innerHTML = `<div class="card"><h4>Colour</h4><div class="sw-grid">${cols.map(([n, c]) => `<button type="button" data-c="${c}" style="background:${c || 'transparent'};${c ? 'filter:brightness(.6)' : ''}">${n}</button>`).join('')}</div>
+      <details class="more"><summary>Colour wheels, CMY and mix faders</summary><p class="muted">Today's wheel slots and mix faders, folded away.</p></details></div>`;
+    $$('[data-c]').forEach(b => b.onclick = () => setVals(v => v.col = b.dataset.c || null));
+  } else if (tab === 'position') {
+    body.innerHTML = `<div class="card"><h4>Pan / Tilt <span class="v">50 % / 50 %</span></h4><div class="xy" aria-label="Pan and tilt pad"><span class="h"></span></div>
+      <div class="row" style="margin-top:8px"><button class="btn btn--sm">Centre</button><button class="btn btn--sm" aria-pressed="false"><span class="chk">✓</span>Fine</button></div></div>`;
+  } else {
+    const t = TABS.find(x => x[0] === tab)[1];
+    body.innerHTML = `<div class="card"><h4>${t}</h4><p class="muted" style="margin:0">Same controls as today; only the open tab is shown, with function details folded under each channel name.</p></div>`;
+  }
+}
+
+// ---------- Tests ----------
+$$('[data-tests] .ttile').forEach(b => b.onclick = () => {
+  const on = b.getAttribute('aria-pressed') !== 'true';
+  b.setAttribute('aria-pressed', String(on)); b.querySelector('.st').textContent = on ? 'ON' : 'OFF';
+  on ? S.tests.add(b) : S.tests.delete(b); renderAll();
+});
+$('#allOff').onclick = () => { $$('[data-tests] .ttile').forEach(b => { b.setAttribute('aria-pressed', 'false'); b.querySelector('.st').textContent = 'OFF'; }); S.tests.clear(); renderAll(); };
+function renderTestsHas() { $$('[data-has]').forEach(s => s.textContent = S.sel.length ? `${S.sel.length} of ${S.sel.length} selected have this` : 'Select fixtures to test'); }
+
+// ---------- Screens ----------
+function show(id) {
+  $$('.nav [data-screen]').forEach(b => b.dataset.screen === id ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current'));
+  $$('.screen').forEach(s => s.classList.toggle('on', s.id === 'scr-' + id));
+  renderAll();
+}
+$$('.nav [data-screen]').forEach(b => b.onclick = () => show(b.dataset.screen));
+
+$('#notesBtn').onclick = () => $('#notes').showModal();
+
+addEventListener('resize', () => { $$('.fw').forEach(placeWin); if (S.fit) renderAll(); });
+$$('.fw').forEach(placeWin);
+renderAll(); renderAttr();
+if (!store.get('b5mock.seenNotes')) { store.set('b5mock.seenNotes', true); }
+})();
+</script>
+</body>
+</html>

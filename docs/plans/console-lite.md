@@ -70,6 +70,12 @@ Diagnosis and re-verification on Dom's real show: `docs/evidence/analysis/J1-ben
 - **Coordinator decisions (2026-10-13, in line with Dom's "no double dimming"; recorded 2026-10-13 11:19:27 -0400):** (1) the part fader's hold of inner dimmers OPEN at full is kept as the rule, giving way to any other fader's level; (2) a type with ONE intensity part whose dimmers nest: its plain type fader follows the same rule (outermost dimmers at its level, inner held open, same give-way); Console whole-fixture Dimmer and stored-group members unchanged; (3) a MIXED readout across resolutions draws its range in normalized percent across both channels ("MIXED 48–50 %").
 - **Owner approval (Dom, 2026-10-13 12:38; recorded 2026-10-13 12:52:35 -0400):** the J1c calls are approved as built — **stored-group faders** set the master level for whole fixtures and each cell's own dimmer for cells; **part-only parts** (the Rayzor SparkLED) are set only from their part fader, and the **Console whole-fixture Dimmer is the master only**. **No double dimming inside parts** by the J1c geometry tree, as built in 4c5c106: a part fader drives the part's governing (outermost) dimmer(s); a dimmer whose geometry descends from another dimmer of the same part is not also set to the part level (Beam 50 % shows 50 %). **Legacy profiles without the tree keep today's behaviour, and the tooltip says so** (14ca193: "Every dimmer of this part takes this level — re-import the GDTF to refine." on a part fader — or a single-part type's plain fader — over a part with more than one real dimmer). The MIXED fix across resolutions is as built (0f90ded, 6b76f53).
 
+## Owner decisions (Dom, 2026-10-18 22:33 — Console workspace redesign; recorded 2026-10-18 22:42:53 -0400)
+- **Bench result (v0.2.1):** dark at Arm and the part faders work on the real show.
+- **Design is the priority now:** the selection grid gets most of the screen; fixture controls become **floating, hideable windows**; the grid's functional visibility improves; Tests moves to **its own tab**.
+- **Laptop first** (1024–1920 px); phone/tablet later. **Mockup first**, approved before production. **Only Controls opens by default.** A **Plan / Compact** spacing switch (Compact packs fixtures tight, ignoring real spacing).
+- Brief for the design agent: `docs/design/console-workspace/ui-brief_2026-10-18_2242.md`; reference mockup: `docs/design/console-workspace/mockup_2026-10-18_2242.html`.
+
 ## Chunks (each is one or more commits, gates green, docs updated)
 | # | Chunk | Depends on |
 |---|-------|-----------|
@@ -111,6 +117,8 @@ Diagnosis and re-verification on Dom's real show: `docs/evidence/analysis/J1-ben
 | J1b | Owner answers to J1 (2026-10-12 20:11): the Master drives every part (whole fixture = every part), short type names in fader labels, virtual dimmers only where a cell's part has no real dimmer | J1 |
 | J1c | Owner answers to J1b (2026-10-13 09:31): the Master multiplies the parts by the GDTF geometry tree (tree kept in the profile cache; legacy rule + tooltip), Highlight on a cell opens its master and part dimmer | J1b |
 | J1d | Owner answers to J1c (2026-10-13 10:39; branch `feat/intensity-polish` from main `ded8d4a`): no double dimming inside a part (outermost dimmers by the tree), MIXED across resolutions, C2PA-free icon sprite + static-file guard; stored-group and non-cell-part rules confirmed | J1c |
+| W0 | Console workspace redesign — mockup + design brief (branch `docs/console-workspace-design`), owner review of the mockup | J1d |
+| W1 | Design agent package per the W0 brief (icons, component-spec addendum, tokens, contrast, scenes) | W0 approved |
 
 ## Delivery to Dom's desktop
 The desktop clone has no shell for the agent and remote tools may not write inside `.git`. Each chunk's changed files are staged under `dist\_incoming\<chunk>\` (dist/ is gitignored) with a `b512-<chunk>-console-lite.bat` in the repo root that checks the tree is clean, switches to `feat/console-lite`, copies the files in, adds by path and commits. Run the scripts in order: `b512-commit-unresponsive.bat` first (it also creates `feat/console-lite`), then C1, C2, …
