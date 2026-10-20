@@ -100,8 +100,14 @@
       document.documentElement.style.setProperty('--b5-header-height', h + 'px');
       document.documentElement.style.setProperty('--b5-nav-height', (nav ? nav.getBoundingClientRect().height : 0) + 'px');
       // The strip is emptied (not removed) when there is no show context, so
-      // measure it rather than assuming it is always a row tall.
-      if (context) h += context.getBoundingClientRect().height;
+      // measure it rather than assuming it is always a row tall. K1: from
+      // 1024 px the strip sits BESIDE the header in one row (workspace.css),
+      // so the chrome is the taller of the two, not their sum.
+      if (context) {
+        const hr = header ? header.getBoundingClientRect() : null, cr = context.getBoundingClientRect();
+        if (hr && cr.top < hr.bottom - 1) h = Math.max(hr.height, cr.height);
+        else h += cr.height;
+      }
       document.documentElement.style.setProperty('--b5-chrome-height', h + 'px');
     };
     measure();

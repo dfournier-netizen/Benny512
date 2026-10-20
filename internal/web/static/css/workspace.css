@@ -19,14 +19,15 @@
 /* The state group takes the free width and wraps INSIDE itself, so ARM and
    the slab stay on the strip's first line on wide screens. */
 .b5-out { display: inline-flex; flex: 1 1 12em; flex-wrap: wrap; align-items: center; gap: var(--b5-space-1) var(--b5-space-2); min-width: 0; }
-.b5-show-context > .b5-btn { min-height: var(--b5-size-touch-min); }
+.b5-show-context > .b5-btn, .b5-show-context .b5-show-menu > .b5-btn { min-height: var(--b5-size-touch-min); }
 .b5-out-state, .b5-out-sim, .b5-out-link { white-space: nowrap; }
 @media (max-width: 1299px) { .b5-show-context [data-out-note] { display: none; } }
-/* Tablets: state on the first line; Show tools and Fixture library start the
-   second, with ARM beside the slab at its right end. */
-@media (min-width: 768px) and (max-width: 1299px) {
+/* Tablets: state on the first line; the Show menu starts the second, with
+   ARM beside the slab at its right end. (K1: from 1024 px the header and
+   this strip share one row — see the K1 block at the end.) */
+@media (min-width: 768px) and (max-width: 1023px) {
   .b5-show-context::before { content: ''; order: 9; flex-basis: 100%; height: 0; }
-  .b5-show-context [data-tools], .b5-show-context [data-library], .b5-show-context .b5-out-armslot, .b5-show-context [data-stop] { order: 10; }
+  .b5-show-context .b5-show-menu, .b5-show-context .b5-out-armslot, .b5-show-context [data-stop] { order: 10; }
   .b5-show-context .b5-out-armslot { margin-left: auto; }
   .b5-show-context > .b5-out-stop { margin-left: 0; }
   .b5-show-context .b5-out-armslot:empty + .b5-out-stop { margin-left: auto; }
@@ -107,11 +108,12 @@
   .b5-show-context .b5-out-state { white-space: normal; }
   .b5-show-context [data-out-note] { display: none; }
   .b5-show-context .b5-out-armslot { display: contents; }
-  .b5-show-context [data-tools], .b5-show-context [data-library], .b5-show-context .b5-out-arm, .b5-show-context [data-stop] {
+  .b5-show-context .b5-show-menu, .b5-show-context .b5-out-arm, .b5-show-context [data-stop] {
     order: 10; flex: 1 1 0; margin: 0;
   }
+  .b5-show-context .b5-show-menu > .b5-btn { width: 100%; }
   .b5-show-context::before { content: ''; order: 9; flex-basis: 100%; height: 0; } /* line break before the buttons */
-  .b5-show-context > .b5-btn, .b5-show-context .b5-out-arm {
+  .b5-show-context > .b5-btn, .b5-show-context .b5-show-menu > .b5-btn, .b5-show-context .b5-out-arm {
     min-width: 0; min-height: var(--b5-size-touch-min); padding-inline: var(--b5-space-1);
     white-space: normal; line-height: 1.15; font-size: var(--b5-font-size-xs); justify-content: center; text-align: center;
   }
@@ -129,3 +131,44 @@
   max-height: calc(100dvh - var(--b5-chrome-height, 120px) - var(--b5-space-4)); overflow: auto;
   z-index: var(--b5-z-overlay); box-shadow: var(--b5-shadow-lg);
 }
+
+/* ---- K1: one-row header on laptop widths (W1 component-specs §1) --------
+   From 1024 px the brand row and this strip share ONE sticky row: brand ·
+   connection | show · adapter · output state · ARM slot · DISARM slab ·
+   Show menu. The app shell becomes a grid so neither element moves in the
+   DOM (phones and tablets keep their two-row chrome unchanged). The ARM
+   slot keeps its width while armed so the slab never shifts. Below 1280
+   the adapter and the "Shared control" link words step aside; Connected
+   stays. */
+@media (min-width: 1024px) {
+  .b5-app { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto 1fr auto; }
+  .b5-app > * { grid-column: 1 / -1; min-width: 0; }
+  .b5-app > .b5-header { grid-column: 1; grid-row: 1; border-bottom: var(--b5-border-width-thin) solid var(--b5-color-border-strong); padding-right: var(--b5-space-3); gap: var(--b5-space-3); }
+  .b5-app > .b5-show-context { grid-column: 2; grid-row: 1; top: 0; flex-wrap: nowrap; padding-left: 0; }
+  .b5-header__spacer { display: none; }
+  .b5-show-context__name { max-width: 22vw; }
+  .b5-show-context__nic { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 14vw; }
+  .b5-show-context__name { flex: 0 1 auto; min-width: 4em; }
+  /* The state group takes the free width and wraps INSIDE itself when a
+     long state (SIMULATED, an alert) needs room; it never overlaps the
+     show name or the connection pill. */
+  .b5-show-context .b5-out { flex: 1 1 0; min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
+  .b5-show-context [data-out-note] { display: none; } /* its words are the state's tooltip (workspace.js) */
+  .b5-show-context .b5-out-armslot:empty { display: inline-flex; min-width: 6.5em; }
+  .b5-show-context > .b5-out-stop { margin-left: 0; }
+}
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .b5-show-context__nic, .b5-show-context .b5-out-link { display: none; }
+}
+
+/* K1 (W1b decision): the nav names the screen, so each screen's own page
+   title is hidden visually from 1024 px but kept for assistive technology.
+   A page header that held only the title collapses. */
+@media (min-width: 1024px) {
+  .b5-page-header__title {
+    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+    overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+  }
+  .b5-page-header:has(> .b5-page-header__title:only-child) { margin: 0; }
+}
+

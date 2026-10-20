@@ -80,6 +80,13 @@ Diagnosis and re-verification on Dom's real show: `docs/evidence/analysis/J1-ben
 ## Owner request (Dom, 2026-10-19 14:46; recorded 2026-10-19 15:57:11 -0400)
 - Prep the design agent to make choices for **screen organization and UI optimization** across the app, with Claude's recommendations. Brief: `docs/design/ui-organization/brief_2026-10-19_1557.md` (written on top of W1; an earlier 14:47 draft predating W1 was never committed). Sequenced after the owner's W1 review.
 
+## Owner decisions (Dom, 2026-10-19 21:18 — implement W1 + W1b; recorded 2026-10-19 21:36:47 -0400)
+- **Build the design packages into the app**, in small chunks, one branch each (K1–K8). Claude builds, one chunk at a time (no parallel agents).
+- **Tile intensity:** add a read-only report of the engine's composed fixture/cell intensity (its own chunk, K5); output behaviour unchanged.
+- **Below 1024 px** (phones, tablets) keep today's layouts until they are designed.
+- **Release v0.3.0** once the Console part (K1–K4) is in.
+- W1b owner answers (recorded by the design agent in `docs/design/ui-organization/owner-questions.md`) are binding: Show/Network nav, Settings index, right-only dock, Raw DMX/Tools in Controls, full Tests selection, no global shortcuts, programmer-colour swatch with name + outline, Comfortable 48 px rows, inspectors open on inspection, device diagnostics closed once devices exist, shared Nodes inspector, fixture controls only on Console.
+
 ## Chunks (each is one or more commits, gates green, docs updated)
 | # | Chunk | Depends on |
 |---|-------|-----------|
@@ -124,6 +131,12 @@ Diagnosis and re-verification on Dom's real show: `docs/evidence/analysis/J1-ben
 | W0 | Console workspace redesign — mockup + design brief (branch `docs/console-workspace-design`), owner review of the mockup | J1d |
 | W1 | Design agent package per the W0 brief (icons, component-spec addendum, tokens, contrast, scenes) | W0 approved |
 | W1b | App-wide screen organization per `docs/design/ui-organization/brief_2026-10-19_1557.md`: reuses W1 components; the design agent decides layout/density/menus/help placement, proposes nav order, removals, default changes and any W1-component change as options; Claude's recommendations and three W1 review notes included | W1 owner review |
+| K1 | Production: app chrome — one-row header from 1024 px (brand · connection · show · output · ARM slot · DISARM · Show menu), Show menu replaces Show tools / Fixture library buttons, nav grouped Show / Network / Settings, page titles hidden visually from 1024 px; shared `UI.menu` | W1, W1b |
+| K2 | Production: Console workspace — toolbar, selection bar, grid fills the screen, Plan/Compact, Fit, new tiles (intensity "not reported" until K5), swatch with name + outline | K1 |
+| K3 | Production: dock + floating windows (Controls docked right; Order, Groups & presets, MIDI windows; Raw DMX/Tools inside Controls; Beam/Gobo tab breaks at the slash) | K2 |
+| K4 | Production: Tests tab (own nav screen, grid + tests panel, shared selection) → release v0.3.0 | K3 |
+| K5 | Production: read-only engine report of composed fixture/cell intensity; live tile bars; Plan + Fit hint | K2 |
+| K6–K8 | Production: Patch, Settings, Devices/Nodes, Analyzer/Rig Walk per W1b | K1 |
 
 ## Delivery to Dom's desktop
 The desktop clone has no shell for the agent and remote tools may not write inside `.git`. Each chunk's changed files are staged under `dist\_incoming\<chunk>\` (dist/ is gitignored) with a `b512-<chunk>-console-lite.bat` in the repo root that checks the tree is clean, switches to `feat/console-lite`, copies the files in, adds by path and commits. Run the scripts in order: `b512-commit-unresponsive.bat` first (it also creates `feat/console-lite`), then C1, C2, …

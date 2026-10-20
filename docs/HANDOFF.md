@@ -1,6 +1,10 @@
 # Benny512 — Session Handoff Brief (current)
 
-**Last updated:** 2026-10-19 21:15:09 -04:00
+**Last updated:** 2026-10-19 21:36:47 -0400
+
+## Current delta — K1 app chrome (`feat/k1-app-chrome`)
+
+Owner 2026-10-19 21:18: implement W1 + W1b in small chunks K1–K8 (plan rows), Claude building one at a time; read-only intensity report as K5; <1024 px unchanged; v0.3.0 after K4. **K1 done:** from 1024 px the brand row and the show-context strip share one sticky row (`.b5-app` becomes a grid; no DOM move, phones/tablets keep two rows); chrome 127 px at 1440×900 (was 186). The ARM slot keeps its width while armed so the slab never shifts. Show tools / Fixture library moved into a **Show** menu after the slab (`data-tools` / `data-library` hooks kept). New shared `UI.menu` (ui.js): button + role=menu, Up/Down/Home/End, Escape returns focus, Tab/outside close, check symbol + aria-checked on checkable items. Desktop nav grouped **Show** (Patch, Console, Rig Walk) / **Network** (Nodes, Devices, Analyzer) / Settings, groups named by visible words; phone bar unchanged. Page titles visually hidden from 1024 px (kept for screen readers). "Values retained · Arm resumes them" is the state word's tooltip from 1024 px. `--b5-chrome-height` measures the taller of the two when side by side. Tests: `ui_menu_test.js` (new, literal ui.js in minidom), `output_strip_test.js` (Show menu after the slab, hooks, library opens), `TestK1NavGroups`. Not yet: Console workspace (K2) — the Console still shows its own heading and stacked panels.
 
 ## Current delta — UI organization W1b design package (2026-10-19 21:15:09 -04:00)
 

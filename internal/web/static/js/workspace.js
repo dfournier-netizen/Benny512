@@ -91,7 +91,7 @@ const Workspace = (() => {
     const acked = key !== '' && key === ackedKey;
     const w = outputWords(out, acked);
     const n = out ? out.browsers : 0;
-    const html = `<span data-output role="status" class="b5-out-state b5-out-state--${w.tone}">${UI.icon(w.icon)}${esc(w.word)}</span>` +
+    const html = `<span data-output role="status" class="b5-out-state b5-out-state--${w.tone}"${w.note ? ` title="${esc(w.note)}"` : ''}>${UI.icon(w.icon)}${esc(w.word)}</span>` +
       (out && out.simulated ? `<span data-sim class="b5-out-sim">${UI.icon('simulated')}SIMULATED · not a real rig</span>` : '') +
       (out ? `<span data-link class="b5-out-link" title="${n} browser${n === 1 ? '' : 's'} connected. Every connected browser operates the same programmer.">${UI.icon('link-ok')}Shared control · link OK</span>` : '') +
       (w.alert ? `<span data-out-alert role="alert" class="b5-out-note b5-out-note--alert">${esc(w.alert)}</span>` +
@@ -133,9 +133,15 @@ const Workspace = (() => {
     const root = document.getElementById('showContext');
     // The DISARM · BLACKOUT slab is written once and never re-rendered: it is
     // always present, rightmost, enabled, in every state (specs §1).
-    root.innerHTML = `<strong data-show class="b5-show-context__name">Loading show…</strong><span data-nic class="b5-show-context__nic b5-text-sm"></span><span data-outbox class="b5-out"></span><button class="b5-btn b5-btn--sm" data-tools>Show tools</button><button class="b5-btn b5-btn--sm" data-library>Fixture library</button><span data-armslot class="b5-out-armslot"></span><button type="button" class="b5-btn b5-out-stop" data-stop aria-label="DISARM and BLACKOUT: stop all DMX output">${UI.icon('disarm')}<span>DISARM<br>BLACKOUT</span></button>`;
-    root.querySelector('[data-tools]').onclick = open;
-    root.querySelector('[data-library]').onclick = LibraryPanel.open;
+    root.innerHTML = `<strong data-show class="b5-show-context__name">Loading show…</strong><span data-nic class="b5-show-context__nic b5-text-sm"></span><span data-outbox class="b5-out"></span><span data-armslot class="b5-out-armslot"></span><button type="button" class="b5-btn b5-out-stop" data-stop aria-label="DISARM and BLACKOUT: stop all DMX output">${UI.icon('disarm')}<span>DISARM<br>BLACKOUT</span></button>`;
+    // K1 (W1 component-specs §1): Show tools and the Fixture library sit in
+    // one Show menu after the output cluster. The items keep their
+    // data-tools / data-library hooks.
+    const showMenu = UI.menu({ label: 'Show', className: 'b5-show-menu', attrs: { 'data-showmenu': '' }, items: [
+      { label: 'Show tools…', attrs: { 'data-tools': '' }, onSelect: open },
+      { label: 'Fixture library…', attrs: { 'data-library': '' }, onSelect: () => LibraryPanel.open() },
+    ] });
+    root.appendChild(showMenu.el);
     // DISARM · BLACKOUT, from any screen; repeating it is safe.
     root.querySelector('[data-stop]').onclick = async () => {
       try { await Api.stopAllOutput(); } catch (_) { /* the heartbeat shows the truth */ }

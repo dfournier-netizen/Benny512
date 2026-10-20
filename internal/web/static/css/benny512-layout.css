@@ -111,6 +111,19 @@ html, body {
   border-bottom-color: var(--b5-color-accent-border);
 }
 
+/* K1 (W1b owner answer A): Show / Network groups, Settings last. The
+   group name is a word in the bar, not a colour; a rule separates groups. */
+.b5-nav__group {
+  display: flex; align-items: stretch; gap: var(--b5-space-1);
+  padding-right: var(--b5-space-2); margin-right: var(--b5-space-2);
+  border-right: var(--b5-border-width-thin) solid var(--b5-color-border-default);
+}
+.b5-nav__grouplabel {
+  align-self: center; padding-right: var(--b5-space-1);
+  font-size: var(--b5-font-size-xs); color: var(--b5-color-text-muted);
+  letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap;
+}
+
 /* ---- Mobile bottom nav (thumb-reachable) ---- */
 .b5-nav--mobile {
   display: none;

@@ -71,6 +71,8 @@ function el(tag, attrs) {
 }
 
 const root = el('div', { id: 'showContext' });
+const menus = [];
+let libraryOpened = 0;
 const listeners = {};
 const timers = [];
 let confirms = 0;
@@ -108,8 +110,10 @@ const ctx = vm.createContext({
   setInterval: (fn, ms) => { timers.push({ fn, ms, repeat: true }); return timers.length; },
   setTimeout: (fn, ms) => { timers.push({ fn, ms, repeat: false }); return timers.length; },
   clearTimeout() {}, clearInterval() {},
-  UI: { icon: name => `<svg data-icon="${name}"></svg>`, formatUser: n => n + 1 },
-  LibraryPanel: { open() {} },
+  UI: { icon: name => `<svg data-icon="${name}"></svg>`, formatUser: n => n + 1,
+    // K1: the Show menu (ui.js UI.menu, tested on its own in ui_menu_test.js).
+    menu: o => { menus.push(o); const m = el('span', Object.assign({ 'data-menu-stub': '' }, o.attrs || {})); return { el: m, button: m, panel: m, open() {}, close() {}, refresh() {} }; } },
+  LibraryPanel: { open() { libraryOpened++; } },
   fetch: async (url, opts) => {
     const body = opts && opts.body ? JSON.parse(opts.body) : undefined;
     calls.push({ url, method: opts && opts.method, body, keepalive: !!(opts && opts.keepalive) });
@@ -146,6 +150,17 @@ const outWord = () => root.querySelector('[data-output]');
 
   check(!!armBtn(), 'the strip carries a master [data-arm] control');
   check(!!root.querySelector('[data-stop]'), 'the strip carries the DISARM · BLACKOUT slab');
+  // K1 (W1 component-specs §1): Show tools and the Fixture library moved into
+  // one Show menu AFTER the slab; their data-tools / data-library hooks stay.
+  const showMenu = root.querySelector('[data-showmenu]');
+  check(!!showMenu && menus.length === 1 && menus[0].label === 'Show', 'the strip carries one Show menu', menus.map(m => m.label));
+  const kids = root.children, iStop = kids.indexOf(root.querySelector('[data-stop]')), iMenu = kids.indexOf(showMenu);
+  check(iStop >= 0 && iMenu > iStop, 'the Show menu comes after the DISARM · BLACKOUT slab', [iStop, iMenu]);
+  const mi = menus.length ? menus[0].items : [];
+  check(mi.length === 2 && 'data-tools' in mi[0].attrs && 'data-library' in mi[1].attrs, 'its items are Show tools (data-tools) and Fixture library (data-library)', mi.map(i => i.label));
+  check(!root.querySelector('[data-tools]') && !root.querySelector('[data-library]'), 'no separate Show tools / Fixture library buttons remain in the strip');
+  if (mi[1]) mi[1].onSelect();
+  check(libraryOpened === 1, 'choosing Fixture library opens the library panel', libraryOpened);
 
   // Heartbeat cadence and identity.
   const beat = timers.find(t => t.repeat && t.ms <= 1000);

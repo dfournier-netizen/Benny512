@@ -32,13 +32,20 @@
   </header>
   <div id="showContext" class="b5-show-context" aria-label="Show and output context"></div>
 
-  <nav class="b5-nav" id="tabs">
-    <button class="b5-nav__item" data-tab="nodes"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-nodes"/></svg>Nodes</button>
-    <button class="b5-nav__item" data-tab="devices"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-devices"/></svg>Devices</button>
-    <button class="b5-nav__item" data-tab="patch"><svg><use href="/icons/benny512-icons.svg#b5-icon-network-node"/></svg>Patch</button>
-    <button class="b5-nav__item" data-tab="analyzer"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-analyzer"/></svg>Analyzer</button>
-    <button class="b5-nav__item" data-tab="console"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-console"/></svg>Console</button>
-    <button class="b5-nav__item" data-tab="walk"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-rig-walk"/></svg>Rig Walk</button>
+  <nav class="b5-nav" id="tabs" aria-label="Screens">
+    <!-- K1 (W1b owner answer A): Show / Network groups, Settings last. -->
+    <span class="b5-nav__group" role="group" aria-labelledby="navGroupShow">
+      <span class="b5-nav__grouplabel" id="navGroupShow">Show</span>
+      <button class="b5-nav__item" data-tab="patch"><svg><use href="/icons/benny512-icons.svg#b5-icon-network-node"/></svg>Patch</button>
+      <button class="b5-nav__item" data-tab="console"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-console"/></svg>Console</button>
+      <button class="b5-nav__item" data-tab="walk"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-rig-walk"/></svg>Rig Walk</button>
+    </span>
+    <span class="b5-nav__group" role="group" aria-labelledby="navGroupNetwork">
+      <span class="b5-nav__grouplabel" id="navGroupNetwork">Network</span>
+      <button class="b5-nav__item" data-tab="nodes"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-nodes"/></svg>Nodes</button>
+      <button class="b5-nav__item" data-tab="devices"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-devices"/></svg>Devices</button>
+      <button class="b5-nav__item" data-tab="analyzer"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-analyzer"/></svg>Analyzer</button>
+    </span>
     <button class="b5-nav__item" data-tab="settings"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-settings"/></svg>Settings</button>
   </nav>
   <nav class="b5-nav--mobile" id="tabsMobile">

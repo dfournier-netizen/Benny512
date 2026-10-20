@@ -477,8 +477,98 @@ const UI = (() => {
     return nmDialog(Object.assign({ attrs: { 'data-notice': '' }, cancel: 'Close', cancelAttrs: { 'data-notice-close': '' } }, o), () => {});
   }
 
+  // menu(opts) — K1 (W1 component-specs §2): a labelled button that opens a
+  // menu of actions. Native buttons throughout; aria-haspopup / aria-expanded
+  // on the trigger, role=menu / menuitem (menuitemcheckbox when an item has
+  // `checked`) on the panel. Up/Down/Home/End move within it, Escape closes
+  // and returns focus to the trigger, Tab closes and moves on, a click
+  // outside closes. A checked item shows the check SYMBOL as well as
+  // aria-checked — never an invisible state. Items:
+  //   { label, icon, attrs, onSelect(ev), checked, danger, disabled, title }
+  //   { separator: true } | { heading: 'text' }
+  // opts: { label, icon, items (array or function returning one), align:
+  // 'start'|'end', className, attrs }. Returns { el, button, panel, open,
+  // close, refresh }.
+  function menu(opts) {
+    const o = opts || {};
+    const el = document.createElement('span');
+    el.className = 'b5-menu' + (o.className ? ' ' + o.className : '');
+    const button = document.createElement('button');
+    button.setAttribute('type', 'button');
+    button.className = 'b5-btn b5-menu__trigger';
+    button.setAttribute('aria-haspopup', 'menu');
+    button.setAttribute('aria-expanded', 'false');
+    Object.entries(o.attrs || {}).forEach(([k, v]) => button.setAttribute(k, v));
+    button.innerHTML = (o.icon ? icon(o.icon) : '') + '<span class="b5-menu__label"></span>' + icon('chevron-expand', 'b5-menu__chev');
+    button.querySelector('.b5-menu__label').textContent = o.label || '';
+    const panel = document.createElement('div');
+    panel.className = 'b5-menu__panel' + (o.align === 'start' ? ' b5-menu__panel--start' : '');
+    panel.setAttribute('role', 'menu');
+    panel.hidden = true;
+    el.appendChild(button); el.appendChild(panel);
+    const items = () => [...panel.querySelectorAll('button')].filter(b => !b.disabled);
+    function build() {
+      const list = typeof o.items === 'function' ? o.items() : (o.items || []);
+      panel.innerHTML = '';
+      panel.setAttribute('aria-label', o.label || 'Menu');
+      list.forEach(it => {
+        if (!it) return;
+        if (it.separator) { const hr = document.createElement('div'); hr.className = 'b5-menu__sep'; hr.setAttribute('role', 'separator'); panel.appendChild(hr); return; }
+        if (it.heading) { const h = document.createElement('div'); h.className = 'b5-menu__heading'; h.textContent = it.heading; panel.appendChild(h); return; }
+        const b = document.createElement('button');
+        b.setAttribute('type', 'button');
+        b.className = 'b5-menu__item' + (it.danger ? ' b5-menu__item--danger' : '');
+        const checkable = typeof it.checked === 'boolean';
+        b.setAttribute('role', checkable ? 'menuitemcheckbox' : 'menuitem');
+        if (checkable) b.setAttribute('aria-checked', String(it.checked));
+        b.tabIndex = -1;
+        if (it.disabled) b.disabled = true;
+        if (it.title) b.title = it.title;
+        Object.entries(it.attrs || {}).forEach(([k, v]) => b.setAttribute(k, v));
+        b.innerHTML = (checkable ? `<span class="b5-menu__check" aria-hidden="true">${it.checked ? icon('status-ok') : ''}</span>` : '') +
+          (it.icon ? icon(it.icon) : '') + '<span class="b5-menu__text"></span>';
+        b.querySelector('.b5-menu__text').textContent = it.label;
+        b.addEventListener('click', ev => { close(false); if (it.onSelect) it.onSelect(ev); });
+        panel.appendChild(b);
+      });
+    }
+    function onDoc(ev) { if (!el.contains(ev.target)) close(false); }
+    function open() {
+      build();
+      panel.hidden = false;
+      button.setAttribute('aria-expanded', 'true');
+      el.classList.add('is-open');
+      document.addEventListener('pointerdown', onDoc, true);
+      const first = items()[0];
+      if (first) first.focus();
+    }
+    function close(restore) {
+      if (panel.hidden) return;
+      panel.hidden = true;
+      button.setAttribute('aria-expanded', 'false');
+      el.classList.remove('is-open');
+      document.removeEventListener('pointerdown', onDoc, true);
+      if (restore) button.focus();
+    }
+    button.addEventListener('click', () => (panel.hidden ? open() : close(true)));
+    button.addEventListener('keydown', ev => {
+      if (ev.key === 'ArrowDown' && panel.hidden) { ev.preventDefault(); open(); }
+    });
+    panel.addEventListener('keydown', ev => {
+      const list = items(); const i = list.indexOf(document.activeElement);
+      const go = n => { ev.preventDefault(); if (list.length) list[(n + list.length) % list.length].focus(); };
+      if (ev.key === 'ArrowDown') go(i + 1);
+      else if (ev.key === 'ArrowUp') go(i - 1);
+      else if (ev.key === 'Home') go(0);
+      else if (ev.key === 'End') go(list.length - 1);
+      else if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); close(true); }
+      else if (ev.key === 'Tab') close(false);
+    });
+    return { el, button, panel, open, close: () => close(true), refresh: () => { if (!panel.hidden) build(); } };
+  }
+
   return {
-    ask, choose, notice, confirmAsk, showPanel,
+    ask, choose, notice, confirmAsk, showPanel, menu,
     icon, badge, tag, spinner, buildApplyField, wireApplyField,
     getArtnetStart, setArtnetStart,
     artnetToUser, userToArtnet,

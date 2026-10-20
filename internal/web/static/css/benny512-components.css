@@ -1666,3 +1666,34 @@
     min-height: var(--b5-size-touch-min);
   }
 }
+
+/* ---- K1: shared menu (ui.js UI.menu; W1 component-specs §2) ----
+   A labelled trigger opens a panel of native buttons. A checked item shows
+   the check symbol as well as aria-checked; danger items keep their words
+   and sit after a separator (callers order them). */
+.b5-menu { position: relative; display: inline-flex; }
+.b5-menu__trigger { gap: var(--b5-space-1); }
+.b5-menu__trigger .b5-menu__chev, .b5-menu__trigger svg.b5-menu__chev { width: 14px; height: 14px; flex: none; }
+.b5-menu__panel {
+  position: absolute; top: calc(100% + var(--b5-space-1)); right: 0; z-index: var(--b5-z-dropdown);
+  display: flex; flex-direction: column; min-width: 14rem; max-height: min(70vh, 32rem); overflow: auto;
+  padding: var(--b5-space-1); background: var(--b5-color-bg-surface-overlay);
+  border: var(--b5-border-width-thin) solid var(--b5-color-border-strong); border-radius: var(--b5-radius-md); box-shadow: var(--b5-shadow-md);
+}
+.b5-menu__panel[hidden] { display: none; }
+.b5-menu__panel--start { right: auto; left: 0; }
+.b5-menu__item {
+  display: flex; align-items: center; gap: var(--b5-space-2); min-height: 40px; padding: 0 var(--b5-space-3);
+  background: none; border: 0; border-radius: var(--b5-radius-sm); color: var(--b5-color-text-primary);
+  font: inherit; text-align: left; white-space: nowrap; cursor: pointer;
+}
+.b5-menu__item:hover, .b5-menu__item:focus-visible { background: var(--b5-color-bg-hover); }
+.b5-menu__item:focus-visible { outline: 2px solid var(--b5-color-border-focus); outline-offset: -2px; }
+.b5-menu__item:disabled { color: var(--b5-color-text-disabled); cursor: default; }
+.b5-menu__item--danger { color: var(--b5-color-text-danger); }
+.b5-menu__item svg { width: 18px; height: 18px; flex: none; }
+.b5-menu__check { display: inline-flex; width: 18px; flex: none; }
+.b5-menu__sep { border-top: var(--b5-border-width-thin) solid var(--b5-color-border-subtle); margin: var(--b5-space-1) 0; }
+.b5-menu__heading { padding: var(--b5-space-1) var(--b5-space-3); font-size: var(--b5-font-size-xs); color: var(--b5-color-text-muted); }
+@media (pointer: coarse) { .b5-menu__item { min-height: var(--b5-size-touch-min); } }
+
