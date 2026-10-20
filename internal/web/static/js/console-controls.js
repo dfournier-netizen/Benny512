@@ -1858,6 +1858,16 @@ const ConsoleControls = (() => {
       const live = FAMILIES.map(f => f[0]).filter(k => has.has(k));
       const tabs = h('div', { class: 'b5-cc-tabs', role: 'tablist', 'aria-label': 'Attribute families' });
       const pick = (k, focus) => { st.tab = k; refresh(true); if (focus) { const t = els.body.querySelector('[data-tab-group="' + k + '"]'); if (t) t.focus(); } };
+      // K3 (W1 §8): a word with a slash may break only after it
+      // ("Beam/" over "Gobo"), never mid-word, in a narrow dock.
+      const tabWord = label => {
+        const w = h('span', { class: 'b5-cc-tab__word' });
+        label.split('/').forEach((part, i, all) => {
+          w.appendChild(document.createTextNode(part + (i < all.length - 1 ? '/' : '')));
+          if (i < all.length - 1) w.appendChild(document.createElement('wbr'));
+        });
+        return w;
+      };
       FAMILIES.forEach(([k, label]) => {
         const g = has.get(k);
         const on = k === st.tab;
@@ -1866,7 +1876,7 @@ const ConsoleControls = (() => {
           'aria-selected': on ? 'true' : 'false', 'aria-controls': 'b5-cc-panel', tabindex: on ? '0' : '-1', 'data-tab-group': k,
           'aria-disabled': g ? null : 'true' },
           h('span', { class: 'b5-cc-tab__ic', 'aria-hidden': 'true', icon: FAMILY_ICON[k] }),
-          h('span', { class: 'b5-cc-tab__word', text: label }),
+          tabWord(label),
           h('span', { class: 'b5-cc-tabcount', text: count }));
         if (g) t.addEventListener('click', () => pick(k, false));
         t.addEventListener('keydown', ev => {

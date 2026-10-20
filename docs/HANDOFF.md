@@ -1,6 +1,21 @@
 # Benny512 — Session Handoff Brief (current)
 
-**Last updated:** 2026-10-19 22:02:16 -0400
+**Last updated:** 2026-10-20 13:26:19 -0400
+
+## Current delta — K3 Console windows (`feat/k3-console-windows`, on top of K2)
+
+**K3 done (W1 §4, §8; owner: Controls docks right, windows resizable):** from 1024 px only; below 1024 every region stays where it was.
+- **New `js/console-windows.js`** (loaded before console.js). console.js hands each window an attach/home pair; narrow screens put every region home in its old order.
+- **Defaults:** Controls open and docked at 440 px, with Tools (Raw DMX, Universe Identify) inside it. Selection order, Groups (the stored-group chips + Store group…) and MIDI encoders are hidden and float when opened. **Tests is an interim window until K4** gives it a tab; the selection bar's Tests opens it.
+- **Windows ▾** at the end of the toolbar: one check item per window ("· docked" / "· floating"), then Reset window positions (window choices only).
+- **Title bar:** grip, title + subtitle ("3 selected"), Dock/Float in words, collapse, close (focus returns to Windows). Floating: drag the bar or arrow keys (10 px, Shift 40 px); corner grip or arrows resize (20 px, min 280×140); new windows cascade 32 px; a drag released within 40 px of the right edge docks ("Release to dock on the right"), Escape cancels.
+- **Dock:** a column of the workspace grid (the grid never sits under it; Fit measures what is left). Its edge is a `separator` (aria-valuenow/min/max): drag or Left/Right 20 px, 320 px to 60 %. Docked windows share the height equally (W1). No open docked window → no column, grid full width.
+- **Per-browser memory:** `benny512.console.windows` (open, docked, collapsed, x/y/w/h, dock width).
+- **Controls tabs:** "Beam/Gobo" breaks only after the slash (`<wbr>`). **Deviation from W1 §8 (recorded):** seven columns at a 440 px dock leave 56 px a tab and the bold "Dimmer" ran into "Position" on real labels, so four over three until the window body is wider than 420 px (dock ≈ 460 px).
+- **Toolbar room for Windows:** at ≥1280 the layer chips scroll inside their own strip instead of running under Plan; at 1024–1279 the decorative icons on Select / View / Windows / Lasso go (words stay) and the Layer selector is 9rem.
+- W1 window icons (close, window, collapse/expand, reset, dock-right, float, resize-grip) added to the sprite.
+
+**Not yet:** the Tests tab (K4); intensity bars, SET/TEST tags and the swatch (K5).
 
 ## Current delta — K2 Console workspace (`feat/k2-console-workspace`, on top of K1)
 
@@ -18,7 +33,6 @@
 - **Measured at 1440×900 on the owner's show:** grid 948×573 px (was about 250 px visible); no page scroll; the Plan view still scrolls inside the pane at the 86 px floor (the plan is 41×63 cells).
 
 **Not yet:**
-- dock, floating windows, Selection order / Groups & presets / MIDI windows, the Beam/Gobo tab wrap (K3)
 - the Tests tab (K4)
 - intensity bars, SET/TEST tags and the colour swatch, which need the read-only engine report (K5)
 

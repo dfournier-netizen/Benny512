@@ -402,7 +402,7 @@
   #consoleRoot .b5-con-tools > .b5-con-chips { flex-wrap: nowrap; }
   #consoleRoot .b5-con-chips .b5-con-chipnote { display: none; } /* the height words stay in the chip's accessible name and title */
   #consoleRoot .b5-con-grouprow:has(.b5-con-chips > .b5-caption:only-child) { display: none; } /* "no stored groups yet" */
-  #consoleRoot .b5-con-order { display: none; } /* K3: the Selection order window */
+  #consoleRoot .b5-con-pane--grid > .b5-con-order { display: none; } /* K3: it lives in the Selection order window */
   /* The selection bar is one row: count and summary, then the actions. */
   #consoleRoot > .b5-con-summary { display: flex; flex-wrap: nowrap; align-items: center; gap: var(--b5-space-3); padding: var(--b5-space-2) var(--b5-space-3); }
   #consoleRoot .b5-con-summary__status { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: nowrap; align-items: center; gap: var(--b5-space-2); }
@@ -415,13 +415,96 @@
   #consoleRoot .b5-con-pane--grid { min-height: 0; overflow: hidden; gap: var(--b5-space-2); }
   #consoleRoot .b5-con-pane--grid > .b5-board__head { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   #consoleRoot .b5-con-gridbox { flex: 1 1 auto; min-height: 0; max-height: none; }
-  #consoleRoot .b5-con-order { flex: none; max-height: 7.5rem; overflow: auto; }
   #consoleRoot .b5-con-pane--side { min-height: 0; overflow: auto; overscroll-behavior: contain; padding-right: 2px; }
 }
 @media (min-width: 1024px) and (max-width: 1279px) {
   #consoleRoot .b5-con-tools > .b5-con-chips { display: none; }
-  #consoleRoot .b5-con-layerselect { display: inline-flex; max-width: 11rem; }
+  #consoleRoot .b5-con-layerselect { display: inline-flex; max-width: 9rem; }
+  /* K3: room for Windows on the one row (W1 §2: decorative icons go first;
+     the words stay). */
+  #consoleRoot .b5-con-tools .b5-menu__trigger > svg:not(.b5-menu__chev), #consoleRoot [data-lasso-toggle] > .b5-con-ic { display: none; }
   #consoleRoot .b5-con-tools { gap: var(--b5-space-1); }
   #consoleRoot .b5-con-tools .b5-seg, #consoleRoot .b5-con-tools .b5-btn { padding-inline: var(--b5-space-2); }
 }
 
+
+/* K3 — docked and floating windows (console-windows.js; W1 component-specs
+   §4 and §8). Only from 1024 px: narrower, the regions are back in the old
+   stacked layout and none of this chrome exists on screen. The workspace is
+   its own stacking context (isolation), so floating windows sit above the
+   grid but under every menu, the chrome and dialogs. Borders use the
+   control-border role (>= 3:1 against grid, surface and selected fills in
+   both themes, W1 contrast.md); the shadow is decoration, never the edge. */
+.b5-con-winmenu, .b5-dock__edge, .b5-dock__drop { display: none; }
+.b5-win[hidden], .b5-dock__drop[hidden], .b5-win__resize[hidden], .b5-win__body[hidden] { display: none !important; }
+@media (min-width: 1024px) {
+  #consoleRoot .b5-con-winmenu { display: inline-flex; margin-left: auto; }
+  /* K3: long layer names scroll inside the chip strip rather than run
+     under Plan | Compact (W1 §2: the toolbar's own horizontal scroll). */
+  #consoleRoot .b5-con-tools { flex-wrap: nowrap; }
+  #consoleRoot .b5-con-tools > .b5-con-chips { flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
+  #consoleRoot .b5-con-grouprow:not(:has(> .b5-con-chips)) { display: none; } /* the chips are in the Groups window */
+  #consoleRoot > .b5-con-main.is-windowed { position: relative; isolation: isolate; grid-template-columns: minmax(0, 1fr) var(--b5-dock-w, 440px); }
+  #consoleRoot > .b5-con-main.is-windowed.is-dock-empty { grid-template-columns: minmax(0, 1fr); }
+  #consoleRoot > .b5-con-main.is-dock-empty > .b5-dock { display: none; }
+  /* The dock: its edge (a separator) on the left, layout editing when on,
+     then the docked windows sharing the height. */
+  #consoleRoot .is-windowed > .b5-dock { position: relative; display: flex; flex-direction: column; gap: var(--b5-space-2); overflow: hidden; padding: 0 0 0 var(--b5-space-3); border-left: var(--b5-border-width-thin) solid var(--b5-color-border-strong); }
+  #consoleRoot .is-windowed > .b5-dock > .b5-con-edit:not([hidden]) { flex: 0 1 auto; max-height: 55%; overflow: auto; }
+  .b5-dock__stack { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: var(--b5-space-2); }
+  .is-windowed .b5-dock__edge { display: block; position: absolute; left: -6px; top: 0; bottom: 0; width: 12px; cursor: col-resize; z-index: 2; touch-action: none; }
+  .is-windowed .b5-dock__edge::after { content: ''; position: absolute; left: 5px; top: 50%; width: 2px; height: 48px; margin-top: -24px; border-radius: 1px; background: var(--b5-color-border-control); }
+  .b5-dock__edge:hover::after, .b5-dock__edge:focus-visible::after { background: var(--b5-color-accent-border); height: 96px; margin-top: -48px; }
+  .b5-dock__edge:focus-visible { outline: 3px solid var(--b5-color-border-focus); outline-offset: -3px; }
+  /* A window: title bar, then a body that scrolls inside itself. */
+  .is-windowed .b5-win { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--b5-color-bg-surface); border: var(--b5-border-width-thin) solid var(--b5-color-border-control); border-radius: var(--b5-radius-md); }
+  .b5-win.is-docked { flex: 1 1 0; }
+  .b5-win.is-docked.is-collapsed { flex: none; }
+  .b5-win.is-floating { position: absolute; z-index: 3; border-width: 2px; box-shadow: var(--b5-shadow-md); }
+  .b5-win.is-floating.is-front { z-index: 4; }
+  .b5-win__bar { flex: none; display: flex; align-items: center; gap: var(--b5-space-2); min-height: 44px; padding: 2px var(--b5-space-1) 2px var(--b5-space-2); background: var(--b5-color-bg-surface-raised); border-bottom: var(--b5-border-width-thin) solid var(--b5-color-border-strong); border-radius: var(--b5-radius-md) var(--b5-radius-md) 0 0; user-select: none; }
+  .b5-win.is-collapsed .b5-win__bar { border-bottom: none; border-radius: var(--b5-radius-md); }
+  .b5-win.is-floating .b5-win__bar { cursor: grab; touch-action: none; }
+  .b5-win__bar:focus-visible { outline: 3px solid var(--b5-color-border-focus); outline-offset: -3px; }
+  .b5-win__grip { display: inline-flex; color: var(--b5-color-text-muted); }
+  .b5-win.is-docked .b5-win__grip { display: none; }
+  .b5-win__grip svg, .b5-win__ic svg { width: 18px; height: 18px; }
+  .b5-win__ic { display: inline-flex; }
+  .b5-win__title { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: var(--b5-space-2); white-space: nowrap; overflow: hidden; }
+  .b5-win__name { flex: none; font-weight: var(--b5-font-weight-bold); }
+  .b5-win__sub { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--b5-color-text-secondary); font-size: var(--b5-font-size-sm); }
+  .b5-win__acts { flex: none; display: flex; gap: var(--b5-space-1); }
+  .b5-win__act { gap: var(--b5-space-1); padding-inline: var(--b5-space-2); }
+  .b5-win__iconbtn { min-width: 36px; justify-content: center; }
+  .b5-win__body { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: var(--b5-space-2) var(--b5-space-3) var(--b5-space-3); container-type: inline-size; }
+  .b5-win.is-floating .b5-win__body { padding-bottom: 28px; } /* room for the resize grip */
+  .b5-win__resize { position: absolute; right: 0; bottom: 0; width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: none; background: transparent; color: var(--b5-color-text-secondary); cursor: nwse-resize; touch-action: none; }
+  .b5-win__resize:focus-visible { outline: 3px solid var(--b5-color-border-focus); outline-offset: -3px; }
+  .b5-dock__drop { position: absolute; top: 0; right: 0; bottom: 0; width: min(var(--b5-dock-w, 440px), 40%); z-index: 2; display: flex; align-items: center; justify-content: center; pointer-events: none; border: 2px dashed var(--b5-color-accent-border); border-radius: var(--b5-radius-md); background: var(--b5-color-accent-fill); color: var(--b5-color-text-primary); font-weight: var(--b5-font-weight-bold); }
+  /* What the windows hold: their own headings give way to the title bar. */
+  .b5-win [data-controls-region] { border: none; padding: 0; }
+  .b5-win [data-controls-region] > .b5-board__head, .b5-win .b5-con-order > h3 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .b5-win .b5-con-order { border: none; padding: 0; }
+  .b5-win .b5-con-order__list { max-height: none; }
+  .b5-win .b5-con-groupwin { display: flex; flex-direction: column; gap: var(--b5-space-2); }
+  #consoleRoot .b5-win .b5-con-chips { flex-wrap: wrap; }
+  #consoleRoot .b5-win .b5-con-chips .b5-con-chipnote { display: inline; }
+  .b5-win .b5-con-tools, .b5-win .b5-con-tests { margin-top: var(--b5-space-3); }
+  .b5-win > .b5-win__body > .b5-con-tests:first-child { margin-top: 0; }
+  /* Controls tabs (W1 §8): a label is never clipped and breaks only after
+     its slash. W1 asks for seven columns at a 440 px dock, but measured on
+     real labels seven columns there leave 56 px a tab and the bold
+     "Dimmer" runs into "Position"; so four over three until the body is
+     wider than 420 px (a dock of about 460 px), seven from there. */
+  .b5-win .b5-cc-tabs { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); overflow: visible; }
+  .b5-win .b5-cc-tab { min-width: 0; max-width: none; padding-inline: 2px; }
+  .b5-win .b5-cc-tab__word { white-space: normal; overflow-wrap: normal; word-break: keep-all; }
+  @container (max-width: 420px) { .b5-win .b5-cc-tabs { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+}
+@media (min-width: 1024px) and (pointer: coarse) {
+  .is-windowed .b5-dock__edge { left: -22px; width: 44px; }
+  .is-windowed .b5-dock__edge::after { left: 21px; }
+  .b5-win__iconbtn { min-width: 44px; }
+  .b5-win__resize { width: 44px; height: 44px; }
+  .b5-win.is-floating .b5-win__body { padding-bottom: 44px; }
+}

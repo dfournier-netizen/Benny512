@@ -306,6 +306,10 @@ const ConsoleScreen = (() => {
       { label: 'Edit layout', checked: st.edit, icon: 'grid-snap', attrs: { 'data-edit-toggle': '' }, title: 'Move, resize and place fixtures and objects on the plan. Nothing is selected and no light moves while editing.', onSelect: () => setEdit(!st.edit) },
       { label: 'Reload layout', icon: 'refresh', attrs: { 'data-reload': '' }, onSelect: () => load() },
     ] }).el;
+    // K3 (W1 §2, §4): the Windows menu — which windows are open, where they
+    // are, and Reset window positions. From 1024 px only (CSS).
+    els.winMenu = UI.menu({ label: 'Windows', icon: 'window', className: 'b5-con-menu b5-con-winmenu', attrs: { 'data-windows-menu': '' },
+      items: () => (typeof ConsoleWindows !== 'undefined' ? ConsoleWindows.menuItems() : []) }).el;
     els.planBtn = seg('Plan', true, { 'data-spacing': 'plan', title: 'Plan: the spacing of the plan (MVR positions or your placements)' }, () => setSpacing('plan'));
     els.compactBtn = seg('Compact', false, { 'data-spacing': 'compact', title: 'Compact: empty rows and columns removed, so fixtures close up in their arrangement. Display only — the plan is not changed.' }, () => setSpacing('compact'));
     els.fitBtn = seg('Fit', true, { 'data-fit': '', title: 'Fit: size the plan to the grid area' }, () => setFit(!st.fit));
@@ -341,8 +345,8 @@ const ConsoleScreen = (() => {
         h('h1', { class: 'b5-page-header__title', text: 'Console' }),
         h('span', { class: 'b5-page-header__meta b5-caption', text: 'Select fixtures on the plan. Leaving this screen keeps output, the programmer and the selection as they are.' })),
       // K2 (W1 §2): one toolbar row — layers, spacing, Fit/zoom, Lasso, Add,
-      // Select, View. Stored groups keep their own row until they move into
-      // the Groups window (K3).
+      // Select, View, Windows. Stored groups keep their own row below 1024 px;
+      // from 1024 px they are the Groups window (K3).
       h('section', { class: 'b5-toolbar b5-con-toolbar', 'aria-label': 'Grid tools' },
         h('div', { class: 'b5-toolbar__row b5-con-row b5-con-tools' },
           h('span', { class: 'b5-con-rowlabel', text: 'Layers' }), els.layers, els.layerSelect,
@@ -352,7 +356,7 @@ const ConsoleScreen = (() => {
           h('span', { class: 'b5-con-toolset' },
             h('span', { class: 'b5-con-seggroup', role: 'group', 'aria-label': 'Spacing' }, els.planBtn, els.compactBtn),
             h('span', { class: 'b5-con-seggroup', role: 'group', 'aria-label': 'Zoom' }, els.fitBtn, els.zoomOut, els.zoomIn),
-            els.lassoBtn, els.add, els.selectMenu, els.viewMenu)),
+            els.lassoBtn, els.add, els.selectMenu, els.viewMenu, els.winMenu)),
         h('div', { class: 'b5-toolbar__row b5-con-row b5-con-grouprow' }, h('span', { class: 'b5-con-rowlabel', text: 'Groups' }), els.groups)),
       els.status,
       els.modebar,
@@ -398,7 +402,62 @@ const ConsoleScreen = (() => {
     // C6b: the attribute controls live in console-controls.js and take
     // over the reserved region.
     if (typeof ConsoleControls !== 'undefined') ConsoleControls.mount(root.querySelector('[data-controls-region]'));
+    if (typeof ConsoleWindows !== 'undefined') setupWindows(root);
     renderTools();
+  }
+
+  // --- K3: docked and floating windows (console-windows.js) -------------------
+  // From 1024 px each region below lives in a window; narrower, it goes back
+  // where it was (the old stacked layout). Default: Controls open and docked
+  // (with Tools folded inside it); Selection order, Groups, MIDI encoders and
+  // Tests hidden, floating when opened. Tests is a window only until it gets
+  // its own tab (K4).
+  function setupWindows(root) {
+    const side = root.querySelector('.b5-con-pane--side');
+    const gridPane = root.querySelector('.b5-con-pane--grid');
+    const groupRow = root.querySelector('.b5-con-grouprow');
+    const ctrl = root.querySelector('[data-controls-region]');
+    const midi = ctrl.querySelector('[data-midi-region]');
+    const inSide = el => el && el.parentNode === side ? el : null;
+    els.groupStore = btn('Store group…', { icon: 'store-group', attrs: { 'data-win-store-group': '' } }, () => {
+      const b = els.summary.querySelector('[data-store-group]');
+      if (b && !b.disabled) b.click();
+    });
+    els.groupWin = h('div', { class: 'b5-con-groupwin' }, h('div', { class: 'b5-row' }, els.groupStore));
+    ConsoleWindows.mount(root.querySelector('.b5-con-main'), side, {
+      closed: () => els.winMenu.querySelector('[data-windows-menu]') || els.winMenu.querySelector('button'),
+      keep: () => st.edit,
+    });
+    ConsoleWindows.add({ id: 'controls', title: 'Controls', open: true, docked: true, w: 440, at: 'right',
+      attach: inner => { inner.appendChild(ctrl); inner.appendChild(els.tools); },
+      home: () => { side.insertBefore(ctrl, inSide(els.tests) || inSide(els.tools)); side.appendChild(els.tools); } });
+    ConsoleWindows.add({ id: 'order', title: 'Selection order', open: false, docked: false, w: 300, at: 'left',
+      attach: inner => inner.appendChild(els.order),
+      home: () => gridPane.insertBefore(els.order, els.lassoBox) });
+    ConsoleWindows.add({ id: 'groups', title: 'Groups', open: false, docked: false, w: 340, at: 'left',
+      attach: inner => { els.groupWin.insertBefore(els.groups, els.groupWin.firstChild); inner.appendChild(els.groupWin); },
+      home: () => groupRow.appendChild(els.groups) });
+    if (midi) {
+      ConsoleWindows.add({ id: 'midi', title: 'MIDI encoders', open: false, docked: false, w: 440, at: 'right',
+        attach: inner => inner.appendChild(midi),
+        home: () => ctrl.insertBefore(midi, ctrl.querySelector('[data-cc-body]')) });
+    }
+    ConsoleWindows.add({ id: 'tests', title: 'Tests', open: false, docked: false, w: 440, at: 'left',
+      attach: inner => inner.appendChild(els.tests),
+      home: () => side.insertBefore(els.tests, inSide(els.tools)) });
+    ConsoleWindows.setWide(wideWorkspace());
+    window.addEventListener('resize', () => ConsoleWindows.setWide(wideWorkspace()));
+  }
+  // windowWords: each window's title-bar subtitle, and Store group's state.
+  function windowWords() {
+    if (typeof ConsoleWindows === 'undefined' || !els.groupStore) return;
+    const n = selection().length;
+    const sel = n ? n + ' selected' : 'nothing selected';
+    ConsoleWindows.setSub('controls', sel);
+    ConsoleWindows.setSub('order', sel);
+    const g = storedGroups().length;
+    ConsoleWindows.setSub('groups', g ? g + ' stored' : 'none stored');
+    els.groupStore.disabled = !n;
   }
 
   // --- loading ----------------------------------------------------------------
@@ -565,6 +624,7 @@ const ConsoleScreen = (() => {
   }
   function renderGroups() {
     clear(els.groups);
+    windowWords();
     const gs = storedGroups();
     if (!gs.length) {
       els.groups.appendChild(h('span', { class: 'b5-caption', text: 'No stored groups yet — select fixtures, then Store group.' }));
@@ -1173,6 +1233,7 @@ const ConsoleScreen = (() => {
     if (!els.edit) return;
     clear(els.edit);
     els.edit.hidden = !st.edit;
+    if (typeof ConsoleWindows !== 'undefined' && ConsoleWindows.isWide()) ConsoleWindows.place(); // K3: the dock column stays while editing
     if (!st.edit || !st.layout || !st.layout.active) return;
     const it = st.editId ? itemById(st.editId) : null;
     els.edit.appendChild(h('h2', { class: 'b5-board__head' },
@@ -1409,6 +1470,7 @@ const ConsoleScreen = (() => {
   }
   function renderSummary() {
     if (!els.summary) return;
+    windowWords();
     const fk = focusKey();
     clear(els.summary);
     const p = prog();
@@ -1586,6 +1648,8 @@ const ConsoleScreen = (() => {
         btn('Fan…', { icon: 'fan-linear', cls: 'b5-con-act' + (st.pop === 'fan' ? ' is-on' : ''), attrs: { 'data-fan-open': '', 'aria-expanded': st.pop === 'fan' ? 'true' : 'false', 'aria-controls': 'conActPanel' }, disabled: n < 2 }, () => togglePop('fan')),
         btn('Tests', { icon: 'test', attrs: { 'data-tests-jump': '', title: 'Open the Tests panel' } }, () => {
           if (!els.tests) return;
+          // K3: from 1024 px Tests is a window; open it first.
+          if (typeof ConsoleWindows !== 'undefined') ConsoleWindows.show('tests', false);
           // I2e §16: opens the panel (a full sheet on a phone); closing it
           // brings focus back here.
           // The return target is looked up at close time: the bar redraws,
