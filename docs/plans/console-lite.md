@@ -134,7 +134,7 @@ Diagnosis and re-verification on Dom's real show: `docs/evidence/analysis/J1-ben
 | K1 | Production: app chrome — one-row header from 1024 px (brand · connection · show · output · ARM slot · DISARM · Show menu), Show menu replaces Show tools / Fixture library buttons, nav grouped Show / Network / Settings, page titles hidden visually from 1024 px; shared `UI.menu` | W1, W1b |
 | K2 | Production: Console workspace — toolbar, selection bar, grid fills the screen, Plan/Compact, Fit, new tiles (intensity, tags and swatch arrive with K5's report). **Done** 2026-10-19 22:02:16 -0400; Compact closes empty rows AND columns (deviation from W1 §5 on real data, see notes) | K1 |
 | K3 | Production: dock + floating windows (Controls docked right; Order, Groups & presets, MIDI windows; Raw DMX/Tools inside Controls; Beam/Gobo tab breaks at the slash). **Done** 2026-10-20 13:26:19 -0400; Tests is an interim window until K4; tabs four over three at a 440 px dock (deviation from W1 §8 on real labels, see notes) | K2 |
-| K4 | Production: Tests tab (own nav screen, grid + tests panel, shared selection) → release v0.3.0 | K3 |
+| K4 | Production: Tests tab (own nav screen, grid + tests panel, shared selection) → release v0.3.0. **Done** 2026-10-20 15:29:10 -0400; wide-only nav item, <1024 unchanged; the owner tags v0.3.0 after merging K1–K4 | K3 |
 | K5 | Production: read-only engine report of composed fixture/cell intensity; live tile bars; Plan + Fit hint | K2 |
 | K6–K8 | Production: Patch, Settings, Devices/Nodes, Analyzer/Rig Walk per W1b | K1 |
 

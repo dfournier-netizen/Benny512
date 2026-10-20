@@ -508,3 +508,29 @@
   .b5-win__resize { width: 44px; height: 44px; }
   .b5-win.is-floating .b5-win__body { padding-bottom: 44px; }
 }
+
+/* K4 — the Tests tab (W1 §9). From 1024 px only: the nav item is hidden
+   narrower, where Tests stays inside the Console. The Tests tab is the same
+   workspace (grid, toolbar, selection bar) with the Tests panel on the
+   right and no fixture controls, windows or dock (W1b owner answer:
+   fixture controls only on the main Console). The panel is 420 px at
+   1024 and grows to 560 px; the grid gets the rest. */
+.b5-con-testpane { display: none; }
+@media (max-width: 1023px) {
+  .b5-nav__item--wide { display: none; }
+}
+/* The extra item must not push Settings off a 1024 px nav: tighter item
+   padding up to 1279 px (targets stay 44 px tall). */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  #tabs { padding-inline: var(--b5-space-3); }
+  #tabs .b5-nav__item { padding-inline: var(--b5-space-2); }
+}
+@media (min-width: 1024px) {
+  body.b5-tests-mode #consoleRoot > .b5-con-main.is-windowed { grid-template-columns: minmax(0, 1fr) clamp(420px, 34vw, 560px); }
+  body.b5-tests-mode #consoleRoot .b5-dock, body.b5-tests-mode #consoleRoot .b5-win,
+  body.b5-tests-mode #consoleRoot .b5-dock__drop, body.b5-tests-mode #consoleRoot .b5-con-winmenu { display: none; }
+  body.b5-tests-mode #consoleRoot .b5-con-testpane { display: block; min-height: 0; overflow: auto; overscroll-behavior: contain; padding-left: var(--b5-space-3); border-left: var(--b5-border-width-thin) solid var(--b5-color-border-strong); }
+  .b5-con-testpane:focus-visible { outline: 3px solid var(--b5-color-border-focus); outline-offset: -3px; }
+  .b5-con-testpane > .b5-con-tests { margin: 0; }
+  .b5-con-testpane [data-tests-toggle] { display: none; } /* always open here; the tab says Tests */
+}

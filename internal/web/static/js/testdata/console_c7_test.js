@@ -334,7 +334,8 @@ const FILES = ['api.js', 'ws.js', 'programmer.js', 'ui.js', 'universeidentify.js
     check(!doc.querySelector('[data-tab="send"]') && !doc.querySelector('#screen-send'), 'no Send tab (desktop or phone) and no Send screen markup');
     const deskTabs = doc.querySelectorAll('#tabs [data-tab]').map(b => b.dataset.tab);
     const phoneTabs = doc.querySelectorAll('#tabsMobile [data-tab]').map(b => b.dataset.tab);
-    check(deskTabs.length === 7 && phoneTabs.length === 7, 'seven tabs on desktop and on the phone bottom bar', { deskTabs, phoneTabs });
+    // K4: the desktop bar also has Tests (from 1024 px only); the phone bar keeps seven.
+    check(deskTabs.length === 8 && deskTabs.filter(t => t !== 'tests').length === 7 && phoneTabs.length === 7, 'seven tabs on the phone bottom bar; the same seven plus Tests on desktop', { deskTabs, phoneTabs });
     check(['nodes', 'devices', 'patch', 'analyzer', 'console', 'walk', 'settings'].every(t => deskTabs.includes(t) && phoneTabs.includes(t)), 'the seven are Nodes, Devices, Patch, Analyzer, Console, Rig Walk and Settings', phoneTabs);
     const scripts = doc.querySelectorAll('script').map(x => x.getAttribute('src'));
     const at = f => scripts.indexOf('/js/' + f);

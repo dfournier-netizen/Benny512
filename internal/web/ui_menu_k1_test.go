@@ -38,7 +38,8 @@ func TestK1NavGroups(t *testing.T) {
 			order = append(order, m[2])
 		}
 	}
-	want := "navGroupShow patch console walk navGroupNetwork nodes devices analyzer settings"
+	// K4 added Tests after Console (wide screens only; console_k4_test.js).
+	want := "navGroupShow patch console tests walk navGroupNetwork nodes devices analyzer settings"
 	if got := strings.Join(order, " "); got != want {
 		t.Errorf("desktop nav order\n got %s\nwant %s", got, want)
 	}

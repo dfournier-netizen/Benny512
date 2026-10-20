@@ -434,6 +434,12 @@ const ConsoleTests = (() => {
   }
   // open: the action bar's Tests button opens the panel (a sheet on a
   // phone) and brings it into view.
+  // show: K4 — the Tests tab always shows the panel open (without moving
+  // focus or scrolling, unlike open()).
+  function show() {
+    if (!els.root || st.open) return;
+    st.open = true; remember(); render();
+  }
   function open(trigger) {
     if (!els.root) return;
     st.trigger = trigger || null;
@@ -1083,5 +1089,5 @@ const ConsoleTests = (() => {
     window.addEventListener('b5-show-changed', () => { st.editor = null; st.catalogs = {}; st.expanded = {}; if (els.root) refresh(); });
   }
   init();
-  return { mount, refresh, paramsFor, open, _state: st };
+  return { mount, refresh, paramsFor, open, show, _state: st };
 })();

@@ -8,8 +8,9 @@
 //  1. Below 1024 px nothing changes: every region stays where it was and no
 //     window is shown.
 //  2. From 1024 px: Controls (with Tools inside it) is open and docked on
-//     the right; Selection order, Groups and Tests are hidden and float when
+//     the right; Selection order and Groups are hidden and float when
 //     opened; the stored-groups toolbar row is emptied into the Groups window.
+//     (K4 took Tests out of the windows: it is the Tests tab's own panel.)
 //  3. The Windows menu lists each window with where it is, opens and closes
 //     them, and Reset puts back only the window defaults.
 //  4. Title-bar Dock/Float, collapse and close; arrow keys move a floating
@@ -46,7 +47,7 @@ const layout = {
 };
 
 function boot(wide, store) {
-  const { window, document } = makeWindow();
+  const { window, document, CustomEvent } = makeWindow();
   if (store) Object.entries(store).forEach(([k, v]) => window.localStorage.setItem(k, v));
   document.loadHTML(fs.readFileSync(path.join(JS, '..', 'index.html'), 'utf8'));
   const posts = [], subs = [];
@@ -63,7 +64,7 @@ function boot(wide, store) {
   };
   const media = { wide };
   const ctx = vm.createContext({
-    console, setTimeout, clearTimeout, Promise, JSON, Math, Date, Map, Set, window, document, Event,
+    console, setTimeout, clearTimeout, Promise, JSON, Math, Date, Map, Set, window, document, Event, CustomEvent,
     getComputedStyle: window.getComputedStyle, localStorage: window.localStorage, Api, ProgrammerSync, Live: { on() {} },
     matchMedia: q => ({ matches: /min-width: 1024px/.test(q) ? media.wide : false }),
   });
@@ -109,7 +110,7 @@ function boot(wide, store) {
   check(!!q('[data-windows-menu]'), 'the toolbar has a Windows menu');
   check(!!win('controls') && !win('controls').hidden && win('controls').classList.contains('is-docked') && q('[data-dock-stack]').contains(win('controls')), 'from 1024 px Controls is open and docked on the right');
   check(!!win('controls') && win('controls').contains(q('[data-controls-region]')) && win('controls').contains(q('[data-tools-region]')), 'the Controls window holds the controls, with Tools inside it');
-  check(['order', 'groups', 'tests'].every(id => win(id) && win(id).hidden), 'Selection order, Groups and Tests start hidden');
+  check(['order', 'groups'].every(id => win(id) && win(id).hidden), 'Selection order and Groups start hidden');
   check(!!win('groups') && win('groups').contains(q('[aria-label="Stored groups"]')) && !q('.b5-con-grouprow').contains(q('[aria-label="Stored groups"]')), 'the stored groups move out of the toolbar row into the Groups window');
   check(main.classList.contains('is-windowed') && !main.classList.contains('is-dock-empty'), 'the workspace has a dock column');
   const sub = q('[data-win="controls"] [data-win-sub]');
@@ -118,7 +119,7 @@ function boot(wide, store) {
 
   // ---- 3. the Windows menu --------------------------------------------------------
   const labels = () => [...winMenu().querySelectorAll('[data-win-toggle]')].map(b => b.textContent.trim() + '|' + b.getAttribute('aria-checked'));
-  check(same(labels(), ['Controls · docked|true', 'Selection order|false', 'Groups|false', 'Tests|false']), 'the Windows menu lists each window, checked when open, with where it is', labels());
+  check(same(labels(), ['Controls · docked|true', 'Selection order|false', 'Groups|false']), 'the Windows menu lists each window, checked when open, with where it is', labels());
   check(!!menuItem('data-win-reset'), 'the Windows menu ends with Reset window positions');
   click(menuItem('data-win-toggle="order"'));
   check(!win('order').hidden && win('order').classList.contains('is-floating') && document.activeElement === q('[data-win-bar="order"]'), 'opening Selection order shows it floating and focuses its title bar');
@@ -176,12 +177,7 @@ function boot(wide, store) {
   const w2 = id => B2.document.querySelector('[data-win="' + id + '"]');
   check(w2('controls').hidden && !w2('order').hidden && w2('order').classList.contains('is-floating') && B2.document.querySelector('[data-dock-edge]').getAttribute('aria-valuenow') === '320', 'a new page in the same browser restores them');
   click(menuItem('data-win-reset'));
-  check(!win('controls').hidden && win('controls').classList.contains('is-docked') && ['order', 'groups', 'tests'].every(id => win(id).hidden) && edge.getAttribute('aria-valuenow') === '440', 'Reset window positions: Controls docked at 440 px, the rest hidden');
-
-  // The selection bar's Tests opens the Tests window.
-  const tj = q('[data-summary] [data-tests-jump]');
-  if (tj) click(tj);
-  check(!!tj && !win('tests').hidden && win('tests').contains(q('[data-tests-region]')), 'the selection bar\'s Tests opens the Tests window');
+  check(!win('controls').hidden && win('controls').classList.contains('is-docked') && ['order', 'groups'].every(id => win(id).hidden) && edge.getAttribute('aria-valuenow') === '440', 'Reset window positions: Controls docked at 440 px, the rest hidden');
 
   // ---- 7. back below 1024 px --------------------------------------------------------------
   B.media.wide = false;

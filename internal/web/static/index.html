@@ -38,6 +38,8 @@
       <span class="b5-nav__grouplabel" id="navGroupShow">Show</span>
       <button class="b5-nav__item" data-tab="patch"><svg><use href="/icons/benny512-icons.svg#b5-icon-network-node"/></svg>Patch</button>
       <button class="b5-nav__item" data-tab="console"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-console"/></svg>Console</button>
+      <!-- K4 (W1 §9): the Tests tab, from 1024 px only (narrower, Tests stays inside the Console). -->
+      <button class="b5-nav__item b5-nav__item--wide" data-tab="tests"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-tests"/></svg>Tests</button>
       <button class="b5-nav__item" data-tab="walk"><svg><use href="/icons/benny512-icons.svg#b5-icon-nav-rig-walk"/></svg>Rig Walk</button>
     </span>
     <span class="b5-nav__group" role="group" aria-labelledby="navGroupNetwork">
@@ -247,6 +249,8 @@
     <section id="screen-console" class="screen">
       <div id="consoleRoot"></div>
     </section>
+    <!-- K4: the Console workspace moves here while the Tests tab is open (console.js). -->
+    <section id="screen-tests" class="screen"></section>
 
     <section id="screen-walk" class="screen">
       <div id="walkRoot"></div>

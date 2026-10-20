@@ -44,7 +44,9 @@
     // Console (C6a): leaving changes nothing on the wire (C3 rule) — output,
     // the programmer and the selection carry on; only an unfinished layout
     // drag is dropped.
-    if (currentTab === 'console' && name !== 'console') {
+    // K4: the Tests tab is the same Console workspace in its Tests mode, so
+    // leaving either one (including Console <-> Tests) is the same leave.
+    if ((currentTab === 'console' || currentTab === 'tests') && name !== currentTab) {
       ConsoleScreen.onLeaveScreen();
     }
     // C9: leaving Settings ends a custom-theme preview (the draft stays).
@@ -68,6 +70,9 @@
     }
     if (name === 'console') {
       ConsoleScreen.onEnterScreen();
+    }
+    if (name === 'tests') {
+      ConsoleScreen.onEnterScreen('tests');
     }
   }
 
@@ -127,6 +132,8 @@
   let initial = localStorage.getItem('benny512.tab') || 'nodes';
   if (initial === 'fixtures') initial = 'devices';
   if (initial === 'send') initial = 'console';
+  // K4: the Tests tab exists from 1024 px; narrower, Tests is in the Console.
+  if (initial === 'tests') { try { if (!matchMedia('(min-width: 1024px)').matches) initial = 'console'; } catch (_) { initial = 'console'; } }
 
   // The Art-Net starting universe must be settled BEFORE any screen's first
   // render — a stale paint that flips a moment later reads as the numbers

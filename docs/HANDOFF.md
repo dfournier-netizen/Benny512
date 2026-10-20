@@ -1,6 +1,19 @@
 # Benny512 — Session Handoff Brief (current)
 
-**Last updated:** 2026-10-20 13:26:19 -0400
+**Last updated:** 2026-10-20 15:29:10 -0400
+
+## Current delta — K4 Tests tab (`feat/k4-tests-tab`, on top of K3) → v0.3.0
+
+**K4 done (W1 §9; owner 2026-10-18 "its own tab"; W1b: fixture controls only on the main Console):**
+- **Tests** in the Show nav group after Console, **from 1024 px only** (`.b5-nav__item--wide`; the phone bar is unchanged). Below 1024 Tests stays inside the Console exactly as before; a Tests tab left open (resize) or remembered on a narrow screen becomes the Console.
+- **Same workspace, moved:** `ConsoleScreen.onEnterScreen('tests')` moves `#consoleRoot` into `#screen-tests` and sets `body.b5-tests-mode`. One grid, toolbar, selection bar and selection — switching tabs writes nothing. The right column is the Tests panel (420 px at 1024, `clamp(420px, 34vw, 560px)`, 560 at 1920), always open (`ConsoleTests.show()`, its hide toggle not drawn there). No Controls, windows, dock or Windows menu on the Tests tab; View ▸ Edit layout is off there ("Edit the layout on the Console") and opening Tests ends an edit.
+- **Tests is no longer a Console window** (it was interim in K3). From 1024 px the selection bar's Tests / More ▸ Open Tests go to the Tests tab and focus its panel.
+- Nav padding is tighter at 1024–1279 so the extra item keeps Settings on screen. `nav-tests` icon from W1 added to the sprite.
+- **Decision 0002:** Compact removes empty rows and columns — owner confirmed 2026-10-20.
+
+**Release:** K1–K4 complete the Console part; the owner tags **v0.3.0** after merging K1–K4 (CI builds it).
+
+**Not yet:** intensity bars, SET/TEST tags and the colour swatch on tiles, including "running sources annotate grid tiles" on the Tests tab (K5, needs the read-only engine report).
 
 ## Current delta — K3 Console windows (`feat/k3-console-windows`, on top of K2)
 
@@ -15,7 +28,7 @@
 - **Toolbar room for Windows:** at ≥1280 the layer chips scroll inside their own strip instead of running under Plan; at 1024–1279 the decorative icons on Select / View / Windows / Lasso go (words stay) and the Layer selector is 9rem.
 - W1 window icons (close, window, collapse/expand, reset, dock-right, float, resize-grip) added to the sprite.
 
-**Not yet:** the Tests tab (K4); intensity bars, SET/TEST tags and the swatch (K5).
+**Not yet (at K3):** the Tests tab (K4); intensity bars, SET/TEST tags and the swatch (K5).
 
 ## Current delta — K2 Console workspace (`feat/k2-console-workspace`, on top of K1)
 

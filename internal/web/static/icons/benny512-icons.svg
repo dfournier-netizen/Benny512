@@ -160,5 +160,6 @@
 <symbol id="b5-icon-float" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M13 5H3v15h15v-9"/><rect x="10" y="3" width="11" height="10" rx="1"/></symbol>
 <symbol id="b5-icon-resize-grip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m6 20 14-14M12 20l8-8M18 20l2-2"/></symbol>
 <symbol id="b5-icon-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+<symbol id="b5-icon-nav-tests" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6M10 3v6L4 19q-1 2 2 2h12q3 0 2-2L14 9V3M8 14h8"/><path d="m10 17 1.5 1.5L15 15"/></symbol>
 </defs>
 </svg>

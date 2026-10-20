@@ -41,6 +41,7 @@ const ConsoleScreen = (() => {
   const DRAG_SLOP = 8;                // px of travel before a press is a drag
   const st = {
     built: false, active: false, stale: true, loading: false,
+    mode: 'console',       // K4: 'tests' while the Tests tab shows this workspace
     layout: null,          // last GET/POST /api/patch/layout body
     cells: {},             // entryId -> [{id, name, index}] (GET /api/programmer/fixtures)
     models: {},            // entryId -> FixtureModel (same read): glyph class, flags (I2b)
@@ -303,7 +304,7 @@ const ConsoleScreen = (() => {
       { label: 'Ghosts', checked: st.ghosts, attrs: { 'data-ghost-toggle': '' }, title: 'Ghosts: draw the layers not shown as dashed outlines. They cannot be selected.', onSelect: () => { st.ghosts = !st.ghosts; renderTools(); renderGrid(); } },
       { label: 'Names on tiles', checked: st.names, attrs: { 'data-names-toggle': '' }, title: 'The short fixture type under each fixture number', onSelect: () => { st.names = !st.names; saveView(); renderGrid(); } },
       { separator: true },
-      { label: 'Edit layout', checked: st.edit, icon: 'grid-snap', attrs: { 'data-edit-toggle': '' }, title: 'Move, resize and place fixtures and objects on the plan. Nothing is selected and no light moves while editing.', onSelect: () => setEdit(!st.edit) },
+      { label: 'Edit layout', checked: st.edit, icon: 'grid-snap', attrs: { 'data-edit-toggle': '' }, disabled: st.mode === 'tests', title: st.mode === 'tests' ? 'Edit the layout on the Console' : 'Move, resize and place fixtures and objects on the plan. Nothing is selected and no light moves while editing.', onSelect: () => setEdit(!st.edit) },
       { label: 'Reload layout', icon: 'refresh', attrs: { 'data-reload': '' }, onSelect: () => load() },
     ] }).el;
     // K3 (W1 §2, §4): the Windows menu — which windows are open, where they
@@ -409,9 +410,9 @@ const ConsoleScreen = (() => {
   // --- K3: docked and floating windows (console-windows.js) -------------------
   // From 1024 px each region below lives in a window; narrower, it goes back
   // where it was (the old stacked layout). Default: Controls open and docked
-  // (with Tools folded inside it); Selection order, Groups, MIDI encoders and
-  // Tests hidden, floating when opened. Tests is a window only until it gets
-  // its own tab (K4).
+  // (with Tools folded inside it); Selection order, Groups and MIDI encoders
+  // hidden, floating when opened. K4: Tests is not a window — from 1024 px
+  // it is the Tests tab's right-hand panel (placeTests).
   function setupWindows(root) {
     const side = root.querySelector('.b5-con-pane--side');
     const gridPane = root.querySelector('.b5-con-pane--grid');
@@ -442,11 +443,23 @@ const ConsoleScreen = (() => {
         attach: inner => inner.appendChild(midi),
         home: () => ctrl.insertBefore(midi, ctrl.querySelector('[data-cc-body]')) });
     }
-    ConsoleWindows.add({ id: 'tests', title: 'Tests', open: false, docked: false, w: 440, at: 'left',
-      attach: inner => inner.appendChild(els.tests),
-      home: () => side.insertBefore(els.tests, inSide(els.tools)) });
+    // K4: from 1024 px the Tests panel is the Tests tab's right-hand pane;
+    // narrower it stays in the side column under Controls, as before.
+    els.testPane = h('section', { class: 'b5-con-pane b5-con-testpane', 'data-test-pane': '', 'aria-label': 'Tests', tabindex: '-1' });
+    root.querySelector('.b5-con-main').appendChild(els.testPane);
+    const placeTests = () => {
+      if (wideWorkspace()) { if (els.tests.parentNode !== els.testPane) els.testPane.appendChild(els.tests); }
+      else if (els.tests.parentNode !== side) side.insertBefore(els.tests, inSide(els.tools));
+    };
     ConsoleWindows.setWide(wideWorkspace());
-    window.addEventListener('resize', () => ConsoleWindows.setWide(wideWorkspace()));
+    placeTests();
+    window.addEventListener('resize', () => {
+      ConsoleWindows.setWide(wideWorkspace());
+      placeTests();
+      // The Tests tab exists from 1024 px only; narrower, Tests is back in
+      // the Console, so a Tests tab left open goes to the Console.
+      if (st.mode === 'tests' && !wideWorkspace()) window.dispatchEvent(new CustomEvent('b5-navigate', { detail: 'console' }));
+    });
   }
   // windowWords: each window's title-bar subtitle, and Store group's state.
   function windowWords() {
@@ -1648,8 +1661,13 @@ const ConsoleScreen = (() => {
         btn('Fan…', { icon: 'fan-linear', cls: 'b5-con-act' + (st.pop === 'fan' ? ' is-on' : ''), attrs: { 'data-fan-open': '', 'aria-expanded': st.pop === 'fan' ? 'true' : 'false', 'aria-controls': 'conActPanel' }, disabled: n < 2 }, () => togglePop('fan')),
         btn('Tests', { icon: 'test', attrs: { 'data-tests-jump': '', title: 'Open the Tests panel' } }, () => {
           if (!els.tests) return;
-          // K3: from 1024 px Tests is a window; open it first.
-          if (typeof ConsoleWindows !== 'undefined') ConsoleWindows.show('tests', false);
+          // K4: from 1024 px Tests is its own tab; go there (the selection,
+          // layers and spacing come along — it is the same grid).
+          if (st.mode !== 'tests' && els.testPane && wideWorkspace()) {
+            window.dispatchEvent(new CustomEvent('b5-navigate', { detail: 'tests' }));
+            if (els.testPane.focus) els.testPane.focus();
+            return;
+          }
           // I2e §16: opens the panel (a full sheet on a phone); closing it
           // brings focus back here.
           // The return target is looked up at close time: the bar redraws,
@@ -1822,8 +1840,21 @@ const ConsoleScreen = (() => {
       if (st.fit && st.active) { renderGrid(); renderTools(); }
     }).observe(els.grid);
   }
-  function onEnterScreen() {
+  // onEnterScreen(mode): 'tests' is the Tests tab (K4, from 1024 px): the
+  // same workspace — grid, toolbar, selection bar, one shared selection —
+  // moved into the Tests screen, with the Tests panel on the right and no
+  // fixture controls or windows (W1b owner answer: fixture controls only on
+  // the main Console). Switching tabs changes nothing on the wire.
+  function onEnterScreen(mode) {
     init();
+    st.mode = mode === 'tests' && els.testPane ? 'tests' : 'console';
+    const home = document.getElementById(st.mode === 'tests' ? 'screen-tests' : 'screen-console');
+    if (home && els.root && els.root.parentNode !== home) home.appendChild(els.root);
+    document.body.classList.toggle('b5-tests-mode', st.mode === 'tests');
+    if (st.mode === 'tests') {
+      if (st.edit) setEdit(false); // layout editing belongs to the Console
+      if (typeof ConsoleTests !== 'undefined' && ConsoleTests.show) ConsoleTests.show();
+    }
     st.active = true;
     document.body.classList.add('b5-console-mode');
     sizeWorkspace();
@@ -1835,7 +1866,7 @@ const ConsoleScreen = (() => {
   // An unfinished drag is dropped (it was never sent).
   function onLeaveScreen() {
     st.active = false;
-    document.body.classList.remove('b5-console-mode');
+    document.body.classList.remove('b5-console-mode', 'b5-tests-mode');
     sizeWorkspace();
     endDrag();
     lassoEnd();
