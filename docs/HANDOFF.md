@@ -1,6 +1,12 @@
 # Benny512 — Session Handoff Brief (current)
 
-**Last updated:** 2026-10-19 15:57:11 -0400
+**Last updated:** 2026-10-19 21:15:09 -04:00
+
+## Current delta — UI organization W1b design package (2026-10-19 21:15:09 -04:00)
+
+Owner reviewed the questions in chat and chose Show / Network navigation groups, Settings index + scrolling form, right-only docking, Raw DMX/Tools in Controls, full Tests selection tools, no global shortcuts, programmer-colour swatch + name/outline as a separate W1 follow-up, Comfortable rows, inspectors opened on row inspection, closed device diagnostics once devices exist, shared Nodes inspector, and fixture controls only on Console.
+
+Built docs/design/ui-organization/: interactive gallery, six screen scenes and three nav alternatives, decisions/owner answers, added component specs, contrast and verification. 108 browser layout cases, 13 interaction checks and 42 contrast pairs pass; 54 PNGs saved. W1 and production files unchanged. Narrow inspector-open tables scroll internally. No production Go/demo/hardware verification: this package is design-only; representative editor routes preserve existing production capabilities and confirmations. Full W1 drag/drop/persistence and physical touch/screen-reader checks remain integration work. Start at the package README.md and index.html. No commit or PR created.
 
 ## Current delta — app-wide UI organization brief, W1b (`docs/ui-organization-brief-v2`)
 
