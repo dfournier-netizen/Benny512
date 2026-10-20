@@ -430,7 +430,7 @@ let modalCalls = 0;
   await sect('phone More', async () => {
     // Phone: Highlight, Locate and Tests live under More (C6c contract).
     ctx.matchMedia = () => ({ matches: true });
-    await until('Highlight OFF on the bar', () => q('[data-highlight]') && /OFF/.test(q('[data-highlight]').textContent));
+    await until('Highlight OFF on the bar', () => q('[data-highlight]') && q('[data-highlight]').getAttribute('aria-pressed') === 'false');
     click(q('[data-summary-more-toggle]'));
     await until('More open', () => q('[data-summary-more]').classList.contains('is-open'));
     const hb = q('[data-summary-more] [data-highlight]');

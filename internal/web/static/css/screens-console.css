@@ -20,11 +20,14 @@
    type (the kit's --sm button is 32 px on a mouse). */
 .b5-con-toolbar .b5-btn, .b5-con-toolbar .b5-seg { min-height: var(--b5-size-touch-min); }
 .b5-con-toolbar .b5-seg { display: inline-flex; align-items: center; gap: var(--b5-space-1); }
-/* Phone: the select tools scroll inside their own row, never the page. */
+/* K2: below 1024 px the tools sit on their own line under the layer chips;
+   a phone scrolls that line sideways inside itself, never the page. */
+.b5-con-toolset { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2); flex: 1 0 100%; min-width: 0; }
 @media (max-width: 767px) {
-  .b5-con-tools { flex-wrap: nowrap; overflow-x: auto; padding-bottom: var(--b5-space-1); }
-  .b5-con-tools > * { flex: none; }
+  .b5-con-toolset { flex-wrap: nowrap; overflow-x: auto; padding-bottom: var(--b5-space-1); }
+  .b5-con-toolset > * { flex: none; }
 }
+@media (min-width: 1024px) { .b5-con-toolset { display: contents; } }
 
 .b5-con-status { min-height: 1.5em; margin: var(--b5-space-2) 0; display: flex; align-items: center; gap: var(--b5-space-2); flex-wrap: wrap; }
 .b5-con-status--error { color: var(--b5-color-text-danger); border-left: var(--b5-border-width-thick) solid var(--b5-color-danger-border); padding-left: var(--b5-space-2); }
@@ -342,3 +345,83 @@
 /* I2d2: scrolling the action bar up for the phone More menu stops below the
    sticky app chrome, not under it. */
 .b5-con-summary { scroll-margin-top: calc(var(--b5-chrome-height, 0px) + var(--b5-space-2)); }
+
+/* ==== K2: the Console workspace (W1 component-specs §2, §3, §5, §6, §7) ====
+   ON grammar for toggles (every width): a check symbol in a reserved slot,
+   bold word, 2 px accent border, pressed surface (.b5-seg.is-on). */
+.b5-toggle__check { display: inline-flex; width: 1em; height: 1em; flex: none; }
+.b5-toggle__check svg { width: 100%; height: 100%; }
+.b5-con-seggroup { display: inline-flex; gap: 2px; }
+.b5-con-seggroup > .b5-seg, .b5-con-seggroup > .b5-btn { border-radius: 0; }
+.b5-con-seggroup > :first-child { border-radius: var(--b5-radius-md) 0 0 var(--b5-radius-md); }
+.b5-con-seggroup > :last-child { border-radius: 0 var(--b5-radius-md) var(--b5-radius-md) 0; }
+.b5-con-zoombtn { min-width: var(--b5-size-touch-min); justify-content: center; }
+.b5-con-toolbar .b5-menu > .b5-btn { min-height: var(--b5-size-touch-min); }
+
+/* Tiles: fixture number first (never cut), then the short type. */
+.b5-con-tile__fid { flex: none; font-weight: var(--b5-font-weight-bold); font-size: 15px; line-height: 1.2; white-space: nowrap; align-self: center; }
+.b5-con-tile__fid--name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--b5-font-size-sm); }
+.b5-con-tile__type { max-width: 100%; font-size: 12.5px; line-height: 1.2; color: var(--b5-color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.b5-con-gridbox.is-names-off .b5-con-tile__type { display: none; }
+.b5-con-tile__meta[hidden] { display: none; }
+.b5-con-tag { flex: none; align-self: center; margin-left: auto; padding: 0 3px; font-size: 10.5px; font-weight: var(--b5-font-weight-bold); line-height: 1.35;
+  border: var(--b5-border-width-thin) solid var(--b5-color-warn-border); color: var(--b5-color-text-warning); background: var(--b5-color-bg-surface); border-radius: var(--b5-radius-sm); }
+.b5-con-tag[hidden] { display: none; }
+/* The glyph sits beside the number, no longer behind the order badge. */
+.b5-con-tile--entry .b5-con-tile__top { align-items: center; min-height: 0; }
+.b5-con-tile--entry .b5-con-tile__top > .b5-con-badge { position: static; }
+.b5-con-tile--entry .b5-con-glyph { width: 22px; height: 22px; }
+
+/* A multi-cell fixture: number and type on top, its cells below. */
+.b5-con-tile--entry.has-cells > .b5-con-tile__main { display: flex; flex-direction: column; flex: 0 0 auto; min-height: 0; }
+.b5-con-tile--entry.has-cells .b5-con-tile__top { grid-row: auto; }
+@media (pointer: fine) {
+  .b5-con-tile--entry .b5-con-cell { min-width: 22px; min-height: 22px; }
+}
+.b5-con-layerselect { display: none; width: auto; min-height: var(--b5-size-touch-min); }
+
+/* Wide screens: Lowlight, Fan, Store group and Tests are in the More menu. */
+.b5-con-moremenu { display: none; }
+@media (min-width: 768px) {
+  .b5-con-moremenu { display: inline-flex; }
+  .b5-con-summary__buttons [data-lowlight], .b5-con-summary__buttons [data-fan-open],
+  .b5-con-summary__buttons [data-store-group], .b5-con-summary__buttons [data-tests-jump] { display: none; }
+  .b5-con-moremenu > .b5-btn { min-height: var(--b5-size-touch-min); }
+}
+
+/* From 1024 px the Console is a workspace that fills the window (its height
+   is set by console.js between the chrome and the fader bar): toolbar,
+   selection bar, then grid | side pane, each scrolling inside itself. */
+@media (min-width: 1024px) {
+  body.b5-console-mode .b5-app__body { max-width: none; padding-top: var(--b5-space-2); padding-bottom: 0; }
+  #consoleRoot { display: flex; flex-direction: column; gap: var(--b5-space-2); min-height: 0; overflow: hidden; }
+  #consoleRoot > .b5-page-header { display: none; }
+  #consoleRoot > .b5-con-toolbar { flex: none; margin: 0; padding: 0; gap: var(--b5-space-1); }
+  #consoleRoot .b5-con-tools { flex-wrap: wrap; gap: var(--b5-space-2); }
+  #consoleRoot .b5-con-tools > .b5-con-rowlabel { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  #consoleRoot .b5-con-tools > .b5-con-chips { flex-wrap: nowrap; }
+  #consoleRoot .b5-con-chips .b5-con-chipnote { display: none; } /* the height words stay in the chip's accessible name and title */
+  #consoleRoot .b5-con-grouprow:has(.b5-con-chips > .b5-caption:only-child) { display: none; } /* "no stored groups yet" */
+  #consoleRoot .b5-con-order { display: none; } /* K3: the Selection order window */
+  /* The selection bar is one row: count and summary, then the actions. */
+  #consoleRoot > .b5-con-summary { display: flex; flex-wrap: nowrap; align-items: center; gap: var(--b5-space-3); padding: var(--b5-space-2) var(--b5-space-3); }
+  #consoleRoot .b5-con-summary__status { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: nowrap; align-items: center; gap: var(--b5-space-2); }
+  #consoleRoot .b5-con-summary .b5-actionbar__title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  #consoleRoot .b5-con-summary__names { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #consoleRoot .b5-con-summary__buttons { flex: none; flex-wrap: nowrap; }
+  #consoleRoot > .b5-con-summary { flex: none; margin: 0; }
+  #consoleRoot > .b5-con-status:empty { display: none; }
+  #consoleRoot > .b5-con-main { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) var(--b5-con-side, 440px); gap: var(--b5-space-3); align-items: stretch; }
+  #consoleRoot .b5-con-pane--grid { min-height: 0; overflow: hidden; gap: var(--b5-space-2); }
+  #consoleRoot .b5-con-pane--grid > .b5-board__head { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  #consoleRoot .b5-con-gridbox { flex: 1 1 auto; min-height: 0; max-height: none; }
+  #consoleRoot .b5-con-order { flex: none; max-height: 7.5rem; overflow: auto; }
+  #consoleRoot .b5-con-pane--side { min-height: 0; overflow: auto; overscroll-behavior: contain; padding-right: 2px; }
+}
+@media (min-width: 1024px) and (max-width: 1279px) {
+  #consoleRoot .b5-con-tools > .b5-con-chips { display: none; }
+  #consoleRoot .b5-con-layerselect { display: inline-flex; max-width: 11rem; }
+  #consoleRoot .b5-con-tools { gap: var(--b5-space-1); }
+  #consoleRoot .b5-con-tools .b5-seg, #consoleRoot .b5-con-tools .b5-btn { padding-inline: var(--b5-space-2); }
+}
+

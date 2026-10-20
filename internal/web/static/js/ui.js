@@ -533,12 +533,33 @@ const UI = (() => {
       });
     }
     function onDoc(ev) { if (!el.contains(ev.target)) close(false); }
+    function onScroll(ev) { if (!(ev && ev.target && ev.target.nodeType === 1 && panel.contains(ev.target))) close(false); }
+    // place: the panel is fixed to the viewport under its trigger, so a
+    // scrolling toolbar or panel (overflow) never clips it; it opens upward
+    // when there is more room above, and scrolls inside itself.
+    function place() {
+      if (!button.getBoundingClientRect || typeof innerHeight !== 'number') return;
+      const r = button.getBoundingClientRect();
+      if (!r || (!r.width && !r.height)) return;
+      const below = innerHeight - r.bottom - 8, above = r.top - 8;
+      const up = below < 200 && above > below;
+      panel.style.position = 'fixed';
+      panel.style.top = up ? 'auto' : (r.bottom + 4) + 'px';
+      panel.style.bottom = up ? (innerHeight - r.top + 4) + 'px' : 'auto';
+      panel.style.maxHeight = Math.max(120, up ? above : below) + 'px';
+      if (o.align === 'start') { panel.style.left = Math.max(8, Math.min(r.left, innerWidth - 240)) + 'px'; panel.style.right = 'auto'; }
+      else { panel.style.right = Math.max(8, innerWidth - r.right) + 'px'; panel.style.left = 'auto'; }
+    }
     function open() {
       build();
       panel.hidden = false;
+      place();
       button.setAttribute('aria-expanded', 'true');
       el.classList.add('is-open');
       document.addEventListener('pointerdown', onDoc, true);
+      // A fixed panel would drift away from a trigger that scrolls: any
+      // scroll outside the panel closes it.
+      window.addEventListener('scroll', onScroll, true);
       const first = items()[0];
       if (first) first.focus();
     }
@@ -548,6 +569,7 @@ const UI = (() => {
       button.setAttribute('aria-expanded', 'false');
       el.classList.remove('is-open');
       document.removeEventListener('pointerdown', onDoc, true);
+      window.removeEventListener('scroll', onScroll, true);
       if (restore) button.focus();
     }
     button.addEventListener('click', () => (panel.hidden ? open() : close(true)));

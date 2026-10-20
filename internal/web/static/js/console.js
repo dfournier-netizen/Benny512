@@ -54,7 +54,29 @@ const ConsoleScreen = (() => {
     edit: false,
     editId: null,          // the item the edit panel works on
     picker: null,          // entryId whose cell picker is open
+    // K2 (W1 component-specs §2, §5): per-browser view choices, never stored
+    // in the show. Plan keeps the plan's spacing; Compact drops empty rows and
+    // packs each row left to right in plan order (display only). Fit sizes
+    // the cells to the grid pane; − / + turn it off. Names: the short-type
+    // line on each tile.
+    spacing: 'plan', fit: true, fitCell: 0, names: true,
   };
+  const VIEW_KEY = 'benny512.console.view';
+  try {
+    const v = JSON.parse(localStorage.getItem(VIEW_KEY) || 'null');
+    if (v && typeof v === 'object') {
+      if (v.spacing === 'compact' || v.spacing === 'plan') st.spacing = v.spacing;
+      if (typeof v.fit === 'boolean') st.fit = v.fit;
+      if (typeof v.names === 'boolean') st.names = v.names;
+      if (typeof v.zoom === 'number' && v.zoom >= 0 && v.zoom < ZOOMS.length) st.zoom = v.zoom;
+    }
+  } catch (_) { /* no storage: defaults */ }
+  function saveView() {
+    try { localStorage.setItem(VIEW_KEY, JSON.stringify({ spacing: st.spacing, fit: st.fit, names: st.names, zoom: st.zoom })); } catch (_) { /* best effort */ }
+  }
+  // Compact is display only and editing needs the real plan, so edit mode
+  // always draws Plan (and says so in the toolbar).
+  function spacing() { return st.edit ? 'plan' : st.spacing;}
   const els = {};
   let drag = null;
 
@@ -105,7 +127,12 @@ const ConsoleScreen = (() => {
     } catch (_) { /* no computed style (tests): fall through */ }
     return 44;
   }
-  function cellPx() { return ZOOMS[st.zoom]; }
+  // K2: Fit (W1 §5) picks the cell size that fits the drawn layers into the
+  // grid pane, between FIT_MIN (the tile floor: FID, type and marks stay
+  // readable) and the largest zoom; the floor wins over fitting, and the
+  // pane then scrolls inside.
+  const FIT_MIN = 86;
+  function cellPx() { return st.fit && st.fitCell ? st.fitCell : ZOOMS[st.zoom]; }
 
   // --- in-app dialog (native prompt() fails in the embedded browser) --------
   // ask({title, body, field:{label, value, maxLength}, ok, danger}) resolves
@@ -260,18 +287,34 @@ const ConsoleScreen = (() => {
     els.root = root;
     els.layers = h('div', { class: 'b5-con-chips', role: 'group', 'aria-label': 'Layers shown' });
     els.groups = h('div', { class: 'b5-con-chips', role: 'group', 'aria-label': 'Stored groups' });
-    els.add = seg('', false, { 'data-add-mode': '', title: 'Add mode: taps add to the selection or take out of it' }, () => { st.addMode = !st.addMode; renderTools(); });
+    els.add = seg('', false, { 'data-add-mode': '', title: 'Add: taps add to the selection or take out of it' }, () => { st.addMode = !st.addMode; renderTools(); });
     // I2b §4: Lasso is a mode toggle, so an ordinary touch drag still
     // scrolls the plan; with Lasso ON a one-finger drag draws the box.
     els.lassoBtn = seg('', false, { 'data-lasso-toggle': '', title: 'Lasso: drag on the plan to select every fixture inside the box. Escape turns it off.' }, () => setLasso(!st.lasso));
-    els.selAll = btn('Select all', { cls: 'b5-btn--sm', icon: 'select-all', attrs: { 'data-select-all': '' } }, () => selectAll());
-    els.selNone = btn('Select none', { cls: 'b5-btn--sm', icon: 'select-none', attrs: { 'data-select-none': '' } }, () => sel({ action: 'none' }));
-    els.invert = btn('Invert', { cls: 'b5-btn--sm', icon: 'select-invert', attrs: { 'data-select-invert': '', title: 'Invert the selection of the fixtures on the layers shown' } }, () => selectInvert());
-    els.ghostBtn = seg('', false, { 'data-ghost-toggle': '', title: 'Ghosts: draw the layers not shown as dashed outlines. They cannot be selected.' }, () => { st.ghosts = !st.ghosts; renderTools(); renderGrid(); });
-    els.zoomOut = btn('Zoom out', { cls: 'b5-btn--sm', attrs: { 'data-zoom-out': '' } }, () => zoom(-1));
-    els.zoomIn = btn('Zoom in', { cls: 'b5-btn--sm', attrs: { 'data-zoom-in': '' } }, () => zoom(1));
-    els.reload = btn('Reload layout', { cls: 'b5-btn--sm', icon: 'refresh', attrs: { 'data-reload': '' } }, () => load());
-    els.editToggle = seg('', false, { 'data-edit-toggle': '' }, () => setEdit(!st.edit));
+    // K2 (W1 §2): Select all / none / Invert live in a Select menu; Ghosts,
+    // Names on tiles, Edit layout and Reload layout in a View menu. The items
+    // keep their data-* hooks.
+    els.selectMenu = UI.menu({ label: 'Select', icon: 'select-all', align: 'start', className: 'b5-con-menu', attrs: { 'data-select-menu': '' }, items: () => [
+      { label: selectAllLabel(), icon: 'select-all', attrs: { 'data-select-all': '' }, onSelect: () => selectAll() },
+      { label: 'Select none', icon: 'select-none', attrs: { 'data-select-none': '' }, onSelect: () => sel({ action: 'none' }) },
+      { label: 'Invert', icon: 'select-invert', attrs: { 'data-select-invert': '' }, title: 'Invert the selection of the fixtures on the layers shown', onSelect: () => selectInvert() },
+    ] }).el;
+    els.viewMenu = UI.menu({ label: 'View', align: 'start', className: 'b5-con-menu', attrs: { 'data-view-menu': '' }, items: () => [
+      { label: 'Ghosts', checked: st.ghosts, attrs: { 'data-ghost-toggle': '' }, title: 'Ghosts: draw the layers not shown as dashed outlines. They cannot be selected.', onSelect: () => { st.ghosts = !st.ghosts; renderTools(); renderGrid(); } },
+      { label: 'Names on tiles', checked: st.names, attrs: { 'data-names-toggle': '' }, title: 'The short fixture type under each fixture number', onSelect: () => { st.names = !st.names; saveView(); renderGrid(); } },
+      { separator: true },
+      { label: 'Edit layout', checked: st.edit, icon: 'grid-snap', attrs: { 'data-edit-toggle': '' }, title: 'Move, resize and place fixtures and objects on the plan. Nothing is selected and no light moves while editing.', onSelect: () => setEdit(!st.edit) },
+      { label: 'Reload layout', icon: 'refresh', attrs: { 'data-reload': '' }, onSelect: () => load() },
+    ] }).el;
+    els.planBtn = seg('Plan', true, { 'data-spacing': 'plan', title: 'Plan: the spacing of the plan (MVR positions or your placements)' }, () => setSpacing('plan'));
+    els.compactBtn = seg('Compact', false, { 'data-spacing': 'compact', title: 'Compact: empty rows and columns removed, so fixtures close up in their arrangement. Display only — the plan is not changed.' }, () => setSpacing('compact'));
+    els.fitBtn = seg('Fit', true, { 'data-fit': '', title: 'Fit: size the plan to the grid area' }, () => setFit(!st.fit));
+    els.zoomOut = btn('−', { cls: 'b5-btn--sm b5-con-zoombtn', attrs: { 'data-zoom-out': '', 'aria-label': 'Zoom out', title: 'Zoom out (turns Fit off)' } }, () => zoom(-1));
+    els.zoomIn = btn('+', { cls: 'b5-btn--sm b5-con-zoombtn', attrs: { 'data-zoom-in': '', 'aria-label': 'Zoom in', title: 'Zoom in (turns Fit off)' } }, () => zoom(1));
+    // K2 (W1 §2, 1024 proposal): below 1280 px a single "Layer" selector
+    // stands in for the row of layer chips (CSS shows one or the other).
+    els.layerSelect = h('select', { class: 'b5-select b5-con-layerselect', 'data-layer-select': '', 'aria-label': 'Layer shown' });
+    els.layerSelect.addEventListener('change', () => { const v = els.layerSelect.value; st.shown.clear(); if (v !== 'all') st.shown.add(v); st.picker = null; renderTools(); renderLayers(); renderGrid(); renderPicker(); renderEdit(); });
     els.status = h('p', { class: 'b5-con-status', role: 'status', 'data-status': '' });
     els.modebar = h('div', { class: 'b5-modebar b5-con-modebar', 'data-modebar': '', hidden: true },
       ic('status-warning'),
@@ -297,11 +340,20 @@ const ConsoleScreen = (() => {
       h('div', { class: 'b5-page-header' },
         h('h1', { class: 'b5-page-header__title', text: 'Console' }),
         h('span', { class: 'b5-page-header__meta b5-caption', text: 'Select fixtures on the plan. Leaving this screen keeps output, the programmer and the selection as they are.' })),
-      h('section', { class: 'b5-toolbar b5-con-toolbar', 'aria-label': 'Selection tools' },
-        h('div', { class: 'b5-toolbar__row b5-con-row' }, h('span', { class: 'b5-con-rowlabel', text: 'Layers' }), els.layers, els.ghostBtn),
-        h('div', { class: 'b5-toolbar__row b5-con-row b5-con-tools', role: 'group', 'aria-label': 'Select' }, els.add, els.lassoBtn, els.selAll, els.selNone, els.invert,
-          h('span', { class: 'b5-con-sep', 'aria-hidden': 'true' }), els.zoomOut, els.zoomIn, els.reload, els.editToggle),
-        h('div', { class: 'b5-toolbar__row b5-con-row' }, h('span', { class: 'b5-con-rowlabel', text: 'Groups' }), els.groups)),
+      // K2 (W1 §2): one toolbar row — layers, spacing, Fit/zoom, Lasso, Add,
+      // Select, View. Stored groups keep their own row until they move into
+      // the Groups window (K3).
+      h('section', { class: 'b5-toolbar b5-con-toolbar', 'aria-label': 'Grid tools' },
+        h('div', { class: 'b5-toolbar__row b5-con-row b5-con-tools' },
+          h('span', { class: 'b5-con-rowlabel', text: 'Layers' }), els.layers, els.layerSelect,
+          // Below 1024 px the tools keep their own line under the layer chips
+          // (a phone scrolls it sideways, as before); from 1024 px the wrapper
+          // dissolves into the one row (display: contents).
+          h('span', { class: 'b5-con-toolset' },
+            h('span', { class: 'b5-con-seggroup', role: 'group', 'aria-label': 'Spacing' }, els.planBtn, els.compactBtn),
+            h('span', { class: 'b5-con-seggroup', role: 'group', 'aria-label': 'Zoom' }, els.fitBtn, els.zoomOut, els.zoomIn),
+            els.lassoBtn, els.add, els.selectMenu, els.viewMenu)),
+        h('div', { class: 'b5-toolbar__row b5-con-row b5-con-grouprow' }, h('span', { class: 'b5-con-rowlabel', text: 'Groups' }), els.groups)),
       els.status,
       els.modebar,
       // I2a: the selection summary sits in flow ABOVE the grid. It was a
@@ -409,31 +461,50 @@ const ConsoleScreen = (() => {
 
   function renderTools() {
     if (!els.add) return;
-    els.add.className = 'b5-seg' + (st.addMode ? ' is-on' : '');
-    els.add.setAttribute('aria-pressed', st.addMode ? 'true' : 'false');
-    els.add.textContent = st.addMode ? 'Add mode: ON' : 'Add mode: OFF';
-    els.editToggle.className = 'b5-seg' + (st.edit ? ' is-on' : '');
-    els.editToggle.setAttribute('aria-pressed', st.edit ? 'true' : 'false');
-    els.editToggle.textContent = st.edit ? 'Edit layout: ON' : 'Edit layout: OFF';
+    toggleWords(els.add, st.addMode, null, 'Add');
     toggleWords(els.lassoBtn, st.lasso, 'lasso', 'Lasso');
     els.lassoBtn.disabled = st.edit;
-    toggleWords(els.ghostBtn, st.ghosts, null, 'Ghosts');
-    const s = shownLayers();
-    const label = !filtered() ? 'Select all fixtures' : s.length === 1 ? 'Select all on ' + s[0].name : 'Select all on ' + s.length + ' layers';
-    clear(els.selAll);
-    append(els.selAll, [ic('select-all'), label]);
-    els.zoomOut.disabled = st.zoom === 0;
-    els.zoomIn.disabled = st.zoom === ZOOMS.length - 1;
+    toggleWords(els.planBtn, spacing() === 'plan', null, 'Plan');
+    toggleWords(els.compactBtn, spacing() === 'compact', null, 'Compact');
+    els.compactBtn.disabled = st.edit;
+    els.compactBtn.title = st.edit ? 'Compact is off while editing the layout: edits need the real plan.' : 'Compact: empty rows and columns removed, so fixtures close up in their arrangement. Display only — the plan is not changed.';
+    toggleWords(els.fitBtn, st.fit, null, 'Fit');
+    const c = cellPx();
+    els.zoomOut.disabled = !st.fit && st.zoom === 0;
+    els.zoomIn.disabled = !st.fit && st.zoom === ZOOMS.length - 1 || (st.fit && c >= ZOOMS[ZOOMS.length - 1]);
     els.modebar.hidden = !st.edit;
     els.root.classList.toggle('is-editing', st.edit);
     els.root.classList.toggle('is-lasso', st.lasso && !st.edit);
   }
-  // A mode toggle says its state in words: "Lasso: ON".
+  // K2 (W1 §3, the ON grammar): ON is a check symbol + bold word + 2 px
+  // border + pressed surface, with aria-pressed; OFF has no check. The
+  // check's slot is reserved so toggling never changes the button's width.
   function toggleWords(b, on, icon, word) {
-    b.className = 'b5-seg' + (on ? ' is-on' : '');
+    b.className = 'b5-seg b5-toggle' + (on ? ' is-on' : '');
     b.setAttribute('aria-pressed', on ? 'true' : 'false');
     clear(b);
-    append(b, [icon ? ic(icon) : null, word + (on ? ': ON' : ': OFF')]);
+    append(b, [h('span', { class: 'b5-toggle__check', 'aria-hidden': 'true', icon: on ? 'status-ok' : null }), icon ? ic(icon) : null, word]);
+  }
+  function selectAllLabel() {
+    const s = shownLayers();
+    return !filtered() ? 'Select all fixtures' : s.length === 1 ? 'Select all on ' + s[0].name : 'Select all on ' + s.length + ' layers';
+  }
+  function setSpacing(v) {
+    if (st.edit) return;
+    st.spacing = v;
+    saveView();
+    renderTools(); renderGrid();
+  }
+  function setFit(on) {
+    st.fit = !!on;
+    if (!st.fit && st.fitCell) st.zoom = nearestZoom(st.fitCell);
+    saveView();
+    renderTools(); renderGrid();
+  }
+  function nearestZoom(px) {
+    let best = 0;
+    ZOOMS.forEach((z, i) => { if (Math.abs(z - px) < Math.abs(ZOOMS[best] - px)) best = i; });
+    return best;
   }
 
   function countOn(layerId) {
@@ -444,6 +515,14 @@ const ConsoleScreen = (() => {
   // or takes it out (taking the last one out shows every layer again).
   function renderLayers() {
     clear(els.layers);
+    if (els.layerSelect) {
+      clear(els.layerSelect);
+      const one = st.shown.size === 1 ? [...st.shown][0] : null;
+      els.layerSelect.appendChild(h('option', { value: 'all', text: 'All layers' }));
+      layers().forEach(l => els.layerSelect.appendChild(h('option', { value: l.id, text: l.name + ' · ' + countOn(l.id) })));
+      if (st.shown.size > 1) els.layerSelect.appendChild(h('option', { value: '__several', text: st.shown.size + ' layers (chosen on a wider screen)', disabled: true }));
+      els.layerSelect.value = !filtered() ? 'all' : one || '__several';
+    }
     if (!st.layout) return;
     els.layers.appendChild(seg('', !filtered(), { 'data-layer-chip': 'all' }, () => setView('all')));
     append(els.layers.lastChild, [ic('layers'), 'All layers']);
@@ -460,8 +539,17 @@ const ConsoleScreen = (() => {
     st.picker = null;
     renderTools(); renderLayers(); renderGrid(); renderPicker(); renderEdit();
   }
+  // − / + step through the fixed zooms and turn Fit off (W1 §2), starting
+  // from the size Fit had picked.
   function zoom(d) {
-    st.zoom = Math.max(0, Math.min(ZOOMS.length - 1, st.zoom + d));
+    if (st.fit) {
+      const c = cellPx();
+      st.fit = false;
+      let i = d > 0 ? ZOOMS.findIndex(z => z > c) : ZOOMS.length - 1 - ZOOMS.slice().reverse().findIndex(z => z < c);
+      if (i < 0 || i >= ZOOMS.length) i = d > 0 ? ZOOMS.length - 1 : 0;
+      st.zoom = i;
+    } else st.zoom = Math.max(0, Math.min(ZOOMS.length - 1, st.zoom + d));
+    saveView();
     renderTools();
     renderGrid();
   }
@@ -506,6 +594,21 @@ const ConsoleScreen = (() => {
       els.grid.appendChild(h('p', { class: 'b5-board__empty', text: 'This show has no fixtures yet. Add or import fixtures on the Patch screen.' }));
       return;
     }
+    const stale = staleIds();
+    // I2b: filtered-out layers are not drawn — or, with Ghosts ON, drawn as
+    // dashed outlines with words that cannot be selected.
+    const drawn = layers().filter(l => isShown(l.id) || st.ghosts);
+    const compact = spacing() === 'compact';
+    // K2 (W1 §5): Compact draws display copies of the items, packed; the
+    // stored layout is never changed. Objects (truss, labels) have no place
+    // in a packed view and are left out of it.
+    const lists = drawn.map(ly => {
+      const raw = items().filter(it => it.layer === ly.id && !stale.has(it.id));
+      return compact ? compactItems(raw.filter(it => it.kind !== 'object')) : raw;
+    });
+    const colFrom = compact ? 0 : Math.min(...lists.flat().map(it => it.col), 0);
+    const bs = lists.map(list => bounds(list, colFrom));
+    if (st.fit) st.fitCell = fitCell(bs) || st.fitCell;
     const cell = cellPx();
     els.grid.style.setProperty('--b5-con-cell', cell + 'px');
     // Fixture glyph: 32 px at the two small zooms, 48 px (the design's
@@ -513,18 +616,14 @@ const ConsoleScreen = (() => {
     els.grid.style.setProperty('--b5-con-glyph', (cell >= 128 ? 48 : 32) + 'px');
     // At the smallest zoom a 64 px tile cannot hold a 32 px glyph AND the
     // name and words, so the glyph (decorative) gives way to the words.
-    els.grid.classList.toggle('is-compact', cell < 96);
-    const stale = staleIds();
-    // I2b: filtered-out layers are not drawn — or, with Ghosts ON, drawn as
-    // dashed outlines with words that cannot be selected.
-    const drawn = layers().filter(l => isShown(l.id) || st.ghosts);
-    const colFrom = Math.min(...items().filter(it => !stale.has(it.id) && drawn.some(l => l.id === it.layer)).map(it => it.col), 0);
-    for (const ly of drawn) {
-      const list = items().filter(it => it.layer === ly.id && !stale.has(it.id));
-      const b = bounds(list, colFrom);
+    els.grid.classList.toggle('is-compact', cell < 86);
+    els.grid.classList.toggle('is-names-off', !st.names);
+    for (let li = 0; li < drawn.length; li++) {
+      const ly = drawn[li], list = lists[li], b = bs[li];
       const n = list.filter(it => it.kind !== 'object').length;
       if (!isShown(ly.id)) { els.grid.appendChild(ghostLayer(ly, list, b, cell, n)); continue; }
-      const height = ly.system ? 'fixtures with no place on the plan yet' : heightWords(ly);
+      const height = (ly.system ? 'fixtures with no place on the plan yet' : heightWords(ly)) +
+        (compact ? ' · compact — empty rows and columns removed, real spacing ignored' : '');
       const canvas = h('div', { class: 'b5-con-canvas', 'data-canvas': ly.id,
         style: { width: ((b.c1 - b.c0) * cell) + 'px', height: ((b.r1 - b.r0) * cell) + 'px',
           'background-position': (-b.c0 * cell) + 'px ' + (-b.r0 * cell) + 'px' } });
@@ -544,6 +643,40 @@ const ConsoleScreen = (() => {
     }
     if (stale.size) els.grid.appendChild(h('p', { class: 'b5-note', text: stale.size + ' layout item(s) point at something no longer in the show and are not drawn; remove them in edit mode or rebuild the layout.' }));
     applySelection();
+  }
+
+  // compactItems (K2): every empty row and every empty column is removed, so
+  // fixtures close up but keep their arrangement — who is beside and behind
+  // whom, which line they are in. Display copies only. (W1 §5 proposed
+  // packing each row left to right; on the owner's MVR-derived show the
+  // trusses run down the plan, so each row held one or two fixtures and
+  // packing broke the truss lines apart. Closing up empty rows AND columns
+  // keeps them.)
+  function compactItems(list) {
+    const occ = (k, size) => { const s = new Set(); list.forEach(it => { for (let i = 0; i < it[size]; i++) s.add(it[k] + i); }); return [...s].sort((a, c) => a - c); };
+    const cols = occ('col', 'w'), rows = occ('row', 'h');
+    const ci = new Map(cols.map((c, i) => [c, i])), ri = new Map(rows.map((r, i) => [r, i]));
+    return list.map(it => Object.assign({}, it, { col: ci.get(it.col), row: ri.get(it.row) }));
+  }
+  // fitCell (K2, W1 §5): the cell size that fits every drawn layer into the
+  // grid pane, or 0 when the pane has no size yet (not shown). From 1024 px
+  // the pane has a fixed height, so height counts; below that the page
+  // scrolls and only the width does. Never below FIT_MIN, never above the
+  // largest zoom.
+  function fitCell(bs) {
+    const w = els.grid.clientWidth, hgt = els.grid.clientHeight;
+    if (!w || !bs.length) return 0;
+    const cols = Math.max(...bs.map(b => b.c1 - b.c0));
+    const rows = bs.reduce((a, b) => a + (b.r1 - b.r0), 0);
+    let c = (w - 32) / cols;
+    if (wideWorkspace() && hgt) c = Math.min(c, (hgt - bs.length * 56 - 16) / rows);
+    return Math.max(FIT_MIN, Math.min(ZOOMS[ZOOMS.length - 1], Math.floor(c)));
+  }
+  function finePointer() {
+    try { return typeof matchMedia === 'function' && matchMedia('(pointer: fine)').matches; } catch (_) { return false; }
+  }
+  function wideWorkspace() {
+    try { return typeof matchMedia === 'function' && matchMedia('(min-width: 1024px)').matches; } catch (_) { return false; }
   }
 
   // ghostLayer: a filtered-out layer drawn as full-contrast dashed outlines
@@ -592,22 +725,39 @@ const ConsoleScreen = (() => {
     // never the part cut off; the full text is in the accessible name.
     const unplacedWords = markers.filter(m => m !== 'auto');
     const metaText = unplacedWords.concat([e.fixtureNumber ? '#' + e.fixtureNumber : 'no number'], markers.filter(m => m === 'auto')).join(' · ');
+    // K2 (W1 §6): the tile leads with the fixture NUMBER (bold, never cut)
+    // and the short fixture type (GDTF ShortName, else the type); the full
+    // name stays in the accessible name and the tooltip. A fixture with no
+    // number shows its name there instead. The meta line now carries only
+    // the placement words ("no position", "auto").
+    const m = st.models[it.ref];
+    const typeWord = (m && m.shortType) || e.fixtureType || 'type not known';
+    // Only the placement words that need attention are drawn ("no position",
+    // "not derived"); "auto" and the number stay in the accessible name.
+    const visMeta = unplacedWords.join(' · ');
     const main = h('button', { type: 'button', class: 'b5-con-tile__main', 'data-select-entry': it.ref, 'aria-pressed': 'false',
-      'data-glyph': cls.glyph, 'data-class-word': cls.word, 'data-meta': metaText, 'data-flags': flags.join(', ') },
+      'data-glyph': cls.glyph, 'data-class-word': cls.word, 'data-meta': metaText, 'data-flags': flags.join(', '),
+      title: [e.name || 'Unnamed fixture', e.fixtureType].filter(Boolean).join(' · ') },
       h('span', { class: 'b5-con-tile__top' },
         h('span', { class: 'b5-con-glyph b5-con-glyph--' + cls.glyph, 'aria-hidden': 'true', title: (e.fixtureType || 'fixture type not known') + ' · ' + cls.word, icon: 'fx-' + cls.glyph,
           style: { transform: 'rotate(' + (it.rot || 0) + 'deg)' } }),
+        h('span', { class: 'b5-con-tile__fid' + (e.fixtureNumber ? '' : ' b5-con-tile__fid--name'), 'aria-hidden': 'true', 'data-fid': '', text: e.fixtureNumber || e.name || 'Unnamed fixture' }),
         h('span', { class: 'b5-con-badge', 'data-badge': '', 'aria-hidden': 'true', hidden: true }),
-        flags.length ? h('span', { class: 'b5-con-flags', 'aria-hidden': 'true', 'data-flag-words': '', text: flags.join(' · ') }) : null),
-      h('span', { class: 'b5-con-tile__name', text: e.name || 'Unnamed fixture' }),
-      h('span', { class: 'b5-con-tile__meta b5-con-tile__meta--line', title: metaText }, h('span', { text: metaText })),
+        h('span', { class: 'b5-con-tag b5-con-tag--hl', 'data-hl-tag': '', 'aria-hidden': 'true', hidden: true, text: 'HL' })),
+      h('span', { class: 'b5-con-tile__type', 'aria-hidden': 'true', 'data-type-line': '', text: typeWord }),
+      flags.length ? h('span', { class: 'b5-con-flags', 'aria-hidden': 'true', 'data-flag-words': '', text: flags.join(' · ') }) : null,
+      h('span', { class: 'b5-con-tile__name b5-visually-hidden', text: e.name || 'Unnamed fixture' }),
+      h('span', { class: 'b5-con-tile__meta b5-con-tile__meta--line', title: metaText, hidden: !visMeta }, h('span', { text: visMeta })),
       h('span', { class: 'b5-visually-hidden', 'data-selword': '' }));
     const flagCls = (flags.includes('No profile') || flags.includes('RDM labels') ? ' is-unprofiled' : '') + (flags.includes('Not on wire') ? ' is-offwire' : '') + (it.layer === 'unplaced' ? ' is-unplaced' : '');
     const tile = h('div', { class: 'b5-con-tile b5-con-tile--entry' + (cells.length ? ' has-cells' : '') + flagCls, 'data-item-id': it.id, 'data-kind': 'entry', 'data-entry-id': it.ref, style: place(it, b, cell) }, main);
     if (cells.length) {
       const tm = touchMin();
+      // K2 (W1 §6): on a fine pointer a cell segment may be 22 px; a coarse
+      // pointer keeps the 44 px target (and the picker when they do not fit).
+      const segPx = finePointer() ? 22 : tm;
       const w = it.w * cell - 8, hgt = it.h * cell;
-      if (hgt >= 2 * tm && cells.length * tm <= w) {
+      if (hgt >= tm + segPx && cells.length * segPx <= w) {
         const strip = h('div', { class: 'b5-con-cells', role: 'group', 'aria-label': 'Cells of ' + (e.name || 'fixture') });
         cells.forEach(c => strip.appendChild(h('button', { type: 'button', class: 'b5-con-cell', 'data-select-cell': c.id, 'data-entry-id': it.ref, 'aria-pressed': 'false',
           'data-cell-name': (e.name || 'fixture') + ', cell ' + c.index + ' of ' + cells.length + (c.name ? ' (' + c.name + ')' : '') },
@@ -688,14 +838,17 @@ const ConsoleScreen = (() => {
       tile.classList.toggle('has-cells-selected', !!cellsSel);
       tile.classList.toggle('is-edit-target', st.edit && st.editId === tile.getAttribute('data-item-id'));
       setBadge(b.querySelector('[data-badge]'), n);
+      const hlTag = b.querySelector('[data-hl-tag]');
+      if (hlTag) hlTag.hidden = !(hl && n);
       const selText = n ? word(n) : 'not selected';
       const cellText = cellsSel ? cellsSel + ' of ' + total + ' cells selected' : '';
       const sw = b.querySelector('[data-selword]');
       if (sw) sw.textContent = ', ' + selText + (cellText ? ', ' + cellText : '');
       // §3 accessible name: "Pixel bar 07, multi-cell, selected, order 4,
-      // #7 · auto, RDM labels" — the visible name first.
+      // #7 · auto, RDM labels" — the name first, then (K2) the short type.
       const name = (tile.querySelector('.b5-con-tile__name') || {}).textContent || '';
-      b.setAttribute('aria-label', [name, b.getAttribute('data-class-word'), selText, cellText, b.getAttribute('data-meta'), b.getAttribute('data-flags')].filter(Boolean).join(', '));
+      const type = (tile.querySelector('[data-type-line]') || {}).textContent || '';
+      b.setAttribute('aria-label', [name, type, b.getAttribute('data-class-word'), selText, cellText, b.getAttribute('data-meta'), b.getAttribute('data-flags')].filter(Boolean).join(', '));
       const lbl = tile.querySelector('[data-cells-label]');
       if (lbl) lbl.textContent = cellsSel ? cellsSel + ' of ' + total + ' cells selected' : total + ' cells';
     });
@@ -1247,7 +1400,7 @@ const ConsoleScreen = (() => {
   // The bar redraws on every broadcast, so the focused control is found
   // again by its data-* key afterwards (Next can be pressed repeatedly).
   const BAR_KEYS = ['data-hl-prev', 'data-hl-next', 'data-hl-all', 'data-highlight', 'data-lowlight', 'data-lowlight-level-open', 'data-locate',
-    'data-clear-open', 'data-fan-open', 'data-tests-jump', 'data-store-group', 'data-summary-more-toggle'];
+    'data-clear-open', 'data-fan-open', 'data-tests-jump', 'data-store-group', 'data-summary-more-toggle', 'data-more-menu'];
   function focusKey() {
     const a = document.activeElement;
     if (!a || !els.summary.contains(a)) return null;
@@ -1264,8 +1417,10 @@ const ConsoleScreen = (() => {
     const hv = (p && p.highlight) || {};
     const hl = !!hv.on;
     const label = x => (x.name || 'Unnamed fixture') + (x.cell ? ' cell ' + (x.cellIndex || '?') + (x.cellName ? ' (' + x.cellName + ')' : '') : '');
-    const shown = s.slice(0, 8).map((x, i) => (i + 1) + ' ' + label(x));
-    const names = s.length ? shown.join(' · ') + (s.length > 8 ? ' · +' + (s.length - 8) + ' more' : '') : 'Tap a fixture, a cell, a group or a layer to select it.';
+    // K2 (W1 §7): grouped by short type with contiguous fixture-number runs
+    // ("Wash 201–212 (12) · Pixel bar 401.2"); the full list in order is
+    // the title.
+    const names = s.length ? selectionWords(s) : 'Tap a fixture, a cell, a group or a layer to select it.';
     const more = summaryTools(s, hv, label);
     append(els.summary, [
       h('div', { class: 'b5-actionbar__status b5-con-summary__status' },
@@ -1283,9 +1438,14 @@ const ConsoleScreen = (() => {
         hl ? h('span', { class: 'b5-con-summary__hlstate', 'data-hl-state': '' }, ic('highlight'), 'Highlight ON') : null),
       h('div', { class: 'b5-actionbar__buttons b5-con-summary__buttons' },
         btn('Clear…', { icon: 'clear', cls: 'b5-con-act' + (st.pop === 'clear' ? ' is-on' : ''), attrs: { 'data-clear-open': '', 'aria-expanded': st.pop === 'clear' ? 'true' : 'false', 'aria-controls': 'conActPanel' } }, () => togglePop('clear')),
+
         btn('More', { cls: 'b5-con-summary__morebtn', attrs: { 'data-summary-more-toggle': '', 'aria-expanded': st.moreOpen ? 'true' : 'false', 'aria-controls': 'conSummaryMore' } },
           () => { st.moreOpen = !st.moreOpen; renderSummary(); if (st.moreOpen) fitMore(true); }),
-        more),
+        more,
+        // K2 (W1 §7): from 768 px Lowlight, Fan, Store group and Tests sit in
+        // a More menu after Clear, Highlight, Level and Locate; its items
+        // press the same buttons, kept in the bar but not drawn there.
+        moreMenu()),
     ]);
     if (st.moreOpen) fitMore(false);
     if (fk) {
@@ -1296,6 +1456,56 @@ const ConsoleScreen = (() => {
       if (back && !st.moreOpen && phoneBar() && back.closest && back.closest('[data-summary-more]')) back = els.summary.querySelector('[data-summary-more-toggle]');
       if (back && !back.disabled) back.focus();
     }
+  }
+  // selectionWords (K2, W1 §7): the selection summarised by short type, with
+  // fixture numbers in CONTIGUOUS runs only (201–203, never 201–212 for
+  // 201, 205, 212), cells as number.cell, and the count when a type has more
+  // than one. A fixture with no number is named.
+  function selectionWords(s) {
+    const byType = new Map();
+    for (const x of s) {
+      const m = st.models[x.entryId] || {};
+      const t = m.shortType || m.fixtureType || 'Fixture';
+      if (!byType.has(t)) byType.set(t, []);
+      byType.get(t).push({ fid: m.fixtureNumber || '', name: x.name || 'Unnamed fixture', cell: x.cell ? (x.cellIndex || '?') : '' });
+    }
+    const parts = [];
+    for (const [t, list] of byType) {
+      const whole = list.filter(x => !x.cell);
+      const nums = whole.filter(x => /^\d+$/.test(x.fid)).map(x => Number(x.fid)).sort((a, c) => a - c);
+      const words = [];
+      for (let i = 0; i < nums.length;) {
+        let j = i;
+        while (j + 1 < nums.length && nums[j + 1] === nums[j] + 1) j++;
+        words.push(j > i ? nums[i] + '–' + nums[j] : String(nums[i]));
+        i = j + 1;
+      }
+      whole.filter(x => !/^\d+$/.test(x.fid)).forEach(x => words.push(x.fid || x.name));
+      list.filter(x => x.cell).forEach(x => words.push((x.fid || x.name) + '.' + x.cell));
+      parts.push(t + ' ' + words.join(', ') + (list.length > 1 ? ' (' + list.length + ')' : ''));
+    }
+    return parts.join(' · ');
+  }
+  // moreMenu (K2, W1 §7): the wide-screen More menu. Each item presses the
+  // bar's own button for that tool, so behaviour is identical to the phone
+  // menu and to the tests that press those buttons.
+  // One instance, built once and re-inserted on every redraw, so a
+  // programmer broadcast does not throw away an open menu.
+  function moreMenu() {
+    if (!els.moreMenu) {
+      const press = sel => () => { const b = els.summary.querySelector(sel); if (b && !b.disabled) b.click(); };
+      els.moreMenu = UI.menu({ label: 'More', className: 'b5-con-moremenu', attrs: { 'data-more-menu': '' }, items: () => {
+        const n = selection().length, hv = (prog() && prog().highlight) || {};
+        return [
+          { label: 'Lowlight', checked: !!hv.lowlight, icon: 'lowlight', attrs: { 'data-more-lowlight': '' }, onSelect: press('[data-lowlight]') },
+          { label: 'Fan…', icon: 'fan-linear', disabled: n < 2, attrs: { 'data-more-fan': '' }, onSelect: press('[data-fan-open]') },
+          { label: 'Store group…', icon: 'store-group', disabled: !n, attrs: { 'data-more-store': '' }, onSelect: press('[data-store-group]') },
+          { separator: true },
+          { label: 'Open Tests for the selection', icon: 'test', attrs: { 'data-more-tests': '' }, onSelect: press('[data-tests-jump]') },
+        ];
+      } });
+    }
+    return els.moreMenu.el;
   }
   // fitMore (I2d2): on a phone the More menu drops below the bar and used
   // to run on under the fader bar and the bottom navigation, hiding Locate,
@@ -1359,7 +1569,7 @@ const ConsoleScreen = (() => {
       h('span', { class: 'b5-caption b5-con-hlstep__words', role: 'status', 'data-hl-step': '' }, stepWords)) : null;
     const pct = hv.lowlightPercent !== undefined ? hv.lowlightPercent : 20;
     const more = h('div', { class: 'b5-con-summary__more' + (st.moreOpen ? ' is-open' : ''), id: 'conSummaryMore', 'data-summary-more': '' },
-        seg([ic('highlight'), hl ? 'Highlight: ON' : 'Highlight: OFF'], hl, { 'data-highlight': '' }, () => hlAct({ highlight: !hl })),
+        seg([h('span', { class: 'b5-toggle__check', 'aria-hidden': 'true', icon: hl ? 'status-ok' : null }), ic('highlight'), 'Highlight'], hl, { 'data-highlight': '', class: 'b5-seg b5-toggle' + (hl ? ' is-on' : '') }, () => hlAct({ highlight: !hl })),
         stepping,
         seg([ic('lowlight'), hv.lowlight ? 'Lowlight: ON · ' + pct + ' %' : 'Lowlight: OFF'], !!hv.lowlight, { 'data-lowlight': '', title: 'Lowlight dims the selected fixtures that are not highlighted (step with Previous/Next), while Highlight is ON. Fixtures outside the selection are not touched.' },
           () => hlAct({ lowlight: !hv.lowlight })),
@@ -1384,6 +1594,8 @@ const ConsoleScreen = (() => {
           if (typeof ConsoleTests !== 'undefined' && ConsoleTests.open) return ConsoleTests.open(() => {
             const t = els.summary && els.summary.querySelector('[data-tests-jump]');
             if (t && !st.moreOpen && phoneBar() && t.closest && t.closest('[data-summary-more]')) return els.summary.querySelector('[data-summary-more-toggle]');
+            // K2: from 768 px Tests is in the More menu; focus returns to it.
+            if (t && !phoneBar() && !drawnEl(t) && els.summary.querySelector('[data-more-menu]')) return els.summary.querySelector('[data-more-menu]');
             return t;
           });
           if (els.tests.scrollIntoView) els.tests.scrollIntoView({ block: 'start' });
@@ -1443,9 +1655,17 @@ const ConsoleScreen = (() => {
     if (!refocus) return;
     const opener = { clear: '[data-clear-open]', fan: '[data-fan-open]', lowlight: '[data-lowlight-level-open]' }[kind];
     const o = opener && els.summary.querySelector(opener);
-    if (o && !(o.offsetParent === null && o.getClientRects && !o.getClientRects().length)) o.focus();
-    else { const m = els.summary.querySelector('[data-summary-more-toggle]'); if (m) m.focus(); }
+    if (drawnEl(o)) o.focus();
+    else {
+      // The opener is inside a menu (phone More, or the wide More menu, K2):
+      // focus goes to whichever More is drawn.
+      const m = els.summary.querySelector('[data-summary-more-toggle]');
+      const mm = els.summary.querySelector('[data-more-menu]');
+      const t = drawnEl(m) ? m : (mm || m);
+      if (t) t.focus();
+    }
   }
+  function drawnEl(e) { return !!e && !(e.offsetParent === null && e.getClientRects && !e.getClientRects().length); }
   function renderPop() {
     if (!els.actPanel) return;
     clear(els.actPanel);
@@ -1492,6 +1712,7 @@ const ConsoleScreen = (() => {
     inited = true;
     build();
     publishNavHeight();
+    watchWorkspace();
     if (typeof ProgrammerSync !== 'undefined') {
       ProgrammerSync.onChange(() => {
         if (!st.built) return;
@@ -1510,9 +1731,38 @@ const ConsoleScreen = (() => {
     });
     if (typeof Live !== 'undefined') Live.on('layout', onLayoutMessage); // C6c
   }
+  // --- K2: the workspace fills the window from 1024 px ---------------------------
+  // The Console becomes a fixed-height workspace (toolbar, selection bar,
+  // then grid | side pane) between the chrome and the group-fader bar, so
+  // the grid gets the room and the page itself does not scroll. Below 1024 px
+  // the page keeps its own scrolling layout (unchanged).
+  function sizeWorkspace() {
+    if (!els.root) return;
+    if (!st.active || !wideWorkspace() || typeof innerHeight !== 'number' || !els.root.getBoundingClientRect) { els.root.style.removeProperty('height'); return; }
+    const top = els.root.getBoundingClientRect().top + (window.scrollY || 0);
+    let f = 0;
+    try { f = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--b5-faders-height')) || 0; } catch (_) { /* no computed style */ }
+    els.root.style.setProperty('height', Math.max(420, Math.floor(innerHeight - top - f - 8)) + 'px');
+  }
+  let gridSize = '';
+  function watchWorkspace() {
+    window.addEventListener('resize', () => { sizeWorkspace(); });
+    if (typeof ResizeObserver !== 'function') return;
+    const bar = document.getElementById('faderBar');
+    if (bar) new ResizeObserver(() => sizeWorkspace()).observe(bar);
+    // Fit follows the grid pane's size (window, dock, fader bar).
+    new ResizeObserver(() => {
+      const sz = els.grid.clientWidth + 'x' + els.grid.clientHeight;
+      if (sz === gridSize) return;
+      gridSize = sz;
+      if (st.fit && st.active) { renderGrid(); renderTools(); }
+    }).observe(els.grid);
+  }
   function onEnterScreen() {
     init();
     st.active = true;
+    document.body.classList.add('b5-console-mode');
+    sizeWorkspace();
     renderAll();
     load();
     if (typeof ConsoleTools !== 'undefined') ConsoleTools.onEnter();
@@ -1521,6 +1771,8 @@ const ConsoleScreen = (() => {
   // An unfinished drag is dropped (it was never sent).
   function onLeaveScreen() {
     st.active = false;
+    document.body.classList.remove('b5-console-mode');
+    sizeWorkspace();
     endDrag();
     lassoEnd();
   }

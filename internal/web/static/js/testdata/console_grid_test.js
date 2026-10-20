@@ -130,6 +130,13 @@ function boot() {
   const tile = id => grid().querySelector('[data-select-entry="' + id + '"]');
   const holder = id => tile(id).closest('[data-item-id]');
   const lastSel = () => posts.filter(p => p.action === 'select').slice(-1)[0];
+  // K2: Select all / none / Invert in the Select menu; Ghosts and Edit
+  // layout in the View menu (W1 §2). menuItem opens the menu, returns the item.
+  const menuItem = (menu, item) => {
+    const t = q('[' + menu + ']');
+    if (t.getAttribute('aria-expanded') !== 'true') click(t);
+    return q('[' + menu + ']').closest('.b5-menu').querySelector('[' + item + ']');
+  };
   B.ctx.ConsoleScreen.onEnterScreen();
   for (let i = 0; i < 20 && !tile('MH1'); i++) await tick();
   check(!!tile('MH1'), 'the grid draws the crafted show');
@@ -162,7 +169,7 @@ function boot() {
   check(holder('MH1').classList.contains('is-selected') && !holder('BAR').classList.contains('is-selected') && holder('BAR').classList.contains('has-cells-selected'), 'parent selected = tile outline; cell selected = cell mark, parent stays unselected');
   check(cell2.classList.contains('is-selected') && cell2.querySelector('[data-badge]').textContent === '2', 'the selected cell carries its own order number (2)');
   const lab1 = tile('MH1').getAttribute('aria-label') || '';
-  check(/^MH1 1, moving head, selected, order 1, #1/.test(lab1), 'parent accessible name: name, class, "selected, order 1", number', lab1);
+  check(/^MH1 1, Type MH1, moving head, selected, order 1, #1/.test(lab1), 'parent accessible name: name, type (K2), class, "selected, order 1", number', lab1);
   const labC = cell2.getAttribute('aria-label') || '';
   check(labC === 'BAR 1, cell 2 of 4 (Pixel 2), selected, order 2', 'cell accessible name: "BAR 1, cell 2 of 4 (Pixel 2), selected, order 2"', labC);
   check(/1 of 4 cells selected/.test(tile('BAR').getAttribute('aria-label') || ''), 'the parent of a selected cell says "1 of 4 cells selected"', tile('BAR').getAttribute('aria-label'));
@@ -186,32 +193,33 @@ function boot() {
   check(qa('[data-layer-block]').map(b => b.getAttribute('data-layer-block')).join() === 'truss' && chip('truss').getAttribute('aria-pressed') === 'true', 'a layer chip filters the plan to that layer');
   click(chip('floor'));
   check(qa('[data-layer-block]').map(b => b.getAttribute('data-layer-block')).join() === 'truss,floor' && chip('floor').getAttribute('aria-pressed') === 'true' && chip('all').getAttribute('aria-pressed') === 'false', 'a second chip adds its layer: chips are toggles (aria-pressed)');
-  check(/Select all on 2 layers/.test(q('[data-select-all]').textContent), 'Select all names what it will take', q('[data-select-all]').textContent);
+  check(/Select all on 2 layers/.test(menuItem('data-select-menu', 'data-select-all').textContent), 'Select all names what it will take', menuItem('data-select-menu', 'data-select-all').textContent);
   check(!tile('RAW'), 'a filtered-out fixture has no selectable tile');
-  click(q('[data-select-all]'));
+  click(menuItem('data-select-menu', 'data-select-all'));
   await tick();
   check(same(lastSel().body, { action: 'set', targets: ['MH1', 'MH2', 'WASH', 'BAR/c2', 'BAR', 'PRO', 'STR', 'DIM', 'FOG'].map(t => ({ entryId: t.split('/')[0], cell: t.split('/')[1] || '' })) }),
     'Select all with two layers shown: their fixtures in layer then reading order, a placed group adding its members (as the server does for one layer)', lastSel().body);
-  click(q('[data-select-none]'));
+  click(menuItem('data-select-menu', 'data-select-none'));
   await tick();
   click(tile('MH2'));
   await tick();
-  click(q('[data-select-invert]'));
+  click(menuItem('data-select-menu', 'data-select-invert'));
   await tick();
   check(same(lastSel().body, { action: 'toggle', targets: ['MH1', 'MH2', 'WASH', 'BAR', 'PRO', 'STR', 'DIM', 'FOG'].map(e => ({ entryId: e, cell: '' })) }), 'Invert toggles only the fixtures on the layers shown', lastSel().body);
   check(!state.selection.some(s => s.entryId === 'MH2') && state.selection.some(s => s.entryId === 'MH1') && !state.selection.some(s => s.entryId === 'RAW'), 'after Invert: MH2 out, MH1 in, hidden fixtures untouched');
   click(chip('floor'));
   check(!!q('[data-hidden-note]') && !q('[data-ghost-layer]'), 'Ghosts OFF: hidden layers are not drawn, and a note says so in words', (q('[data-hidden-note]') || {}).textContent);
-  const gt = q('[data-ghost-toggle]');
-  check(gt && gt.getAttribute('aria-pressed') === 'false' && /Ghosts: OFF/.test(gt.textContent), 'the Ghosts toggle says Ghosts: OFF by default');
+  const gt = menuItem('data-view-menu', 'data-ghost-toggle');
+  check(gt && gt.getAttribute('aria-checked') === 'false' && /Ghosts/.test(gt.textContent) && !gt.querySelector('.b5-menu__check svg'), 'Ghosts is a View-menu checkbox, unchecked (no check) by default');
   click(gt);
   const ghostLayers = qa('[data-ghost-layer]').map(l => l.getAttribute('data-ghost-layer'));
-  check(same(ghostLayers, ['floor', 'unplaced']) && /Ghosts: ON/.test(gt.textContent), 'Ghosts ON draws the layers not shown as ghost layers', ghostLayers);
+  const gt2 = menuItem('data-view-menu', 'data-ghost-toggle');
+  check(same(ghostLayers, ['floor', 'unplaced']) && gt2.getAttribute('aria-checked') === 'true' && !!gt2.querySelector('.b5-menu__check svg'), 'Ghosts ON draws the layers not shown as ghost layers (item checked, with its check)', ghostLayers);
   check(qa('[data-ghost-layer] button').length === 0 && qa('[data-ghost-layer] [data-select-entry]').length === 0, 'ghosts are never buttons: not selectable while filtered');
   const gtile = q('[data-ghost-item="it-WASH"]');
   check(!!gtile && /Outside layer/.test(gtile.textContent) && /WASH 1/.test(gtile.textContent) && !!gtile.querySelector('use'), 'a ghost is a glyph, its name and the words "Outside layer"', gtile && gtile.textContent);
   check(/not selectable/.test(q('[data-ghost-layer="floor"]').getAttribute('aria-label')), 'the ghost layer says "not selectable" to assistive tech');
-  click(gt);
+  click(menuItem('data-view-menu', 'data-ghost-toggle'));
 
   // ---- 5. group tile and chip ----------------------------------------------------
   const gTile = grid().querySelector('[data-select-group="g1"]');
@@ -226,7 +234,7 @@ function boot() {
 
   // ---- 6. lasso -----------------------------------------------------------------
   const lt = q('[data-lasso-toggle]');
-  check(lt && lt.getAttribute('aria-pressed') === 'false' && /Lasso: OFF/.test(lt.textContent), 'Lasso is a mode toggle, OFF by default, said in words');
+  check(lt && lt.getAttribute('aria-pressed') === 'false' && /Lasso/.test(lt.textContent) && !lt.querySelector('.b5-toggle__check svg'), 'Lasso is a mode toggle, OFF by default (no check)');
   const box = (id, x, y) => { holder(id).getBoundingClientRect = () => ({ left: x, top: y, right: x + 90, bottom: y + 90, width: 90, height: 90, x, y }); };
   box('MH1', 100, 100); box('MH2', 196, 100); box('WASH', 100, 300); box('BAR', 196, 300);
   const ptr = (type, x, y, init) => grid().dispatchEvent(new Event(type, Object.assign({ bubbles: true, clientX: x, clientY: y, pointerId: 3, button: 0, pointerType: 'touch' }, init || {})));
@@ -235,7 +243,7 @@ function boot() {
   await tick();
   check(posts.length === n0, 'Lasso OFF: a drag on the plan selects nothing (it scrolls)');
   click(lt);
-  check(lt.getAttribute('aria-pressed') === 'true' && /Lasso: ON/.test(lt.textContent) && q('#consoleRoot').classList.contains('is-lasso'), 'Lasso: ON — the grid takes the drag (is-lasso: touch-action none)');
+  check(lt.getAttribute('aria-pressed') === 'true' && !!lt.querySelector('.b5-toggle__check svg') && q('#consoleRoot').classList.contains('is-lasso'), 'Lasso ON (pressed, with its check) — the grid takes the drag (is-lasso: touch-action none)');
   ptr('pointerdown', 90, 90); ptr('pointermove', 200, 150);
   check(!q('[data-lasso-box]').hidden, 'the lasso box is drawn while dragging');
   ptr('pointerup', 250, 150);
@@ -256,9 +264,9 @@ function boot() {
   tile('MH1').dispatchEvent(new Event('keydown', { bubbles: true, key: 'Escape' }));
   check(lt.getAttribute('aria-pressed') === 'false' && !q('#consoleRoot').classList.contains('is-lasso'), 'Escape turns Lasso off');
   click(lt);
-  click(q('[data-edit-toggle]'));
+  click(menuItem('data-view-menu', 'data-edit-toggle'));
   check(lt.getAttribute('aria-pressed') === 'false' && lt.disabled, 'edit mode turns Lasso off and disables it (an edit drag moves items, never lassos)');
-  click(q('[data-edit-toggle]'));
+  click(menuItem('data-view-menu', 'data-edit-toggle'));
 
   console.log(failures ? failures + ' failure(s)' : 'all passed');
   process.exit(failures ? 1 : 0);
