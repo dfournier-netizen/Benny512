@@ -1,6 +1,16 @@
 # Benny512 — Session Handoff Brief (current)
 
-**Last updated:** 2026-10-20 15:29:10 -0400
+**Last updated:** 2026-11-16 16:38:23 -0500
+
+## Current delta — review of the tree and next-work brief (`chore/l1-review-brief`, on top of K4)
+
+Review session 2026-11-16 16:38:23 -0500 on the desktop. `main` (`e45a0b0`) and `main` + K1–K4 both pass gofmt, vet, build, the full test suite and `node --check` in the Linux sandbox (Go 1.26, Node 22); `-race` and the Windows cross-build were run on `main` only. A `--demo` build of K4 was opened in Chromium on all eight screens at 1440, 1024 and 390 px: no console errors, no failed requests, no page-level horizontal scroll. **K1–K4 had not been applied on the desktop** (patches still in `dist/_incoming/k1..k4`, no `feat/k*` branch; GitHub not checked).
+
+Changed: removed the unused `protocolName` from `internal/web/output.go` (no caller anywhere; build, vet and tests unchanged). Nothing else in production code.
+
+**Next work is in `docs/plans/next-work-brief_2026-11-16_1637.md`**: owner actions (merge K1–K4, tag v0.3.0, bench), then K5, K6–K8, the ACK_TIMER/QUEUED_MESSAGE loop, a rewrite of this handoff, the two manuals, open items and the bench backlog. Two K5 findings are recorded there (Unplaced layer scrolls sideways under Fit below 1440 px; one tile clips at 1024/1280).
+
+Not done: no Windows-native run, no hardware.
 
 ## Current delta — K4 Tests tab (`feat/k4-tests-tab`, on top of K3) → v0.3.0
 

@@ -59,16 +59,6 @@ func protocolsFor(name string) (session.OutputProtocols, bool) {
 	return 0, false
 }
 
-func protocolName(p session.OutputProtocols) string {
-	switch p {
-	case session.OutputSACN:
-		return protocolSACN
-	case session.OutputBoth:
-		return protocolBoth
-	}
-	return protocolArtNet
-}
-
 // normalizeOutputSettings fills the Output fields' defaults and refuses any
 // value the engine does not know. An absent leaseLossAction (a client that
 // predates C3, or a settings file written before it) is Blackout: the safe
