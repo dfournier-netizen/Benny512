@@ -451,9 +451,10 @@
 @media (min-width: 1024px) and (max-width: 1279px) {
   #consoleRoot .b5-con-tools > .b5-con-chips { display: none; }
   #consoleRoot .b5-con-layerselect { display: inline-flex; max-width: 7rem; }
-  /* M3 (owner 2026-11-17): the Plan button needs room too, so the zoom slider
-     and the Layer selector give up some width; Windows stays on the row. */
-  #consoleRoot .b5-con-zoomslider { width: 2.2rem; }
+  /* M3 (owner 2026-11-17): the Arrange button needs room too, so below 1280 px
+     the zoom slider is hidden (− / +, Fit and Ctrl+wheel/pinch still zoom) and
+     the Layer selector gives up some width; Windows stays on the row. */
+  #consoleRoot .b5-con-zoomslider { display: none; }
   /* K3: room for Windows on the one row (W1 §2: decorative icons go first;
      the words stay). */
   #consoleRoot .b5-con-tools .b5-menu__trigger > svg:not(.b5-menu__chev), #consoleRoot [data-lasso-toggle] > .b5-con-ic { display: none; }

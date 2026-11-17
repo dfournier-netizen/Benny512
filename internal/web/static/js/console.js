@@ -347,10 +347,10 @@ const ConsoleScreen = (() => {
     // M3 (owner 2026-11-17): the Plan button right after View opens a small
     // non-modal panel (Scale slider, Arrange from 3D). Word only, no icon or
     // chevron, so it adds as little width as possible at 1024 px.
-    els.planMenu = h('button', { type: 'button', class: 'b5-btn b5-con-planbtn', 'data-plan-menu': '', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-controls': 'conPlanPanel', text: 'Plan',
-      title: 'Plan: the scale of the plan, and placing fixtures from their MVR positions' });
+    els.planMenu = h('button', { type: 'button', class: 'b5-btn b5-con-planbtn', 'data-plan-menu': '', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-controls': 'conPlanPanel', text: 'Arrange',
+      title: 'Arrange: the scale of the plan, and placing fixtures from their MVR positions' });
     els.planMenu.addEventListener('click', () => togglePlan());
-    els.planPanel = h('section', { class: 'b5-con-actpanel b5-con-planpanel', id: 'conPlanPanel', role: 'dialog', 'aria-label': 'Plan', 'data-plan-panel': '', hidden: true });
+    els.planPanel = h('section', { class: 'b5-con-actpanel b5-con-planpanel', id: 'conPlanPanel', role: 'dialog', 'aria-label': 'Arrange', 'data-plan-panel': '', hidden: true });
     els.planPanel.addEventListener('keydown', ev => { if (ev.key === 'Escape' && st.planOpen) { if (ev.preventDefault) ev.preventDefault(); closePlan(true); } });
     els.planBtn = seg('Plan', true, { 'data-spacing': 'plan', title: 'Plan: the spacing of the plan (MVR positions or your placements)' }, () => setSpacing('plan'));
     els.compactBtn = seg('Compact', false, { 'data-spacing': 'compact', title: 'Compact: empty rows and columns removed, so fixtures close up in their arrangement. Display only — the plan is not changed.' }, () => setSpacing('compact'));
@@ -1481,7 +1481,9 @@ const ConsoleScreen = (() => {
     }
   }
 
-  // --- M3 (owner 2026-11-17): the Plan panel ----------------------------------
+  // --- M3 (owner 2026-11-17): the Arrange panel (Scale + Arrange from 3D) ----
+  // Named "Arrange" by the owner so it is not a second "Plan" beside the
+  // Plan | Compact spacing toggle; code keeps the plan* names.
   // Scale (mm per grid square, the whole plan moves, tiles keep their size)
   // and Arrange from 3D (selection, or every fixture). Non-modal, built once
   // when opened and refreshed by syncPlan; usable in edit mode and on the

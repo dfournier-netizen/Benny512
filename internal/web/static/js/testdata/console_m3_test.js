@@ -96,7 +96,7 @@ function boot(cellMm) {
 
   // ---- the button and the panel ---------------------------------------------
   const plan = q('[data-plan-menu]');
-  check(!!plan && plan.textContent.trim() === 'Plan', 'a Plan button exists', plan && plan.textContent);
+  check(!!plan && plan.textContent.trim() === 'Arrange', 'the Arrange button exists (owner named it so it is not a second "Plan")', plan && plan.textContent);
   check(plan && plan.getAttribute('aria-haspopup') === 'dialog' && plan.getAttribute('aria-expanded') === 'false', 'Plan has aria-haspopup=dialog and starts collapsed');
   const row = [...q('.b5-con-toolset').children];
   const view = q('[data-view-menu]').closest('.b5-menu');
@@ -106,7 +106,7 @@ function boot(cellMm) {
   click(plan);
   const panel = q('[data-plan-panel]');
   check(plan.getAttribute('aria-expanded') === 'true', 'clicking Plan sets aria-expanded=true');
-  check(!!panel && !panel.hidden && panel.getAttribute('role') === 'dialog' && panel.getAttribute('aria-label') === 'Plan', 'the panel appears with role=dialog and label Plan');
+  check(!!panel && !panel.hidden && panel.getAttribute('role') === 'dialog' && panel.getAttribute('aria-label') === 'Arrange', 'the panel appears with role=dialog and label Arrange');
   check(/mm per grid square\. Changes the plan for everyone using this show; fixture tiles keep their size\./.test(panel.textContent), 'the Scale caption is shown');
   check(/Puts fixtures where the MVR file places them\. Placed groups and objects stay\. No DMX changes\./.test(panel.textContent), 'the Arrange caption is shown');
   key(panel, 'Escape');
