@@ -277,7 +277,8 @@ const FILES = ['api.js', 'ws.js', 'programmer.js', 'ui.js', 'console-tests.js', 
   check(gets(LAY) > g0, 'another browser\'s layout edit makes this Console re-read GET /api/patch/layout (layout broadcast)');
   check(chips().some(t => /Remote/.test(t)), 'the new layer is on the grid without pressing Reload', chips());
 
-  click(document.querySelector('[data-edit-toggle]'));
+  // K2: Edit layout is in the View menu (W1 §2).
+  { const t = document.querySelector('[data-view-menu]'); click(t); click(t.closest('.b5-menu').querySelector('[data-edit-toggle]')); }
   await until('edit mode', () => document.querySelector('[data-layer-create]'));
   await sleep(150);
   g0 = gets(LAY);

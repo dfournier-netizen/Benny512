@@ -1,6 +1,26 @@
 # Benny512 — Session Handoff Brief (current)
 
-**Last updated:** 2026-10-19 21:36:47 -0400
+**Last updated:** 2026-10-19 22:02:16 -0400
+
+## Current delta — K2 Console workspace (`feat/k2-console-workspace`, on top of K1)
+
+**K2 done (W1 §2, §3, §5, §6, §7):**
+- **Toolbar, one row from 1024 px:** layer chips (a single Layer selector at 1024–1279) · Plan | Compact · Fit | − | + · Lasso · Add · **Select ▾** (Select all / none / Invert) · **View ▾** (Ghosts, Names on tiles, Edit layout, Reload layout). Below 1024 the tools keep their own line under the chips (a phone scrolls it sideways).
+- **Toggles** use the W1 ON grammar everywhere: check + bold word + 2 px border + pressed. They no longer read "X: ON/OFF".
+- **Compact** removes every empty row AND column. It is display only, and edit mode always draws Plan.
+  - **Deviation from W1 §5 (recorded):** W1 proposed packing each row left to right. On the owner's MVR-derived show the trusses run down the plan (cols 1–2, 20, 37–38; rows 5–57), so each row held one to five fixtures and packing broke the truss lines apart.
+- **Fit** is on by default and fits the drawn layers to the grid pane: cells 86–160 px, the floor wins. − / + turn Fit off and step the zoom.
+- **Per-browser memory:** spacing, Fit, zoom and Names are remembered in `benny512.console.view`.
+- **Tiles** lead with the fixture number (bold, never cut; the name when there is no number) and the short type (GDTF ShortName). The full name and type are in the accessible name and the tooltip. An HL tag shows on highlighted selected tiles. Only placement words that need attention stay visible ("no position"; "auto" moved to the accessible name). On a fine pointer, cell segments can be 22 px.
+- **Selection bar, one row:** a summary by short type with contiguous fixture-number runs only, then Clear… · Highlight · Level · Locate · **More ▾** (Lowlight, Fan…, Store group…, Open Tests). The More items press the bar's own buttons.
+- **Workspace from 1024 px:** sized to the window between the chrome and the fader bar; grid | side pane (440 px), each scrolling inside itself. The page title and help sentence, the grid heading, an empty "no stored groups" row and the Selection order list (it moves to a window in K3) are not drawn there.
+- **`UI.menu` panels** are now fixed to the viewport (never clipped by a scrolling container) and close when the page scrolls.
+- **Measured at 1440×900 on the owner's show:** grid 948×573 px (was about 250 px visible); no page scroll; the Plan view still scrolls inside the pane at the 86 px floor (the plan is 41×63 cells).
+
+**Not yet:**
+- dock, floating windows, Selection order / Groups & presets / MIDI windows, the Beam/Gobo tab wrap (K3)
+- the Tests tab (K4)
+- intensity bars, SET/TEST tags and the colour swatch, which need the read-only engine report (K5)
 
 ## Current delta — K1 app chrome (`feat/k1-app-chrome`)
 

@@ -78,6 +78,16 @@ async function server(method, p, body) {
   const badge = id => { const t = tile(id); const b = t && t.querySelector('[data-badge]'); return b && !b.hidden ? b.textContent : ''; };
   const selState = () => (B.get('ProgrammerSync.state()') || { selection: [] }).selection.map(s => s.entryId + (s.cell ? '/' + s.cell : ''));
   const click = (el, init) => el.dispatchEvent(new Event('click', Object.assign({ bubbles: true }, init || {})));
+  // K2: Select all / none / Invert are in the Select menu and Edit layout,
+  // Ghosts and Reload in the View menu (W1 §2). menuItem opens the menu and
+  // returns the item (a real menu button carrying the same data-* hook).
+  const menuItem = (menu, item) => {
+    const t = document.querySelector('[' + menu + ']');
+    if (t.getAttribute('aria-expanded') !== 'true') click(t);
+    return document.querySelector('[' + menu + ']').closest('.b5-menu').querySelector('[' + item + ']');
+  };
+  const closeMenus = () => document.querySelectorAll('.b5-menu__trigger[aria-expanded="true"]').forEach(t => click(t));
+  const editOn = () => !document.querySelector('[data-modebar]').hidden;
   const ptr = (el, type, x, y) => el.dispatchEvent(new Event(type, { bubbles: true, clientX: x, clientY: y, pointerId: 7, button: 0, pointerType: 'touch' }));
 
   check(!!document.getElementById('consoleRoot'), 'index.html carries the Console screen root (#consoleRoot inside #screen-console)');
@@ -94,12 +104,16 @@ async function server(method, p, body) {
   const chips = document.querySelectorAll('[data-layer-chip]').map(c => c.getAttribute('data-layer-chip'));
   check(chips.length === 4 && chips[0] === 'all' && chips[3] === 'unplaced', 'layer chips after the import are All + two derived heights + Unplaced (derived automatically)', chips);
   check(['B1', 'B2', 'L1', 'P1', 'G1'].every(n => tile(ids[n])), 'every patched fixture has a selectable tile');
+  // K2: the tile draws only the words that need attention ("no position");
+  // "auto" stays in the accessible name with the number.
   const g1meta = tile(ids.G1).closest('[data-item-id]').querySelector('.b5-con-tile__meta').textContent;
-  check(/auto/.test(g1meta) && /no position/.test(g1meta), 'an unplaced fixture says so in words ("auto", "no position")', g1meta);
+  const g1name = tile(ids.G1).getAttribute('aria-label');
+  check(/no position/.test(g1meta) && /auto/.test(g1name) && /no position/.test(g1name), 'an unplaced fixture says so in words ("no position" on the tile; "auto" and "no position" in its name)', [g1meta, g1name]);
 
   // Edit mode is OFF by default.
-  const toggle = document.querySelector('[data-edit-toggle]');
-  check(toggle.getAttribute('aria-pressed') === 'false' && /OFF/.test(toggle.textContent), 'layout edit mode is OFF by default, said in words', toggle.textContent);
+  const toggle = menuItem('data-view-menu', 'data-edit-toggle');
+  check(toggle.getAttribute('aria-checked') === 'false' && toggle.getAttribute('role') === 'menuitemcheckbox' && /Edit layout/.test(toggle.textContent), 'layout edit mode is OFF by default (View menu: Edit layout, unchecked)', toggle.textContent);
+  closeMenus();
   check(document.querySelector('[data-modebar]').hidden, 'the edit-mode bar is hidden while editing is off');
   check(!!document.querySelector('[data-controls-region]') && /arrive next/.test(document.querySelector('[data-controls-region]').textContent), 'a marked, empty controls region says controls arrive next (C6b)');
 
@@ -115,7 +129,7 @@ async function server(method, p, body) {
   check(badge(ids.B1) === '1' && badge(ids.B2) === '2', 'selection order is drawn: B1 = 1, B2 = 2', [badge(ids.B1), badge(ids.B2)]);
 
   click(document.querySelector('[data-add-mode]'));
-  check(document.querySelector('[data-add-mode]').getAttribute('aria-pressed') === 'true' && /ON/.test(document.querySelector('[data-add-mode]').textContent), 'Add mode toggle (no modifier keys needed) says ON');
+  check(document.querySelector('[data-add-mode]').getAttribute('aria-pressed') === 'true' && document.querySelector('[data-add-mode]').classList.contains('is-on') && !!document.querySelector('[data-add-mode] .b5-toggle__check svg'), 'Add toggle (no modifier keys needed) is ON: pressed, with its check');
   click(tile(ids.L1));
   await until('L1 selected', () => badge(ids.L1));
   click(tile(ids.B1));
@@ -156,15 +170,15 @@ async function server(method, p, body) {
   check(same(lastPost(SEL).body, { action: 'set', layer: 'unplaced' }), 'Select this layer: {action:set, layer:unplaced}', lastPost(SEL).body);
   click(document.querySelector('[data-layer-chip="unplaced"]'));
   check(grid().querySelectorAll('[data-layer-block]').length === 1 && document.querySelector('[data-layer-chip="unplaced"]').getAttribute('aria-pressed') === 'true', 'a layer chip filters the grid to that layer');
-  check(/Unplaced/.test(document.querySelector('[data-select-all]').textContent), 'with a layer shown, Select all names the layer', document.querySelector('[data-select-all]').textContent);
-  click(document.querySelector('[data-select-none]'));
+  check(/Unplaced/.test(menuItem('data-select-menu', 'data-select-all').textContent), 'with a layer shown, Select all names the layer', menuItem('data-select-menu', 'data-select-all').textContent);
+  click(menuItem('data-select-menu', 'data-select-none'));
   await until('none selected', () => selState().length === 0);
   check(same(lastPost(SEL).body, { action: 'none' }), 'Select none: {action:none}');
-  click(document.querySelector('[data-select-all]'));
+  click(menuItem('data-select-menu', 'data-select-all'));
   await until('the layer re-selected', () => selState().length === 1);
   check(same(lastPost(SEL).body, { action: 'set', layer: 'unplaced' }), 'Select all on a shown layer selects that layer', lastPost(SEL).body);
   click(document.querySelector('[data-layer-chip="all"]'));
-  click(document.querySelector('[data-select-all]'));
+  click(menuItem('data-select-menu', 'data-select-all'));
   await until('all selected', () => same(lastPost(SEL).body, { action: 'all' }));
   check(same(lastPost(SEL).body, { action: 'all' }), 'Select all fixtures with All layers shown: {action:all}');
 
@@ -192,7 +206,7 @@ async function server(method, p, body) {
   check(/Front pair/.test(chip.textContent) && /all selected/.test(chip.textContent), 'the group chip says its state in words', chip.textContent);
   // I2d §15: the bar's Clear… is the programmer scope chooser; emptying
   // the selection is Select none in the selection tools.
-  click(document.querySelector('[data-select-none]'));
+  click(menuItem('data-select-menu', 'data-select-none'));
   await until('cleared', () => selState().length === 0);
   check(same(lastPost(SEL).body, { action: 'none' }), 'Select none: {action:none}');
   click(document.querySelector('[data-group-chip]'));
@@ -200,8 +214,8 @@ async function server(method, p, body) {
   check(same(lastPost(SEL).body, { action: 'set', group: chip.getAttribute('data-group-chip') }), 'tap a stored group: {action:set, group:id}', lastPost(SEL).body);
   check(same(selState(), [ids.B1, ids.B2]), 'the group selects its members in stored order', selState());
   click(document.querySelector('[data-highlight]'));
-  await until('highlight on', () => /ON/.test(document.querySelector('[data-highlight]').textContent));
-  check(same(lastPost('/api/programmer/highlight').body, { highlight: true }) && document.querySelector('[data-highlight]').getAttribute('aria-pressed') === 'true', 'Highlight toggle posts {highlight:true} and says Highlight: ON');
+  await until('highlight on', () => document.querySelector('[data-highlight]').getAttribute('aria-pressed') === 'true');
+  check(same(lastPost('/api/programmer/highlight').body, { highlight: true }) && document.querySelector('[data-highlight]').classList.contains('is-on') && !!document.querySelector('[data-highlight] .b5-toggle__check svg'), 'Highlight toggle posts {highlight:true} and shows ON (pressed, with its check)');
   click(document.querySelector('[data-locate]'));
   await until('locate posted', () => posts('/api/programmer/locate').length === 1);
   check(same(lastPost('/api/programmer/locate').body, {}), 'Locate posts for the current selection ({})');
@@ -217,8 +231,9 @@ async function server(method, p, body) {
   check(layoutPosts().length === 0 && calls.filter(c => c.method === 'POST').length === before, 'edit mode OFF: a drag on a tile sends nothing at all');
 
   // --- edit mode ON ----------------------------------------------------------
-  click(toggle);
-  check(toggle.getAttribute('aria-pressed') === 'true' && !document.querySelector('[data-modebar]').hidden && !document.querySelector('[data-editpanel]').hidden, 'Edit layout: ON shows the mode bar and the edit panel');
+  click(menuItem('data-view-menu', 'data-edit-toggle'));
+  check(editOn() && !document.querySelector('[data-editpanel]').hidden && menuItem('data-view-menu', 'data-edit-toggle').getAttribute('aria-checked') === 'true', 'Edit layout ON shows the mode bar and the edit panel (and the View item is checked)');
+  closeMenus();
   click(document.querySelector('[data-derive]'));
   await until('derive', () => document.querySelectorAll('[data-layer-chip]').length > 2);
   check(same(lastPost('/api/patch/layout/derive').body, {}), 'Derive from positions posts derive {}');
@@ -298,7 +313,7 @@ async function server(method, p, body) {
 
   // Done editing: taps select again; leaving the screen sends nothing.
   click(document.querySelector('[data-edit-done]'));
-  check(toggle.getAttribute('aria-pressed') === 'false' && document.querySelector('[data-editpanel]').hidden, 'Done editing turns edit mode off');
+  check(!editOn() && document.querySelector('[data-editpanel]').hidden, 'Done editing turns edit mode off');
   const n0 = calls.filter(c => c.method === 'POST').length;
   B.get('ConsoleScreen').onLeaveScreen();
   await sleep(100);
