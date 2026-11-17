@@ -522,6 +522,11 @@
   .b5-win .b5-con-order { border: none; padding: 0; }
   .b5-win .b5-con-order__list { max-height: none; }
   .b5-win .b5-con-groupwin { display: flex; flex-direction: column; gap: var(--b5-space-2); }
+  /* The chips' base rule (flex: 1 1 0, overflow-x: auto) is for a toolbar
+     ROW; in this COLUMN it made the list's height 0 and clipped it to a 4 px
+     sliver (owner report 2026-11-17). In the window the list takes its own
+     height and wraps; the window body scrolls. */
+  .b5-win .b5-con-groupwin > .b5-con-chips { flex: none; overflow: visible; padding-bottom: 0; }
   #consoleRoot .b5-win .b5-con-chips { flex-wrap: wrap; }
   #consoleRoot .b5-win .b5-con-chips .b5-con-chipnote { display: inline; }
   .b5-win .b5-con-tools, .b5-win .b5-con-tests { margin-top: var(--b5-space-3); }
