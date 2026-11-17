@@ -77,6 +77,10 @@ const ConsoleScreen = (() => {
     // run across the screen. Which way reads naturally depends on the show.
     rotate: 0,
     drawn: new Map(),      // M1: item id -> {col, row} drawn (snapped), for drags and arrow keys
+    // M2 (owner 2026-11-17): two per-browser view switches, both on by default.
+    // snap off = draw stored positions exactly and move freely; grid off =
+    // hide the square grid. Display only: the stored plan never changes.
+    snap: true, grid: true,
   };
   const VIEW_KEY = 'benny512.console.view';
   try {
@@ -86,12 +90,14 @@ const ConsoleScreen = (() => {
       if (typeof v.fit === 'boolean') st.fit = v.fit;
       if (typeof v.names === 'boolean') st.names = v.names;
       if (v.rotate === 90 || v.rotate === 270) st.rotate = v.rotate;
+      if (typeof v.snap === 'boolean') st.snap = v.snap;
+      if (typeof v.grid === 'boolean') st.grid = v.grid;
       if (typeof v.cell === 'number' && isFinite(v.cell) && v.cell > 0) st.cell = v.cell;
       else if (typeof v.zoom === 'number' && v.zoom >= 0 && v.zoom < ZOOMS.length) st.cell = ZOOMS[v.zoom];
     }
   } catch (_) { /* no storage: defaults */ }
   function saveView() {
-    try { localStorage.setItem(VIEW_KEY, JSON.stringify({ spacing: st.spacing, fit: st.fit, names: st.names, cell: st.cell, rotate: st.rotate })); } catch (_) { /* best effort */ }
+    try { localStorage.setItem(VIEW_KEY, JSON.stringify({ spacing: st.spacing, fit: st.fit, names: st.names, cell: st.cell, rotate: st.rotate, snap: st.snap, grid: st.grid })); } catch (_) { /* best effort */ }
   }
   // Compact is display only and editing needs the real plan, so edit mode
   // always draws Plan (and says so in the toolbar).
@@ -326,6 +332,9 @@ const ConsoleScreen = (() => {
       { label: 'Ghosts', checked: st.ghosts, attrs: { 'data-ghost-toggle': '' }, title: 'Ghosts: draw the layers not shown as dashed outlines. They cannot be selected.', onSelect: () => { st.ghosts = !st.ghosts; renderTools(); renderGrid(); } },
       { label: 'Rotate 90° right', checked: rotated() === 90, disabled: st.edit, attrs: { 'data-rotate-toggle': 'cw' }, title: rotateTitle('clockwise'), onSelect: () => setRotate(st.rotate === 90 ? 0 : 90) },
       { label: 'Rotate 90° left', checked: rotated() === 270, disabled: st.edit, attrs: { 'data-rotate-toggle': 'ccw' }, title: rotateTitle('counterclockwise'), onSelect: () => setRotate(st.rotate === 270 ? 0 : 270) },
+      // M2 (owner 2026-11-17): view switches, usable in edit mode too.
+      { label: 'Snap to half squares', checked: st.snap, attrs: { 'data-snap-toggle': '' }, title: 'On: fixtures sit on half squares and overlapping tiles are moved apart on screen. Off: fixtures are drawn exactly where they are stored and may overlap; drags and arrow keys move freely.', onSelect: () => { st.snap = !st.snap; saveView(); renderGrid(); } },
+      { label: 'Grid', checked: st.grid, attrs: { 'data-grid-toggle': '' }, title: 'Draw the square grid behind the plan. Display only.', onSelect: () => { st.grid = !st.grid; saveView(); renderGrid(); } },
       { label: 'Names on tiles', checked: st.names, attrs: { 'data-names-toggle': '' }, title: 'The short fixture type under each fixture number', onSelect: () => { st.names = !st.names; saveView(); renderGrid(); } },
       { separator: true },
       { label: 'Edit layout', checked: st.edit, icon: 'grid-snap', attrs: { 'data-edit-toggle': '' }, disabled: st.mode === 'tests', title: st.mode === 'tests' ? 'Edit the layout on the Console' : 'Move, resize and place fixtures and objects on the plan. Nothing is selected and no light moves while editing.', onSelect: () => setEdit(!st.edit) },
@@ -763,8 +772,13 @@ const ConsoleScreen = (() => {
     // in a packed view and are left out of it.
     const rot = rotated();
     st.drawn = new Map();
+    // M2: Snap off draws stored positions exactly; st.drawn still holds them
+    // so shift() has its base.
+    els.grid.classList.toggle('is-grid-off', !st.grid);
     const lists = drawn.map(ly => {
-      const raw = snapItems(items().filter(it => it.layer === ly.id && !stale.has(it.id)));
+      const mine = items().filter(it => it.layer === ly.id && !stale.has(it.id));
+      if (!st.snap) mine.forEach(it => { if (it.kind !== 'object') st.drawn.set(it.id, { col: it.col, row: it.row }); });
+      const raw = st.snap ? snapItems(mine) : mine;
       const list = compact ? compactItems(raw.filter(it => it.kind !== 'object')) : raw;
       return rot ? list.map(it => rotateItem(it, rot)) : list;
     });
@@ -790,7 +804,8 @@ const ConsoleScreen = (() => {
       if (!isShown(ly.id)) { els.grid.appendChild(ghostLayer(ly, list, b, cell, n)); continue; }
       const height = (ly.system ? 'fixtures with no place on the plan yet' : heightWords(ly)) +
         (compact ? ' · compact — empty rows and columns removed, real spacing ignored' : '') +
-        (rot ? ' · rotated 90° ' + (rot === 90 ? 'clockwise' : 'counterclockwise') : '');
+        (rot ? ' · rotated 90° ' + (rot === 90 ? 'clockwise' : 'counterclockwise') : '') +
+        (st.snap ? '' : ' · snapping off — exact positions');
       const canvas = h('div', { class: 'b5-con-canvas', 'data-canvas': ly.id,
         style: { width: ((b.c1 - b.c0) * cell) + 'px', height: ((b.r1 - b.r0) * cell) + 'px',
           'background-position': (-b.c0 * cell) + 'px ' + (-b.r0 * cell) + 'px' } });
@@ -1388,7 +1403,10 @@ const ConsoleScreen = (() => {
     const it = itemById(d.id);
     if (!it) return;
     const step = SNAP; // M1: half squares for fixtures and groups as for objects
-    const dc = Math.round(dx / cellPx() / step) * step, dr = Math.round(dy / cellPx() / step) * step;
+    // M2 (owner 2026-11-17): Snap off drops exactly where it was released.
+    const r3 = v => Math.round(v * 1000) / 1000;
+    const dc = st.snap ? Math.round(dx / cellPx() / step) * step : r3(dx / cellPx());
+    const dr = st.snap ? Math.round(dy / cellPx() / step) * step : r3(dy / cellPx());
     st.editId = it.id;
     if (dc || dr) shift(it, dc, dr);
     else renderEdit();
@@ -1403,7 +1421,9 @@ const ConsoleScreen = (() => {
     const it = itemById(hold.id);
     if (!it) return;
     if (ev.preventDefault) ev.preventDefault();
-    const step = SNAP;
+    // M2 (owner 2026-11-17): Shift = one square in both modes; otherwise a
+    // half square with Snap on, a tenth with it off.
+    const step = ev.shiftKey ? 1 : st.snap ? SNAP : 0.1;
     st.editId = it.id;
     shift(it, d[0] * step, d[1] * step);
   }
@@ -1413,8 +1433,9 @@ const ConsoleScreen = (() => {
   // far away, so what you see is what moves.
   function shift(it, dc, dr) {
     if (it.kind === 'object') return edit('object-update', { id: it.id, geometry: moved(it.geometry, dc, dr) }, 'Moved ' + itemName(it) + '.');
-    const at = st.drawn.get(it.id) || { col: Math.round(it.col / SNAP) * SNAP, row: Math.round(it.row / SNAP) * SNAP };
-    return edit('move', { id: it.id, col: at.col + dc, row: at.row + dr }, 'Moved ' + itemName(it) + '.');
+    const at = st.drawn.get(it.id) || (st.snap ? { col: Math.round(it.col / SNAP) * SNAP, row: Math.round(it.row / SNAP) * SNAP } : { col: it.col, row: it.row });
+    // M2: round to 3 decimals so float noise (0.3 - 0.1) never reaches storage.
+    return edit('move', { id: it.id, col: Math.round((at.col + dc) * 1000) / 1000, row: Math.round((at.row + dr) * 1000) / 1000 }, 'Moved ' + itemName(it) + '.');
   }
   function geom(g) {
     const out = { col: g.col, row: g.row };
@@ -1423,8 +1444,10 @@ const ConsoleScreen = (() => {
   }
   function moved(g, dc, dr) {
     const out = geom(g);
-    out.col += dc; out.row += dr;
-    if (out.col2 !== undefined) { out.col2 += dc; out.row2 += dr; }
+    // M2: results rounded to 3 decimals so floats stay tidy.
+    const r3 = v => Math.round(v * 1000) / 1000;
+    out.col = r3(out.col + dc); out.row = r3(out.row + dr);
+    if (out.col2 !== undefined) { out.col2 = r3(out.col2 + dc); out.row2 = r3(out.row2 + dr); }
     return out;
   }
 
