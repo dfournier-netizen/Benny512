@@ -8,7 +8,7 @@
 //  2. Compact removes every empty row AND column (display only): fixtures
 //     close up and keep their arrangement; the stored layout is untouched;
 //     editing the layout always draws Plan.
-//  3. Fit is on by default; − / + turn it off and step the zoom; the
+//  3. Fit is on by default; − / + turn it off and step the zoom (x1.25, L2); the
 //     choices are remembered per browser.
 //  4. Tiles lead with the fixture number and the short type; Names on tiles
 //     hides the type line only; HL appears on highlighted selected tiles.
@@ -98,10 +98,10 @@ function boot(store) {
   // ---- 1. one toolbar row ------------------------------------------------------
   const row = q('.b5-con-tools');
   const order = [];
-  const walk = n => n.childNodes.forEach(c => { if (c.nodeType !== 1) return; const a = ['data-layer-chip', 'data-layer-select', 'data-spacing', 'data-fit', 'data-zoom-out', 'data-zoom-in', 'data-lasso-toggle', 'data-add-mode', 'data-select-menu', 'data-view-menu'].find(x => c.hasAttribute(x)); if (a) order.push(a + (a === 'data-spacing' ? '=' + c.getAttribute(a) : '')); else walk(c); });
+  const walk = n => n.childNodes.forEach(c => { if (c.nodeType !== 1) return; const a = ['data-layer-chip', 'data-layer-select', 'data-spacing', 'data-fit', 'data-zoom-out', 'data-zoom-slider', 'data-zoom-in', 'data-lasso-toggle', 'data-add-mode', 'data-select-menu', 'data-view-menu'].find(x => c.hasAttribute(x)); if (a) order.push(a + (a === 'data-spacing' ? '=' + c.getAttribute(a) : '')); else walk(c); });
   walk(row);
   const firstOf = [...new Set(order)];
-  check(same(firstOf, ['data-layer-chip', 'data-layer-select', 'data-spacing=plan', 'data-spacing=compact', 'data-fit', 'data-zoom-out', 'data-zoom-in', 'data-lasso-toggle', 'data-add-mode', 'data-select-menu', 'data-view-menu']),
+  check(same(firstOf, ['data-layer-chip', 'data-layer-select', 'data-spacing=plan', 'data-spacing=compact', 'data-fit', 'data-zoom-out', 'data-zoom-slider', 'data-zoom-in', 'data-lasso-toggle', 'data-add-mode', 'data-select-menu', 'data-view-menu']),
     'one row: layers, Plan | Compact, Fit | − | +, Lasso, Add, Select, View', firstOf);
   check(!q('[data-select-all]') && !q('[data-ghost-toggle]') && !q('[data-edit-toggle]'), 'Select all / Ghosts / Edit layout are no longer loose toolbar buttons (they are menu items)');
   check(q('[data-spacing="plan"]').getAttribute('aria-pressed') === 'true' && q('[data-fit]').getAttribute('aria-pressed') === 'true', 'defaults: Plan and Fit are ON');
@@ -125,7 +125,7 @@ function boot(store) {
 
   // ---- 3. Fit and zoom -------------------------------------------------------------
   click(q('[data-zoom-in]'));
-  check(q('[data-fit]').getAttribute('aria-pressed') === 'false' && same(at('W2'), ['128px', '0px']), '+ turns Fit off and steps up from the current size (96 -> 128 px)', at('W2'));
+  check(q('[data-fit]').getAttribute('aria-pressed') === 'false' && same(at('W2'), ['120px', '0px']), '+ turns Fit off and steps up from the current size by x1.25 (96 -> 120 px; L2)', at('W2'));
   click(q('[data-fit]'));
   check(q('[data-fit]').getAttribute('aria-pressed') === 'true', 'Fit turns back on');
   const B2 = boot({ 'benny512.console.view': B.window.localStorage.getItem('benny512.console.view') });

@@ -37,7 +37,12 @@
 // Leaving this screen changes nothing on the wire (C3 rule): output, the
 // programmer and the selection all carry on.
 const ConsoleScreen = (() => {
-  const ZOOMS = [64, 96, 128, 160];   // px per grid cell
+  // L2 (owner 2026-11-17): the zoom is a cell size in px, continuous between
+  // minCell() and MAX_CELL (Ctrl+wheel / pinch, the slider, − / +). ZOOMS
+  // is kept only to read a view saved by v0.3.0, which stored an index.
+  const ZOOMS = [64, 96, 128, 160];
+  const MAX_CELL = 160;
+  const ZOOM_STEP = 1.25;             // − / + multiply or divide by this
   const DRAG_SLOP = 8;                // px of travel before a press is a drag
   const st = {
     built: false, active: false, stale: true, loading: false,
@@ -50,7 +55,7 @@ const ConsoleScreen = (() => {
     shown: new Set(),
     ghosts: false,         // draw filtered-out layers as dashed, unselectable ghosts
     lasso: false,          // Lasso ON: a drag on the grid draws a selection box
-    zoom: 1,               // index into ZOOMS
+    cell: 96,              // L2: px per grid cell when Fit is off
     addMode: false,
     edit: false,
     editId: null,          // the item the edit panel works on
@@ -61,6 +66,10 @@ const ConsoleScreen = (() => {
     // the cells to the grid pane; − / + turn it off. Names: the short-type
     // line on each tile.
     spacing: 'plan', fit: true, fitCell: 0, names: true,
+    // L2: Rotate (display only, like Compact): 0, 90 (a quarter turn
+    // clockwise) or 270 (counterclockwise), so lines that run down the plan
+    // run across the screen. Which way reads naturally depends on the show.
+    rotate: 0,
   };
   const VIEW_KEY = 'benny512.console.view';
   try {
@@ -69,15 +78,19 @@ const ConsoleScreen = (() => {
       if (v.spacing === 'compact' || v.spacing === 'plan') st.spacing = v.spacing;
       if (typeof v.fit === 'boolean') st.fit = v.fit;
       if (typeof v.names === 'boolean') st.names = v.names;
-      if (typeof v.zoom === 'number' && v.zoom >= 0 && v.zoom < ZOOMS.length) st.zoom = v.zoom;
+      if (v.rotate === 90 || v.rotate === 270) st.rotate = v.rotate;
+      if (typeof v.cell === 'number' && isFinite(v.cell) && v.cell > 0) st.cell = v.cell;
+      else if (typeof v.zoom === 'number' && v.zoom >= 0 && v.zoom < ZOOMS.length) st.cell = ZOOMS[v.zoom];
     }
   } catch (_) { /* no storage: defaults */ }
   function saveView() {
-    try { localStorage.setItem(VIEW_KEY, JSON.stringify({ spacing: st.spacing, fit: st.fit, names: st.names, zoom: st.zoom })); } catch (_) { /* best effort */ }
+    try { localStorage.setItem(VIEW_KEY, JSON.stringify({ spacing: st.spacing, fit: st.fit, names: st.names, cell: st.cell, rotate: st.rotate })); } catch (_) { /* best effort */ }
   }
   // Compact is display only and editing needs the real plan, so edit mode
   // always draws Plan (and says so in the toolbar).
   function spacing() { return st.edit ? 'plan' : st.spacing;}
+  // Rotate is display only too: editing draws the plan the right way round.
+  function rotated() { return st.edit ? 0 : st.rotate; }
   const els = {};
   let drag = null;
 
@@ -129,11 +142,13 @@ const ConsoleScreen = (() => {
     return 44;
   }
   // K2: Fit (W1 §5) picks the cell size that fits the drawn layers into the
-  // grid pane, between FIT_MIN (the tile floor: FID, type and marks stay
-  // readable) and the largest zoom; the floor wins over fitting, and the
-  // pane then scrolls inside.
-  const FIT_MIN = 86;
-  function cellPx() { return st.fit && st.fitCell ? st.fitCell : ZOOMS[st.zoom]; }
+  // grid pane. L2 (owner 2026-11-17): its floor is now the zoom floor, so a
+  // whole rig fits; below 56 px a tile shows only its number (is-tiny).
+  // The floor is 28 px on a fine pointer and the touch minimum otherwise,
+  // so a tile stays tappable on a touchscreen.
+  function minCell() { return finePointer() ? 28 : touchMin(); }
+  function clampCell(px) { return Math.max(minCell(), Math.min(MAX_CELL, px)); }
+  function cellPx() { return st.fit && st.fitCell ? st.fitCell : clampCell(st.cell); }
 
   // --- in-app dialog (native prompt() fails in the embedded browser) --------
   // ask({title, body, field:{label, value, maxLength}, ok, danger}) resolves
@@ -302,6 +317,8 @@ const ConsoleScreen = (() => {
     ] }).el;
     els.viewMenu = UI.menu({ label: 'View', align: 'start', className: 'b5-con-menu', attrs: { 'data-view-menu': '' }, items: () => [
       { label: 'Ghosts', checked: st.ghosts, attrs: { 'data-ghost-toggle': '' }, title: 'Ghosts: draw the layers not shown as dashed outlines. They cannot be selected.', onSelect: () => { st.ghosts = !st.ghosts; renderTools(); renderGrid(); } },
+      { label: 'Rotate 90° right', checked: rotated() === 90, disabled: st.edit, attrs: { 'data-rotate-toggle': 'cw' }, title: rotateTitle('clockwise'), onSelect: () => setRotate(st.rotate === 90 ? 0 : 90) },
+      { label: 'Rotate 90° left', checked: rotated() === 270, disabled: st.edit, attrs: { 'data-rotate-toggle': 'ccw' }, title: rotateTitle('counterclockwise'), onSelect: () => setRotate(st.rotate === 270 ? 0 : 270) },
       { label: 'Names on tiles', checked: st.names, attrs: { 'data-names-toggle': '' }, title: 'The short fixture type under each fixture number', onSelect: () => { st.names = !st.names; saveView(); renderGrid(); } },
       { separator: true },
       { label: 'Edit layout', checked: st.edit, icon: 'grid-snap', attrs: { 'data-edit-toggle': '' }, disabled: st.mode === 'tests', title: st.mode === 'tests' ? 'Edit the layout on the Console' : 'Move, resize and place fixtures and objects on the plan. Nothing is selected and no light moves while editing.', onSelect: () => setEdit(!st.edit) },
@@ -316,6 +333,11 @@ const ConsoleScreen = (() => {
     els.fitBtn = seg('Fit', true, { 'data-fit': '', title: 'Fit: size the plan to the grid area' }, () => setFit(!st.fit));
     els.zoomOut = btn('−', { cls: 'b5-btn--sm b5-con-zoombtn', attrs: { 'data-zoom-out': '', 'aria-label': 'Zoom out', title: 'Zoom out (turns Fit off)' } }, () => zoom(-1));
     els.zoomIn = btn('+', { cls: 'b5-btn--sm b5-con-zoombtn', attrs: { 'data-zoom-in': '', 'aria-label': 'Zoom in', title: 'Zoom in (turns Fit off)' } }, () => zoom(1));
+    // L2: the zoom slider (cell size in px); Ctrl+wheel or a pinch on the
+    // plan does the same around the pointer.
+    els.zoomSlider = h('input', { type: 'range', class: 'b5-con-zoomslider', 'data-zoom-slider': '', min: '28', max: String(MAX_CELL), step: '1', value: '96',
+      'aria-label': 'Zoom', title: 'Zoom (turns Fit off). Ctrl+wheel or pinch on the plan also zooms.' });
+    els.zoomSlider.addEventListener('input', () => setCell(Number(els.zoomSlider.value), null));
     // K2 (W1 §2, 1024 proposal): below 1280 px a single "Layer" selector
     // stands in for the row of layer chips (CSS shows one or the other).
     els.layerSelect = h('select', { class: 'b5-select b5-con-layerselect', 'data-layer-select': '', 'aria-label': 'Layer shown' });
@@ -356,7 +378,7 @@ const ConsoleScreen = (() => {
           // dissolves into the one row (display: contents).
           h('span', { class: 'b5-con-toolset' },
             h('span', { class: 'b5-con-seggroup', role: 'group', 'aria-label': 'Spacing' }, els.planBtn, els.compactBtn),
-            h('span', { class: 'b5-con-seggroup', role: 'group', 'aria-label': 'Zoom' }, els.fitBtn, els.zoomOut, els.zoomIn),
+            h('span', { class: 'b5-con-seggroup', role: 'group', 'aria-label': 'Zoom' }, els.fitBtn, els.zoomOut, els.zoomSlider, els.zoomIn),
             els.lassoBtn, els.add, els.selectMenu, els.viewMenu, els.winMenu)),
         h('div', { class: 'b5-toolbar__row b5-con-row b5-con-grouprow' }, h('span', { class: 'b5-con-rowlabel', text: 'Groups' }), els.groups)),
       els.status,
@@ -393,6 +415,7 @@ const ConsoleScreen = (() => {
     root.querySelector('.b5-con-pane--side').appendChild(els.tools);
     if (typeof ConsoleTools !== 'undefined') ConsoleTools.mount(els.tools);
     els.grid.addEventListener('click', onGridClick);
+    els.grid.addEventListener('wheel', onWheel, { passive: false });
     els.grid.addEventListener('pointerdown', onPointerDown);
     els.grid.addEventListener('pointermove', onPointerMove);
     els.grid.addEventListener('pointerup', onPointerUp);
@@ -541,12 +564,21 @@ const ConsoleScreen = (() => {
     els.compactBtn.disabled = st.edit;
     els.compactBtn.title = st.edit ? 'Compact is off while editing the layout: edits need the real plan.' : 'Compact: empty rows and columns removed, so fixtures close up in their arrangement. Display only — the plan is not changed.';
     toggleWords(els.fitBtn, st.fit, null, 'Fit');
-    const c = cellPx();
-    els.zoomOut.disabled = !st.fit && st.zoom === 0;
-    els.zoomIn.disabled = !st.fit && st.zoom === ZOOMS.length - 1 || (st.fit && c >= ZOOMS[ZOOMS.length - 1]);
+    syncZoom();
     els.modebar.hidden = !st.edit;
     els.root.classList.toggle('is-editing', st.edit);
     els.root.classList.toggle('is-lasso', st.lasso && !st.edit);
+  }
+  // syncZoom: − / + / slider follow the size drawn (Fit's size included,
+  // which is only known once the grid has been laid out).
+  function syncZoom() {
+    if (!els.zoomSlider) return;
+    const c = cellPx(), lo = minCell();
+    els.zoomOut.disabled = c <= lo;
+    els.zoomIn.disabled = c >= MAX_CELL;
+    els.zoomSlider.min = String(Math.round(lo));
+    els.zoomSlider.value = String(Math.round(c));
+    els.zoomSlider.setAttribute('aria-valuetext', Math.round(c) + ' px per cell' + (st.fit ? ', Fit' : ''));
   }
   // K2 (W1 §3, the ON grammar): ON is a check symbol + bold word + 2 px
   // border + pressed surface, with aria-pressed; OFF has no check. The
@@ -569,14 +601,9 @@ const ConsoleScreen = (() => {
   }
   function setFit(on) {
     st.fit = !!on;
-    if (!st.fit && st.fitCell) st.zoom = nearestZoom(st.fitCell);
+    if (!st.fit && st.fitCell) st.cell = st.fitCell; // L2: Fit off keeps the size Fit had picked
     saveView();
     renderTools(); renderGrid();
-  }
-  function nearestZoom(px) {
-    let best = 0;
-    ZOOMS.forEach((z, i) => { if (Math.abs(z - px) < Math.abs(ZOOMS[best] - px)) best = i; });
-    return best;
   }
 
   function countOn(layerId) {
@@ -611,19 +638,71 @@ const ConsoleScreen = (() => {
     st.picker = null;
     renderTools(); renderLayers(); renderGrid(); renderPicker(); renderEdit();
   }
-  // − / + step through the fixed zooms and turn Fit off (W1 §2), starting
-  // from the size Fit had picked.
+  // − / + multiply or divide the cell size by ZOOM_STEP and turn Fit off
+  // (W1 §2), starting from the size Fit had picked; the middle of the plan
+  // stays where it is.
   function zoom(d) {
-    if (st.fit) {
-      const c = cellPx();
-      st.fit = false;
-      let i = d > 0 ? ZOOMS.findIndex(z => z > c) : ZOOMS.length - 1 - ZOOMS.slice().reverse().findIndex(z => z < c);
-      if (i < 0 || i >= ZOOMS.length) i = d > 0 ? ZOOMS.length - 1 : 0;
-      st.zoom = i;
-    } else st.zoom = Math.max(0, Math.min(ZOOMS.length - 1, st.zoom + d));
+    const c = cellPx();
+    setCell(d > 0 ? Math.ceil(c * ZOOM_STEP) : Math.floor(c / ZOOM_STEP), null);
+  }
+  // setCell (L2): every zoom ends here. Fit goes off, the size is clamped
+  // and remembered, and the plan point under `at` ({x, y} in client px;
+  // null = the middle of the grid box) stays under it.
+  function setCell(px, at) {
+    const anchor = zoomAnchor(at);
+    st.fit = false;
+    st.cell = clampCell(px);
     saveView();
     renderTools();
     renderGrid();
+    keepAnchor(anchor);
+  }
+  function zoomAnchor(at) {
+    if (!els.grid || !els.grid.getBoundingClientRect) return null;
+    const g = els.grid.getBoundingClientRect();
+    const x = at ? at.x : g.left + g.width / 2, y = at ? at.y : g.top + g.height / 2;
+    const c = cellPx();
+    let best = null;
+    els.grid.querySelectorAll('[data-canvas]').forEach(cv => {
+      const r = cv.getBoundingClientRect();
+      const d = Math.max(r.top - y, 0, y - r.bottom);
+      if (!best || d < best.d) best = { d, id: cv.getAttribute('data-canvas'), cx: (x - r.left) / c, cy: (y - r.top) / c };
+    });
+    return best && { x, y, id: best.id, cx: best.cx, cy: best.cy };
+  }
+  function keepAnchor(a) {
+    if (!a) return;
+    const cv = els.grid.querySelector('[data-canvas="' + a.id + '"]');
+    if (!cv) return;
+    const r = cv.getBoundingClientRect(), c = cellPx();
+    els.grid.scrollLeft = (els.grid.scrollLeft || 0) + r.left + a.cx * c - a.x;
+    els.grid.scrollTop = (els.grid.scrollTop || 0) + r.top + a.cy * c - a.y;
+  }
+  // L2: Ctrl+wheel (and a trackpad pinch, which the browser reports as
+  // Ctrl+wheel) zooms around the pointer; a plain wheel still scrolls.
+  // Steps are gathered per frame so a pinch redraws once per frame.
+  let wheelZoom = null;
+  function onWheel(ev) {
+    if (!ev.ctrlKey && !ev.metaKey) return;
+    if (ev.preventDefault) ev.preventDefault();
+    const dy = ev.deltaMode === 1 ? ev.deltaY * 16 : ev.deltaMode === 2 ? ev.deltaY * 400 : ev.deltaY;
+    if (!wheelZoom) {
+      wheelZoom = { f: 1, base: st.fit ? cellPx() : st.cell };
+      const run = () => { const w = wheelZoom; wheelZoom = null; setCell(w.base * w.f, { x: w.x, y: w.y }); };
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run); else setTimeout(run, 0);
+    }
+    wheelZoom.f *= Math.exp(-dy * 0.002); // one 120-unit wheel notch is about x1.27
+    wheelZoom.x = ev.clientX; wheelZoom.y = ev.clientY;
+  }
+  function rotateTitle(way) {
+    return st.edit ? 'Rotate is off while editing the layout: edits need the real plan.'
+      : 'Turn the plan a quarter turn ' + way + ', so lines that run down the plan run across the screen. Display only — the plan is not changed.';
+  }
+  function setRotate(deg) {
+    if (st.edit) return;
+    st.rotate = deg === 90 || deg === 270 ? deg : 0;
+    saveView();
+    renderTools(); renderGrid();
   }
 
   function groupState(g) {
@@ -675,11 +754,14 @@ const ConsoleScreen = (() => {
     // K2 (W1 §5): Compact draws display copies of the items, packed; the
     // stored layout is never changed. Objects (truss, labels) have no place
     // in a packed view and are left out of it.
+    const rot = rotated();
     const lists = drawn.map(ly => {
       const raw = items().filter(it => it.layer === ly.id && !stale.has(it.id));
-      return compact ? compactItems(raw.filter(it => it.kind !== 'object')) : raw;
+      const list = compact ? compactItems(raw.filter(it => it.kind !== 'object')) : raw;
+      return rot ? list.map(it => rotateItem(it, rot)) : list;
     });
-    const colFrom = compact ? 0 : Math.min(...lists.flat().map(it => it.col), 0);
+    const allCols = lists.flat().map(it => it.col);
+    const colFrom = rot ? (allCols.length ? Math.min(...allCols) : 0) : compact ? 0 : Math.min(...allCols, 0);
     const bs = lists.map(list => bounds(list, colFrom));
     if (st.fit) st.fitCell = fitCell(bs) || st.fitCell;
     const cell = cellPx();
@@ -690,13 +772,17 @@ const ConsoleScreen = (() => {
     // At the smallest zoom a 64 px tile cannot hold a 32 px glyph AND the
     // name and words, so the glyph (decorative) gives way to the words.
     els.grid.classList.toggle('is-compact', cell < 86);
+    // L2: below 56 px a tile shows only its fixture number (and, from K5,
+    // its intensity bar); the type, flags and badges come back zooming in.
+    els.grid.classList.toggle('is-tiny', cell < 56);
     els.grid.classList.toggle('is-names-off', !st.names);
     for (let li = 0; li < drawn.length; li++) {
       const ly = drawn[li], list = lists[li], b = bs[li];
       const n = list.filter(it => it.kind !== 'object').length;
       if (!isShown(ly.id)) { els.grid.appendChild(ghostLayer(ly, list, b, cell, n)); continue; }
       const height = (ly.system ? 'fixtures with no place on the plan yet' : heightWords(ly)) +
-        (compact ? ' · compact — empty rows and columns removed, real spacing ignored' : '');
+        (compact ? ' · compact — empty rows and columns removed, real spacing ignored' : '') +
+        (rot ? ' · rotated 90° ' + (rot === 90 ? 'clockwise' : 'counterclockwise') : '');
       const canvas = h('div', { class: 'b5-con-canvas', 'data-canvas': ly.id,
         style: { width: ((b.c1 - b.c0) * cell) + 'px', height: ((b.r1 - b.r0) * cell) + 'px',
           'background-position': (-b.c0 * cell) + 'px ' + (-b.r0 * cell) + 'px' } });
@@ -716,6 +802,31 @@ const ConsoleScreen = (() => {
     }
     if (stale.size) els.grid.appendChild(h('p', { class: 'b5-note', text: stale.size + ' layout item(s) point at something no longer in the show and are not drawn; remove them in edit mode or rebuild the layout.' }));
     applySelection();
+    syncZoom();
+  }
+
+  // rotateItem (L2): the display copy of an item turned a quarter turn on
+  // screen. Clockwise (90): (col, row) -> (-row, col), so a w x h box at
+  // col/row lands at col -(row + h), row col. Counterclockwise (270):
+  // (col, row) -> (row, -col), the box at col row, row -(col + w). Sizes
+  // swap. The fixture glyph turns with it; object geometry turns the same
+  // way; text objects keep their own angle so the words stay readable.
+  function rotateItem(it, deg) {
+    const cw = deg === 90;
+    const w = it.w || 1, hh = it.h || 1;
+    const out = Object.assign({}, it, cw ? { col: -(it.row + hh), row: it.col } : { col: it.row, row: -(it.col + w) }, { w: hh, h: w });
+    if (it.kind !== 'object') { out.rot = ((it.rot || 0) + deg) % 360; return out; }
+    const g = it.geometry;
+    if (g) {
+      const pt = (c, r) => cw ? [-r, c] : [r, -c];
+      const ng = Object.assign({}, g);
+      if (g.w !== undefined && g.h !== undefined && g.col2 === undefined) {
+        Object.assign(ng, cw ? { col: -(g.row + g.h), row: g.col } : { col: g.row, row: -(g.col + g.w) }, { w: g.h, h: g.w });
+      } else [ng.col, ng.row] = pt(g.col, g.row);
+      if (g.col2 !== undefined) [ng.col2, ng.row2] = pt(g.col2, g.row2);
+      out.geometry = ng;
+    }
+    return out;
   }
 
   // compactItems (K2): every empty row and every empty column is removed, so
@@ -734,8 +845,8 @@ const ConsoleScreen = (() => {
   // fitCell (K2, W1 §5): the cell size that fits every drawn layer into the
   // grid pane, or 0 when the pane has no size yet (not shown). From 1024 px
   // the pane has a fixed height, so height counts; below that the page
-  // scrolls and only the width does. Never below FIT_MIN, never above the
-  // largest zoom.
+  // scrolls and only the width does. Never below minCell(), never above
+  // MAX_CELL (L2).
   function fitCell(bs) {
     const w = els.grid.clientWidth, hgt = els.grid.clientHeight;
     if (!w || !bs.length) return 0;
@@ -743,7 +854,7 @@ const ConsoleScreen = (() => {
     const rows = bs.reduce((a, b) => a + (b.r1 - b.r0), 0);
     let c = (w - 32) / cols;
     if (wideWorkspace() && hgt) c = Math.min(c, (hgt - bs.length * 56 - 16) / rows);
-    return Math.max(FIT_MIN, Math.min(ZOOMS[ZOOMS.length - 1], Math.floor(c)));
+    return clampCell(Math.floor(c));
   }
   function finePointer() {
     try { return typeof matchMedia === 'function' && matchMedia('(pointer: fine)').matches; } catch (_) { return false; }
@@ -1149,8 +1260,42 @@ const ConsoleScreen = (() => {
     const tile = t.closest('.b5-con-tile');
     return tile ? { id: tile.getAttribute('data-item-id'), el: tile } : null;
   }
+  // L2: drag to pan. With Lasso off and outside edit mode, a mouse or pen
+  // drag that travels more than DRAG_SLOP scrolls the plan, and the click
+  // that ends it is swallowed so it does not also select. A press without
+  // travel is still a tap. Touch keeps the browser's own scrolling.
+  // (swallowClick is the lasso's flag, declared above.)
+  let pan = null;
+  function panDown(ev) {
+    if (ev.button !== undefined && ev.button !== 0) return;
+    if (ev.pointerType === 'touch') return;
+    pan = { pointerId: ev.pointerId, x0: ev.clientX, y0: ev.clientY, sl: els.grid.scrollLeft, st: els.grid.scrollTop, moved: false };
+  }
+  function panMove(ev) {
+    const dx = ev.clientX - pan.x0, dy = ev.clientY - pan.y0;
+    if (!pan.moved) {
+      if (Math.hypot(dx, dy) < DRAG_SLOP) return;
+      pan.moved = true;
+      try { els.grid.setPointerCapture(pan.pointerId); } catch (_) { /* not capturable (tests) */ }
+      els.grid.classList.add('is-panning');
+    }
+    if (ev.preventDefault) ev.preventDefault();
+    els.grid.scrollLeft = pan.sl - dx;
+    els.grid.scrollTop = pan.st - dy;
+  }
+  function endPan(ev) {
+    if (!pan) return;
+    if (pan.moved) {
+      // Same rule as the lasso: the click that ends a drag does not select.
+      swallowClick = true;
+      setTimeout(() => { swallowClick = false; }, 0);
+      try { els.grid.releasePointerCapture(pan.pointerId); } catch (_) { /* fine */ }
+    }
+    els.grid.classList.remove('is-panning');
+    pan = null;
+  }
   function onPointerDown(ev) {
-    if (!st.edit) { if (st.lasso) lassoDown(ev); return; }
+    if (!st.edit) { if (st.lasso) lassoDown(ev); else panDown(ev); return; }
     if (ev.button !== undefined && ev.button !== 0) return;
     const hold = dragHolder(ev);
     if (!hold) return;
@@ -1161,6 +1306,7 @@ const ConsoleScreen = (() => {
   }
   function onPointerMove(ev) {
     if (lasso) return lassoMove(ev);
+    if (pan && ev.pointerId === pan.pointerId) return panMove(ev);
     if (!drag || !st.edit || ev.pointerId !== drag.pointerId) return;
     const dx = ev.clientX - drag.x0, dy = ev.clientY - drag.y0;
     if (!drag.moved && Math.hypot(dx, dy) < DRAG_SLOP) return;
@@ -1173,9 +1319,10 @@ const ConsoleScreen = (() => {
     if (drag && drag.el) { drag.el.style.removeProperty('transform'); drag.el.classList.remove('is-dragging'); }
     drag = null;
   }
-  function onPointerCancel() { endDrag(); lassoEnd(); }
+  function onPointerCancel() { endDrag(); lassoEnd(); if (pan) { pan.moved = false; endPan(); } }
   function onPointerUp(ev) {
     if (lasso) return lassoUp(ev);
+    if (pan && ev.pointerId === pan.pointerId) return endPan(ev);
     if (!drag || ev.pointerId !== drag.pointerId) return;
     const d = drag;
     const dx = ev.clientX - d.x0, dy = ev.clientY - d.y0;

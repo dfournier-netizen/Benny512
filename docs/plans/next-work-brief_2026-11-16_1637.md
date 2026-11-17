@@ -60,6 +60,33 @@ hardware item in section 4.
 
 ## 3. Projects, in suggested order
 
+### P0. Added 2026-11-17 10:29:05 -0500 — owner direction after v0.3.0
+
+- **L2 (done, `feat/l2-plot-zoom`)**: plot zoom/pan/Rotate, decision 0003.
+- **L3 — app mode (next, owner-approved 2026-11-17 10:20).** The exe opens
+  Microsoft Edge with `--app=http://127.0.0.1:<port>/` (own window, no tabs or
+  address bar, Benny512's name and icon; Edge ships with Windows 10/11, so no
+  new dependency). Decide with Dom: open on start by default or behind a
+  flag; what happens if Edge is missing (fall back to the default browser and
+  say so); a separate `--user-data-dir` so the window remembers its size
+  without touching his own Edge profile. Stdlib only (`os/exec`). Small Go
+  chunk, test the command line it builds, not Edge itself. Only if app mode
+  falls short: an embedded WebView2 window (needs a third-party Go library —
+  an owner decision, the project has none). A native UI rewrite was
+  discussed and set aside: 21k lines of JS / 4.6k CSS and every
+  bench-proven screen to re-prove, for no gain app mode/WebView2 can't give.
+- **Workspaces project (owner wish 2026-11-17 10:23, after L3).** A
+  console-style workspace like grandMA3 / Avolites: every pane a window type
+  (the plot itself, Tests, faders, raw DMX, patch list, fixture sheet), add and
+  remove windows, more than one of a kind, move/resize/snap on a free canvas,
+  **named saved views** recalled in one click (per show or per user — ask),
+  and pop-out to a second monitor once L3 exists. Builds on K3's
+  `console-windows.js` (dock/float/resize already there). **Mockup first, owner
+  approval before production** (his standing process), then chunks: window
+  registry + multi-instance; view store/recall; free canvas + snapping;
+  pop-out. Decide persistence early (browser storage is per browser; a view
+  that should follow the show belongs in the show file).
+
 ### P1. K5 — engine intensity report and live tiles (plan row K5)
 
 *Goal:* a read-only report of the output engine's **composed** intensity per
@@ -67,7 +94,7 @@ fixture and per cell, and tiles that show it: intensity bar, SET/TEST tags,
 programmer-colour swatch with name + outline, "running sources annotate grid
 tiles" on the Tests tab, and the Plan + Fit hint.
 
-*Constraints already decided:* output behaviour must not change; never
+*Constraints already decided:* the intensity bar must stay visible on L2's number-only tiles (cells under 56 px — owner choice 2026-11-17); output behaviour must not change; never
 substitute programmer values or an unknown zero for an engine value (CLAUDE.md
 "a plausible zero is not absence"); the effective source stays separate from
 the programmer colour; Dark preview brightness 0.12 made the W1 swatch
