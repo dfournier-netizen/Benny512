@@ -1,12 +1,12 @@
 # Benny512 — Session Handoff Brief (current)
 
-**Last updated:** 2026-11-17 10:29:05 -0500
+**Last updated:** 2026-11-17 11:34:24 -0500
 
-## Current delta — L2 Console plot zoom, pan, Rotate (`feat/l2-plot-zoom`, on v0.3.0)
+## Current delta — L3 own app window (`feat/l3-app-window`, on v0.3.1)
 
-v0.3.0 is released (K1–K4 + L1 on `main`). L2 (2026-11-17 10:29:05 -0500): the plot zoom is continuous (slider, Ctrl+wheel/pinch around the pointer, − / + ×1.25) down to 28 px (touch minimum on touchscreens), Fit uses that floor, tiles below 56 px show the number only, View ▸ Rotate 90° right/left turns the plot (display only, off while editing), and a mouse drag pans. Decision 0003. Gates green; render-checked on a synthetic show of the owner's shape. Not yet on the owner's real show.
+v0.3.1 = v0.3.0 + L2 (plot zoom, pan, Rotate; decision 0003). L3 (2026-11-17 11:34:24 -0500): on Windows the exe opens Edge in app mode on `http://127.0.0.1:<port>/` with its own profile once the port listens; `--no-window` skips it; no Edge → default browser + warning; closing the window leaves Benny512 running (the C3 5-second lease still applies to output); console window unchanged; second launch unchanged. Gates green; not yet run on Windows.
 
-**Next:** owner bench of L2 on the real show; then L3 (app mode, see the next-work brief); K5 must keep its intensity bar visible on number-only tiles (owner choice for the smallest size).
+**Next:** owner check of L3 on Windows; then the Workspaces project (mockup first) and K5 — see the next-work brief, section P0.
 
 ## Current delta — K4 Tests tab (`feat/k4-tests-tab`, on top of K3) → v0.3.0
 
