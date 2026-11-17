@@ -344,6 +344,14 @@ const ConsoleScreen = (() => {
     // are, and Reset window positions. From 1024 px only (CSS).
     els.winMenu = UI.menu({ label: 'Windows', icon: 'window', className: 'b5-con-menu b5-con-winmenu', attrs: { 'data-windows-menu': '' },
       items: () => (typeof ConsoleWindows !== 'undefined' ? ConsoleWindows.menuItems() : []) }).el;
+    // M3 (owner 2026-11-17): the Plan button right after View opens a small
+    // non-modal panel (Scale slider, Arrange from 3D). Word only, no icon or
+    // chevron, so it adds as little width as possible at 1024 px.
+    els.planMenu = h('button', { type: 'button', class: 'b5-btn b5-con-planbtn', 'data-plan-menu': '', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-controls': 'conPlanPanel', text: 'Plan',
+      title: 'Plan: the scale of the plan, and placing fixtures from their MVR positions' });
+    els.planMenu.addEventListener('click', () => togglePlan());
+    els.planPanel = h('section', { class: 'b5-con-actpanel b5-con-planpanel', id: 'conPlanPanel', role: 'dialog', 'aria-label': 'Plan', 'data-plan-panel': '', hidden: true });
+    els.planPanel.addEventListener('keydown', ev => { if (ev.key === 'Escape' && st.planOpen) { if (ev.preventDefault) ev.preventDefault(); closePlan(true); } });
     els.planBtn = seg('Plan', true, { 'data-spacing': 'plan', title: 'Plan: the spacing of the plan (MVR positions or your placements)' }, () => setSpacing('plan'));
     els.compactBtn = seg('Compact', false, { 'data-spacing': 'compact', title: 'Compact: empty rows and columns removed, so fixtures close up in their arrangement. Display only — the plan is not changed.' }, () => setSpacing('compact'));
     els.fitBtn = seg('Fit', true, { 'data-fit': '', title: 'Fit: size the plan to the grid area' }, () => setFit(!st.fit));
@@ -395,9 +403,10 @@ const ConsoleScreen = (() => {
           h('span', { class: 'b5-con-toolset' },
             h('span', { class: 'b5-con-seggroup', role: 'group', 'aria-label': 'Spacing' }, els.planBtn, els.compactBtn),
             h('span', { class: 'b5-con-seggroup', role: 'group', 'aria-label': 'Zoom' }, els.fitBtn, els.zoomOut, els.zoomSlider, els.zoomIn),
-            els.lassoBtn, els.add, els.selectMenu, els.viewMenu, els.winMenu)),
+            els.lassoBtn, els.add, els.selectMenu, els.viewMenu, els.planMenu, els.winMenu)),
         h('div', { class: 'b5-toolbar__row b5-con-row b5-con-grouprow' }, h('span', { class: 'b5-con-rowlabel', text: 'Groups' }), els.groups)),
       els.status,
+      els.planPanel,
       els.modebar,
       // I2a: the selection summary sits in flow ABOVE the grid. It was a
       // sticky bottom bar after the panes, so at rest it covered the top
@@ -584,6 +593,7 @@ const ConsoleScreen = (() => {
     els.modebar.hidden = !st.edit;
     els.root.classList.toggle('is-editing', st.edit);
     els.root.classList.toggle('is-lasso', st.lasso && !st.edit);
+    syncPlan();
   }
   // syncZoom: − / + / slider follow the size drawn (Fit's size included,
   // which is only known once the grid has been laid out).
@@ -1471,6 +1481,106 @@ const ConsoleScreen = (() => {
     }
   }
 
+  // --- M3 (owner 2026-11-17): the Plan panel ----------------------------------
+  // Scale (mm per grid square, the whole plan moves, tiles keep their size)
+  // and Arrange from 3D (selection, or every fixture). Non-modal, built once
+  // when opened and refreshed by syncPlan; usable in edit mode and on the
+  // Tests tab. Nothing is posted while the slider is dragged: only on release,
+  // on Enter or on leaving the number box.
+  const SCALE_DEFAULT = 500, SCALE_MIN = 50, SCALE_MAX = 10000;
+  let planPending = null; // the scale being posted, so Enter then blur posts once
+  function planScale() { const c = st.layout && st.layout.layout && st.layout.layout.cellMm; return c > 0 ? c : SCALE_DEFAULT; }
+  function togglePlan() { if (st.planOpen) closePlan(true); else openPlan(); }
+  function openPlan() {
+    st.planOpen = true;
+    buildPlan();
+    els.planPanel.hidden = false;
+    els.planMenu.setAttribute('aria-expanded', 'true');
+    els.planMenu.classList.add('is-on');
+    syncPlan(true);
+    const f = els.planPanel.querySelector('[data-scale-slider]');
+    if (f) f.focus();
+  }
+  function closePlan(refocus) {
+    syncPlan(true); // a half-typed scale is dropped, not posted by the blur
+    st.planOpen = false;
+    els.planPanel.hidden = true;
+    els.planMenu.setAttribute('aria-expanded', 'false');
+    els.planMenu.classList.remove('is-on');
+    if (refocus) els.planMenu.focus();
+  }
+  function buildPlan() {
+    clear(els.planPanel);
+    els.scaleSlider = h('input', { type: 'range', class: 'b5-con-scaleslider', 'data-scale-slider': '', min: '100', max: '3000', step: '10', 'aria-label': 'Scale, mm per square' });
+    els.scaleInput = h('input', { type: 'number', class: 'b5-input b5-con-scaleinput', 'data-scale-input': '', min: String(SCALE_MIN), max: String(SCALE_MAX), step: '10', 'aria-label': 'Scale in mm per square' });
+    els.scaleValue = h('span', { class: 'b5-con-scalevalue', 'data-scale-value': '' });
+    const show = n => { els.scaleSlider.value = String(n); els.scaleInput.value = String(n); els.scaleValue.textContent = n + ' mm per square'; };
+    els.scaleSlider.addEventListener('input', () => show(Number(els.scaleSlider.value)));
+    els.scaleSlider.addEventListener('change', () => commitScale(els.scaleSlider.value));
+    els.scaleInput.addEventListener('input', () => { const n = Number(els.scaleInput.value); if (els.scaleInput.value.trim() !== '' && isFinite(n)) { els.scaleSlider.value = String(n); els.scaleValue.textContent = n + ' mm per square'; } });
+    els.scaleInput.addEventListener('keydown', ev => { if (ev.key === 'Enter') { if (ev.preventDefault) ev.preventDefault(); commitScale(els.scaleInput.value); } });
+    els.scaleInput.addEventListener('blur', () => commitScale(els.scaleInput.value));
+    els.arrangeSel = btn('Arrange selection', { cls: 'b5-con-planact', attrs: { 'data-arrange-selection': '' } }, () => arrangeSelection());
+    els.arrangeAll = btn('Arrange all…', { cls: 'b5-con-planact', attrs: { 'data-arrange-all': '' } }, () => arrangeAll());
+    append(els.planPanel, [
+      h('h3', { id: 'conPlanScaleHead', text: 'Scale' }),
+      h('p', { class: 'b5-caption', text: 'mm per grid square. Changes the plan for everyone using this show; fixture tiles keep their size.' }),
+      h('div', { class: 'b5-row b5-con-scalerow' }, els.scaleSlider, els.scaleInput, els.scaleValue),
+      h('h3', { id: 'conPlanArrangeHead', text: 'Arrange from 3D' }),
+      h('p', { class: 'b5-caption', text: 'Puts fixtures where the MVR file places them. Placed groups and objects stay. No DMX changes.' }),
+      h('div', { class: 'b5-row b5-con-planacts' }, els.arrangeSel, els.arrangeAll),
+      h('div', { class: 'b5-row b5-con-actpanel__close' }, btn('Close', { attrs: { 'data-plan-close': '' } }, () => closePlan(true))),
+    ]);
+  }
+  // syncPlan: the boxes follow the layout's scale (never under the user's
+  // hands unless forced), and Arrange selection follows the selection.
+  function syncPlan(force) {
+    if (!st.planOpen || !els.scaleInput) return;
+    const busy = document.activeElement === els.scaleInput || document.activeElement === els.scaleSlider;
+    if (force || !busy) {
+      const n = planScale();
+      els.scaleSlider.value = String(n); els.scaleInput.value = String(n); els.scaleValue.textContent = n + ' mm per square';
+    }
+    els.arrangeSel.disabled = !arrangeTargets().length;
+  }
+  async function commitScale(raw) {
+    const text = String(raw).trim(), n = Number(text);
+    if (text === '' || !isFinite(n) || n < SCALE_MIN || n > SCALE_MAX) {
+      status('Scale must be 50 to 10000 mm per square.', 'error');
+      return syncPlan(true);
+    }
+    if (n === planScale() || n === planPending) return syncPlan(true);
+    planPending = n;
+    try { await edit('scale', { cellMm: n }, () => 'Scale ' + n + ' mm per square: the whole plan moved; tiles keep their size.'); }
+    finally { planPending = null; syncPlan(true); }
+  }
+  // The selected fixtures' entry ids, once each, in selection order (a cell
+  // counts as its parent fixture).
+  function arrangeTargets() {
+    const seen = new Set(), out = [];
+    selection().forEach(s => { if (s && s.entryId && !seen.has(s.entryId)) { seen.add(s.entryId); out.push(s.entryId); } });
+    return out;
+  }
+  function arrangedWords(r) {
+    const n = (r && r.arranged) || 0, k = r && r.noPosition ? r.noPosition.length : 0;
+    return 'Arranged ' + n + ' fixture(s) from 3D.' + (k ? ' ' + k + ' had no position and stayed where they were.' : '');
+  }
+  async function arrangeSelection() {
+    const ids = arrangeTargets();
+    if (!ids.length) return;
+    const byHand = ids.filter(id => { const it = items().find(x => x.kind === 'entry' && x.ref === id); return it && it.mode === 'manual'; }).length;
+    if (byHand) {
+      const ok = await ask({ title: 'Arrange ' + ids.length + ' fixtures from 3D?', body: byHand + ' of them were placed by hand and will move to their MVR positions.', ok: 'Arrange' });
+      if (ok !== true) return;
+    }
+    await edit('arrange', { ids }, arrangedWords);
+  }
+  async function arrangeAll() {
+    const ok = await ask({ title: 'Arrange every fixture from 3D?', body: 'Fixtures you placed by hand move to their MVR positions. Placed groups and objects stay. No DMX changes.', ok: 'Arrange all' });
+    if (ok !== true) return;
+    await edit('arrange', { all: true, confirm: 'ARRANGE' }, arrangedWords);
+  }
+
   function renderEdit() {
     if (!els.edit) return;
     clear(els.edit);
@@ -2032,6 +2142,7 @@ const ConsoleScreen = (() => {
         renderPicker();
         renderSummary();
         renderOrder();
+        syncPlan(); // M3: Arrange selection follows the selection
         if (st.edit) renderEdit();
         if (typeof ConsoleControls !== 'undefined') ConsoleControls.refresh();
       });
