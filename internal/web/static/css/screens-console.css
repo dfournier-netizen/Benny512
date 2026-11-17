@@ -67,6 +67,8 @@
   background-size: var(--b5-con-cell) var(--b5-con-cell);
 }
 .b5-con-layer--unplaced .b5-con-canvas { background-color: var(--b5-color-bg-surface-raised); }
+/* M2: Grid off (View menu) — display only. Ghost canvases keep their own background-color. */
+.b5-con-gridbox.is-grid-off .b5-con-canvas { background-image: none; }
 
 /* ---- tiles: unselected = hairline; selected = thick double outline +
    check icon + order number; partial group = dashed. ---- */

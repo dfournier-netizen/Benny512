@@ -1,12 +1,12 @@
 # Benny512 — Session Handoff Brief (current)
 
-**Last updated:** 2026-11-17 12:23:25 -0500
+**Last updated:** 2026-11-17 13:10:19 -0500
 
-## Current delta — M1 exact plan positions (`feat/m1-exact-positions`, on L3)
+## Current delta — M2 Grid and Snap switches (`feat/m2-grid-snap`, on v0.3.3)
 
-Owner request 2026-11-17 12:05 (decision 0004): arrange from 3D any time, Scale (mm per square), free placement, grid and snap switches — chunks M1 → M3. M1 (2026-11-17 12:23:25 -0500): positions are exact fractional cells and may overlap; derive places exactly; `scale` and `arrange` actions on the server; the Console draws on half squares and nudges overlaps apart (display only), drags/arrows move half squares. Gates green; render-checked on a synthetic show.
+v0.3.3 = L3 + M1 (exact positions, `scale`/`arrange` on the server; decision 0004). M2 (2026-11-17 13:10:19 -0500): View ▸ Snap to half squares and Grid, per browser; Snap off draws exact stored positions (overlap allowed), free drags, arrows 0.1 square; Shift+arrow 1 square. Gates green; browser-checked.
 
-**Next:** M2 — Grid (show/hide) and Snap (on/off) switches, free drag and arrows with snapping off (overlap allowed). M3 — Arrange from 3D (selection or all) and the Scale slider on the Console, outside edit mode. L3 still needs the owner's Windows check.
+**Next:** M3 — "Arrange from 3D" (selection, else all with a confirm) and the Scale slider (mm per square) on the Console, outside edit mode; then Workspaces (mockup first) and K5. L3 still needs the owner's Windows check.
 
 ## Current delta — K4 Tests tab (`feat/k4-tests-tab`, on top of K3) → v0.3.0
 
