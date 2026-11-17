@@ -75,6 +75,7 @@ hardware item in section 4.
   an owner decision, the project has none). A native UI rewrite was
   discussed and set aside: 21k lines of JS / 4.6k CSS and every
   bench-proven screen to re-prove, for no gain app mode/WebView2 can't give.
+- **Plot positions (owner 2026-11-17 12:05, decision 0004): M1 done 2026-11-17 12:23:25 -0500; M2 and M3 next** — see the plan rows. M2: View or toolbar switches Grid (draw the square grid or not) and Snap (on: half squares + nudge apart, as M1; off: draw stored positions exactly, drags/arrows free — arrows then a tenth of a square), remembered per browser like Compact. M3: "Arrange from 3D" on the Console (selection, else all with a confirm naming hand placements) calling `arrange`; a Scale slider in mm per square calling `scale` (debounced; show the value; refuse message from the server shown as is). Both outside edit mode; both change the stored plan, so say so in the control.
 - **Workspaces project (owner wish 2026-11-17 10:23, after L3).** A
   console-style workspace like grandMA3 / Avolites: every pane a window type
   (the plot itself, Tests, faders, raw DMX, patch list, fixture sheet), add and

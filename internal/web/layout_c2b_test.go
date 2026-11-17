@@ -142,7 +142,9 @@ func TestLayoutC2b_MigratesC2LayoutToManual(t *testing.T) {
 		}
 	}
 	got := placementsByNumber(t, body)
-	if got["12"] != "Manual 5,5" || got["22"] != captureDerived2000["22"] {
+	// 22 keeps the cell the C2 build stored (3,1): migrated placements are
+	// manual and never re-derived.
+	if got["12"] != "Manual 5,5" || got["22"] != "Height 1053 mm 3,1" {
 		t.Errorf("migration moved items: 12 %q 22 %q", got["12"], got["22"])
 	}
 	// Desk Par (no position) is on the system Unplaced layer.
@@ -235,17 +237,17 @@ func TestLayoutC2b_AutoVsManualThroughDeriveAndRefresh(t *testing.T) {
 	if it := entryItem(t, out, e21); it["mode"] != "manual" || it["col"] != 10.0 {
 		t.Errorf("moved 21 = %v, want manual at 10,10", it)
 	}
-	// 16 and 21 move 4 m stage-left in the MVR; refresh follows 16 (auto)
-	// but not 21 (manual), and 22 — displaced by 21 at derive — now gets
-	// its own exact cell 2,1.
+	// 16 and 21 move 4 m stage-left in the MVR (+2 cells at 2000 mm); refresh
+	// follows 16 (auto) but not 21 (manual). M1: 22 was never displaced by
+	// 21 (exact positions do not push each other), so it does not move.
 	setLocation(t, h, body, "16", shiftedLocation(body, "16", 4000))
 	setLocation(t, h, body, "21", shiftedLocation(body, "21", 4000))
 	res := asMap(mustLayoutPost(t, h, "refresh", `{}`)["result"])
-	if m := movedEntries(res); len(m) != 2 || !contains(m, e16) || !contains(m, e22) {
-		t.Errorf("refresh moved %v, want 16 and 22", res["moved"])
+	if m := movedEntries(res); len(m) != 1 || !contains(m, e16) || contains(m, e22) {
+		t.Errorf("refresh moved %v, want 16 only", res["moved"])
 	}
 	got := placementsByNumber(t, layoutGet(t, h))
-	if got["16"] != "Height 5565–5857 mm 9,1" || got["21"] != "Height 1053 mm 10,10" || got["22"] != "Height 1053 mm 2,1" {
+	if got["16"] != "Height 5565–5857 mm 8.696,1.378" || got["21"] != "Height 1053 mm 10,10" || got["22"] != "Height 1053 mm 2.149,0.887" {
 		t.Errorf("after refresh: 16 %q 21 %q 22 %q", got["16"], got["21"], got["22"])
 	}
 	if it := entryItem(t, layoutGet(t, h), e16); it["id"] != id16 || it["mode"] != "auto" {
@@ -255,8 +257,8 @@ func TestLayoutC2b_AutoVsManualThroughDeriveAndRefresh(t *testing.T) {
 	// Pin 16: manual, same cell; a refresh after its position changes
 	// again leaves it alone.
 	out = mustLayoutPost(t, h, "pin", `{"id":"`+id16+`"}`)
-	if it := entryItem(t, out, e16); it["mode"] != "manual" || it["col"] != 9.0 || it["row"] != 1.0 {
-		t.Errorf("pinned 16 = %v, want manual at 9,1", it)
+	if it := entryItem(t, out, e16); it["mode"] != "manual" || it["col"] != 8.696 || it["row"] != 1.378 {
+		t.Errorf("pinned 16 = %v, want manual at 8.696,1.378", it)
 	}
 	body = layoutGet(t, h)
 	setLocation(t, h, body, "16", shiftedLocation(body, "16", -4000))
@@ -264,13 +266,13 @@ func TestLayoutC2b_AutoVsManualThroughDeriveAndRefresh(t *testing.T) {
 	if m := movedEntries(res); len(m) != 0 {
 		t.Errorf("derive moved %v with every changed fixture manual", m)
 	}
-	if got := placementsByNumber(t, layoutGet(t, h)); got["16"] != "Height 5565–5857 mm 9,1" {
+	if got := placementsByNumber(t, layoutGet(t, h)); got["16"] != "Height 5565–5857 mm 8.696,1.378" {
 		t.Errorf("derive moved pinned 16 to %q", got["16"])
 	}
 	// Reset 16 to auto: placed again from its position, same item id.
 	out = mustLayoutPost(t, h, "reset-auto", `{"id":"`+id16+`"}`)
-	if it := entryItem(t, out, e16); it["mode"] != "auto" || it["id"] != id16 || it["col"] != 7.0 || it["row"] != 1.0 {
-		t.Errorf("reset 16 = %v, want auto %s at 7,1", it, id16)
+	if it := entryItem(t, out, e16); it["mode"] != "auto" || it["id"] != id16 || it["col"] != 6.696 || it["row"] != 1.378 {
+		t.Errorf("reset 16 = %v, want auto %s at 6.696,1.378", it, id16)
 	}
 
 	// An auto fixture that loses its position goes back to Unplaced on
@@ -599,6 +601,8 @@ func TestLayoutC2b_Objects(t *testing.T) {
 			break
 		}
 	}
+	// M1 (decision 0004): object geometry is no longer limited to half
+	// cells (0.25, a 0.3 offset are accepted); TestM1 covers that.
 	cases := []struct {
 		action, body string
 		code         int
@@ -606,7 +610,6 @@ func TestLayoutC2b_Objects(t *testing.T) {
 		{"object-create", `{"objectType":"speaker","layer":"` + stage + `","geometry":{"col":0,"row":0}}`, 400},
 		{"object-create", `{"objectType":"label","layer":"` + stage + `","geometry":{"col":0,"row":0}}`, 400},
 		{"object-create", `{"objectType":"label","layer":"` + stage + `","text":"` + strings.Repeat("x", 81) + `","geometry":{"col":0,"row":0}}`, 400},
-		{"object-create", `{"objectType":"truss","layer":"` + stage + `","geometry":{"col":0.25,"row":0,"col2":4,"row2":0}}`, 400},
 		{"object-create", `{"objectType":"truss","layer":"` + stage + `","geometry":{"col":0,"row":0,"col2":1000,"row2":0}}`, 400},
 		{"object-create", `{"objectType":"truss","layer":"` + stage + `","geometry":{"col":3,"row":3,"col2":3,"row2":3}}`, 400},
 		{"object-create", `{"objectType":"truss","layer":"` + stage + `","geometry":{"col":0,"row":0,"col2":4,"row2":0,"w":1}}`, 400},
@@ -628,7 +631,6 @@ func TestLayoutC2b_Objects(t *testing.T) {
 		{"object-update", `{"id":"` + truss + `","geometry":{"col":0,"row":0,"w":2,"h":2}}`, 400},
 		{"object-update", `{"id":"` + truss + `","layer":"nope"}`, 404},
 		{"object-duplicate", `{"id":"` + truss + `","dCol":2000}`, 400},
-		{"object-duplicate", `{"id":"` + truss + `","dCol":0.3}`, 400},
 		{"object-duplicate", `{"id":"` + fx + `"}`, 400},
 		{"object-delete", `{"id":"nope"}`, 404},
 		{"object-delete", `{"id":"` + fx + `"}`, 400},

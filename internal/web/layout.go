@@ -5,7 +5,8 @@
 //
 //	GET  /api/patch/layout            -> layoutResponse
 //	POST /api/patch/layout/{action}   -> layoutResponse with "result"
-//	     derive | refresh | place | move | remove | pin | reset-auto |
+//	     derive | refresh | arrange | scale | place | move | remove |
+//	     pin | reset-auto |
 //	     item-order |
 //	     layer-create | layer-rename | layer-reorder | layer-delete |
 //	     object-create | object-update | object-duplicate | object-delete
@@ -49,6 +50,18 @@
 // Patch field would share the file too, but would need its own copy of each
 // of those paths.
 //
+// EXACT POSITIONS (M1, owner 2026-11-17; decision 0004): fixture and group
+// positions are fractional cells and may overlap. Derive and refresh place a
+// fixture exactly where its MVR position falls (no rounding, no search for a
+// free cell); the Console draws positions snapped to half cells and moves
+// overlapping tiles apart for display when snapping is on, and draws them as
+// stored when it is off. The cell size (CellMM, "mm per square") is the
+// plan's Scale: the scale action changes it and every position on the plan
+// (fixtures, hand placements, groups and objects; not the Unplaced grid)
+// moves with it around the origin, so tiles keep their size while the rig
+// spreads or closes up. arrange hands chosen fixtures (or all) back to
+// automatic placement and places them from their positions.
+//
 // Layout edits change no DMX, so there is no Apply-to-confirm; they go through
 // the show guard (X-Benny-Show token) like every other /api/patch mutation.
 package web
@@ -86,13 +99,10 @@ const (
 	layoutMaxCellMM     = 10000
 	layoutMinZGapMM     = 10
 	layoutMaxZGapMM     = 100000
-	// How far (Chebyshev rings) derive searches for a free cell.
-	layoutSearchRings = 64
-
 	// C2b.
 	layoutSchema       = 2
 	layoutMaxObjects   = 500
-	layoutObjectStep   = 0.5 // object geometry precision, in cells
+	layoutObjectStep   = 0.5 // the Console's snap step for objects, in cells (M1: no longer enforced)
 	layoutUnplacedCols = 16  // width of the Unplaced layer's tidy grid
 	unplacedLayerID    = "unplaced"
 	unplacedLayerName  = "Unplaced"
@@ -191,8 +201,8 @@ type layoutItem struct {
 	Kind       string          `json:"kind"`
 	Ref        string          `json:"ref"`
 	Layer      string          `json:"layer"`
-	Col        int             `json:"col"`
-	Row        int             `json:"row"`
+	Col        float64         `json:"col"`
+	Row        float64         `json:"row"`
 	W          int             `json:"w"`
 	H          int             `json:"h"`
 	Rot        int             `json:"rot"`
@@ -295,8 +305,10 @@ func unplacedItems(p patch.Patch, l *showLayout) ([]layoutItem, []layoutUnplaced
 		if it.Kind == "object" {
 			continue
 		}
-		for c := it.Col; c < it.Col+it.W; c++ {
-			for r := it.Row; r < it.Row+it.H; r++ {
+		c0, r0 := int(math.Floor(it.Col)), int(math.Floor(it.Row))
+		c1, r1 := int(math.Ceil(it.Col))+it.W, int(math.Ceil(it.Row))+it.H
+		for c := c0; c < c1; c++ {
+			for r := r0; r < r1; r++ {
 				taken[cell{c, r}] = true
 			}
 		}
@@ -320,7 +332,7 @@ func unplacedItems(p patch.Patch, l *showLayout) ([]layoutItem, []layoutUnplaced
 			continue
 		}
 		it := layoutItem{ID: entryItemID(e.ID), Kind: "entry", Ref: e.ID, Layer: unplacedLayerID,
-			Col: k % layoutUnplacedCols, Row: k / layoutUnplacedCols, W: 1, H: 1, Mode: modeAuto, Order: onLayer + len(items)}
+			Col: float64(k % layoutUnplacedCols), Row: float64(k / layoutUnplacedCols), W: 1, H: 1, Mode: modeAuto, Order: onLayer + len(items)}
 		items = append(items, it)
 		list = append(list, layoutUnplaced{EntryID: e.ID, Reason: reason, ItemID: it.ID})
 		k++
@@ -603,24 +615,24 @@ type layoutDeriveRequest struct {
 }
 
 type layoutPlaceRequest struct {
-	Kind  string `json:"kind"`
-	Ref   string `json:"ref"`
-	Layer string `json:"layer"`
-	Col   int    `json:"col"`
-	Row   int    `json:"row"`
-	W     *int   `json:"w"`
-	H     *int   `json:"h"`
-	Rot   *int   `json:"rot"`
+	Kind  string  `json:"kind"`
+	Ref   string  `json:"ref"`
+	Layer string  `json:"layer"`
+	Col   float64 `json:"col"`
+	Row   float64 `json:"row"`
+	W     *int    `json:"w"`
+	H     *int    `json:"h"`
+	Rot   *int    `json:"rot"`
 }
 
 type layoutMoveRequest struct {
-	ID    string `json:"id"`
-	Layer string `json:"layer"` // "" = stay on the current layer
-	Col   *int   `json:"col"`
-	Row   *int   `json:"row"`
-	W     *int   `json:"w"`
-	H     *int   `json:"h"`
-	Rot   *int   `json:"rot"`
+	ID    string   `json:"id"`
+	Layer string   `json:"layer"` // "" = stay on the current layer
+	Col   *float64 `json:"col"`
+	Row   *float64 `json:"row"`
+	W     *int     `json:"w"`
+	H     *int     `json:"h"`
+	Rot   *int     `json:"rot"`
 }
 
 type layoutIDRequest struct {
@@ -646,6 +658,20 @@ type layoutLayerReorderRequest struct {
 type layoutLayerDeleteRequest struct {
 	ID          string `json:"id"`
 	RemoveItems bool   `json:"removeItems"`
+}
+
+// layoutArrangeRequest (M1): IDs are patch entry IDs; All (with Confirm
+// "ARRANGE") arranges every fixture. Hand placements among them are handed
+// back to automatic placement.
+type layoutArrangeRequest struct {
+	IDs     []string `json:"ids"`
+	All     bool     `json:"all"`
+	Confirm string   `json:"confirm"`
+}
+
+// layoutScaleRequest (M1): the new cell size in mm per square.
+type layoutScaleRequest struct {
+	CellMM float64 `json:"cellMm"`
 }
 
 type layoutResetRequest struct {
@@ -690,12 +716,12 @@ type layoutObjectDuplicateRequest struct {
 // layoutDerivePlaced / layoutDeriveResult: what a derive did. Displaced =
 // the target cell was taken and the nearest free cell was used.
 type layoutDerivePlaced struct {
-	EntryID   string `json:"entryId"`
-	ItemID    string `json:"itemId"`
-	Layer     string `json:"layer"`
-	Col       int    `json:"col"`
-	Row       int    `json:"row"`
-	Displaced bool   `json:"displaced"`
+	EntryID   string  `json:"entryId"`
+	ItemID    string  `json:"itemId"`
+	Layer     string  `json:"layer"`
+	Col       float64 `json:"col"`
+	Row       float64 `json:"row"`
+	Displaced bool    `json:"displaced"` // M1: always false; positions are exact
 }
 
 // Placed = auto placements created; Moved = auto placements whose layer or
@@ -727,7 +753,7 @@ func (s *Server) handleLayoutAction(w http.ResponseWriter, r *http.Request) {
 	action := r.PathValue("action")
 	known := map[string]bool{"derive": true, "place": true, "move": true, "remove": true,
 		"layer-create": true, "layer-rename": true, "layer-reorder": true, "layer-delete": true,
-		"refresh": true, "pin": true, "reset-auto": true, "item-order": true,
+		"refresh": true, "arrange": true, "scale": true, "pin": true, "reset-auto": true, "item-order": true,
 		"object-create": true, "object-update": true, "object-duplicate": true, "object-delete": true}
 	if !known[action] {
 		writeError(w, http.StatusNotFound, fmt.Errorf("Unknown layout action %q.", action))
@@ -875,31 +901,19 @@ func findItem(l *showLayout, id string) int {
 }
 
 // checkGeometry validates an item's cell rectangle and glyph rotation.
-func checkGeometry(col, row, w, h, rot int) error {
+// M1: col and row may be fractional.
+func checkGeometry(col, row float64, w, h, rot int) error {
+	if math.IsNaN(col) || math.IsNaN(row) || math.IsInf(col, 0) || math.IsInf(row, 0) {
+		return layoutErr(http.StatusBadRequest, "Column and row must be finite numbers.")
+	}
 	if w < 1 || w > layoutMaxSpan || h < 1 || h > layoutMaxSpan {
 		return layoutErr(http.StatusBadRequest, "Width and height must each be 1 to %d cells.", layoutMaxSpan)
 	}
 	if rot != 0 && rot != 90 && rot != 180 && rot != 270 {
 		return layoutErr(http.StatusBadRequest, "Rotation must be 0, 90, 180 or 270 degrees.")
 	}
-	if col < -layoutMaxCell || row < -layoutMaxCell || col+w-1 > layoutMaxCell || row+h-1 > layoutMaxCell {
+	if col < -layoutMaxCell || row < -layoutMaxCell || col+float64(w-1) > layoutMaxCell || row+float64(h-1) > layoutMaxCell {
 		return layoutErr(http.StatusBadRequest, "The item must lie within columns and rows %d to %d.", -layoutMaxCell, layoutMaxCell)
-	}
-	return nil
-}
-
-// overlapping returns the fixture or group item on layer that shares a cell
-// with the rectangle, ignoring the item with ID skip, or nil. Objects never
-// take a cell.
-func overlapping(l *showLayout, layer string, col, row, w, h int, skip string) *layoutItem {
-	for i := range l.Items {
-		it := &l.Items[i]
-		if it.ID == skip || it.Layer != layer || it.Kind == "object" {
-			continue
-		}
-		if col < it.Col+it.W && it.Col < col+w && row < it.Row+it.H && it.Row < row+h {
-			return it
-		}
 	}
 	return nil
 }
@@ -926,6 +940,13 @@ func orDefault(p *int, d int) int {
 	return *p
 }
 
+func orDefaultF(p *float64, d float64) float64 {
+	if p == nil {
+		return d
+	}
+	return *p
+}
+
 func applyLayoutAction(action string, body []byte, p *patch.Patch, ws *showWorkspace) (any, error) {
 	l := &ws.Layout
 	switch action {
@@ -945,6 +966,20 @@ func applyLayoutAction(action string, body []byte, p *patch.Patch, ws *showWorks
 			return nil, layoutErr(http.StatusConflict, "Derive the layout from positions first; refresh re-runs that derive with its saved cell size and layer gap.")
 		}
 		return autoPlace(p, l, l.CellMM, l.ZGapMM)
+
+	case "arrange":
+		var req layoutArrangeRequest
+		if err := decodeStrict(body, &req); err != nil {
+			return nil, err
+		}
+		return arrangeLayout(req, p, l)
+
+	case "scale":
+		var req layoutScaleRequest
+		if err := decodeStrict(body, &req); err != nil {
+			return nil, err
+		}
+		return scaleLayout(req.CellMM, l)
 
 	case "place":
 		var req layoutPlaceRequest
@@ -995,9 +1030,8 @@ func applyLayoutAction(action string, body []byte, p *patch.Patch, ws *showWorks
 		if auto < 0 && countKind(l, "entry")+countKind(l, "group") >= len(p.Entries)+len(ws.Groups) {
 			return nil, layoutErr(http.StatusBadRequest, "The layout already holds as many items as the show has fixtures and groups.")
 		}
-		if o := overlapping(l, it.Layer, it.Col, it.Row, it.W, it.H, it.ID); o != nil {
-			return nil, layoutErr(http.StatusConflict, "Those cells are taken by %s on this layer.", itemLabel(p, ws, o))
-		}
+		// M1: items may overlap; the Console separates them for display
+		// while snapping is on.
 		if auto >= 0 {
 			l.Items = append(l.Items[:auto], l.Items[auto+1:]...)
 		}
@@ -1025,13 +1059,10 @@ func applyLayoutAction(action string, body []byte, p *patch.Patch, ws *showWorks
 			it.Order = nextOrder(l, req.Layer)
 		}
 		it.Mode = modeManual
-		it.Col, it.Row = orDefault(req.Col, it.Col), orDefault(req.Row, it.Row)
+		it.Col, it.Row = orDefaultF(req.Col, it.Col), orDefaultF(req.Row, it.Row)
 		it.W, it.H, it.Rot = orDefault(req.W, it.W), orDefault(req.H, it.H), orDefault(req.Rot, it.Rot)
 		if err := checkGeometry(it.Col, it.Row, it.W, it.H, it.Rot); err != nil {
 			return nil, err
-		}
-		if o := overlapping(l, it.Layer, it.Col, it.Row, it.W, it.H, it.ID); o != nil {
-			return nil, layoutErr(http.StatusConflict, "Those cells are taken by %s on this layer.", itemLabel(p, ws, o))
 		}
 		l.Items[i] = it
 		return map[string]string{"id": it.ID, "mode": it.Mode}, nil
@@ -1371,16 +1402,16 @@ func checkZRange(known bool, zMin, zMax float64) error {
 // layers are created in ascending Z and inserted just before the Unplaced
 // layer.
 //
-// Cells (plan view, looking down): col = round((X - OriginX)/CellMM),
-// row = round((OriginY - Y)/CellMM) — rows grow toward -Y (MVR is Z-up, and
-// with +Y upstage rows read downstage). math.Round rounds halves away from 0.
+// Cells (plan view, looking down): col = (X - OriginX)/CellMM,
+// row = (OriginY - Y)/CellMM — rows grow toward -Y (MVR is Z-up, and with
+// +Y upstage rows read downstage). M1: exact, to 1/1000 of a cell.
 // The origin is (min X, max Y) over EVERY located entry, fixed on the first
 // derive (or on replace) and reused afterwards.
 //
-// Collisions, deterministically: entries are taken in patch order; the first
-// keeps a contested cell. A later one gets the free cell (on its layer)
-// nearest its exact fractional position by Euclidean distance, ties to the
-// smaller row, then the smaller col, searching out to layoutSearchRings rings.
+// Collisions (M1): none are resolved here. Positions are stored exactly and
+// may overlap; the Console separates overlapping tiles for display while
+// snapping is on. A position outside the cell range is not placed
+// ("out-of-range") and the fixture stays in the Unplaced grid.
 //
 // C2b: without replace, manual items, group placements and objects are kept
 // as they are and every AUTO fixture placement is recomputed (autoPlace) —
@@ -1393,6 +1424,8 @@ func deriveLayout(req layoutDeriveRequest, p *patch.Patch, l *showLayout) (any, 
 	cell, gap := float64(layoutDefaultCellMM), float64(layoutDefaultZGapMM)
 	if l.Derived && !req.Replace {
 		cell, gap = l.CellMM, l.ZGapMM
+	} else if l.CellMM > 0 && !req.Replace {
+		cell = l.CellMM // M1: a Scale chosen before the first derive
 	}
 	if req.CellMM != nil {
 		cell = *req.CellMM
@@ -1626,57 +1659,19 @@ func autoPlace(p *patch.Patch, l *showLayout, cell, gap float64) (layoutDeriveRe
 	insertLayers(l, newLayers)
 	res.LayersCreated = len(newLayers)
 
-	type cellKey struct {
-		layer    string
-		col, row int
-	}
-	taken := map[cellKey]bool{}
-	for _, it := range l.Items {
-		if it.Kind == "object" {
-			continue
-		}
-		for c := it.Col; c < it.Col+it.W; c++ {
-			for r := it.Row; r < it.Row+it.H; r++ {
-				taken[cellKey{it.Layer, c, r}] = true
-			}
-		}
-	}
-	inGrid := func(c, r int) bool {
-		return c >= -layoutMaxCell && c <= layoutMaxCell && r >= -layoutMaxCell && r <= layoutMaxCell
-	}
+	exact := func(v float64) float64 { return math.Round(v*1000) / 1000 }
 	for k, e := range todo {
 		layer := layerOf[e.ID]
-		fx := (e.Location.X - l.OriginXMM) / cell
-		fy := (l.OriginYMM - e.Location.Y) / cell
-		c0, r0 := int(math.Round(fx)), int(math.Round(fy))
-		col, row, displaced := c0, r0, false
-		if !inGrid(c0, r0) || taken[cellKey{layer, c0, r0}] {
-			displaced = true
-			found := false
-			for ring := 1; ring <= layoutSearchRings && !found; ring++ {
-				for dc := -ring; dc <= ring && !found; dc++ {
-					for dr := -ring; dr <= ring; dr++ {
-						if max(abs(dc), abs(dr)) == ring && inGrid(c0+dc, r0+dr) && !taken[cellKey{layer, c0 + dc, r0 + dr}] {
-							found = true
-							// Any cell nearer the exact position than this
-							// one lies within 2·ring+1 rings (see the
-							// distance bound in the file notes); pick the
-							// best of those.
-							col, row = nearestFree(func(c, r int) bool { return inGrid(c, r) && !taken[cellKey{layer, c, r}] }, c0, r0, fx, fy, 2*ring+1)
-							break
-						}
-					}
-				}
+		col := exact((e.Location.X - l.OriginXMM) / cell)
+		row := exact((l.OriginYMM - e.Location.Y) / cell)
+		displaced := false
+		if col < -layoutMaxCell || col > layoutMaxCell || row < -layoutMaxCell || row > layoutMaxCell {
+			if _, was := prev[e.ID]; was {
+				res.ReturnedToUnplaced = append(res.ReturnedToUnplaced, e.ID)
 			}
-			if !found {
-				if _, was := prev[e.ID]; was {
-					res.ReturnedToUnplaced = append(res.ReturnedToUnplaced, e.ID)
-				}
-				res.NotPlaced = append(res.NotPlaced, layoutUnplaced{EntryID: e.ID, Reason: "no-free-cell", ItemID: entryItemID(e.ID)})
-				continue
-			}
+			res.NotPlaced = append(res.NotPlaced, layoutUnplaced{EntryID: e.ID, Reason: "out-of-range", ItemID: entryItemID(e.ID)})
+			continue
 		}
-		taken[cellKey{layer, col, row}] = true
 		it := layoutItem{ID: entryItemID(e.ID), Kind: "entry", Ref: e.ID, Layer: layer, Col: col, Row: row, W: 1, H: 1, Rot: 0,
 			Mode: modeAuto, Order: 1<<30 + k}
 		old, was := prev[e.ID]
@@ -1699,6 +1694,134 @@ func autoPlace(p *patch.Patch, l *showLayout, cell, gap float64) (layoutDeriveRe
 	}
 	renumberItemOrders(l)
 	return res, nil
+}
+
+// layoutArrangeResult is a derive result plus how many fixtures were
+// arranged and which chosen ones have no position to arrange from.
+type layoutArrangeResult struct {
+	layoutDeriveResult
+	Arranged   int      `json:"arranged"`
+	NoPosition []string `json:"noPosition"`
+}
+
+// arrangeLayout (M1, owner 2026-11-17: "rearrange based on 3D anytime"):
+// the chosen fixtures (IDs) or every fixture (All, Confirm "ARRANGE") are
+// handed back to automatic placement and placed from their positions. Hand
+// placements among them stop being manual; fixtures not chosen, group
+// placements and objects stay. A layout never derived is derived first (at
+// its Scale, if one was set). Chosen fixtures without a position are named
+// in noPosition and left where they are.
+func arrangeLayout(req layoutArrangeRequest, p *patch.Patch, l *showLayout) (any, error) {
+	switch {
+	case req.All && len(req.IDs) > 0:
+		return nil, layoutErr(http.StatusBadRequest, "Name the fixtures to arrange, or all, not both.")
+	case req.All && req.Confirm != "ARRANGE":
+		return nil, layoutErr(http.StatusBadRequest, "Confirm ARRANGE to place every fixture from its position; fixtures placed by hand will move.")
+	case !req.All && req.Confirm != "":
+		return nil, layoutErr(http.StatusBadRequest, "Confirm is only used with all.")
+	case !req.All && len(req.IDs) == 0:
+		return nil, layoutErr(http.StatusBadRequest, "Name the fixtures to arrange, or all with confirm ARRANGE.")
+	}
+	want := map[string]bool{}
+	if req.All {
+		for _, e := range p.Entries {
+			want[e.ID] = true
+		}
+	}
+	for _, id := range req.IDs {
+		if p.IndexOf(id) < 0 {
+			return nil, layoutErr(http.StatusNotFound, "A fixture to arrange is not in this show; refresh the layout.")
+		}
+		want[id] = true
+	}
+	located := map[string]bool{}
+	noPos := make([]string, 0)
+	for _, e := range p.Entries {
+		if !want[e.ID] {
+			continue
+		}
+		if e.Location.Known {
+			located[e.ID] = true
+		} else {
+			noPos = append(noPos, e.ID)
+		}
+	}
+	if len(located) == 0 {
+		return nil, layoutErr(http.StatusBadRequest, "None of these fixtures has a position from the MVR file, so there is nothing to arrange them from.")
+	}
+	for i := range l.Items {
+		if l.Items[i].Kind == "entry" && located[l.Items[i].Ref] {
+			l.Items[i].Mode = modeAuto
+		}
+	}
+	var res layoutDeriveResult
+	if !l.Derived {
+		r, err := deriveLayout(layoutDeriveRequest{}, p, l)
+		if err != nil {
+			return nil, err
+		}
+		res = r.(layoutDeriveResult)
+	} else {
+		r, err := autoPlace(p, l, l.CellMM, l.ZGapMM)
+		if err != nil {
+			return nil, err
+		}
+		res = r
+	}
+	return layoutArrangeResult{layoutDeriveResult: res, Arranged: len(located), NoPosition: noPos}, nil
+}
+
+// scaleLayout (M1, owner 2026-11-17: Scale is "mm per grid square", and
+// everything on the plot moves with it): every position on the plan —
+// fixtures, hand placements, group placements and object geometry — is
+// multiplied by old/new cell size around the origin (cell 0,0), so the rig
+// spreads or closes up while tiles keep their size. The Unplaced grid is not
+// a plan and does not move. The operator has now chosen the settings, so an
+// automatic derive's ownership (J1) ends here.
+func scaleLayout(cellMM float64, l *showLayout) (any, error) {
+	if !(cellMM >= layoutMinCellMM && cellMM <= layoutMaxCellMM) {
+		return nil, layoutErr(http.StatusBadRequest, "The scale must be %d to %d mm per square.", layoutMinCellMM, layoutMaxCellMM)
+	}
+	old := l.CellMM
+	if old <= 0 {
+		old = layoutDefaultCellMM
+	}
+	f := old / cellMM
+	r3 := func(v float64) float64 { return math.Round(v*f*1000) / 1000 }
+	tooBig := layoutErr(http.StatusConflict, "At %g mm per square the plan would not fit the grid (%d to %d squares); choose a larger scale.", cellMM, -layoutMaxCell, layoutMaxCell)
+	scaled := append([]layoutItem(nil), l.Items...)
+	for i := range scaled {
+		it := &scaled[i]
+		if it.Layer == unplacedLayerID {
+			continue
+		}
+		if it.Kind != "object" {
+			it.Col, it.Row = r3(it.Col), r3(it.Row)
+			if checkGeometry(it.Col, it.Row, it.W, it.H, it.Rot) != nil {
+				return nil, tooBig
+			}
+			continue
+		}
+		if it.Geometry == nil {
+			continue
+		}
+		g := *it.Geometry
+		g.Col, g.Row = r3(g.Col), r3(g.Row)
+		for _, v := range []**float64{&g.Col2, &g.Row2, &g.W, &g.H} {
+			if *v != nil {
+				x := r3(**v)
+				*v = &x
+			}
+		}
+		it.Geometry = &g
+		if t, ok := objectTypeOf(it.ObjectType); ok && checkObject(t, it) != nil {
+			return nil, tooBig
+		}
+	}
+	l.Items = scaled
+	l.CellMM = cellMM
+	l.AutoDerived, l.AutoLayers = false, make([]string, 0)
+	return map[string]float64{"cellMm": cellMM, "factor": f}, nil
 }
 
 // settleAuto applies automatic placement after items were handed back to
@@ -1826,69 +1949,28 @@ func checkObject(t layoutObjectType, it *layoutItem) error {
 			return layoutErr(http.StatusBadRequest, "A %s's width and height must each be at least half a cell.", t.Type)
 		}
 		xs, ys = append(xs, g.Col+*g.W), append(ys, g.Row+*g.H)
-		if !onStep(*g.W) || !onStep(*g.H) {
-			return layoutErr(http.StatusBadRequest, "Object coordinates must be in half cells, for example 2 or 2.5.")
-		}
 	default: // point
 		if hasLine || hasRect {
 			return layoutErr(http.StatusBadRequest, "A %s is a point: give only col and row.", t.Type)
 		}
 	}
 	for _, v := range append(append([]float64{}, xs...), ys...) {
-		if !onStep(v) {
-			return layoutErr(http.StatusBadRequest, "Object coordinates must be in half cells, for example 2 or 2.5.")
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return layoutErr(http.StatusBadRequest, "Object coordinates must be finite numbers.")
 		}
 		if v < -layoutMaxCell || v > layoutMaxCell {
 			return layoutErr(http.StatusBadRequest, "The object must lie within columns and rows %d to %d.", -layoutMaxCell, layoutMaxCell)
 		}
 	}
-	cover := func(vs []float64) (int, int) {
+	cover := func(vs []float64) (float64, int) {
 		lo, hi := vs[0], vs[0]
 		for _, v := range vs {
 			lo, hi = math.Min(lo, v), math.Max(hi, v)
 		}
 		start := int(math.Floor(lo))
-		return start, max(1, int(math.Ceil(hi))-start)
+		return float64(start), max(1, int(math.Ceil(hi))-start)
 	}
 	it.Col, it.W = cover(xs)
 	it.Row, it.H = cover(ys)
 	return nil
-}
-
-// onStep reports whether v is a finite multiple of layoutObjectStep.
-func onStep(v float64) bool {
-	if math.IsNaN(v) || math.IsInf(v, 0) {
-		return false
-	}
-	q := v / layoutObjectStep
-	return q == math.Round(q)
-}
-
-// nearestFree returns the free cell within Chebyshev radius `radius` of
-// (c0, r0) nearest the fractional point (fx, fy); ties go to the smaller
-// row, then the smaller col. Called only once a free cell is known to exist
-// in ring k, with radius 2k+1: a cell farther than that is at least
-// 2k+0.5 from the point, while the ring-k cell is at most (k+0.5)·√2 —
-// smaller for every k >= 1 — so nothing nearer is missed.
-func nearestFree(free func(c, r int) bool, c0, r0 int, fx, fy float64, radius int) (int, int) {
-	bc, br, best := 0, 0, math.Inf(1)
-	for r := r0 - radius; r <= r0+radius; r++ {
-		for c := c0 - radius; c <= c0+radius; c++ {
-			if !free(c, r) {
-				continue
-			}
-			d := (float64(c)-fx)*(float64(c)-fx) + (float64(r)-fy)*(float64(r)-fy)
-			if d < best || (d == best && (r < br || (r == br && c < bc))) {
-				bc, br, best = c, r, d
-			}
-		}
-	}
-	return bc, br
-}
-
-func abs(x int) int {
-	if x < 0 {
-		return -x
-	}
-	return x
 }
