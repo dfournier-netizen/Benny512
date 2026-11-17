@@ -95,30 +95,24 @@ func importCaptureExtract(t *testing.T, h *testHarness) {
 //	→ four layers, ordered by height, named after their Z range.
 //
 // Grid — origin is (min X, max Y) over located entries = (−6670.87305,
-// 1865.55334); col = round((X − originX)/2000), row = round((originY − Y)/2000)
-// (plan view, rows grow downstage). Patch order decides who keeps a contested
-// cell; the loser takes the free cell nearest its exact fractional position
-// (Euclidean), ties to the smaller row, then the smaller col.
-//
-//	11  (0, 1.378) → 0,1    12  (0, 1.378) → 0,1 (another layer)
-//	16  (6.696, 1.378) → 7,1
-//	21  (1.649, 0.887) → 2,1
-//	22  (2.149, 0.887) → 2,1 taken by 21; nearest free: 3,1 (d²=0.738;
-//	     2,0 is d²=0.809)
-//	1   (1.570, 0.252) → 2,0
-//	2   (1.954, 0.000) → 2,0 taken by 1; nearest free: 1,0 (d²=0.911;
-//	     2,1 and 2,−1 are d²=1.002)
-//	47  (6.641, 2.628) → 7,3    71  (6.524, 2.342) → 7,2
+// 1865.55334); col = (X − originX)/2000, row = (originY − Y)/2000 (plan
+// view, rows grow downstage), exact to 1/1000 of a cell. M1 (decision 0004):
+// positions are no longer rounded and a shared cell is no longer resolved by
+// moving the later fixture — 21/22 and 1/2 keep their own positions, and the
+// Console separates overlapping tiles for display when snapping is on. These
+// are the fractional positions this test always listed beside the rounded
+// cells it used to expect (C2: "11 (0, 1.378) → 0,1", "22 (2.149, 0.887) →
+// … 3,1", "2 (1.954, 0.000) → … 1,0").
 var captureDerived2000 = map[string]string{
-	"11": "Height 5565–5857 mm 0,1",
-	"12": "Height 4565 mm 0,1",
-	"16": "Height 5565–5857 mm 7,1",
-	"21": "Height 1053 mm 2,1",
-	"22": "Height 1053 mm 3,1",
-	"1":  "Height 5565–5857 mm 2,0",
-	"2":  "Height 5565–5857 mm 1,0",
-	"47": "Height 7660–7813 mm 7,3",
-	"71": "Height 7660–7813 mm 7,2",
+	"11": "Height 5565–5857 mm 0,1.378",
+	"12": "Height 4565 mm 0,1.378",
+	"16": "Height 5565–5857 mm 6.696,1.378",
+	"21": "Height 1053 mm 1.649,0.887",
+	"22": "Height 1053 mm 2.149,0.887",
+	"1":  "Height 5565–5857 mm 1.57,0.252",
+	"2":  "Height 5565–5857 mm 1.954,0",
+	"47": "Height 7660–7813 mm 6.641,2.628",
+	"71": "Height 7660–7813 mm 6.524,2.342",
 }
 
 func TestLayoutDerive_RealCaptureExtract(t *testing.T) {
@@ -413,7 +407,6 @@ func TestLayout_ValidationAndLimits(t *testing.T) {
 		{"place", `{"kind":"entry","ref":"` + e12 + `","layer":"` + floor + `","col":1000,"row":5}`, 400},
 		{"place", `{"kind":"entry","ref":"` + e12 + `","layer":"` + floor + `","col":-1000,"row":5}`, 400},
 		{"place", `{"kind":"entry","ref":"` + e11 + `","layer":"` + upper + `","col":9,"row":9}`, 409},
-		{"place", `{"kind":"entry","ref":"` + e12 + `","layer":"` + floor + `","col":1,"row":1}`, 409},
 		{"place", `{"kind":"entry","ref":"` + e12 + `","layer":"` + floor + `","col":5,"row":5,"extra":1}`, 400},
 		{"move", `{"id":"nope","col":1,"row":1}`, 404},
 		{"move", `{"id":"` + item + `","col":1,"row":1,"rot":13}`, 400},
@@ -439,10 +432,11 @@ func TestLayout_ValidationAndLimits(t *testing.T) {
 		}
 	}
 
-	// A move into an occupied cell is refused; moving between layers works.
+	// M1 (decision 0004): items may overlap (the Console separates them for
+	// display while snapping is on); moving between layers works.
 	mustLayoutPost(t, h, "place", `{"kind":"entry","ref":"`+e12+`","layer":"`+floor+`","col":5,"row":5}`)
-	if rr := layoutPost(t, h, "move", `{"id":"`+item+`","col":4,"row":4}`); rr.Code != http.StatusConflict {
-		t.Errorf("move overlapping (2x2 at 4,4 covers 5,5): %d %s, want 409", rr.Code, rr.Body.String())
+	if rr := layoutPost(t, h, "move", `{"id":"`+item+`","col":4,"row":4}`); rr.Code != http.StatusOK {
+		t.Errorf("move overlapping (2x2 at 4,4 covers 5,5): %d %s, want 200 (overlap allowed)", rr.Code, rr.Body.String())
 	}
 	mustLayoutPost(t, h, "move", `{"id":"`+item+`","layer":"`+upper+`","col":5,"row":5}`)
 	if got := placementsByNumber(t, layoutGet(t, h)); got["11"] != "Upper 5,5" {

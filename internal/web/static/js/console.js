@@ -43,6 +43,12 @@ const ConsoleScreen = (() => {
   const ZOOMS = [64, 96, 128, 160];
   const MAX_CELL = 160;
   const ZOOM_STEP = 1.25;             // − / + multiply or divide by this
+  // M1 (owner 2026-11-17, decision 0004): stored positions are exact and may
+  // overlap. With snapping on (M1: always) the plot draws each fixture and
+  // group on the nearest half square and moves an overlapping tile to the
+  // nearest free half-square spot; drags and arrow keys move in half squares.
+  const SNAP = 0.5;
+  const SNAP_RINGS = 80;              // how far (in half squares) a tile may be nudged
   const DRAG_SLOP = 8;                // px of travel before a press is a drag
   const st = {
     built: false, active: false, stale: true, loading: false,
@@ -70,6 +76,7 @@ const ConsoleScreen = (() => {
     // clockwise) or 270 (counterclockwise), so lines that run down the plan
     // run across the screen. Which way reads naturally depends on the show.
     rotate: 0,
+    drawn: new Map(),      // M1: item id -> {col, row} drawn (snapped), for drags and arrow keys
   };
   const VIEW_KEY = 'benny512.console.view';
   try {
@@ -755,8 +762,9 @@ const ConsoleScreen = (() => {
     // stored layout is never changed. Objects (truss, labels) have no place
     // in a packed view and are left out of it.
     const rot = rotated();
+    st.drawn = new Map();
     const lists = drawn.map(ly => {
-      const raw = items().filter(it => it.layer === ly.id && !stale.has(it.id));
+      const raw = snapItems(items().filter(it => it.layer === ly.id && !stale.has(it.id)));
       const list = compact ? compactItems(raw.filter(it => it.kind !== 'object')) : raw;
       return rot ? list.map(it => rotateItem(it, rot)) : list;
     });
@@ -803,6 +811,54 @@ const ConsoleScreen = (() => {
     if (stale.size) els.grid.appendChild(h('p', { class: 'b5-note', text: stale.size + ' layout item(s) point at something no longer in the show and are not drawn; remove them in edit mode or rebuild the layout.' }));
     applySelection();
     syncZoom();
+  }
+
+  // snapItems (M1): display copies of a layer's fixtures and groups on the
+  // half-square grid, none overlapping. In stacking order (bottom first) each
+  // takes the half-square spot nearest its exact position; if any of the
+  // half squares it covers is taken it moves to the free spot nearest its
+  // exact position (Euclidean; ties to the smaller row, then column).
+  // Objects are drawn as stored. The drawn spot of each item is kept in
+  // st.drawn for drags and arrow keys. A tile with no free spot within
+  // SNAP_RINGS half squares stays at its snapped spot, overlapping.
+  function snapItems(list) {
+    const taken = new Set();
+    const key = (c, r) => c + ',' + r;
+    const fits = (c, r, w, hh) => {
+      for (let i = 0; i < w / SNAP; i++) for (let j = 0; j < hh / SNAP; j++) if (taken.has(key(c + i, r + j))) return false;
+      return true;
+    };
+    const pos = new Map();
+    const tiles = list.filter(it => it.kind !== 'object').slice().sort((a, b) => (a.order || 0) - (b.order || 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    for (const it of tiles) {
+      const w = it.w || 1, hh = it.h || 1;
+      const fx = it.col / SNAP, fy = it.row / SNAP;
+      let c = Math.round(fx), r = Math.round(fy);
+      if (!fits(c, r, w, hh)) {
+        let found = 0;
+        for (let k = 1; k <= SNAP_RINGS && !found; k++) {
+          for (let dr = -k; dr <= k && !found; dr++) for (let dc = -k; dc <= k; dc++) {
+            if (Math.max(Math.abs(dc), Math.abs(dr)) === k && fits(c + dc, r + dr, w, hh)) { found = k; break; }
+          }
+        }
+        if (found) {
+          // Anything nearer the exact point lies within 2k+1 rings.
+          let best = null;
+          const rad = 2 * found + 1;
+          for (let dr = -rad; dr <= rad; dr++) for (let dc = -rad; dc <= rad; dc++) {
+            const cc = c + dc, rr = r + dr;
+            if (!fits(cc, rr, w, hh)) continue;
+            const d = (cc - fx) * (cc - fx) + (rr - fy) * (rr - fy);
+            if (!best || d < best.d || (d === best.d && (rr < best.r || (rr === best.r && cc < best.c)))) best = { d, c: cc, r: rr };
+          }
+          c = best.c; r = best.r;
+        }
+      }
+      for (let i = 0; i < w / SNAP; i++) for (let j = 0; j < hh / SNAP; j++) taken.add(key(c + i, r + j));
+      pos.set(it.id, { col: c * SNAP, row: r * SNAP });
+    }
+    pos.forEach((v, id) => st.drawn.set(id, v));
+    return list.map(it => pos.has(it.id) ? Object.assign({}, it, pos.get(it.id)) : it);
   }
 
   // rotateItem (L2): the display copy of an item turned a quarter turn on
@@ -897,7 +953,7 @@ const ConsoleScreen = (() => {
     if (it.mode === 'auto') markers.push('auto');
     if (it.layer === 'unplaced') {
       const r = unplacedReason(it.ref);
-      markers.push(r === 'no-location' ? 'no position' : r === 'not-derived' ? 'not derived' : 'unplaced');
+      markers.push(r === 'no-location' ? 'no position' : r === 'not-derived' ? 'not derived' : r === 'out-of-range' ? 'outside the plan' : 'unplaced');
     }
     // I2b §3: the class glyph from capabilities (fixtureClass), the order
     // badge in the glyph's reserved top-left corner, and the flag words
@@ -1331,7 +1387,7 @@ const ConsoleScreen = (() => {
     if (!st.edit || !d.moved) return;
     const it = itemById(d.id);
     if (!it) return;
-    const step = it.kind === 'object' ? 0.5 : 1;
+    const step = SNAP; // M1: half squares for fixtures and groups as for objects
     const dc = Math.round(dx / cellPx() / step) * step, dr = Math.round(dy / cellPx() / step) * step;
     st.editId = it.id;
     if (dc || dr) shift(it, dc, dr);
@@ -1347,15 +1403,18 @@ const ConsoleScreen = (() => {
     const it = itemById(hold.id);
     if (!it) return;
     if (ev.preventDefault) ev.preventDefault();
-    const step = it.kind === 'object' ? 0.5 : 1;
+    const step = SNAP;
     st.editId = it.id;
     shift(it, d[0] * step, d[1] * step);
   }
 
-  // shift moves an item by whole cells (objects: half cells).
+  // shift moves an item by half squares (M1). A fixture or group moves from
+  // where it is DRAWN (snapped, possibly nudged) to the half-square spot that
+  // far away, so what you see is what moves.
   function shift(it, dc, dr) {
     if (it.kind === 'object') return edit('object-update', { id: it.id, geometry: moved(it.geometry, dc, dr) }, 'Moved ' + itemName(it) + '.');
-    return edit('move', { id: it.id, col: it.col + dc, row: it.row + dr }, 'Moved ' + itemName(it) + '.');
+    const at = st.drawn.get(it.id) || { col: Math.round(it.col / SNAP) * SNAP, row: Math.round(it.row / SNAP) * SNAP };
+    return edit('move', { id: it.id, col: at.col + dc, row: at.row + dr }, 'Moved ' + itemName(it) + '.');
   }
   function geom(g) {
     const out = { col: g.col, row: g.row };

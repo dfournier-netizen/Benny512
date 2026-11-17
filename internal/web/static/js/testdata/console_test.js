@@ -267,8 +267,9 @@ async function server(method, p, body) {
 
   tile(ids.B1).dispatchEvent(new Event('keydown', { bubbles: true, key: 'ArrowLeft' }));
   await until('the nudge', () => posts('/api/patch/layout/move').length === 2);
-  check(same(lastPost('/api/patch/layout/move').body, { id: b1item.id, col: b1now.col - 1, row: b1now.row }), 'arrow key nudges the focused item one cell', lastPost('/api/patch/layout/move').body);
-  await until('the nudge to land', () => B.get('ConsoleScreen._state.layout').layout.items.find(it => it.id === b1item.id).col === b1now.col - 1 && document.querySelector('[data-editpanel] [data-reset-auto]'));
+  // M1 (decision 0004): arrow keys move half a square, the snap step.
+  check(same(lastPost('/api/patch/layout/move').body, { id: b1item.id, col: b1now.col - 0.5, row: b1now.row }), 'arrow key nudges the focused item half a square (M1)', lastPost('/api/patch/layout/move').body);
+  await until('the nudge to land', () => B.get('ConsoleScreen._state.layout').layout.items.find(it => it.id === b1item.id).col === b1now.col - 0.5 && document.querySelector('[data-editpanel] [data-reset-auto]'));
   click(document.querySelector('[data-editpanel] [data-reset-auto]'));
   await until('reset-auto', () => posts('/api/patch/layout/reset-auto').length === 1);
   check(same(lastPost('/api/patch/layout/reset-auto').body, { id: b1item.id }), 'Back to automatic posts reset-auto {id}');

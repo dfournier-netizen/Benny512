@@ -1,12 +1,12 @@
 # Benny512 — Session Handoff Brief (current)
 
-**Last updated:** 2026-11-17 11:34:24 -0500
+**Last updated:** 2026-11-17 12:23:25 -0500
 
-## Current delta — L3 own app window (`feat/l3-app-window`, on v0.3.1)
+## Current delta — M1 exact plan positions (`feat/m1-exact-positions`, on L3)
 
-v0.3.1 = v0.3.0 + L2 (plot zoom, pan, Rotate; decision 0003). L3 (2026-11-17 11:34:24 -0500): on Windows the exe opens Edge in app mode on `http://127.0.0.1:<port>/` with its own profile once the port listens; `--no-window` skips it; no Edge → default browser + warning; closing the window leaves Benny512 running (the C3 5-second lease still applies to output); console window unchanged; second launch unchanged. Gates green; not yet run on Windows.
+Owner request 2026-11-17 12:05 (decision 0004): arrange from 3D any time, Scale (mm per square), free placement, grid and snap switches — chunks M1 → M3. M1 (2026-11-17 12:23:25 -0500): positions are exact fractional cells and may overlap; derive places exactly; `scale` and `arrange` actions on the server; the Console draws on half squares and nudges overlaps apart (display only), drags/arrows move half squares. Gates green; render-checked on a synthetic show.
 
-**Next:** owner check of L3 on Windows; then the Workspaces project (mockup first) and K5 — see the next-work brief, section P0.
+**Next:** M2 — Grid (show/hide) and Snap (on/off) switches, free drag and arrows with snapping off (overlap allowed). M3 — Arrange from 3D (selection or all) and the Scale slider on the Console, outside edit mode. L3 still needs the owner's Windows check.
 
 ## Current delta — K4 Tests tab (`feat/k4-tests-tab`, on top of K3) → v0.3.0
 
