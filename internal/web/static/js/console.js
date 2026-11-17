@@ -1382,8 +1382,11 @@ const ConsoleScreen = (() => {
     if (!hold) return;
     const it = itemById(hold.id);
     if (!it) return;
+    // Capture only once the press becomes a drag (onPointerMove). Capturing
+    // here retargeted the click that ends a plain press to the grid box, so
+    // onGridClick never saw the tile and a simple click did not pick it
+    // (owner report 2026-11-17). Panning works the same way.
     drag = { id: it.id, el: hold.el, pointerId: ev.pointerId, x0: ev.clientX, y0: ev.clientY, moved: false };
-    try { els.grid.setPointerCapture(ev.pointerId); } catch (_) { /* not capturable (tests) */ }
   }
   function onPointerMove(ev) {
     if (lasso) return lassoMove(ev);
@@ -1391,6 +1394,7 @@ const ConsoleScreen = (() => {
     if (!drag || !st.edit || ev.pointerId !== drag.pointerId) return;
     const dx = ev.clientX - drag.x0, dy = ev.clientY - drag.y0;
     if (!drag.moved && Math.hypot(dx, dy) < DRAG_SLOP) return;
+    if (!drag.moved) { try { els.grid.setPointerCapture(drag.pointerId); } catch (_) { /* not capturable (tests) */ } }
     drag.moved = true;
     if (ev.preventDefault) ev.preventDefault();
     drag.el.style.setProperty('transform', 'translate(' + dx + 'px, ' + dy + 'px)');
@@ -1408,7 +1412,7 @@ const ConsoleScreen = (() => {
     const d = drag;
     const dx = ev.clientX - d.x0, dy = ev.clientY - d.y0;
     endDrag();
-    try { els.grid.releasePointerCapture(ev.pointerId); } catch (_) { /* fine */ }
+    if (d.moved) { try { els.grid.releasePointerCapture(ev.pointerId); } catch (_) { /* fine */ } }
     if (!st.edit || !d.moved) return;
     const it = itemById(d.id);
     if (!it) return;
