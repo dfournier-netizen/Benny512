@@ -1,12 +1,12 @@
 # Benny512 — Session Handoff Brief (current)
 
-**Last updated:** 2026-11-17 13:10:19 -0500
+**Last updated:** 2026-11-17 13:22:56 -0500
 
-## Current delta — M2 Grid and Snap switches (`feat/m2-grid-snap`, on v0.3.3)
+## Current delta — M3 Arrange menu (`feat/m3-plan-menu`, on v0.3.4)
 
-v0.3.3 = L3 + M1 (exact positions, `scale`/`arrange` on the server; decision 0004). M2 (2026-11-17 13:10:19 -0500): View ▸ Snap to half squares and Grid, per browser; Snap off draws exact stored positions (overlap allowed), free drags, arrows 0.1 square; Shift+arrow 1 square. Gates green; browser-checked.
+v0.3.4 = M2 (Grid/Snap switches). M3 (2026-11-17 13:22:56 -0500): toolbar **Arrange** menu (after View) — Scale slider + mm box (posts `scale` on release/Enter) and Arrange selection / Arrange all… (`arrange`, with confirms). Zoom slider hidden at 1024–1279 px. Decision 0004 complete (M1–M3). Gates green; browser-checked at four widths.
 
-**Next:** M3 — "Arrange from 3D" (selection, else all with a confirm) and the Scale slider (mm per square) on the Console, outside edit mode; then Workspaces (mockup first) and K5. L3 still needs the owner's Windows check.
+**Next:** owner bench on the real show; then Workspaces (mockup first) or K5 — see the next-work brief. L3 still needs the owner's Windows check.
 
 ## Current delta — K4 Tests tab (`feat/k4-tests-tab`, on top of K3) → v0.3.0
 
