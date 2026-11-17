@@ -63,7 +63,7 @@ hardware item in section 4.
 ### P0. Added 2026-11-17 10:29:05 -0500 — owner direction after v0.3.0
 
 - **L2 (done, `feat/l2-plot-zoom`)**: plot zoom/pan/Rotate, decision 0003.
-- **L3 — app mode (next, owner-approved 2026-11-17 10:20).** The exe opens
+- **L3 — app mode (done 2026-11-17 11:34:24 -0500, `feat/l3-app-window`; owner answers in `docs/notes/2026-11.md`; needs a Windows check).** Original scope: The exe opens
   Microsoft Edge with `--app=http://127.0.0.1:<port>/` (own window, no tabs or
   address bar, Benny512's name and icon; Edge ships with Windows 10/11, so no
   new dependency). Decide with Dom: open on start by default or behind a

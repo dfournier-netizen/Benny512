@@ -44,6 +44,7 @@ func main() {
 	showVersion := flag.Bool("version", false, "print the build identity and exit")
 	port := flag.Int("port", web.DefaultPort, "HTTP port to serve the UI and API on")
 	iface := flag.String("iface", "", "network interface name to bind for Art-Net (default: first non-loopback IPv4 interface)")
+	noWindow := flag.Bool("no-window", false, "do not open the Benny512 window on start (Windows); the UI is still served, for phones and tablets")
 	demo := flag.Bool("demo", false, "run against fake pre-scripted nodes/fixtures instead of real hardware")
 	logLevel := flag.String("loglevel", "info", "log verbosity: debug|info|warn|error")
 	logRDM := flag.String("logrdm", "", "optional: continuously append every RDM/ToD exchange to this file as it happens (rotates by size)")
@@ -250,7 +251,16 @@ func main() {
 	}
 	logf("info", "open http://%s:%d", localIP, *port)
 
-	if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	// L3: listen first, so the window opens only once the address answers
+	// (a port already in use stops here, as before, with no window).
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		logger.Fatalf("http server: %v", err)
+	}
+	if !*noWindow {
+		openAppWindow(systemLauncher(), appWindowURL(*port), appWindowProfileDir(), logf)
+	}
+	if err := httpSrv.Serve(ln); err != nil && err != http.ErrServerClosed {
 		logger.Fatalf("http server: %v", err)
 	}
 	logf("info", "stopped cleanly")

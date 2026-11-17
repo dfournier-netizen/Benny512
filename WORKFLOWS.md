@@ -2,6 +2,10 @@
 
 Use **Patch → New show** for a separate rig; use the saved-show selector to return to another. Edits save automatically. The Fixture Library is shared, but fixture commitments, groups, presets and baselines belong to each show. The same physical fixture can be committed in several shows.
 
+## Starting Benny512
+
+Double-click `benny512.exe`. On Windows it opens its own window (Microsoft Edge in app mode: no tabs or address bar) once it is ready; the black console window stays open with the log, and closing the console window is how Benny512 quits. Closing the app window does not quit Benny512 — reopen it by going to the address in the log, `http://127.0.0.1:<port>/` — but output is still covered by the 5-second rule below. Start with `--no-window` to skip the window (phones and tablets only). Without Edge, the address opens in the default browser and the log says so. A second copy started while one is running stops with "address already in use".
+
 ## Before testing
 
 Check the persistent show name, NIC and output status. Nothing reaches the rig until **ARM** is pressed in the top strip; **DISARM** or **Stop all output** blacks out every universe Benny512 is sending (zero frames, then sACN stream termination) and stops all DMX output. It is not an RDM Identify-off command or a stop for another console. If every connected browser goes quiet for 5 seconds, output follows the Settings choice: Blackout or Hold last look.
