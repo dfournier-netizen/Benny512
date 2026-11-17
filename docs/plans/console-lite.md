@@ -140,7 +140,7 @@ Diagnosis and re-verification on Dom's real show: `docs/evidence/analysis/J1-ben
 | L2 | Owner request 2026-11-17: plot zoom continuous (slider, Ctrl+wheel/pinch, ×1.25 steps) to a 28 px floor, number-only tiles below 56 px, Rotate 90° right/left, drag to pan (decision 0003). **Done** 2026-11-17 10:29:05 -0500 | K4 |
 | L3 | Owner-approved 2026-11-17: own app window — Edge `--app` on start, own profile, `--no-window`, default-browser fallback; closing it keeps the app running. **Done** 2026-11-17 11:34:24 -0500 | L2 |
 | M1 | Owner 2026-11-17 (decision 0004): exact fractional positions, overlap allowed, exact derive, `scale` and `arrange` actions, Console half-square display snap with nudge. **Done** 2026-11-17 12:23:25 -0500 | L3 |
-| M2 | Grid show/hide and Snap on/off (per browser), free drag and arrow steps with snapping off | M1 |
+| M2 | Grid show/hide and Snap on/off (View menu, per browser), free drag and 0.1-square arrows with Snap off, Shift+arrow 1 square. **Done** 2026-11-17 13:10:19 -0500 | M1 |
 | M3 | Arrange from 3D (selection or all, confirm) and the Scale slider on the Console, outside edit mode | M2 |
 
 ## Delivery to Dom's desktop
