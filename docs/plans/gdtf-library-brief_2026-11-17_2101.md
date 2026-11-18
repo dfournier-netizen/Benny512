@@ -132,6 +132,7 @@ The sandbox cannot reach gdtf-share.com, so G4 is the first real contact.
 |---|---|---|---|
 | G1 | Built on `feat/gdtf-g1-sync`, awaiting coordinator review | 2026-11-17 21:36:42 -0500 | Fake-server tests and all gates green. Same fixture = uuid + uploader label. Not yet run against the real GDTF Share (G4). Open for the owner: the API page's "cached files no more than 24 h old" vs decision 2; default names that may not match GDTF Share's spelling. |
 | G2 | Built on `feat/gdtf-g2-rdm` (on G1), awaiting coordinator review | 2026-11-17 22:13:43 -0500 | description.xml read into the index (download + one-time backfill; unreadable files kept with the reason); zero RDM ID = not given (GLP JDC1 `DeviceModelID="0x0"`); LongName search; `GET /api/gdtf/match` ranked software-version → model, labels kept, no name fallback. Real files carry RDM IDs but no software versions/personalities, so personality → mode is proved on synthetic files. Open for the owner: within a tier, Manufacturer uploads before User; model-only mode given only when all versions agree. |
+| G2b | Built on `feat/gdtf-g2-rdm` (on G2), awaiting coordinator review | 2026-11-17 22:32:24 -0500 | Round-4 answers: "likely" mode with warning/basis/choices when versions disagree; "other-versions" fallback when the device's version maps nothing (tier stays software-version); most-likely rule = most versions, then highest software version ID, then name. |
 
 ## Owner decisions, round 3 (2026-11-17 21:53, after G1)
 
@@ -141,3 +142,16 @@ The sandbox cannot reach gdtf-share.com, so G4 is the first real contact.
    sync never uses it, and what to change (pick a dedicated lighting adapter) if sync is refused.
 2. Unmatched manufacturer names are resolved at G4 from the similar names offered.
 3. A full Settings reset clears the GDTF login; the downloaded files are kept. Accepted.
+
+## Owner decisions, round 4 (2026-11-17 22:22, after G2)
+
+1. **Within a match tier, files uploaded by the manufacturer rank before user uploads.** (Already
+   G2's behaviour; kept.)
+2. **Model-only match where the file's software versions disagree: give the most likely mode,
+   with a warning,** instead of no mode. It stays visibly a guess (basis, warning, alternatives listed).
+3. **The device's exact software version maps no mode for its personality: fall back to the
+   other software versions' mode** by the same rule, with a warning naming those versions.
+
+Most-likely rule (G2b, `internal/gdtfshare/match.go` rankModes): the mode mapped by the most
+software versions; ties to the mode mapped by the highest software version ID (a version with
+no ID counts lowest); then the mode name A to Z.
