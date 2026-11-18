@@ -1,6 +1,14 @@
 # Benny512 — Session Handoff Brief (current)
 
-**Last updated:** 2026-11-18 09:13:55 -0500
+**Last updated:** 2026-11-18 10:20:01 -0500
+
+## Current delta — G3c polish: similar names, About › Data folder (`feat/gdtf-g3c-polish`, on G3b4)
+
+G3c (2026-11-18 10:20:01 -0500, owner round 6). **Similar-name suggestions** (`gdtfshare.similarNames`) compare names reduced to letters and digits (`alnumFold`), so "ChromaQ" is offered "Chroma-Q" and "GLP" "G.L.P."; still a substring test, still at most 5, still a suggestion only (matching stays exact case-insensitive; nothing is followed or aliased until "Follow 'X' instead"). **Settings › About › Data folder** shows `libraryFolder` from `GET /api/gdtf/status` (the GDTF folder; "" when off) in a one-click-selectable line; in a demo it says the library is off. The Fixture Library file path is not shown: the server deliberately does not keep it (reset exemption, `library.go`).
+
+**Verified:** gdtfshare similar-name tests and the web/JS Data-folder tests failing first (proof in dafa6ef, 181e850); render-proof 42 runs clean incl. a real one-click selection of the folder and "Follow “Chroma-Q” instead" on the demo build; all gates incl. `-race` and the Windows cross-build.
+
+**Known limit:** a substring can still suggest an unrelated maker ("Robe" inside "Robert Juliat"); the user decides. The path is shown to any browser on this Benny512 (LAN), not only the local laptop's.
 
 ## Current delta — G3b4 Devices: GDTF group and card tags (`feat/gdtf-g3b4-devices`, on G3b3) — G3b complete
 
