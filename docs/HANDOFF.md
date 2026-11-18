@@ -1,6 +1,6 @@
 # Benny512 — Session Handoff Brief (current)
 
-**Last updated:** 2026-11-18 10:20:01 -0500
+**Last updated:** 2026-11-18 11:57:33 -0500
 
 ## Current delta — G3c polish: similar names, About › Data folder (`feat/gdtf-g3c-polish`, on G3b4)
 
@@ -8,7 +8,9 @@ G3c (2026-11-18 10:20:01 -0500, owner round 6). **Similar-name suggestions** (`g
 
 **Verified:** gdtfshare similar-name tests and the web/JS Data-folder tests failing first (proof in dafa6ef, 181e850); render-proof 42 runs clean incl. a real one-click selection of the folder and "Follow “Chroma-Q” instead" on the demo build; all gates incl. `-race` and the Windows cross-build.
 
-**Known limit:** a substring can still suggest an unrelated maker ("Robe" inside "Robert Juliat"); the user decides. The path is shown to any browser on this Benny512 (LAN), not only the local laptop's.
+**Only on this computer** (2026-11-18 11:57:33 -0500, owner 11:40): `libraryFolder` is sent only when the request's RemoteAddr is loopback (127.0.0.0/8, ::1; `fromThisComputer` in gdtf.go; X-Forwarded-For never read, no reverse proxy). Other browsers get `""` + `libraryFolderWithheld:true`, and About says the folder is shown only on the computer running Benny512, in its own window. The Benny512 window (http://127.0.0.1) qualifies; a browser on the laptop using its LAN address counts as another device. Proved by e6ecdd0 (Go + JS tests failing first; render-proof over 127.0.0.1 and over the LAN address).
+
+**Known limit:** a substring can still suggest an unrelated maker ("Robe" inside "Robert Juliat"); the user decides.
 
 ## Current delta — G3b4 Devices: GDTF group and card tags (`feat/gdtf-g3b4-devices`, on G3b3) — G3b complete
 
