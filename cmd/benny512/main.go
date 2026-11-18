@@ -195,6 +195,17 @@ func main() {
 		if err := srv.SetMIDIStorePath(midiStorePath()); err != nil {
 			logf("warn", "MIDI mapping: %v", err)
 		}
+		// G1: the GDTF library (%APPDATA%\Benny512\GDTF), real mode only for
+		// the same reason, and more: --demo and the rehearsal child must never
+		// reach out to GDTF Share or write the installation's library. Without
+		// a folder the sync is off and says so; that is never fatal.
+		if config, err := os.UserConfigDir(); err != nil {
+			logf("warn", "GDTF library: no user configuration directory (%v); GDTF sync is off", err)
+		} else if dir, err := gdtfLibraryDir(config); err != nil {
+			logf("warn", "GDTF library: %v; GDTF sync is off", err)
+		} else {
+			srv.SetGDTFLibraryPath(dir)
+		}
 	}
 
 	// A saved Settings.LogRDMPath is OPENED here, not merely remembered.

@@ -59,3 +59,14 @@ func sharedLibraryPath(configDir, legacy string) (string, error) {
 	}
 	return path, nil
 }
+
+// gdtfLibraryDir is the GDTF library folder, beside the shared Fixture
+// Library: <configDir>\Benny512\GDTF (owner decision 6, 2026-11-17). It is
+// never in the repo or the exe; each install syncs its own.
+func gdtfLibraryDir(configDir string) (string, error) {
+	dir := filepath.Join(configDir, "Benny512", "GDTF")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", err
+	}
+	return dir, nil
+}

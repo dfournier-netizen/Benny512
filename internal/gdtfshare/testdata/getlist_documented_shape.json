@@ -1,0 +1,38 @@
+{
+  "result": true,
+  "list": [
+    {
+      "rid": 12345,
+      "fixture": "Spiider",
+      "manufacturer": "Robe",
+      "revision": "Mode names from manual",
+      "creationDate": "1570494396",
+      "lastModified": "1570494396",
+      "uploader": "Manuf.",
+      "rating": "4.1",
+      "version": "1.1",
+      "creator": "robe_lighting",
+      "uuid": "6C3E3F5A-0D1B-4A40-9C66-2C0D2F3A1B7E",
+      "filesize": 2311680,
+      "modes": [
+        {"name": "Mode 1", "dmxfootprint": 49},
+        {"name": "Mode 2", "dmxfootprint": 27}
+      ]
+    },
+    {
+      "rid": 12346,
+      "fixture": "Impression X4 Bar 20",
+      "manufacturer": "GLP",
+      "revision": "user fix",
+      "creationDate": 1600000000,
+      "lastModified": 1600000500,
+      "uploader": "User",
+      "rating": 0,
+      "version": "1.2",
+      "creator": "somebody",
+      "uuid": "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE",
+      "filesize": "1024",
+      "modes": []
+    }
+  ]
+}
