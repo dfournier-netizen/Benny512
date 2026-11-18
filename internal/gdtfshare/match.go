@@ -39,6 +39,8 @@ const (
 // Share's listing, UploaderLabel (Manufacturer/User) included.
 type MatchCandidate struct {
 	Entry
+	// SHA256 is the library file's local checksum.
+	SHA256      string       `json:"sha256"`
 	MatchedOn   string       `json:"matchedOn"`
 	Description *Description `json:"description"`
 	// DMXMode is the mode for the query's personality when ModeState is
@@ -182,7 +184,7 @@ func matchFile(e IndexEntry, q MatchQuery) (MatchCandidate, bool) {
 		*r.ManufacturerID != q.ManufacturerID || *r.DeviceModelID != q.DeviceModelID {
 		return MatchCandidate{}, false
 	}
-	c := MatchCandidate{Entry: e.Entry, MatchedOn: MatchedModel, Description: e.Description,
+	c := MatchCandidate{Entry: e.Entry, SHA256: e.SHA256, MatchedOn: MatchedModel, Description: e.Description,
 		ModeState: ModeNotAsked, ModeChoices: make([]string, 0), ModeFromVersions: make([]string, 0)}
 	var exact *RDMSoftwareVersion
 	if q.SoftwareVersionID != nil {

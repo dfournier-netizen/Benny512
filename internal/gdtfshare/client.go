@@ -27,6 +27,10 @@ import (
 type Client struct {
 	base *url.URL
 	http *http.Client
+	// OnConnect, when set, is told the local address of every connection
+	// guardedDial lets through (the TCP connection's own LocalAddr). Set it
+	// before the first request.
+	OnConnect func(local netip.Addr)
 }
 
 // NewClient builds a client for baseURL (DefaultBaseURL in production).
@@ -47,15 +51,21 @@ func NewClient(baseURL string, lighting func() []netip.Prefix, timeout time.Dura
 	if err != nil {
 		return nil, err
 	}
+	c := &Client{base: base}
 	tr := &http.Transport{
-		Proxy:               http.ProxyFromEnvironment,
-		DialContext:         guardedDial(lighting),
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: guardedDial(lighting, func(a netip.Addr) {
+			if c.OnConnect != nil {
+				c.OnConnect(a)
+			}
+		}),
 		TLSHandshakeTimeout: 30 * time.Second,
 		MaxIdleConns:        2,
 		IdleConnTimeout:     90 * time.Second,
 		ForceAttemptHTTP2:   true,
 	}
-	return &Client{base: base, http: &http.Client{Jar: jar, Transport: tr, Timeout: timeout}}, nil
+	c.http = &http.Client{Jar: jar, Transport: tr, Timeout: timeout}
+	return c, nil
 }
 
 // guardedDial refuses any connection that would leave by the lighting
@@ -73,7 +83,9 @@ func NewClient(baseURL string, lighting func() []netip.Prefix, timeout time.Dura
 //
 // Not covered: the operating system's own DNS lookup, which this process does
 // not route.
-func guardedDial(lighting func() []netip.Prefix) func(ctx context.Context, network, addr string) (net.Conn, error) {
+//
+// connected is told the local address of each connection it lets through.
+func guardedDial(lighting func() []netip.Prefix, connected func(netip.Addr)) func(ctx context.Context, network, addr string) (net.Conn, error) {
 	d := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
 	onLighting := func(a netip.Addr) bool {
 		if lighting == nil {
@@ -110,10 +122,14 @@ func guardedDial(lighting func() []netip.Prefix) func(ctx context.Context, netwo
 				continue
 			}
 			if ta, ok := conn.LocalAddr().(*net.TCPAddr); ok {
-				if la, ok := netip.AddrFromSlice(ta.IP); ok && onLighting(la) {
+				la, ok := netip.AddrFromSlice(ta.IP)
+				if ok && onLighting(la) {
 					conn.Close()
 					refused = true
 					continue
+				}
+				if ok && connected != nil {
+					connected(la.Unmap())
 				}
 			}
 			return conn, nil
