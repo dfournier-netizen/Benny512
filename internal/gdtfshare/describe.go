@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -328,4 +329,58 @@ func hexValue(text string, bits int, what string, problems *[]string) (uint64, b
 		return 0, false
 	}
 	return v, true
+}
+
+// Backfill reads every library file that has no description yet (an index
+// written before G2) or one from an older reader, and saves the index. An
+// entry is read once: after this, it has a Description (read or
+// unreadable) and is skipped. Run calls it at start-up before the first
+// sync. It holds the GDTF Share conversation lock while it works, so it
+// never races a sync or pull over index.json. It returns how many files it
+// read.
+func (s *Service) Backfill() (int, error) {
+	if !s.Enabled() {
+		return 0, ErrDisabled
+	}
+	s.netMu.Lock()
+	defer s.netMu.Unlock()
+	files, err := s.indexMap()
+	if err != nil {
+		return 0, err
+	}
+	rids := make([]int64, 0)
+	for rid, e := range files {
+		if needsDescription(e) {
+			rids = append(rids, rid)
+		}
+	}
+	sort.Slice(rids, func(i, j int) bool { return rids[i] < rids[j] })
+	for i, rid := range rids {
+		e := files[rid]
+		e.Description = s.describeRID(rid)
+		files[rid] = e
+		if (i+1)%indexSaveEvery == 0 {
+			if err := s.saveIndex(files); err != nil {
+				return i + 1, err
+			}
+		}
+	}
+	if len(rids) > 0 {
+		if err := s.saveIndex(files); err != nil {
+			return len(rids), err
+		}
+		s.cfg.Logf("GDTF: read the description of %d library file(s)", len(rids))
+	}
+	return len(rids), nil
+}
+
+func needsDescription(e IndexEntry) bool {
+	return e.Description == nil || e.Description.Reader < descReader
+}
+
+// describeRID reads one library file's description.xml.
+func (s *Service) describeRID(rid int64) *Description {
+	d := readDescription(s.st.absFile(rid))
+	d.ReadAt = s.now()
+	return &d
 }
