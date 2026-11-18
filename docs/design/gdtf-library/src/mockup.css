@@ -17,6 +17,13 @@ body { padding-bottom: var(--g3-review-h); }
 }
 .g3-review__kicker { font-weight: var(--b5-font-weight-bold); letter-spacing: 0.04em; text-transform: uppercase; }
 .g3-review__about { flex: 1 1 22rem; min-width: 0; color: var(--b5-color-text-secondary); }
+@media (max-width: 1279px) {
+  /* Keep the mockup controls to one row on a 1024 laptop: the scene note is
+     one line there (the whole note is its tooltip and in README.md). */
+  .g3-review { flex-wrap: nowrap; }
+  .g3-review__about { flex: 1 1 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .g3-review__kicker { display: none; }
+}
 .g3-review label { display: inline-flex; align-items: center; gap: var(--b5-space-2); }
 .g3-review .b5-select { width: auto; max-width: 30rem; }
 /* Sticky bottom bars sit above the mockup controls. */
@@ -52,7 +59,7 @@ body.g3-hide-notes .g3-new { display: none; }
   display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2) var(--b5-space-3);
   margin: 0 0 var(--b5-space-3);
   padding: var(--b5-space-3) var(--b5-space-4);
-  border: var(--b5-border-width-thin) solid var(--b5-color-border-default);
+  border: var(--b5-border-width-thin) solid var(--b5-color-border-control);
   border-radius: var(--b5-radius-md);
   background: var(--b5-color-bg-surface-raised);
 }

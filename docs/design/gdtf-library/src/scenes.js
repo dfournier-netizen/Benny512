@@ -188,7 +188,7 @@
       <div class="b5-alert b5-alert--warning">${icon('status-warning')}<div>
         <p class="b5-alert__title">Maverick MK3 Profile · Chauvet Professional · revision “1.2b” ${labelTag('User')}</p>
         <p class="b5-alert__body">description.xml is not well-formed XML: XML syntax error on line 2104: unexpected EOF</p>
-        <p class="b5-alert__body">The file stays in the library, but Benny512 cannot match it to devices or import it. A newer revision on GDTF Share replaces it at a later sync.</p>
+        <p class="b5-alert__body">The file stays in the library, but Benny512 cannot match it to devices, and importing it will most likely fail for the same reason. A newer revision on GDTF Share replaces it at a later sync.</p>
       </div></div>
       <p class="b5-caption">${NEW('unreadableFiles', 'Status gives the count (unreadable); the file and its reason are in each index entry (description.state/reason) but not listed in /api/gdtf/status')}</p>
     </div>`;
@@ -383,10 +383,10 @@
 
   function matchNone(withResults) {
     const d = DEVICES.jdc1;
-    const head = `<div class="b5-empty" style="align-items:flex-start;text-align:left">${icon('status-pending')}
-        <span class="b5-empty__title">No GDTF file in your library has this device's RDM IDs</span>
-        <span class="b5-empty__body">None of the ${n(FILES)} files lists manufacturer ${hex4(d.mid)} with model ${hex4(d.model)}. Benny512 does not pick a file by its name on its own. 1 file could not be read, so it was not checked.</span></div>
-      <div class="g3-search">
+    const head = `<div class="b5-alert b5-alert--info" role="status">${icon('status-pending')}<div>
+        <p class="b5-alert__title">No GDTF file in your library has this device's RDM IDs</p>
+        <p class="b5-alert__body">None of the ${n(FILES)} files lists manufacturer ${hex4(d.mid)} with model ${hex4(d.model)}. Benny512 does not pick a file by its name on its own. 1 file could not be read, so it was not checked.</p></div></div>
+      <div class="g3-search" id="ddNameSearchBox">
         <div class="b5-field"><label class="b5-field__label" for="ddNameSearch">Search the GDTF library by name instead</label><input id="ddNameSearch" class="b5-input" type="search" value="${withResults ? 'JDC1' : 'JDC1'}"></div>
         <button type="button" class="b5-btn ${withResults ? '' : 'b5-btn--primary'}" data-goto-scene="s16">${icon('filter')}Search by name</button>
       </div>
@@ -396,7 +396,7 @@
       { name: 'JDC1', mfr: 'GLP', label: 'Manufacturer', rev: 'Firmware 1.0.x · DMX v2', rdm: `RDM IDs in this file: manufacturer ${hex4(d.mid)}, but <strong>the file gives no model ID</strong> (it says 0x0), so it cannot match a device by RDM.`, modes: 'Standard · 14 ch; Extended · 68 ch; Pixel · 98 ch', foot: 68 },
       { name: 'JDC1 Strobe (show mode set)', mfr: 'GLP', label: 'User', rev: 'Rev 2', rdm: '<strong>No RDM data in this file.</strong> It can only be found by name.', modes: 'Standard · 14 ch; Extended · 68 ch', foot: 68 },
     ];
-    return head + `<p role="status" class="b5-text-sm" style="margin:var(--b5-space-2) 0"><strong>2 files</strong> match “JDC1” by name. Found by name, not by RDM.</p>
+    return head + `<p role="status" id="ddNameResults" class="b5-text-sm" style="margin:var(--b5-space-2) 0"><strong>2 files</strong> match “JDC1” by name. Found by name, not by RDM.</p>
       <div class="b5-workspace-list" style="max-height:none">${rows.map(r => `<div class="b5-workspace-item g3-result">
         <div class="g3-result__head"><strong class="g3-result__name">${esc(r.name)}</strong><span class="g3-result__mfr">${esc(r.mfr)}</span>${labelTag(r.label)}${badge('pending', 'Found by name')}</div>
         <span class="b5-text-sm">Revision “${esc(r.rev)}”</span>
@@ -499,7 +499,7 @@
     { id: 's13', group: 'Devices › GDTF match', title: '13 · Likely mode, with warning', tab: 'devices', device: 'mac', match: matchLikely, about: 'modeState likely: modeBasis and modeWarning verbatim; the other modeChoices listed.' },
     { id: 's14', group: 'Devices › GDTF match', title: '14 · Mode from other software versions', tab: 'devices', device: 'rivale', match: matchOtherVersions, about: 'modeState other-versions: the warning names the versions used and the device’s own.' },
     { id: 's15', group: 'Devices › GDTF match', title: '15 · No RDM match', tab: 'devices', device: 'jdc1', match: () => matchNone(false), about: 'Empty candidates: no name guessing. A name search is offered instead, filled in from the device’s model name.' },
-    { id: 's16', group: 'Devices › GDTF match', title: '16 · Name search: no RDM data, zero model ID', tab: 'devices', device: 'jdc1', match: () => matchNone(true), about: 'Files found by name say why RDM could not match them: “the file gives no model ID” (0x0) and “no RDM data”.' },
+    { id: 's16', group: 'Devices › GDTF match', title: '16 · Name search: no RDM data, zero model ID', tab: 'devices', device: 'jdc1', match: () => matchNone(true), inspectorScrollTo: 'ddNameSearchBox', about: 'Files found by name say why RDM could not match them: “the file gives no model ID” (0x0) and “no RDM data”.' },
   ];
 
   const $ = id => document.getElementById(id);
@@ -535,13 +535,14 @@
     setNav(s.tab);
     if (s.lib) { dlg.innerHTML = libraryDialog(s.lib); dlg.show(); }
     $('g3About').textContent = s.about;
+    $('g3About').title = s.about;
     $('g3Prev').disabled = SCENES[0] === s;
     $('g3Next').disabled = SCENES[SCENES.length - 1] === s;
     document.title = `${s.title} · GDTF mockup G3a`;
     publishHeights();
     window.scrollTo(0, 0);
     if (s.scrollTo) { const t = $(s.scrollTo); if (t) t.scrollIntoView({ block: 'start' }); }
-    if (s.device) { const t = $('ddGdtfHead'); if (t) t.scrollIntoView({ block: 'start' }); window.scrollTo(0, 0); }
+    if (s.device) { const t = $(s.inspectorScrollTo || 'ddGdtfHead'); if (t) t.scrollIntoView({ block: 'start' }); window.scrollTo(0, 0); }
     if (s.dlgScrollTo) { const t = dlg.querySelector(s.dlgScrollTo); if (t) t.scrollIntoView({ block: 'start' }); }
     if (focusSwitcher) sel.focus();
     document.body.dataset.scene = s.id;
