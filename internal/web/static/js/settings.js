@@ -122,6 +122,7 @@ const SettingsScreen = (() => {
             <select id="nicSelect" class="b5-select"></select>
             <span class="b5-field__hint">If nodes never answer a poll, this is the first thing to check — it must be the card on the lighting network, not the one with the internet on it.</span>
             <span class="b5-field__hint">Art-Net DMX, RDM, polling and node configuration all use this card.</span>
+            <span class="b5-field__hint"><strong>Also decides GDTF sync:</strong> sync never uses the card chosen here (or picked automatically), nor the sACN card below. See <em>7 GDTF Share</em>.</span>
             <span class="b5-field__hint"><strong>Takes effect when Benny512 restarts.</strong> The Art&nbsp;Net socket is opened once, against the card chosen at launch, and cannot be moved while the program is running &mdash; so saving a different card here changes what the next launch binds, not this one. Restart to use it. (A <code>--iface</code> given on the command line overrides this setting for that run, and if the saved card is missing on the next machine Benny512 picks one automatically and says so rather than refusing to start.)</span>
           </div>
           <div class="b5-field">
@@ -243,12 +244,28 @@ const SettingsScreen = (() => {
         <div class="b5-stack" id="themeSettingsRoot"></div>
       </section>
 
+      <section class="b5-step-section" aria-labelledby="setGdtfHead" id="gdtfSection">
+        <h2 class="b5-step-section__head" id="setGdtfHead">
+          <span class="b5-step-num">7</span> GDTF Share
+          <span class="b5-step-section__note">fixture files from gdtf-share.com &middot; these buttons act at once, no Apply needed</span>
+        </h2>
+        <div class="b5-gdtf-section" id="gdtfShareRoot"></div>
+      </section>
+
       <section class="b5-step-section" aria-labelledby="setResetHead">
         <h2 class="b5-step-section__head" id="setResetHead">
-          <span class="b5-step-num">7</span> Danger zone &mdash; full reset
+          <span class="b5-step-num">8</span> Danger zone &mdash; full reset
           <span class="b5-step-section__note">deletes the patch and shuts Benny512 down</span>
         </h2>
         <div class="b5-stack" id="resetPanelRoot"></div>
+      </section>
+
+      <section class="b5-step-section" aria-labelledby="setAboutHead" id="aboutSection">
+        <h2 class="b5-step-section__head" id="setAboutHead">
+          <span class="b5-step-num">9</span> About Benny512
+          <span class="b5-step-section__note">version and credits</span>
+        </h2>
+        <div class="b5-stack" id="aboutRoot"></div>
       </section>
 
       <section class="b5-actionbar" aria-label="Apply settings">
@@ -256,6 +273,7 @@ const SettingsScreen = (() => {
           <span class="b5-actionbar__title">${UI.icon('apply')}Settings</span>
           <span id="settingsDirtyPill"></span>
           <span class="b5-text-muted b5-text-sm" id="settingsStatus"></span>
+          <span class="b5-text-muted b5-text-sm">GDTF Share changes are saved as you make them.</span>
         </div>
         <div class="b5-actionbar__buttons">
           <button id="btnRevertSettings" class="b5-btn b5-btn--ghost">${UI.icon('revert')}Discard changes</button>
@@ -641,7 +659,8 @@ const SettingsScreen = (() => {
             Full reset permanently deletes ALL saved shows, their recovery copies, and the Rig Walk session &mdash;
             if your patch is hand-built, export it first (Patch tab &rarr; Export) or it is gone for good.
             It also clears every discovered node and device, empties the Art-Net/RDM capture buffers, closes
-            any RDM log file, and resets these Settings to their defaults. Benny512 then shuts down and has
+            any RDM log file, and resets these Settings to their defaults. It also clears the GDTF Share login;
+            the downloaded GDTF files are kept. Benny512 then shuts down and has
             to be relaunched &mdash; this is not the same as the Devices tab's "Clear discovered devices",
             which keeps all of that.
           </p>

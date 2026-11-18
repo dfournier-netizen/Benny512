@@ -444,5 +444,18 @@ const Api = (() => {
     // imported), never half-applied.
     importLibrary: (doc, mode) => req('POST', '/api/library/import',
       mode === 'replace' ? { mode, confirm: 'REPLACE', library: doc } : { mode: 'merge', library: doc }),
+
+    // --- GDTF library (internal/web/gdtf.go; G3b) -------------------------
+    // These act at once: none of them changes anything on the wire. The
+    // password goes in through gdtfSetLogin/gdtfTestLogin and is never
+    // returned by any of them.
+    getVersion: () => req('GET', '/api/version'),
+    gdtfStatus: () => req('GET', '/api/gdtf/status'),
+    gdtfSetLogin: (user, password) => req('POST', '/api/gdtf/login', { user, password }),
+    gdtfClearLogin: () => req('DELETE', '/api/gdtf/login'),
+    // gdtfTestLogin with no arguments tests the saved login.
+    gdtfTestLogin: (user, password) => req('POST', '/api/gdtf/login/test', user || password ? { user, password } : undefined),
+    gdtfSetManufacturers: (names) => req('POST', '/api/gdtf/manufacturers', { manufacturers: names }),
+    gdtfSync: () => req('POST', '/api/gdtf/sync'),
   };
 })();
