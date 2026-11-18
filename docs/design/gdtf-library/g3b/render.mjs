@@ -164,7 +164,7 @@ if (part === 'settings') {
   const SCENES = [
     // name, state folder, save a login?, page routes (only for what the demo cannot produce), words to find
     { name: 'not-set-up', state: 'empty', login: false, words: ['Not set up', 'No GDTF Share login saved', 'Which network sync uses', 'Save login', 'Powered by GDTF'] },
-    { name: 'ok', state: 'ok', login: true, words: ['Up to date', 'Library up to date', 'user dfournier', 'Manufacturers you follow (14)', 'Not found on GDTF Share', 'Follow “Martin Professional” instead', 'GDTF Share has no similar name either.'] },
+    { name: 'ok', state: 'ok', login: true, words: ['Up to date', 'Library up to date', 'user dfournier', 'Manufacturers you follow (14)', 'Not found on GDTF Share', 'Follow “Martin Professional” instead', 'Follow “Chroma-Q” instead'] },
     { name: 'partial', state: 'partial', login: true, words: ['Partly synced', 'Waiting to download (1)', 'answered HTTP 503', 'Files that could not be read (1)', 'JDC2', 'User file'] },
     { name: 'offline', state: 'offline', login: true, words: ['Offline', 'offline · last synced', 'used as they are'] },
     { name: 'refused', state: 'refused', login: true, words: ['Sync refused', 'Sync refused: the only route to the internet is the lighting network adapter', 'Go to Art-Net network adapter', 'no adapter is bound in this mode'] },
@@ -221,6 +221,16 @@ if (part === 'settings') {
       if (f !== 'nicSelect') failures++;
     }
     if (sc.name === 'ok') {
+      // G3c: About › Data folder shows the real GDTF folder; one click
+      // selects the whole line (user-select: all), so it can be copied.
+      await page.evaluate(() => { document.getElementById('setAboutHead').scrollIntoView({ block: 'start' }); window.scrollBy(0, -300); });
+      await page.click('[data-gdtf-folder]');
+      const df = await page.evaluate(() => { const el = document.querySelector('[data-gdtf-folder]'); return { text: el.textContent, userSelect: getComputedStyle(el).userSelect, selected: String(window.getSelection()) }; });
+      const wantDir = path.join(h.tmp, 'GDTF');
+      const okDf = df.text === wantDir && df.userSelect === 'all' && df.selected === wantDir;
+      results.actions.push({ scene: sc.name, action: 'About › Data folder (G3c): the real GDTF folder, selected by one click', ...df, want: wantDir, ok: okDf });
+      if (!okDf) failures++;
+      await page.screenshot({ path: path.join(outDir, 'settings-1440-dark-about-data-folder.png') });
       // Real: Sync now -> POST /api/gdtf/sync -> the sync runs, cannot reach
       // GDTF Share (proxy on a closed port) and the screen says offline.
       await page.click('[data-gdtf-sync]');

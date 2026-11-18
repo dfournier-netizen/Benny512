@@ -71,3 +71,6 @@
 .b5-gdtf-also { margin-top: var(--b5-space-3); }
 .b5-gdtf-also summary { cursor: pointer; min-height: var(--b5-size-touch-min, 44px); padding-block: var(--b5-space-2); }
 .b5-gdtf-tag { white-space: nowrap; }
+
+/* Settings › About › Data folder (G3c): one click selects the whole path. */
+.b5-gdtf-path { display: inline-block; max-width: 100%; overflow-wrap: anywhere; user-select: all; -webkit-user-select: all; cursor: text; font-family: var(--b5-font-mono); }

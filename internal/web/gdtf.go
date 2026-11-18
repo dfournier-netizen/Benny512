@@ -181,6 +181,12 @@ type gdtfStatusResponse struct {
 	// (internal/library.MaxSourceFileBytes), for an honest refusal before
 	// an import is tried.
 	FixtureLibraryMaxBytes int64 `json:"fixtureLibraryMaxBytes"`
+	// LibraryFolder (G3c, owner round 6 #2) is the GDTF library folder on
+	// this computer, for Settings › About; "" when the library is off (demo,
+	// rehearsal). Only this answer carries it: never a show file, an export
+	// or diagnostics. The Fixture Library's file path is not given: the
+	// server deliberately does not keep it (see library.go, store wiring).
+	LibraryFolder string `json:"libraryFolder"`
 }
 
 // gdtfLightingAdapter is one adapter the lighting output uses.
@@ -272,7 +278,7 @@ func adapterHolding(a string) string {
 func (s *Server) handleGDTFStatus(w http.ResponseWriter, r *http.Request) {
 	st := s.gdtf.Status()
 	resp := gdtfStatusResponse{Status: st, Login: s.gdtfLogin(), LightingAdapters: s.gdtfLightingAdapters(),
-		FixtureLibraryMaxBytes: library.MaxSourceFileBytes}
+		FixtureLibraryMaxBytes: library.MaxSourceFileBytes, LibraryFolder: s.gdtf.Root()}
 	if st.InternetRoute != nil {
 		resp.InternetRoute = &gdtfRoute{Route: *st.InternetRoute, Adapter: adapterHolding(st.InternetRoute.LocalAddress)}
 	}
