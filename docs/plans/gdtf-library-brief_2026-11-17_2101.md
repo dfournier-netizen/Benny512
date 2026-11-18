@@ -131,3 +131,12 @@ The sandbox cannot reach gdtf-share.com, so G4 is the first real contact.
 | Chunk | State | When | Notes |
 |---|---|---|---|
 | G1 | Built on `feat/gdtf-g1-sync`, awaiting coordinator review | 2026-11-17 21:36:42 -0500 | Fake-server tests and all gates green. Same fixture = uuid + uploader label. Not yet run against the real GDTF Share (G4). Open for the owner: the API page's "cached files no more than 24 h old" vs decision 2; default names that may not match GDTF Share's spelling. |
+
+## Owner decisions, round 3 (2026-11-17 21:53, after G1)
+
+1. **The lighting-network refusal is intentional, including when Art-Net/sACN is on the
+   auto-picked adapter that is also the internet route.** G3's Settings › GDTF Share screen
+   must say so plainly before the user hits it: which adapter is the lighting network, that
+   sync never uses it, and what to change (pick a dedicated lighting adapter) if sync is refused.
+2. Unmatched manufacturer names are resolved at G4 from the similar names offered.
+3. A full Settings reset clears the GDTF login; the downloaded files are kept. Accepted.
