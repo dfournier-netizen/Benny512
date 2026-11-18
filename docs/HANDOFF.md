@@ -1,6 +1,18 @@
 # Benny512 — Session Handoff Brief (current)
 
-**Last updated:** 2026-11-18 08:14:46 -0500
+**Last updated:** 2026-11-18 08:37:36 -0500
+
+## Current delta — G3b2 Settings › GDTF Share and About (`feat/gdtf-g3b2-settings`, on G3b1)
+
+G3b2 (2026-11-18 08:37:36 -0500): **Settings › 7 GDTF Share** (`static/js/gdtf-settings.js`, shared words in `gdtf-common.js`, layout `css/screens-gdtf.css`; started by app.js after SettingsScreen) and **9 About** (last section; version and the exact `--version` line from `GET /api/version`, "Powered by GDTF"). Danger zone is now 8 and says the reset clears the GDTF login and keeps the files. Built to mockup scenes 1–8: status in words for every state (syncing shows "File n of m · now <manufacturer> (manufacturer i of k)"), the always-visible **Which network sync uses** box from `lightingAdapters`/`internetRoute` (round 3 #1), the refusal alert with **Go to Art-Net network adapter** (focuses `#nicSelect`), login (Test / Save / Change / Remove; Save also starts the first sync; password field cleared, never shown), Sync now (aria-disabled with the reason), waiting downloads and unreadable files, followed manufacturers (Follow, Stop following — keeps files —, Follow "<similar>" instead). Every button acts at once; the header note and the action bar say no Apply is needed (round 5 #3); none of its inputs joins the Apply form. Status is re-read every 1.5 s while syncing (or for 15 s after starting one), else every 20 s while Settings is open.
+
+**Render-proof setup (reusable for G3b3/G3b4):** `BENNY512_RENDER_GDTF_OUT=<dir> go test -run TestWriteRenderLibrary ./internal/gdtfshare` writes library folders by real syncs against the fake GDTF Share; `go test -c -o harness.test ./cmd/benny512` then `node docs/design/gdtf-library/g3b/render.mjs harness.test <dir> <out> settings` serves buildDemo + that folder (TestRenderHarness, env-gated, no production switch) with the proxy on a closed port. Results: `docs/design/gdtf-library/g3b/evidence/`.
+
+**Verified:** `gdtf_settings_test.js` (literal JS, minidom) + `TestG3b2SettingsSectionsAndWords`, failing first (proof in d103fc8); render-proof 42 runs (7 scenes × 3 laptop sizes × 2 themes) clean, 30 contrast pairs ≥ 5.85:1, focus ring on every Tab stop, real Save login / Sync now / Follow instead / Stop following on the demo build; all gates incl. `-race` and the Windows cross-build.
+
+**Differences from the mockup:** About has no "Data folder" row (the server does not expose its paths, and a LAN page should not show a Windows user path); the "syncing" and bound-adapter scenes are proved with the real status answer rewritten in the page (the demo binds no adapter). "Martin" → "Martin Professional" is offered, but "ChromaQ" gets no similar name for "Chroma-Q": G1's similar-name rule is substring-only (for G4's name resolution).
+
+**Next:** G3b3 Fixture library › Add from GDTF library.
 
 ## Current delta — G3b1 GDTF library API for the screens (`feat/gdtf-g3b1-api`, on the G3a mockup)
 
