@@ -140,6 +140,11 @@ type IndexEntry struct {
 	SHA256       string    `json:"sha256"`
 	LocalSize    int64     `json:"localSize"`
 	DownloadedAt time.Time `json:"downloadedAt"`
+	// Description is what was read from the file's description.xml (G2,
+	// describe.go). Null only for an entry written before G2, until
+	// Backfill reads it; a file that could not be read has a Description
+	// with State "unreadable" and the reason, and stays in the library.
+	Description *Description `json:"description"`
 }
 
 // Pending is a download that did not complete; the next sync retries it.
@@ -222,6 +227,11 @@ type Status struct {
 	Manufacturers []ManufacturerResult `json:"manufacturers"`
 	Pending       []Pending            `json:"pending"`
 	IntervalMin   int                  `json:"intervalMinutes"`
+	// Unreadable counts files whose description.xml could not be read;
+	// NotYetRead counts files not read yet (pre-G2 entries before
+	// Backfill). Neither has omitempty: zero is an answer.
+	Unreadable int `json:"unreadable"`
+	NotYetRead int `json:"notYetRead"`
 }
 
 // SearchResult is one hit. Label is always set (API terms: every listed
@@ -229,4 +239,8 @@ type Status struct {
 type SearchResult struct {
 	Entry
 	InLibrary bool `json:"inLibrary"`
+	// Description is the file's description.xml reading when the file is
+	// in the library; null otherwise (a GDTF Share list entry not
+	// downloaded, or a file not read yet).
+	Description *Description `json:"description"`
 }

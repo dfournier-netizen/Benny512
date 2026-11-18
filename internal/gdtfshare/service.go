@@ -510,7 +510,8 @@ func (s *Service) runSync(ctx context.Context) (Result, error) {
 		// saved. Files only ever reach their real name complete, so adopt it.
 		if _, ok := files[e.RID]; !ok {
 			if sha, n, err := s.st.hashFile(e.RID); err == nil && n > 0 {
-				files[e.RID] = IndexEntry{Entry: e, File: s.st.relFile(e.RID), SHA256: sha, LocalSize: n, DownloadedAt: started}
+				files[e.RID] = IndexEntry{Entry: e, File: s.st.relFile(e.RID), SHA256: sha, LocalSize: n, DownloadedAt: started,
+					Description: s.describeRID(e.RID)}
 				res.Downloaded++
 				perDown[fm]++
 				if r := supersede(k, e.RID); r > 0 {
@@ -551,7 +552,8 @@ func (s *Service) runSync(ctx context.Context) (Result, error) {
 			addPending(e, err)
 			continue
 		}
-		files[e.RID] = IndexEntry{Entry: e, File: s.st.relFile(e.RID), SHA256: sha, LocalSize: size, DownloadedAt: s.now()}
+		files[e.RID] = IndexEntry{Entry: e, File: s.st.relFile(e.RID), SHA256: sha, LocalSize: size, DownloadedAt: s.now(),
+			Description: s.describeRID(e.RID)}
 		res.Downloaded++
 		perDown[fm]++
 		if n := supersede(k, e.RID); n > 0 {
@@ -713,7 +715,8 @@ func (s *Service) Pull(ctx context.Context, rid int64) (IndexEntry, error) {
 	if err != nil {
 		return IndexEntry{}, err
 	}
-	ie := IndexEntry{Entry: e, File: s.st.relFile(rid), SHA256: sha, LocalSize: size, DownloadedAt: s.now()}
+	ie := IndexEntry{Entry: e, File: s.st.relFile(rid), SHA256: sha, LocalSize: size, DownloadedAt: s.now(),
+		Description: s.describeRID(rid)}
 	files[rid] = ie
 	for other, old := range files {
 		if other != rid && fixtureKey(old.Entry) == k {
@@ -800,6 +803,11 @@ func (s *Service) Run(ctx context.Context) {
 		}
 		_, _ = s.Sync(ctx) // ErrBusy (a pull in progress) waits for the next turn
 	}
+	// Files downloaded before G2 have no description yet: read them once,
+	// offline, before anything else (describe.go).
+	if _, err := s.Backfill(); err != nil {
+		s.cfg.Logf("GDTF: library descriptions not read: %v", err)
+	}
 	scheduled()
 	timer := time.NewTimer(s.cfg.Interval)
 	defer timer.Stop()
@@ -869,6 +877,12 @@ func (s *Service) Status() Status {
 		st.Files = len(idx.Files)
 		for _, e := range idx.Files {
 			local[foldName(e.Manufacturer)]++
+			switch {
+			case needsDescription(e):
+				st.NotYetRead++
+			case e.Description.State == DescUnreadable:
+				st.Unreadable++
+			}
 		}
 	}
 	for _, n := range sd.Followed {
@@ -952,16 +966,20 @@ func (s *Service) SetFollowed(names []string) ([]string, error) {
 //
 // The API terms ask for search over Name AND LongName. getList gives only
 // one name (fixture); the LongName is inside each file's description.xml,
-// which this package does not read (G2 reads files). Until then only the
-// name GDTF Share lists is searched.
+// so a file in the library is also found by its description's Name and
+// LongName (G2). A GDTF Share list entry not downloaded has no description
+// and is found by the listed name only.
 func (s *Service) Search(q string, share bool, limit int) ([]SearchResult, error) {
 	out := make([]SearchResult, 0)
 	if !s.Enabled() {
 		return out, ErrDisabled
 	}
 	words := strings.Fields(strings.ToLower(q))
-	match := func(e Entry) bool {
+	match := func(e Entry, d *Description) bool {
 		hay := strings.ToLower(e.Manufacturer + " " + e.Fixture)
+		if d != nil && d.State == DescRead {
+			hay += " " + strings.ToLower(d.Name+" "+d.LongName)
+		}
 		for _, w := range words {
 			if !strings.Contains(hay, w) {
 				return false
@@ -975,11 +993,11 @@ func (s *Service) Search(q string, share bool, limit int) ([]SearchResult, error
 		s.mu.Unlock()
 		return out, err
 	}
-	have := make(map[int64]bool, len(idx.Files))
+	have := make(map[int64]*Description, len(idx.Files))
 	for _, e := range idx.Files {
-		have[e.RID] = true
-		if !share && match(e.Entry) {
-			out = append(out, SearchResult{Entry: e.Entry, InLibrary: true})
+		have[e.RID] = e.Description
+		if !share && match(e.Entry, e.Description) {
+			out = append(out, SearchResult{Entry: e.Entry, InLibrary: true, Description: e.Description})
 		}
 	}
 	if share {
@@ -989,8 +1007,9 @@ func (s *Service) Search(q string, share bool, limit int) ([]SearchResult, error
 			return out, err
 		}
 		for _, e := range l.List {
-			if match(e) {
-				out = append(out, SearchResult{Entry: e, InLibrary: have[e.RID]})
+			d, in := have[e.RID]
+			if match(e, d) {
+				out = append(out, SearchResult{Entry: e, InLibrary: in, Description: d})
 			}
 		}
 	}
