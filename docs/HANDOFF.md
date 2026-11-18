@@ -1,6 +1,16 @@
 # Benny512 — Session Handoff Brief (current)
 
-**Last updated:** 2026-11-18 08:37:36 -0500
+**Last updated:** 2026-11-18 08:50:38 -0500
+
+## Current delta — G3b3 Fixture library › Add from GDTF library (`feat/gdtf-g3b3-library`, on G3b2)
+
+G3b3 (2026-11-18 08:50:38 -0500): **Add from GDTF library** in the Fixture library panel (`static/js/gdtf-library.js`, mounted by library.js into `#gdtfAddSection`; mockup scenes 9–11). Two sources: **On this computer** (offline `search?in=library`) and **GDTF Share (online)** (the cached list; a file not here is one `POST /api/gdtf/pull`, also for an unfollowed manufacturer, which the row says). Rows: Manufacturer/User file in words, revision, GDTF version, size (KB under 1 MB), date, long name, modes with footprints, "In your Fixture library". Import is the **existing** path: `/api/gdtf/file/{rid}` bytes → `MvrImport.parseGdtfFile` → `libraryDocFromGdtf(parsed, name, bytes, {uploaderLabel})` (new optional `meta`) → library.js's confirm step (now says "From the GDTF library · <label>", and "Downloaded from GDTF Share" after a pull) → `POST /api/library/import` merge. A stored source file shows its label in the records list. Files over `fixtureLibraryMaxBytes` (20 MB) are refused on the row, and again by the downloaded byte count.
+
+**Verified:** `gdtf_library_test.js` (literal scripts incl. the real parser over a real Robe extract) failing first against the old library.js/mvrimport.js (proof in 93dd490); render-proof 18 runs clean (contrast ≥ 6.0:1, focus ring on every stop) plus real import / apply / 21 MB refusal / offline pull on the --demo build; all gates incl. `-race` and the Windows cross-build.
+
+**Differences from the mockup:** sizes under 1 MB read in KB; a failed pull's reason is the server's own sentence in the status line (the mockup drew only the success).
+
+**Next:** G3b4 Devices.
 
 ## Current delta — G3b2 Settings › GDTF Share and About (`feat/gdtf-g3b2-settings`, on G3b1)
 
