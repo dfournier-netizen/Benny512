@@ -98,13 +98,33 @@ async function openPage(url, w, h, theme, tab, routes) {
   const errors = [];
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('pageerror', e => errors.push(e.message));
+  // Name every failed request, so an RDM NACK the Info tab already shows
+  // (422, pre-existing) is told apart from a GDTF request failing.
+  page.on('response', r => { if (r.status() >= 400) errors.push(`HTTP ${r.status()} ${new URL(r.url()).pathname}`); });
   if (routes) await routes(page);
   await page.goto(url);
   await page.waitForTimeout(700);
   return { page, ctx, errors };
 }
 
-function record(name, w, h, theme, extra, m, errors, ok) {
+// rdmNacks: the demo devices NACK some optional RDM PIDs (422 on
+// /api/fixture/<uid>/param/...), which the Info tab already handles and
+// which predates G3b; Chromium logs each as a failed resource. Those are
+// kept apart, named; any other error fails the run.
+function splitErrors(errors) {
+  const nacks = errors.filter(e => /^HTTP 422 \/api\/fixture\/[^/]+\/param\//.test(e));
+  let left = nacks.length;
+  const rest = errors.filter(e => {
+    if (nacks.includes(e)) return false;
+    if (left > 0 && /Failed to load resource: the server responded with a status of 422/.test(e)) { left--; return false; }
+    return true;
+  });
+  return { nacks, rest };
+}
+
+function record(name, w, h, theme, extra, m, errorsIn, ok) {
+  const { nacks, rest: errors } = splitErrors(errorsIn.splice(0));
+  extra = { ...extra, rdmNacks: nacks.length };
   const fails = m.filter(t => !t.disabled && t.ratio < t.min);
   for (const t of m) {
     const k = `${theme}|${t.fg}|${t.bg}|${t.min}|${t.disabled ? 'd' : ''}`;
@@ -318,9 +338,99 @@ if (part === 'library') {
   await page.screenshot({ path: path.join(outDir, 'library-1440-dark-pull-offline.png') });
   // The deliberate offline pull answers 503, which Chromium logs as a failed
   // resource; that one is expected. Anything else is a failure.
-  const unexpected = errors.filter(e => !/Failed to load resource: the server responded with a status of 503/.test(e));
-  results.actions.push({ consoleErrors: errors, expected: 'one 503 from the deliberate offline pull', unexpected });
-  if (unexpected.length || errors.length > 1) failures++;
+  const unexpected = errors.filter(e => !/Failed to load resource: the server responded with a status of 503/.test(e) && e !== 'HTTP 503 /api/gdtf/pull');
+  results.actions.push({ consoleErrors: errors, expected: 'one 503 from the deliberate offline pull (named, and as Chromium logs it)', unexpected });
+  if (unexpected.length || errors.length > 2) failures++;
+  await ctx.close();
+  h.stop();
+}
+
+// ---------------------------------------------------------------------------
+if (part === 'devices') {
+  const h = await startHarness('ok');
+  // uid -> what the card tag and the inspector group must say (demo devices,
+  // cmd/benny512/demo.go; files from TestWriteRenderLibrary).
+  const EXPECT = [
+    { uid: '2222:00000001', tag: 'GDTF: found', expand: true, words: ['Mode found', 'Personality 1 is Mode 1 · 20 channels', 'software version 0x01000000 maps personality 1 to Mode 1', '1 more file matches', 'User file'], not: ['Footprints'] },
+    { uid: 'AAAA:00000003', tag: 'GDTF: likely', words: ['Likely mode — not certain', 'Personality 1 is most likely Standard · 24 channels', 'Standard 16-bit · 28 channels', 'Footprints agree', 'manufacturer ID and model ID only', 'This file does not list software version 0x01000000'] },
+    { uid: '4D50:00000004', tag: 'GDTF: likely', words: ['Mode from other versions — not certain', 'Personality 1 is probably Mode A · 18 channels', 'Footprints differ', 'reports 16 slots; this mode has 18 channels'] },
+    { uid: '5370:00000001', tag: 'GDTF: found', words: ['Mode found', 'Footprints differ', 'reports 20 slots; this mode has 22 channels'] },
+    { uid: '454C:00000005', tag: 'GDTF: none', words: ["No GDTF file in your library has this device's RDM IDs", 'None of the 18 files lists manufacturer 0x454C with model 0x0001', 'Benny512 does not pick a file by its name on its own', 'Search the GDTF library by name instead'], search: true,
+      after: ['match “Par” by name. Found by name, not by RDM.', 'the file gives no model ID (it says 0x0), so it cannot match a device by RDM', 'No RDM data in this file. It can only be found by name.', 'this file has a mode of 8 channels named 8ch. Not confirmed.'] },
+  ];
+  async function openInspector(page, uid) {
+    await page.click(`article[data-uid="${uid}"] .btn-open-device`);
+    await page.waitForSelector(`#fixtureDetail [data-gdtf-device="${uid}"]`, { timeout: 8000 });
+    await page.waitForFunction(uid => !document.querySelector(`[data-gdtf-device="${uid}"] .b5-inline-wait`), uid, { timeout: 8000 });
+    await page.waitForTimeout(200);
+  }
+  for (const [w, hh] of SIZES) for (const theme of THEMES) {
+    const { page, ctx, errors } = await openPage(h.url, w, hh, theme, 'devices');
+    await page.waitForSelector('article[data-uid] [data-gdtf-tag]');
+    await page.waitForFunction(() => ![...document.querySelectorAll('[data-gdtf-tag]')].some(t => /checking/.test(t.textContent)), null, { timeout: 8000 });
+    const tags = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('article[data-uid]')].map(a => [a.dataset.uid, (a.querySelector('[data-gdtf-tag]') || {}).textContent])));
+    const tagMiss = EXPECT.filter(e => tags[e.uid] !== e.tag).map(e => `${e.uid}: ${tags[e.uid]} (want ${e.tag})`);
+    const allTagged = await page.evaluate(() => [...document.querySelectorAll('article[data-uid]')].every(a => a.querySelector('[data-gdtf-tag]')));
+    const mlist = await page.evaluate(measure, ['#deviceList']);
+    record('cards', w, hh, theme, { hscroll: await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), tags, tagMiss }, mlist, errors, tagMiss.length === 0 && allTagged);
+    if (w === 1440 && theme === 'dark' || w === 1024 && theme === 'light') await page.screenshot({ path: path.join(outDir, `devices-${w}-${theme}-cards.png`) });
+    for (const e of EXPECT) {
+      await openInspector(page, e.uid);
+      if (e.expand) await page.click('[data-gdtf-device] details summary');
+      if (e.search) {
+        await page.click('[data-gdtf-name-search]');
+        await page.waitForSelector('#ddNameResults', { timeout: 5000 });
+        await page.waitForTimeout(150);
+      }
+      await page.evaluate(() => document.getElementById('ddGdtfHead').scrollIntoView({ block: 'start' }));
+      await page.waitForTimeout(100);
+      const extra = await page.evaluate(([e, words, not]) => {
+        const g = document.querySelector('[data-gdtf-device]');
+        const t = g.innerText.replace(/\s+/g, ' ');
+        const heads = [...document.querySelectorAll('#fixtureDetail h4')].map(h => h.id);
+        return { hscroll: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          missing: words.filter(x => !t.includes(x)), present: not.filter(x => t.includes(x)),
+          afterIdentity: heads.indexOf('ddGdtfHead') === heads.indexOf('ddIdentityHead') + 1 };
+      }, [e.uid, e.words.concat(e.after || []), e.not || []]);
+      const m = await page.evaluate(measure, ['#fixtureDetail [data-gdtf-device]']);
+      record(`inspector ${e.uid}`, w, hh, theme, extra, m, errors, extra.missing.length === 0 && extra.present.length === 0 && extra.afterIdentity);
+      if (w === 1440 && theme === 'dark' || (w === 1024 && theme === 'light' && e.search)) await page.screenshot({ path: path.join(outDir, `devices-${w}-${theme}-${e.uid.replace(':', '-')}.png`) });
+    }
+    await ctx.close();
+  }
+  // Keyboard in the group, the jump to the Fixture library import, and the
+  // request count (one per identity, one at a time).
+  let matchReqs = 0, inflight = 0, maxInflight = 0;
+  const { page, ctx, errors } = await openPage(h.url, 1440, 900, 'dark', 'devices', async p => {
+    await p.route('**/api/gdtf/match**', async route => { matchReqs++; inflight++; maxInflight = Math.max(maxInflight, inflight); const r = await route.fetch(); inflight--; await route.fulfill({ response: r }); });
+  });
+  await page.waitForFunction(() => document.querySelectorAll('[data-gdtf-tag]').length > 0 && ![...document.querySelectorAll('[data-gdtf-tag]')].some(t => /checking/.test(t.textContent)), null, { timeout: 8000 });
+  const cards = await page.evaluate(() => document.querySelectorAll('article[data-uid]').length);
+  const ids = await page.evaluate(() => new Set([...document.querySelectorAll('[data-gdtf-tag]')].map(t => t.dataset.gdtfTag).filter(k => k.includes(':'))).size);
+  results.actions.push({ action: 'tag lookups', cards, distinctIdentities: ids, matchRequests: matchReqs, maxInFlight: maxInflight, ok: matchReqs === ids && maxInflight === 1 });
+  if (matchReqs !== ids || maxInflight !== 1) failures++;
+  await openInspector(page, '454C:00000005');
+  const stops = await tabWalk(page, '[data-gdtf-device]', '[data-gdtf-device]', 30);
+  results.focus.push({ scene: 'inspector no-match', stops: stops.length, noRing: stops.filter(s => !s.ring), first: stops.map(s => s.label) });
+  if (!stops.length || stops.some(s => !s.ring)) failures++;
+  await openInspector(page, '2222:00000001');
+  await page.click('[data-gdtf-device] [data-gdtf-add-rid="1001"]');
+  await page.waitForSelector('[data-apply-library]', { timeout: 8000 }).catch(() => {});
+  const conf = await page.evaluate(() => ({ status: (document.querySelector('[data-library-status]') || {}).innerText, area: ((document.querySelector('[data-library-import]') || {}).innerText || '').replace(/\s+/g, ' ') }));
+  const okJump = /Review the import, then apply/.test(conf.status || '') && /From the GDTF library · Manufacturer file/.test(conf.area);
+  results.actions.push({ action: 'Add to Fixture library… from the inspector', ...conf, ok: okJump });
+  if (!okJump) failures++;
+  await page.screenshot({ path: path.join(outDir, 'devices-1440-dark-add-from-inspector.png') });
+  await page.click('[data-apply-library]');
+  await page.waitForTimeout(800);
+  await page.click('[data-close-library]');
+  await page.waitForTimeout(400);
+  const after = await page.evaluate(() => document.querySelector('[data-gdtf-device]').innerText.replace(/\s+/g, ' '));
+  const okAfter = /Already in your Fixture library/.test(after);
+  results.actions.push({ action: 'after Apply import, the inspector says it is in the Fixture library', ok: okAfter });
+  if (!okAfter) failures++;
+  const left = splitErrors(errors).rest;
+  if (left.length) { failures++; results.actions.push({ consoleErrors: left }); }
   await ctx.close();
   h.stop();
 }

@@ -574,6 +574,7 @@ const DevicesScreen = (() => {
         </div>
         <div class="b5-statecard__state">
           ${classPill(f.class)}
+          ${typeof GdtfDevices !== 'undefined' ? GdtfDevices.tagHtml(f) : ''}
           ${f.unreachable ? `<span class="b5-pill b5-pill--md b5-pill--danger">${UI.icon('status-error')}Not answering</span>` : ''}
           ${current ? `<span class="b5-pill b5-pill--md b5-pill--accent">${UI.icon('chevron-expand')}Inspecting</span>` : ''}
         </div>
