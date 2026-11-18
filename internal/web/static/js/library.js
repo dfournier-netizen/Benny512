@@ -59,7 +59,8 @@ const LibraryPanel=(()=>{
     const f=e.target.files[0];if(!f)return;
     try {
       const isGdtf=f.name.toLowerCase().endsWith('.gdtf');
-      if(f.size>(isGdtf?8:120)*1024*1024)throw Error(isGdtf?'GDTF files up to 8 MB.':'Library exports up to 120 MB.');
+      // 20 MB: internal/library.MaxSourceFileBytes (owner round 5 #1, was 8 MB).
+      if(f.size>(isGdtf?20:120)*1024*1024)throw Error(isGdtf?'GDTF files up to 20 MB.':'Library exports up to 120 MB.');
       if(f.name.toLowerCase().endsWith('.gdtf')){
         // MvrImport.libraryDocFromGdtf is the shared builder every GDTF
         // entry point uses (see its doc comment). This dialog used to build
