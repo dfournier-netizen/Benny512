@@ -278,7 +278,7 @@ func resultFor(err error) Result {
 	case errors.Is(err, ErrLightingRoute):
 		return Result{State: StateRefused, Message: ErrLightingRoute.Error()}
 	case errors.As(err, &off):
-		return Result{State: StateOffline, Message: "Offline: " + err.Error() + ". The library on this computer is unchanged."}
+		return Result{State: StateOffline, Message: "Offline: " + err.Error()}
 	case errors.Is(err, ErrBadLogin):
 		return Result{State: StateLoginFailed, Message: err.Error()}
 	case errors.Is(err, ErrNoLogin):
@@ -348,9 +348,18 @@ func (s *Service) runSync(ctx context.Context) (Result, error) {
 		return finish(Result{State: StateError, Message: err.Error()}, err)
 	}
 	s.st.cleanPartials()
+	// Nothing has been downloaded yet, so a failure from here to the list
+	// leaves the library exactly as it was; say so.
+	early := func(err error) Result {
+		res := resultFor(err)
+		if res.State == StateOffline {
+			res.Message += ". The library on this computer is unchanged."
+		}
+		return res
+	}
 	g, err := s.newSession(ctx)
 	if err != nil {
-		return finish(resultFor(err), err)
+		return finish(early(err), err)
 	}
 	var entries []Entry
 	var skipped int
@@ -360,7 +369,7 @@ func (s *Service) runSync(ctx context.Context) (Result, error) {
 		return e
 	})
 	if err != nil {
-		res := resultFor(err)
+		res := early(err)
 		res.Relogins = g.relogins
 		return finish(res, err)
 	}
@@ -680,7 +689,7 @@ func (s *Service) Pull(ctx context.Context, rid int64) (IndexEntry, error) {
 		}
 		now := s.now()
 		s.cacheList(now, entries)
-		s.recordSync(now, s.lastResult(), &syncRecord{listFetched: true})
+		s.noteListFetch(now)
 		if e, ok = s.listedEntry(rid); !ok {
 			return IndexEntry{}, fmt.Errorf("GDTF Share's list has no file with rid %d", rid)
 		}
@@ -720,13 +729,22 @@ func (s *Service) Pull(ctx context.Context, rid int64) (IndexEntry, error) {
 	return ie, nil
 }
 
-func (s *Service) lastResult() Result {
+// noteListFetch records a list fetched by a single pull. It is not a sync
+// attempt, so the last attempt and result are left as they are.
+func (s *Service) noteListFetch(at time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if sd, err := s.syncLocked(); err == nil {
-		return sd.LastResult
+	sd, err := s.syncLocked()
+	if err != nil {
+		return
 	}
-	return Result{}
+	next := *sd
+	next.LastListFetch = &at
+	if err := s.st.saveJSON("sync.json", next); err != nil {
+		s.cfg.Logf("GDTF: sync.json not saved: %v", err)
+		return
+	}
+	s.sd = &next
 }
 
 func (s *Service) listedEntry(rid int64) (Entry, bool) {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"mime"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -378,8 +379,8 @@ func TestGDTFAPIEndpoints(t *testing.T) {
 	if rr.Code != 200 || !bytes.Equal(rr.Body.Bytes(), f.files[101]) {
 		t.Fatalf("file bytes = %d, %d bytes", rr.Code, rr.Body.Len())
 	}
-	if cd := rr.Header().Get("Content-Disposition"); cd != `attachment; filename="Robe@Spiider@r1.gdtf"` {
-		t.Fatalf("Content-Disposition = %q", cd)
+	if _, params, err := mime.ParseMediaType(rr.Header().Get("Content-Disposition")); err != nil || params["filename"] != "Robe@Spiider@r1.gdtf" {
+		t.Fatalf("Content-Disposition = %q (%v)", rr.Header().Get("Content-Disposition"), err)
 	}
 	if rr.Header().Get("X-Benny-GDTF-Uploader") != "Manufacturer" {
 		t.Fatalf("uploader header = %q", rr.Header().Get("X-Benny-GDTF-Uploader"))

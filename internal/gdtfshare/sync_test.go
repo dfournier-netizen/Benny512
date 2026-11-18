@@ -513,3 +513,17 @@ func TestDamagedIndexIsLeftAloneAndRefused(t *testing.T) {
 		t.Fatal("the damaged index was overwritten")
 	}
 }
+
+// A pull that has to fetch the list records the list fetch but is not a
+// sync attempt: the last attempt and result stay as they were.
+func TestPullBeforeAnySyncIsNotASyncAttempt(t *testing.T) {
+	f := standardShare(t)
+	s, _ := newTestService(t, f, nil)
+	if _, err := s.Pull(context.Background(), 901); err != nil {
+		t.Fatal(err)
+	}
+	st := s.Status()
+	if st.LastAttempt != nil || st.State != StateNever || st.LastSync == nil {
+		t.Fatalf("after a pull: lastAttempt %v state %q lastSync %v; want no attempt, never, and the list fetch recorded", st.LastAttempt, st.State, st.LastSync)
+	}
+}

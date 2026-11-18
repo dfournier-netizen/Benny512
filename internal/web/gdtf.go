@@ -37,6 +37,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net"
 	"net/http"
 	"net/netip"
@@ -431,7 +432,7 @@ func (s *Server) handleGDTFFile(w http.ResponseWriter, r *http.Request) {
 	}
 	defer f.Close()
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, gdtfFileName(e)))
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": gdtfFileName(e)}))
 	w.Header().Set("X-Benny-GDTF-Uploader", e.UploaderLabel)
 	w.Header().Set("X-Benny-GDTF-SHA256", e.SHA256)
 	http.ServeContent(w, r, "", e.DownloadedAt, f)
