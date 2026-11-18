@@ -52,3 +52,17 @@ func TestSharedLibraryPathRejectsForeignLegacyFile(t *testing.T) {
 		t.Fatalf("foreign file created shared library: %v", err)
 	}
 }
+
+func TestGDTFLibraryDirIsBesideTheSharedLibrary(t *testing.T) {
+	config := t.TempDir()
+	dir, err := gdtfLibraryDir(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(config, "Benny512", "GDTF"); dir != want {
+		t.Fatalf("gdtfLibraryDir = %q, want %q", dir, want)
+	}
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		t.Fatalf("the GDTF folder was not created: %v", err)
+	}
+}

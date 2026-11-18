@@ -27,6 +27,7 @@ import (
 	"benny512/internal/artnet"
 	"benny512/internal/autoread"
 	"benny512/internal/capture"
+	"benny512/internal/gdtfshare"
 	"benny512/internal/library"
 	"benny512/internal/params"
 	"benny512/internal/patch"
@@ -109,6 +110,13 @@ type Settings struct {
 	// through /api/themes (theme.go), which validates every save against
 	// the theme contract; POST /api/settings keeps them as they are.
 	CustomThemes []CustomTheme `json:"customThemes"`
+	// GDTFShareUser and GDTFSharePasswordDPAPI are this install's GDTF Share
+	// login (G1, gdtf.go). Changed only through /api/gdtf/login; POST
+	// /api/settings keeps them as they are. The password is stored only as a
+	// Windows DPAPI blob (current-user scope) and GET /api/settings never
+	// sends it; on other systems it is not stored at all.
+	GDTFShareUser          string `json:"gdtfShareUser"`
+	GDTFSharePasswordDPAPI []byte `json:"gdtfSharePasswordDpapi,omitempty"`
 }
 
 // Server bundles the engines and serves REST + WS + the embedded UI.
@@ -197,6 +205,14 @@ type Server struct {
 	// midi holds the MIDI encoder mapping (C8, midi.go). Its zero value is
 	// an in-memory store; cmd/benny512 gives it a file in real mode only.
 	midi midiStore
+	// gdtf is the GDTF library sync (gdtf.go, internal/gdtfshare). Never
+	// nil: New installs a disabled one (no folder, no network);
+	// cmd/benny512 gives it %APPDATA%\Benny512\GDTF in real mode.
+	gdtf *gdtfshare.Service
+	// gdtfPasswordMem holds the GDTF Share password on a build that cannot
+	// store it encrypted (gdtfshare.SecretsPersist false). Never written.
+	// Guarded by settingsMu.
+	gdtfPasswordMem string
 
 	// unreachLogged deduplicates the "stopped asking this device" NOTE line
 	// in the RDM log, keyed UID -> the breaker RetryAt already reported.
@@ -363,6 +379,7 @@ func New(nodes *session.ArtNetSession, rdmc *session.RDMController, dmx *session
 	// traffic. A nil registry (some narrow unit tests) simply leaves the
 	// reader unfed.
 	s.AutoRead = autoread.New(autoread.Config{Ctrl: rdmc})
+	s.gdtf = gdtfshare.New(s.gdtfConfig(""))
 	if reg != nil {
 		reg.SetOnDeviceSeen(s.AutoRead.Note)
 	}
@@ -532,6 +549,9 @@ func (s *Server) Run(ctx context.Context) {
 	// reset's "reset and exit") ends the pass in flight through the
 	// controller's own context plumbing and returns.
 	go s.AutoRead.Run(ctx)
+	// The GDTF library scheduler (gdtf.go): a sync at start-up when a login
+	// is saved, then every 120 minutes. A disabled service returns at once.
+	go s.gdtf.Run(ctx)
 	<-ctx.Done()
 }
 
@@ -624,6 +644,17 @@ func (s *Server) routes() {
 	// Apply-to-confirm contract because it moves DMX addressing.
 	s.mux.HandleFunc("POST /api/library/from-patch", s.handleLibraryFromPatch)
 	s.mux.HandleFunc("POST /api/library/reprofile", s.handleLibraryReprofile)
+
+	// --- GDTF library: files kept in sync with GDTF Share (gdtf.go) ---
+	s.mux.HandleFunc("GET /api/gdtf/status", s.handleGDTFStatus)
+	s.mux.HandleFunc("POST /api/gdtf/login", s.handleGDTFSetLogin)
+	s.mux.HandleFunc("DELETE /api/gdtf/login", s.handleGDTFClearLogin)
+	s.mux.HandleFunc("POST /api/gdtf/login/test", s.handleGDTFTestLogin)
+	s.mux.HandleFunc("POST /api/gdtf/manufacturers", s.handleGDTFSetManufacturers)
+	s.mux.HandleFunc("POST /api/gdtf/sync", s.handleGDTFSync)
+	s.mux.HandleFunc("GET /api/gdtf/search", s.handleGDTFSearch)
+	s.mux.HandleFunc("POST /api/gdtf/pull", s.handleGDTFPull)
+	s.mux.HandleFunc("GET /api/gdtf/file/{rid}", s.handleGDTFFile)
 
 	// --- Rig Walk mode (phone-optimized device walkthrough) ---
 	s.mux.HandleFunc("GET /api/walk/session", s.handleGetWalkSession)
@@ -1446,7 +1477,9 @@ func (s *Server) handleDMXStop(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	s.settingsMu.Lock()
 	defer s.settingsMu.Unlock()
-	writeJSON(w, http.StatusOK, s.settings)
+	out := s.settings
+	out.GDTFSharePasswordDPAPI = nil // never sent, not even encrypted (gdtf.go)
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handlePostSettings(w http.ResponseWriter, r *http.Request) {
@@ -1469,6 +1502,9 @@ func (s *Server) handlePostSettings(w http.ResponseWriter, r *http.Request) {
 	// Custom themes (C9) change only through /api/themes, which validates
 	// them; settings.js's Apply does not send them and must not delete them.
 	req.CustomThemes = s.settings.CustomThemes
+	// Likewise the GDTF Share login changes only through /api/gdtf/login.
+	req.GDTFShareUser = s.settings.GDTFShareUser
+	req.GDTFSharePasswordDPAPI = s.settings.GDTFSharePasswordDPAPI
 	// Persist BEFORE publishing. A failed save must not leave the running
 	// server on settings it could not write down: that is the rule
 	// internal/patch and internal/sacn already follow, and the reason is that
