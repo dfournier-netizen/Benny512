@@ -51,7 +51,7 @@ Open **Fixture library** in the top strip. It is saved in `%APPDATA%\Benny512\be
 - **Use in patch:** add an uncommitted entry, or explicitly apply the chosen profile to selected existing entries. Check address overlaps afterwards; use Reconcile to commit physical fixtures.
 - **Export library JSON:** backs up/shares profiles, mode-verification records and retained original GDTFs together. Import that JSON on another installation. Source files are deduplicated by checksum. Imported verification is an operator claim, not a digital certificate.
 
-GDTF import currently accepts files up to 8 MB; library import accepts exports up to 120 MB. Library saves are checked and protect existing damaged files, but there is no library `.bak` recovery yet. Keep exported backups. Older builds can discard newer verification/source-file fields if they rewrite the library; use this build for new-library round trips.
+GDTF import currently accepts files up to 20 MB; library import accepts exports up to 120 MB. Library saves are checked and protect existing damaged files, but there is no library `.bak` recovery yet. Keep exported backups. Older builds can discard newer verification/source-file fields if they rewrite the library; use this build for new-library round trips.
 
 ## Nodes and RDM mode names
 
