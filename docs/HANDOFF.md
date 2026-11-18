@@ -1,6 +1,16 @@
 # Benny512 — Session Handoff Brief (current)
 
-**Last updated:** 2026-11-17 21:36:42 -0500
+**Last updated:** 2026-11-17 22:13:43 -0500
+
+## Current delta — G2 GDTF library RDM data and matching, server only (`feat/gdtf-g2-rdm`, on G1)
+
+G2 (2026-11-17 22:13:43 -0500): `internal/gdtfshare/describe.go` reads each library file's `description.xml` (stdlib zip + streaming XML, 16 MB cap checked on the zip header and on the bytes read) into `IndexEntry.description`: FixtureType Name, ShortName, LongName, Manufacturer, FixtureTypeID, DataVersion, the DMX mode names, and `<Protocols>/<FTRDM>` (ManufacturerID, DeviceModelID, each `<SoftwareVersionID Value>` with its `<DMXPersonality Value DMXMode>` list). Names verified against gdtf-spec.md in github.com/mvrdevelopment/spec at `098d379` (Tables 3, 69–72; Table 1: Hex, default 0). Read at download (sync, adopted file, pull) and by `Backfill`, which `Run` calls once at start-up for entries written before G2 (or by an older reader, `descReader`). A file that cannot be read stays in the index and on disk as `"state":"unreadable"` with the reason; it never makes a sync partial. **Zero rule:** an RDM ID or personality of 0 is "not given" (null, raw text kept), never ID 0 — 0 is the spec's Hex default, and the real GLP JDC1 Strobe file has `DeviceModelID="0x0"`. No `<FTRDM>` = `"rdm":null` ("no RDM data"). Search now matches a library file's description Name and LongName (API terms). Status gains `unreadable` and `notYetRead`. `gdtfshare.Match` + **`GET /api/gdtf/match?manufacturerId=&deviceModelId=[&softwareVersionId=][&personality=]`** (decimal or 0x hex; personality 1–255): candidates ranked "software-version" (manufacturer + model + the device's software version listed; mode from that version only) then "model" (mode only when every listed version agrees, else `differs` with the choices); within a tier Manufacturer before User, then newest. Every candidate keeps its Manufacturer/User label. No RDM match = empty list; no name fallback.
+
+**Verified:** 17 new tests (7 reader incl. both real GDTF Share files when present — skipped otherwise, 4 index/backfill/search, 5 match, 1 endpoint), each failing first against a stub; all gates incl. `-race` and the Windows cross-build (+ Windows `go vet` of gdtfshare and web).
+
+**Known limits:** no UI; nothing reads `/api/gdtf/match` yet (G3 wires it into Devices/patch). Neither real file lists software versions or personalities, so personality → mode is proved on synthetic files only. While `Backfill` runs at start-up a single pull or login test answers 409 "a GDTF Share sync is already running" (the conversation lock is shared). Only the first `<FTRDM>` and first `<FixtureType>` are read (a second is noted, not used). The spec does not say a 0x prefix is required on Hex; it is accepted and not required.
+
+**Next:** coordinator review of G2; G3a mockup.
 
 ## Current delta — G1 GDTF library sync, server only (`feat/gdtf-g1-sync`, on v0.3.4+)
 

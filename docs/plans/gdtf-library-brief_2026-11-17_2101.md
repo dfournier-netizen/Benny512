@@ -131,6 +131,7 @@ The sandbox cannot reach gdtf-share.com, so G4 is the first real contact.
 | Chunk | State | When | Notes |
 |---|---|---|---|
 | G1 | Built on `feat/gdtf-g1-sync`, awaiting coordinator review | 2026-11-17 21:36:42 -0500 | Fake-server tests and all gates green. Same fixture = uuid + uploader label. Not yet run against the real GDTF Share (G4). Open for the owner: the API page's "cached files no more than 24 h old" vs decision 2; default names that may not match GDTF Share's spelling. |
+| G2 | Built on `feat/gdtf-g2-rdm` (on G1), awaiting coordinator review | 2026-11-17 22:13:43 -0500 | description.xml read into the index (download + one-time backfill; unreadable files kept with the reason); zero RDM ID = not given (GLP JDC1 `DeviceModelID="0x0"`); LongName search; `GET /api/gdtf/match` ranked software-version → model, labels kept, no name fallback. Real files carry RDM IDs but no software versions/personalities, so personality → mode is proved on synthetic files. Open for the owner: within a tier, Manufacturer uploads before User; model-only mode given only when all versions agree. |
 
 ## Owner decisions, round 3 (2026-11-17 21:53, after G1)
 
