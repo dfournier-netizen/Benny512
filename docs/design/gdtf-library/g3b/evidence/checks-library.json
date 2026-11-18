@@ -1,0 +1,484 @@
+{
+ "part": "library",
+ "runs": [
+  {
+   "name": "local-search",
+   "size": "1024x768",
+   "theme": "dark",
+   "ok": true,
+   "hscroll": 0,
+   "dialogHscroll": 0,
+   "missing": [],
+   "consoleErrors": [],
+   "measured": 20,
+   "textFails": []
+  },
+  {
+   "name": "local-search",
+   "size": "1024x768",
+   "theme": "light",
+   "ok": true,
+   "hscroll": 0,
+   "dialogHscroll": 0,
+   "missing": [],
+   "consoleErrors": [],
+   "measured": 20,
+   "textFails": []
+  },
+  {
+   "name": "local-search",
+   "size": "1440x900",
+   "theme": "dark",
+   "ok": true,
+   "hscroll": 0,
+   "dialogHscroll": 0,
+   "missing": [],
+   "consoleErrors": [],
+   "measured": 20,
+   "textFails": []
+  },
+  {
+   "name": "local-search",
+   "size": "1440x900",
+   "theme": "light",
+   "ok": true,
+   "hscroll": 0,
+   "dialogHscroll": 0,
+   "missing": [],
+   "consoleErrors": [],
+   "measured": 20,
+   "textFails": []
+  },
+  {
+   "name": "local-search",
+   "size": "1920x1080",
+   "theme": "dark",
+   "ok": true,
+   "hscroll": 0,
+   "dialogHscroll": 0,
+   "missing": [],
+   "consoleErrors": [],
+   "measured": 20,
+   "textFails": []
+  },
+  {
+   "name": "local-search",
+   "size": "1920x1080",
+   "theme": "light",
+   "ok": true,
+   "hscroll": 0,
+   "dialogHscroll": 0,
+   "missing": [],
+   "consoleErrors": [],
+   "measured": 20,
+   "textFails": []
+  },
+  {
+   "name": "over-20MB",
+   "size": "1024x768",
+   "theme": "dark",
+   "ok": true,
+   "hscroll": 0,
+   "dialogHscroll": 0,
+   "missing": [],
+   "consoleErrors": [],
+   "measured": 14,
+   "textFails": []
+  },
+  {
+   "name": "over-20MB",
+   "size": "1024x768",
+   "theme": "light",
+   "ok": true,
+   "hscroll": 0,
+   "dialogHscroll": 0,
+   "missing": [],
+   "consoleErrors": [],
+   "measured": 14,
+   "textFails": []
+  },
+  {
+   "name": "over-20MB",
+   "size": "1440x900",
+   "theme": "dark",
+   "ok": true,
+   "hscroll": 0,
+   "dialogHscroll": 0,
+   "missing": [],
+   "consoleErrors": [],
+   "measured": 14,
+   "textFails": []
+  },
+  {
+   "name": "over-20MB",
+   "size": "1440x900",
+   "theme": "light",
+   "ok": true,
+   "hscroll": 0,
+   "dialogHscroll": 0,
+   "missing": [],
+   "consoleErrors": [],
+   "measured": 14,
+   "textFails": []
+  },
+  {
+   "name": "over-20MB",
+   "size": "1920x1080",
+   "theme": "dark",
+   "ok": true,
+   "hscroll": 0,
+   "dialogHscroll": 0,
+   "missing": [],
+   "consoleErrors": [],
+   "measured": 14,
+   "textFails": []
+  },
+  {
+   "name": "over-20MB",
+   "size": "1920x1080",
+   "theme": "light",
+   "ok": true,
+   "hscroll": 0,
+   "dialogHscroll": 0,
+   "missing": [],
+   "consoleErrors": [],
+   "measured": 14,
+   "textFails": []
+  },
+  {
+   "name": "share-search",
+   "size": "1024x768",
+   "theme": "dark",
+   "ok": true,
+   "hscroll": 0,
+   "dialogHscroll": 0,
+   "missing": [],
+   "consoleErrors": [],
+   "measured": 24,
+   "textFails": []
+  },
+  {
+   "name": "share-search",
+   "size": "1024x768",
+   "theme": "light",
+   "ok": true,
+   "hscroll": 0,
+   "dialogHscroll": 0,
+   "missing": [],
+   "consoleErrors": [],
+   "measured": 24,
+   "textFails": []
+  },
+  {
+   "name": "share-search",
+   "size": "1440x900",
+   "theme": "dark",
+   "ok": true,
+   "hscroll": 0,
+   "dialogHscroll": 0,
+   "missing": [],
+   "consoleErrors": [],
+   "measured": 24,
+   "textFails": []
+  },
+  {
+   "name": "share-search",
+   "size": "1440x900",
+   "theme": "light",
+   "ok": true,
+   "hscroll": 0,
+   "dialogHscroll": 0,
+   "missing": [],
+   "consoleErrors": [],
+   "measured": 24,
+   "textFails": []
+  },
+  {
+   "name": "share-search",
+   "size": "1920x1080",
+   "theme": "dark",
+   "ok": true,
+   "hscroll": 0,
+   "dialogHscroll": 0,
+   "missing": [],
+   "consoleErrors": [],
+   "measured": 24,
+   "textFails": []
+  },
+  {
+   "name": "share-search",
+   "size": "1920x1080",
+   "theme": "light",
+   "ok": true,
+   "hscroll": 0,
+   "dialogHscroll": 0,
+   "missing": [],
+   "consoleErrors": [],
+   "measured": 24,
+   "textFails": []
+  }
+ ],
+ "focus": [
+  {
+   "scene": "add-from-gdtf",
+   "stops": 5,
+   "noRing": [],
+   "first": [
+    "On this computer (18 files)",
+    "GDTF Share (online)",
+    "gdtfQuery",
+    "Import Wash (Manufacturer file, revision",
+    "Import Wash (tour edit) (User file, revi"
+   ]
+  }
+ ],
+ "actions": [
+  {
+   "action": "Import… (real bytes -> real parser -> existing confirm step)",
+   "status": "Review the import, then apply. Existing types are merged.",
+   "area": "Robe@Wash@DMX v1.3 (fw 1.0).gdtf · 1 fixture types From the GDTF library · Manufacturer file Apply import Cancel",
+   "ok": true
+  },
+  {
+   "action": "Apply import (real POST /api/library/import)",
+   "label": "Manufacturer",
+   "modes": [
+    "Mode 1:20",
+    "Mode 2:26"
+   ],
+   "inFixtureLibraryAfter": true,
+   "ok": true
+  },
+  {
+   "action": "Download and import (real pull, offline on purpose)",
+   "status": "Not imported: Sharpy: GDTF Share could not be reached: Post \"https://gdtf-share.com/apis/public/login.php\": proxyconnect tcp: dial tcp 127.0.0.1:9: connect: connection refused",
+   "ok": true
+  },
+  {
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+   ],
+   "expected": "one 503 from the deliberate offline pull",
+   "unexpected": []
+  }
+ ],
+ "pairsList": [
+  {
+   "theme": "light",
+   "fg": "#075e58",
+   "bg": "#d6e8e3",
+   "ratio": 6,
+   "min": 4.5,
+   "disabled": false,
+   "count": 9,
+   "example": "button.b5-seg “On this computer (18 files)”"
+  },
+  {
+   "theme": "light",
+   "fg": "#2a4d85",
+   "bg": "#dfe6f3",
+   "ratio": 6.7,
+   "min": 4.5,
+   "disabled": false,
+   "count": 9,
+   "example": "span.b5-tag “Manufacturer file”"
+  },
+  {
+   "theme": "light",
+   "fg": "#5d5448",
+   "bg": "#f7f5f0",
+   "ratio": 6.82,
+   "min": 4.5,
+   "disabled": false,
+   "count": 6,
+   "example": "span.b5-badge “Not downloaded”"
+  },
+  {
+   "theme": "dark",
+   "fg": "#b2a99b",
+   "bg": "#241f1a",
+   "ratio": 7.03,
+   "min": 4.5,
+   "disabled": false,
+   "count": 6,
+   "example": "span.b5-badge “Not downloaded”"
+  },
+  {
+   "theme": "light",
+   "fg": "#5d5448",
+   "bg": "#fefefe",
+   "ratio": 7.37,
+   "min": 4.5,
+   "disabled": false,
+   "count": 15,
+   "example": "p.b5-caption “Searches the GDTF files already on this ”"
+  },
+  {
+   "theme": "dark",
+   "fg": "#7fd0c9",
+   "bg": "#23332f",
+   "ratio": 7.42,
+   "min": 4.5,
+   "disabled": false,
+   "count": 9,
+   "example": "button.b5-seg “On this computer (18 files)”"
+  },
+  {
+   "theme": "dark",
+   "fg": "#b2a99b",
+   "bg": "#1c1815",
+   "ratio": 7.59,
+   "min": 4.5,
+   "disabled": false,
+   "count": 15,
+   "example": "p.b5-caption “Searches the GDTF files already on this ”"
+  },
+  {
+   "theme": "light",
+   "fg": "#684400",
+   "bg": "#f7f5f0",
+   "ratio": 7.98,
+   "min": 4.5,
+   "disabled": false,
+   "count": 3,
+   "example": "p.b5-alert__title “Too large for the Fixture Library: 21.0 ”"
+  },
+  {
+   "theme": "dark",
+   "fg": "#aac3ec",
+   "bg": "#1a2233",
+   "ratio": 8.88,
+   "min": 4.5,
+   "disabled": false,
+   "count": 9,
+   "example": "span.b5-tag “Manufacturer file”"
+  },
+  {
+   "theme": "dark",
+   "fg": "#cbc5ba",
+   "bg": "#241f1a",
+   "ratio": 9.51,
+   "min": 4.5,
+   "disabled": false,
+   "count": 18,
+   "example": "button.b5-seg “GDTF Share (online)”"
+  },
+  {
+   "theme": "dark",
+   "fg": "#f0c163",
+   "bg": "#241f1a",
+   "ratio": 9.73,
+   "min": 4.5,
+   "disabled": false,
+   "count": 3,
+   "example": "p.b5-alert__title “Too large for the Fixture Library: 21.0 ”"
+  },
+  {
+   "theme": "light",
+   "fg": "#423c33",
+   "bg": "#f7f5f0",
+   "ratio": 10.01,
+   "min": 4.5,
+   "disabled": false,
+   "count": 18,
+   "example": "button.b5-seg “GDTF Share (online)”"
+  },
+  {
+   "theme": "dark",
+   "fg": "#cbc5ba",
+   "bg": "#1c1815",
+   "ratio": 10.27,
+   "min": 4.5,
+   "disabled": false,
+   "count": 39,
+   "example": "label.b5-field__label “Search name, long name or manufacturer”"
+  },
+  {
+   "theme": "light",
+   "fg": "#423c33",
+   "bg": "#fefefe",
+   "ratio": 10.81,
+   "min": 4.5,
+   "disabled": false,
+   "count": 39,
+   "example": "label.b5-field__label “Search name, long name or manufacturer”"
+  },
+  {
+   "theme": "dark",
+   "fg": "#f3f0e9",
+   "bg": "#241f1a",
+   "ratio": 14.35,
+   "min": 4.5,
+   "disabled": false,
+   "count": 12,
+   "example": "button.b5-btn “Import…”"
+  },
+  {
+   "theme": "dark",
+   "fg": "#f3f0e9",
+   "bg": "#1c1815",
+   "ratio": 15.49,
+   "min": 3,
+   "disabled": false,
+   "count": 9,
+   "example": "h3 “Add from GDTF library”"
+  },
+  {
+   "theme": "dark",
+   "fg": "#f3f0e9",
+   "bg": "#1c1815",
+   "ratio": 15.49,
+   "min": 4.5,
+   "disabled": false,
+   "count": 54,
+   "example": "p.b5-text-sm “2 files match “wash””"
+  },
+  {
+   "theme": "light",
+   "fg": "#1c1815",
+   "bg": "#f7f5f0",
+   "ratio": 16.19,
+   "min": 4.5,
+   "disabled": false,
+   "count": 12,
+   "example": "button.b5-btn “Import…”"
+  },
+  {
+   "theme": "light",
+   "fg": "#1c1815",
+   "bg": "#fefefe",
+   "ratio": 17.48,
+   "min": 3,
+   "disabled": false,
+   "count": 9,
+   "example": "h3 “Add from GDTF library”"
+  },
+  {
+   "theme": "light",
+   "fg": "#1c1815",
+   "bg": "#fefefe",
+   "ratio": 17.48,
+   "min": 4.5,
+   "disabled": false,
+   "count": 54,
+   "example": "p.b5-text-sm “2 files match “wash””"
+  }
+ ],
+ "summary": {
+  "runs": 18,
+  "failedRuns": 0,
+  "failures": 0,
+  "pairs": 20,
+  "pairFails": 0,
+  "lowestPair": {
+   "theme": "light",
+   "fg": "#075e58",
+   "bg": "#d6e8e3",
+   "ratio": 6,
+   "min": 4.5,
+   "disabled": false,
+   "count": 9,
+   "example": "button.b5-seg “On this computer (18 files)”"
+  }
+ }
+}

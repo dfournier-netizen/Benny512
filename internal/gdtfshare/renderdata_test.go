@@ -44,7 +44,7 @@ func renderGDTF(t *testing.T, name, longName, modes, ftrdm string, pad int) []by
 	}
 	fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
 <GDTF DataVersion="1.2"><FixtureType Name=%q ShortName=%q LongName=%q Manufacturer="Render" FixtureTypeID="00000000-0000-0000-0000-000000000000">
-<DMXModes>%s</DMXModes><Protocols>%s</Protocols></FixtureType></GDTF>`, name, name, longName, modes, ftrdm)
+<Geometries><Geometry Name="Body"/></Geometries><DMXModes>%s</DMXModes><Protocols>%s</Protocols></FixtureType></GDTF>`, name, name, longName, modes, ftrdm)
 	if pad > 0 {
 		// Stored, not deflated, so the file really is this big.
 		pw, err := zw.CreateHeader(&zip.FileHeader{Name: "models/padding.bin", Method: zip.Store})
@@ -67,10 +67,17 @@ func modeList(pairs ...any) []map[string]any {
 	return out
 }
 
-func dmxModes(names ...string) string {
+// dmxModes: "name", channels, "name", channels, ... -> DMX modes with that
+// many plain channels each, so the browser's parser reads the same
+// footprints the list gives.
+func dmxModes(pairs ...any) string {
 	s := ""
-	for _, n := range names {
-		s += fmt.Sprintf(`<DMXMode Name=%q/>`, n)
+	for i := 0; i+1 < len(pairs); i += 2 {
+		ch := ""
+		for c := 1; c <= pairs[i+1].(int); c++ {
+			ch += fmt.Sprintf(`<DMXChannel DMXBreak="1" Geometry="Body" Offset="%d"><LogicalChannel Attribute="Ch%d"><ChannelFunction Name="Ch%d 1" Attribute="Ch%d" DMXFrom="0/1" PhysicalFrom="0"/></LogicalChannel></DMXChannel>`, c, c, c, c)
+		}
+		s += fmt.Sprintf(`<DMXMode Name=%q Geometry="Body"><DMXChannels>%s</DMXChannels></DMXMode>`, pairs[i], ch)
 	}
 	return s
 }
@@ -84,37 +91,37 @@ func renderShare(t *testing.T) *fakeShare {
 	const sw1 = `0x01000000`
 	// Robe: found (device Wash, footprint 20), plus a user upload of it.
 	wash := `<FTRDM ManufacturerID="0x2222" DeviceModelID="0x0001"><SoftwareVersionID Value="` + sw1 + `"><DMXPersonality Value="0x1" DMXMode="Mode 1"/><DMXPersonality Value="0x2" DMXMode="Mode 2"/></SoftwareVersionID></FTRDM>`
-	add(1001, "Robe", "Wash", "DMX v1.3 (fw 1.0)", "Manuf.", 1790000000, renderGDTF(t, "Wash", "Robe Wash LED", dmxModes("Mode 1", "Mode 2"), wash, 0), modeList("Mode 1", 20, "Mode 2", 26))
-	add(1002, "Robe", "Wash (tour edit)", "tour v2", "User", 1789000000, renderGDTF(t, "Wash", "Robe Wash LED, tour gobos", dmxModes("Mode 1"), wash, 0), modeList("Mode 1", 20))
-	add(1003, "Robe", "Esprite", "v1.0", "Manuf.", 1788000000, renderGDTF(t, "Esprite", "Robe Robin Esprite", dmxModes("Mode 1", "Mode 2"), "", 0), modeList("Mode 1", 49, "Mode 2", 42))
+	add(1001, "Robe", "Wash", "DMX v1.3 (fw 1.0)", "Manuf.", 1790000000, renderGDTF(t, "Wash", "Robe Wash LED", dmxModes("Mode 1", 20, "Mode 2", 26), wash, 0), modeList("Mode 1", 20, "Mode 2", 26))
+	add(1002, "Robe", "Wash (tour edit)", "tour v2", "User", 1789000000, renderGDTF(t, "Wash", "Robe Wash LED, tour gobos", dmxModes("Mode 1", 20), wash, 0), modeList("Mode 1", 20))
+	add(1003, "Robe", "Esprite", "v1.0", "Manuf.", 1788000000, renderGDTF(t, "Esprite", "Robe Robin Esprite", dmxModes("Mode 1", 49, "Mode 2", 42), "", 0), modeList("Mode 1", 49, "Mode 2", 42))
 	// Ayrton: likely (versions disagree on personality 1; the device's
 	// version is not listed).
 	spot := `<FTRDM ManufacturerID="0xAAAA" DeviceModelID="0x0001">
 <SoftwareVersionID Value="0x02000000"><DMXPersonality Value="0x1" DMXMode="Standard"/></SoftwareVersionID>
 <SoftwareVersionID Value="0x02010000"><DMXPersonality Value="0x1" DMXMode="Standard"/></SoftwareVersionID>
 <SoftwareVersionID Value="0x02020000"><DMXPersonality Value="0x1" DMXMode="Standard 16-bit"/></SoftwareVersionID></FTRDM>`
-	add(1101, "Ayrton", "Spot", "Rev 6", "Manuf.", 1780000000, renderGDTF(t, "Spot", "Ayrton Spot", dmxModes("Standard", "Standard 16-bit"), spot, 0), modeList("Standard", 24, "Standard 16-bit", 28))
+	add(1101, "Ayrton", "Spot", "Rev 6", "Manuf.", 1780000000, renderGDTF(t, "Spot", "Ayrton Spot", dmxModes("Standard", 24, "Standard 16-bit", 28), spot, 0), modeList("Standard", 24, "Standard 16-bit", 28))
 	// GDTF Share spells these two differently from the followed names.
 	beam := `<FTRDM ManufacturerID="0x4D50" DeviceModelID="0x0001">
 <SoftwareVersionID Value="` + sw1 + `"><DMXPersonality Value="0x2" DMXMode="Mode B"/></SoftwareVersionID>
 <SoftwareVersionID Value="0x00090000"><DMXPersonality Value="0x1" DMXMode="Mode A"/></SoftwareVersionID>
 <SoftwareVersionID Value="0x00080000"><DMXPersonality Value="0x1" DMXMode="Mode A"/></SoftwareVersionID></FTRDM>`
-	add(1201, "Martin Professional", "Beam", "fw 1.0", "Manuf.", 1785000000, renderGDTF(t, "Beam", "Martin Beam", dmxModes("Mode A", "Mode B"), beam, 0), modeList("Mode A", 18, "Mode B", 22))
+	add(1201, "Martin Professional", "Beam", "fw 1.0", "Manuf.", 1785000000, renderGDTF(t, "Beam", "Martin Beam", dmxModes("Mode A", 18, "Mode B", 22), beam, 0), modeList("Mode A", 18, "Mode B", 22))
 	add(1202, "Martin Professional", "MAC Ultra Performance", "fw 2.4.0", "Manuf.", 1786000000,
-		renderGDTF(t, "MAC Ultra Performance", "Martin MAC Ultra Performance", dmxModes("Basic", "Extended"), "", 21<<20), modeList("Basic", 41, "Extended", 52))
+		renderGDTF(t, "MAC Ultra Performance", "Martin MAC Ultra Performance", dmxModes("Basic", 41, "Extended", 52), "", 21<<20), modeList("Basic", 41, "Extended", 52))
 	cf := `<FTRDM ManufacturerID="0x5370" DeviceModelID="0x0001"><SoftwareVersionID Value="` + sw1 + `"><DMXPersonality Value="0x1" DMXMode="Std"/></SoftwareVersionID></FTRDM>`
-	add(1301, "Chroma-Q", "Color Force II 48", "v3", "Manuf.", 1784000000, renderGDTF(t, "Color Force II 48", "Chroma-Q Color Force II 48", dmxModes("Std"), cf, 0), modeList("Std", 22))
+	add(1301, "Chroma-Q", "Color Force II 48", "v3", "Manuf.", 1784000000, renderGDTF(t, "Color Force II 48", "Chroma-Q Color Force II 48", dmxModes("Std", 22), cf, 0), modeList("Std", 22))
 	// Elation: no RDM match for the demo Par (0x454C, model 1).
-	add(1401, "Elation", "Par", "DMX v2", "Manuf.", 1783000000, renderGDTF(t, "Par", "Elation Par", dmxModes("8ch", "4ch"), `<FTRDM ManufacturerID="0x454C" DeviceModelID="0x0"/>`, 0), modeList("8ch", 8, "4ch", 4))
-	add(1402, "Elation", "Par (show set)", "Rev 2", "User", 1782000000, renderGDTF(t, "Par", "Elation Par, show set", dmxModes("8ch"), "", 0), modeList("8ch", 8))
+	add(1401, "Elation", "Par", "DMX v2", "Manuf.", 1783000000, renderGDTF(t, "Par", "Elation Par", dmxModes("8ch", 8, "4ch", 4), `<FTRDM ManufacturerID="0x454C" DeviceModelID="0x0"/>`, 0), modeList("8ch", 8, "4ch", 4))
+	add(1402, "Elation", "Par (show set)", "Rev 2", "User", 1782000000, renderGDTF(t, "Par", "Elation Par, show set", dmxModes("8ch", 8), "", 0), modeList("8ch", 8))
 	// One file each for the other followed names, as GDTF Share spells them.
 	for i, m := range []string{"Chauvet", "GLP", "Volux", "ADJ", "ACME", "SGM", "Astera", "ETC", "High End Systems"} {
 		rid := int64(1500 + i)
-		add(rid, m, m+" Fixture", "v1", "Manuf.", 1770000000+int64(i), renderGDTF(t, m+" Fixture", m+" Fixture long name", dmxModes("Standard"), "", 0), modeList("Standard", 16))
+		add(rid, m, m+" Fixture", "v1", "Manuf.", 1770000000+int64(i), renderGDTF(t, m+" Fixture", m+" Fixture long name", dmxModes("Standard", 16), "", 0), modeList("Standard", 16))
 	}
 	// Not followed: only reachable by a single pull.
-	add(1601, "Clay Paky", "Sharpy", "fw 1.4 / DMX 3.2", "Manuf.", 1760000000, renderGDTF(t, "Sharpy", "Clay Paky Sharpy", dmxModes("Standard", "Vector"), "", 0), modeList("Standard", 16, "Vector", 20))
-	add(1602, "Clay Paky", "Sharpy", "tour edit", "User", 1750000000, renderGDTF(t, "Sharpy", "Clay Paky Sharpy (tour)", dmxModes("Standard"), "", 0), modeList("Standard", 16))
+	add(1601, "Clay Paky", "Sharpy", "fw 1.4 / DMX 3.2", "Manuf.", 1760000000, renderGDTF(t, "Sharpy", "Clay Paky Sharpy", dmxModes("Standard", 16, "Vector", 20), "", 0), modeList("Standard", 16, "Vector", 20))
+	add(1602, "Clay Paky", "Sharpy", "tour edit", "User", 1750000000, renderGDTF(t, "Sharpy", "Clay Paky Sharpy (tour)", dmxModes("Standard", 16), "", 0), modeList("Standard", 16))
 	return f
 }
 

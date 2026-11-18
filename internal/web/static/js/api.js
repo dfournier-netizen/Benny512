@@ -457,5 +457,21 @@ const Api = (() => {
     gdtfTestLogin: (user, password) => req('POST', '/api/gdtf/login/test', user || password ? { user, password } : undefined),
     gdtfSetManufacturers: (names) => req('POST', '/api/gdtf/manufacturers', { manufacturers: names }),
     gdtfSync: () => req('POST', '/api/gdtf/sync'),
+    // in: 'library' (files on this computer) or 'share' (GDTF Share's list).
+    gdtfSearch: (q, inWhere, limit) => req('GET', '/api/gdtf/search?q=' + encodeURIComponent(q || '') + '&in=' + encodeURIComponent(inWhere || 'library') + (limit ? '&limit=' + limit : '')),
+    // gdtfPull downloads one file from GDTF Share (a single pull).
+    gdtfPull: (rid) => req('POST', '/api/gdtf/pull', { rid }),
+    // gdtfFileBytes: a library file's bytes for the browser import, with
+    // the server's file name (Content-Disposition) and its Manufacturer/User
+    // label (X-Benny-GDTF-Uploader).
+    gdtfFileBytes: async (rid) => {
+      const res = await fetch('/api/gdtf/file/' + encodeURIComponent(rid));
+      if (!res.ok) {
+        let msg = 'HTTP ' + res.status;
+        try { const d = await res.json(); if (d && d.error) msg = d.error; } catch (e) { /* keep status */ }
+        throw new Error(msg);
+      }
+      return { bytes: await res.arrayBuffer(), disposition: res.headers.get('Content-Disposition') || '', uploader: res.headers.get('X-Benny-GDTF-Uploader') || '' };
+    },
   };
 })();

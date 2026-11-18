@@ -49,3 +49,16 @@
   color: var(--b5-color-text-secondary); font-size: var(--b5-font-size-xs); line-height: 1.3;
 }
 .b5-gdtf-credit__text { font-weight: var(--b5-font-weight-bold); }
+
+/* ---- Fixture library › Add from GDTF library (gdtf-library.js) ---------- */
+.b5-gdtf-lib-source { display: flex; flex-wrap: wrap; gap: var(--b5-space-2); margin: var(--b5-space-3) 0; }
+.b5-gdtf-lib-source .b5-seg { min-width: 12rem; }
+.b5-gdtf-search { display: flex; flex-wrap: wrap; align-items: end; gap: var(--b5-space-2) var(--b5-space-3); }
+.b5-gdtf-search .b5-field { flex: 1 1 18rem; }
+.b5-gdtf-result { display: grid; gap: var(--b5-space-1); }
+.b5-gdtf-result__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--b5-space-1) var(--b5-space-3); }
+.b5-gdtf-result__name { font-size: var(--b5-font-size-md, 1rem); }
+.b5-gdtf-result__mfr { color: var(--b5-color-text-secondary); }
+.b5-gdtf-result__modes { color: var(--b5-color-text-secondary); font-size: var(--b5-font-size-sm); }
+.b5-gdtf-result .b5-row { margin-top: var(--b5-space-1); }
+.b5-gdtf-refusal { margin-top: var(--b5-space-2); }

@@ -241,6 +241,90 @@ if (part === 'settings') {
   }
 }
 
+// ---------------------------------------------------------------------------
+if (part === 'library') {
+  const h = await startHarness('ok');
+  await post(h.url + '/api/gdtf/login', { user: 'dfournier', password: 'render-only-not-a-real-password' });
+  async function openLibrary(page) {
+    await page.click('[data-showmenu], button:has-text("Show")');
+    await page.click('[data-library]');
+    await page.waitForSelector('dialog[open] [data-gdtf-add-toggle]');
+    await page.click('[data-gdtf-add-toggle]');
+    await page.waitForSelector('[data-gdtf-add] [data-gdtf-count]');
+    await page.waitForTimeout(300);
+  }
+  async function searchFor(page, q) {
+    await page.fill('#gdtfQuery', q);
+    await page.waitForTimeout(600);
+  }
+  const SCENES = [
+    { name: 'local-search', source: 'library', q: 'wash', words: ['Add from GDTF library', 'On this computer (18 files)', 'Works offline', 'Manufacturer file', 'User file', 'Long name: Robe Wash LED', 'Modes: Mode 1 · 20 ch; Mode 2 · 26 ch', '2 files match “wash”'] },
+    { name: 'over-20MB', source: 'library', q: 'mac ultra', words: ['Too large for the Fixture Library: 21.0 MB', 'takes GDTF files up to 20 MB'] },
+    { name: 'share-search', source: 'share', q: 'sharpy', words: ['GDTF Share (online)', 'Not downloaded', 'Clay Paky is not followed: this downloads this one file only.', 'Download and import…', 'Long name: known once downloaded'] },
+  ];
+  for (const sc of SCENES) for (const [w, hh] of SIZES) for (const theme of THEMES) {
+    const { page, ctx, errors } = await openPage(h.url, w, hh, theme, 'devices');
+    await openLibrary(page);
+    if (sc.source === 'share') { await page.click('[data-gdtf-source="share"]'); await page.waitForTimeout(300); }
+    await searchFor(page, sc.q);
+    await page.evaluate(() => document.getElementById('gdtfAddHead').scrollIntoView({ block: 'start' }));
+    const extra = await page.evaluate(words => ({
+      hscroll: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      dialogHscroll: (d => d.scrollWidth - d.clientWidth)(document.querySelector('dialog[open]')),
+      missing: words.filter(x => !document.querySelector('dialog[open]').innerText.includes(x)),
+    }), sc.words);
+    const m = await page.evaluate(measure, ['dialog[open] [data-gdtf-add]', 'dialog[open] [data-library-import]', 'dialog[open] [data-library-status]']);
+    record(sc.name, w, hh, theme, extra, m, errors, extra.missing.length === 0 && extra.dialogHscroll <= 0);
+    if (w === 1440 && theme === 'dark' || w === 1024 && theme === 'light') await page.screenshot({ path: path.join(outDir, `library-${w}-${theme}-${sc.name}.png`) });
+    await ctx.close();
+  }
+  // Keyboard + the real import path, at 1440 dark.
+  const { page, ctx, errors } = await openPage(h.url, 1440, 900, 'dark', 'devices');
+  await openLibrary(page);
+  await searchFor(page, 'wash');
+  const stops = await tabWalk(page, '[data-gdtf-add]', '[data-gdtf-add]', 40);
+  results.focus.push({ scene: 'add-from-gdtf', stops: stops.length, noRing: stops.filter(s => !s.ring), first: stops.map(s => s.label) });
+  if (!stops.length || stops.some(s => !s.ring)) failures++;
+  await page.click('[data-gdtf-rid="1001"] [data-gdtf-import]');
+  await page.waitForSelector('[data-apply-library]', { timeout: 5000 }).catch(() => {});
+  const confirm = await page.evaluate(() => ({ status: document.querySelector('[data-library-status]').innerText, area: document.querySelector('[data-library-import]').innerText.replace(/\s+/g, ' ') }));
+  await page.screenshot({ path: path.join(outDir, 'library-1440-dark-confirm.png') });
+  const okConfirm = /Review the import, then apply/.test(confirm.status) && /From the GDTF library · Manufacturer file/.test(confirm.area) && /Robe@Wash@DMX v1\.3 \(fw 1\.0\)\.gdtf/.test(confirm.area);
+  results.actions.push({ action: 'Import… (real bytes -> real parser -> existing confirm step)', ...confirm, ok: okConfirm });
+  if (!okConfirm) failures++;
+  await page.click('[data-apply-library]');
+  await page.waitForTimeout(800);
+  const lib = JSON.parse((await post(h.url + '/api/library', undefined, 'GET')).body);
+  const rec = lib.records.find(r => r.model === 'Wash');
+  const label = rec && rec.sourceFiles[0] && rec.sourceFiles[0].uploaderLabel;
+  const modes = rec ? rec.modes.map(m => `${m.name}:${m.footprint}`) : [];
+  await page.click('[data-gdtf-add-toggle]').catch(() => {});
+  if (!(await page.isVisible('[data-gdtf-add] #gdtfQuery'))) await page.click('[data-gdtf-add-toggle]');
+  await searchFor(page, 'wash');
+  const tagged = await page.evaluate(() => document.querySelector('[data-gdtf-rid="1001"]').innerText.includes('In your Fixture library'));
+  const okImport = label === 'Manufacturer' && modes.join() === 'Mode 1:20,Mode 2:26' && tagged;
+  results.actions.push({ action: 'Apply import (real POST /api/library/import)', label, modes, inFixtureLibraryAfter: tagged, ok: okImport });
+  if (!okImport) failures++;
+  await page.screenshot({ path: path.join(outDir, 'library-1440-dark-after-import.png') });
+  // Real single pull: GDTF Share cannot be reached on purpose -> honest refusal.
+  await page.click('[data-gdtf-source="share"]'); await page.waitForTimeout(300);
+  await searchFor(page, 'sharpy');
+  await page.click('[data-gdtf-rid="1601"] [data-gdtf-import]');
+  await page.waitForTimeout(1500);
+  const pullMsg = await page.evaluate(() => document.querySelector('[data-library-status]').innerText);
+  const okPull = /Not imported: Sharpy: .*GDTF Share could not be reached/.test(pullMsg) && !(await page.isVisible('[data-apply-library]'));
+  results.actions.push({ action: 'Download and import (real pull, offline on purpose)', status: pullMsg, ok: okPull });
+  if (!okPull) failures++;
+  await page.screenshot({ path: path.join(outDir, 'library-1440-dark-pull-offline.png') });
+  // The deliberate offline pull answers 503, which Chromium logs as a failed
+  // resource; that one is expected. Anything else is a failure.
+  const unexpected = errors.filter(e => !/Failed to load resource: the server responded with a status of 503/.test(e));
+  results.actions.push({ consoleErrors: errors, expected: 'one 503 from the deliberate offline pull', unexpected });
+  if (unexpected.length || errors.length > 1) failures++;
+  await ctx.close();
+  h.stop();
+}
+
 await browser.close();
 results.pairsList = Object.values(results.pairs).sort((a, b) => a.ratio - b.ratio);
 delete results.pairs;
