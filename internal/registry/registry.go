@@ -78,6 +78,11 @@ type Fixture struct {
 	// distinguishing "model ID legitimately 0" from "never fetched".
 	DeviceModelID uint16
 	HasDeviceInfo bool
+	// SoftwareVersionID/CurrentPersonality are DEVICE_INFO's too (G3b4: the
+	// GDTF library match for each Devices card). Meaningful only once
+	// HasDeviceInfo is true.
+	SoftwareVersionID  uint32
+	CurrentPersonality uint8
 
 	// ManufacturerLabel/ModelDescription cache the device's OWN report of
 	// MANUFACTURER_LABEL (0x0081) / DEVICE_MODEL_DESCRIPTION (0x0080) —
@@ -507,6 +512,8 @@ func reclassify(f *Fixture, pid rdm.ParameterID, data []byte) {
 			f.DMXFootprint = di.dmxFootprint
 			f.DMXStartAddress = di.dmxStartAddress
 			f.DeviceModelID = di.deviceModelID
+			f.SoftwareVersionID = di.softwareVersionID
+			f.CurrentPersonality = di.currentPersonality
 			f.SubDeviceCount = di.subDeviceCount
 			f.HasDeviceInfo = true
 		}
@@ -555,6 +562,9 @@ type deviceInfoFields struct {
 	dmxStartAddress uint16
 	deviceModelID   uint16
 	subDeviceCount  uint16
+	// E1.20 DEVICE_INFO bytes 6-9 and 12 (G3b4).
+	softwareVersionID  uint32
+	currentPersonality uint8
 }
 
 func decodeDeviceInfoFields(data []byte) (deviceInfoFields, error) {
@@ -562,11 +572,13 @@ func decodeDeviceInfoFields(data []byte) (deviceInfoFields, error) {
 		return deviceInfoFields{}, fmt.Errorf("registry: DEVICE_INFO wants 19 bytes, got %d", len(data))
 	}
 	return deviceInfoFields{
-		deviceModelID:   uint16(data[2])<<8 | uint16(data[3]),
-		category:        rdm.ProductCategory(uint16(data[4])<<8 | uint16(data[5])),
-		dmxFootprint:    uint16(data[10])<<8 | uint16(data[11]),
-		dmxStartAddress: uint16(data[14])<<8 | uint16(data[15]),
-		subDeviceCount:  uint16(data[16])<<8 | uint16(data[17]),
+		deviceModelID:      uint16(data[2])<<8 | uint16(data[3]),
+		category:           rdm.ProductCategory(uint16(data[4])<<8 | uint16(data[5])),
+		dmxFootprint:       uint16(data[10])<<8 | uint16(data[11]),
+		dmxStartAddress:    uint16(data[14])<<8 | uint16(data[15]),
+		subDeviceCount:     uint16(data[16])<<8 | uint16(data[17]),
+		softwareVersionID:  uint32(data[6])<<24 | uint32(data[7])<<16 | uint32(data[8])<<8 | uint32(data[9]),
+		currentPersonality: data[12],
 	}, nil
 }
 
