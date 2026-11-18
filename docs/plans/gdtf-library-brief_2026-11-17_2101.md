@@ -156,3 +156,14 @@ The sandbox cannot reach gdtf-share.com, so G4 is the first real contact.
 Most-likely rule (G2b, `internal/gdtfshare/match.go` rankModes): the mode mapped by the most
 software versions; ties to the mode mapped by the highest software version ID (a version with
 no ID counts lowest); then the mode name A to Z.
+
+## Owner decisions, round 5 (2026-11-17 23:41 and 2026-11-18 07:58, on the G3a mockup)
+
+The mockup (`docs/design/gdtf-library/mockup_2026-11-17_2309.html`) is the approved basis for G3b, with these answers to its open questions:
+
+1. **Raise the Fixture Library import cap from 8 MB to 20 MB** per GDTF file.
+2. **About is the last section of Settings**, as drawn.
+3. **GDTF Share buttons act at once**; no Apply settings needed (as drawn).
+4. **Stop following keeps the downloaded files** (current G1 behaviour).
+5. **Every device card gets a GDTF tag**, "GDTF: found / likely / none" in words (exact states follow the match API).
+6. **Footprint check, option C:** on a guess (`likely`, `other-versions`) always show "Footprints agree / differ"; on an exact match (`found`) show it only when the footprints differ, as a warning.
