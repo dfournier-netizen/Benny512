@@ -37,7 +37,12 @@ var (
 
 // BuildInfo is the one-line build identity, for --version and the UI.
 func BuildInfo() string {
-	return fmt.Sprintf("benny512 %s (commit %s, built %s)", version, commit, built)
+	return web.BuildLine(version, commit, built)
+}
+
+// webBuildInfo is the same identity for GET /api/version (Settings › About).
+func webBuildInfo() web.BuildInfo {
+	return web.BuildInfo{Version: version, Commit: commit, Built: built, Line: BuildInfo()}
 }
 
 func main() {
@@ -121,7 +126,11 @@ func main() {
 		if err != nil {
 			logger.Fatalf("startup failed: %v", err)
 		}
+		// "" = no --iface and no usable saved adapter: buildReal picked the
+		// first one itself. GDTF Share's status says so (owner round 3 #1).
+		srv.OutputNICAuto = bindIface == ""
 	}
+	srv.SetBuildInfo(webBuildInfo())
 	if closeTransport != nil {
 		defer closeTransport()
 	}

@@ -89,6 +89,7 @@ func buildRehearsal(ctx context.Context, original patch.Patch, fault string) (*w
 	ring := capture.New(capture.DefaultCapacity)
 	rdmRing := capture.New(capture.DefaultRDMCapacity)
 	srv := web.New(nodes, rdmc, dmx, reg, ring, rdmRing)
+	srv.SetBuildInfo(webBuildInfo())
 	srv.Simulation = true
 	srv.NIC = "REHEARSAL — fake lighting transport"
 	devices := make([]*demoDevice, 0, len(p.Entries))
