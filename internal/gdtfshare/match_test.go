@@ -139,23 +139,28 @@ func TestMatchPersonalityToMode(t *testing.T) {
 		t.Fatalf("sw 0x10200 p1 = %+v", c)
 	}
 	// The device's version maps no mode for personality 2; another version
-	// does. That other version's answer is not given as this one's.
-	if c := q(u32(0x00020000), 2); c.ModeState != ModeNotMapped || c.DMXMode != "" || !strings.Contains(c.Note, "Extended") {
+	// does (owner, round 4: fall back to it, with a warning naming it).
+	if c := q(u32(0x00020000), 2); c.MatchedOn != MatchedSoftwareVersion || c.ModeState != ModeOtherVersions || c.DMXMode != "Extended" ||
+		strings.Join(c.ModeFromVersions, "|") != "0x00010200" ||
+		!strings.Contains(c.ModeWarning, "0x00010200") || !strings.Contains(c.ModeWarning, "0x00020000") || c.ModeBasis == "" {
 		t.Fatalf("sw 0x20000 p2 = %+v", c)
 	}
 	// Model only: versions agree on p2 (only one maps it) -> found.
-	if c := q(nil, 2); c.MatchedOn != MatchedModel || c.ModeState != ModeFound || c.DMXMode != "Extended" {
+	if c := q(nil, 2); c.MatchedOn != MatchedModel || c.ModeState != ModeFound || c.DMXMode != "Extended" || c.ModeBasis == "" || c.ModeWarning != "" {
 		t.Fatalf("model p2 = %+v", c)
 	}
-	// Model only: versions disagree on p1 -> no mode, both offered.
-	if c := q(nil, 1); c.ModeState != ModeDiffers || c.DMXMode != "" || strings.Join(c.ModeChoices, "|") != "Extended|Standard" {
+	// Model only: versions disagree on p1, one each -> the likely mode is
+	// the one the highest software version (0x00020000) maps; both stay
+	// listed, and it says it is a guess.
+	if c := q(nil, 1); c.ModeState != ModeLikely || c.DMXMode != "Extended" || strings.Join(c.ModeChoices, "|") != "Extended|Standard" ||
+		!strings.Contains(c.ModeBasis, "1 of 2") || !strings.Contains(c.ModeBasis, "highest software version, 0x00020000") || c.ModeWarning == "" || strings.Join(c.ModeFromVersions, "|") != "0x00020000" {
 		t.Fatalf("model p1 = %+v", c)
 	}
 	// A link to a mode the file does not have is reported as such.
 	if c := q(u32(0x00020000), 3); c.ModeState != ModeFound || c.DMXMode != "Ghost" || c.ModeInFile {
 		t.Fatalf("sw 0x20000 p3 = %+v", c)
 	}
-	if c := q(nil, 9); c.ModeState != ModeNotMapped || c.DMXMode != "" {
+	if c := q(nil, 9); c.ModeState != ModeNotMapped || c.DMXMode != "" || len(c.ModeChoices) != 0 {
 		t.Fatalf("p9 = %+v", c)
 	}
 }
@@ -213,5 +218,60 @@ func TestMatchCountsFilesNotYetRead(t *testing.T) {
 	}
 	if r, _ = s.Match(MatchQuery{ManufacturerID: 0x22A6, DeviceModelID: 0x1093}); r.NotYetRead != 0 || len(r.Candidates) != 1 {
 		t.Fatalf("after backfill: %+v", r)
+	}
+}
+
+// TestMatchLikelyModeRule pins the most-likely rule (owner, round 4): the
+// mode mapped by the most software versions; ties to the mode mapped by the
+// highest software version ID (a version with no ID counts as lowest);
+// then the mode name A-Z.
+func TestMatchLikelyModeRule(t *testing.T) {
+	s := newLibrary(t, []libFile{{7, "Acme", "Rule", "Manuf.", 1, zipOf(t, map[string]string{"description.xml": rdmDesc("Rule", `<FTRDM ManufacturerID="0x1111" DeviceModelID="0x2222">
+  <SoftwareVersionID Value="0x10"><DMXPersonality Value="1" DMXMode="A"/></SoftwareVersionID>
+  <SoftwareVersionID Value="0x20"><DMXPersonality Value="1" DMXMode="A"/></SoftwareVersionID>
+  <SoftwareVersionID Value="0x30"><DMXPersonality Value="1" DMXMode="A"/></SoftwareVersionID>
+  <SoftwareVersionID Value="0x40"><DMXPersonality Value="1" DMXMode="B"/></SoftwareVersionID>
+  <SoftwareVersionID Value="0x50"><DMXPersonality Value="2" DMXMode="Zeta"/><DMXPersonality Value="2" DMXMode="Alpha"/></SoftwareVersionID>
+  <SoftwareVersionID Value="0x0"><DMXPersonality Value="3" DMXMode="X"/></SoftwareVersionID>
+  <SoftwareVersionID Value="0x05"><DMXPersonality Value="3" DMXMode="Y"/></SoftwareVersionID>
+</FTRDM>`)})}})
+	if _, err := s.Backfill(); err != nil {
+		t.Fatal(err)
+	}
+	one := func(sw *uint32, p uint8) MatchCandidate {
+		t.Helper()
+		r, err := s.Match(MatchQuery{ManufacturerID: 0x1111, DeviceModelID: 0x2222, SoftwareVersionID: sw, Personality: u8(p)})
+		if err != nil || len(r.Candidates) != 1 {
+			t.Fatalf("match: %v %+v", err, r)
+		}
+		return r.Candidates[0]
+	}
+	// Most versions win, though the highest version (0x40) says B.
+	if c := one(nil, 1); c.ModeState != ModeLikely || c.DMXMode != "A" || !strings.Contains(c.ModeBasis, "3 of 4") ||
+		strings.Join(c.ModeChoices, "|") != "A|B" || strings.Join(c.ModeFromVersions, "|") != "0x00000010|0x00000020|0x00000030" {
+		t.Fatalf("p1 = %+v", c)
+	}
+	// Same count, same version: the name decides.
+	if c := one(nil, 2); c.ModeState != ModeLikely || c.DMXMode != "Alpha" || strings.Join(c.ModeChoices, "|") != "Alpha|Zeta" ||
+		!strings.Contains(c.ModeBasis, "by mode name") {
+		t.Fatalf("p2 = %+v", c)
+	}
+	// Same count: a version with an ID beats one without.
+	if c := one(nil, 3); c.ModeState != ModeLikely || c.DMXMode != "Y" || strings.Join(c.ModeFromVersions, "|") != "0x00000005" {
+		t.Fatalf("p3 = %+v", c)
+	}
+	// The device's own version decides when it maps the personality once.
+	if c := one(u32(0x40), 1); c.MatchedOn != MatchedSoftwareVersion || c.ModeState != ModeFound || c.DMXMode != "B" || c.ModeWarning != "" {
+		t.Fatalf("sw 0x40 p1 = %+v", c)
+	}
+	// Its version maps nothing for p2: the other versions decide, by the
+	// same rule, and the warning names them.
+	if c := one(u32(0x10), 2); c.MatchedOn != MatchedSoftwareVersion || c.ModeState != ModeOtherVersions || c.DMXMode != "Alpha" ||
+		!strings.Contains(c.ModeWarning, "0x00000050") || strings.Join(c.ModeChoices, "|") != "Alpha|Zeta" {
+		t.Fatalf("sw 0x10 p2 = %+v", c)
+	}
+	// Its own version maps p2 to two modes: still a guess, said so.
+	if c := one(u32(0x50), 2); c.MatchedOn != MatchedSoftwareVersion || c.ModeState != ModeLikely || c.DMXMode != "Alpha" || c.ModeWarning == "" {
+		t.Fatalf("sw 0x50 p2 = %+v", c)
 	}
 }
