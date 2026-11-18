@@ -1129,10 +1129,20 @@
   {
    "scene": "ok",
    "action": "About › Data folder (G3c): the real GDTF folder, selected by one click",
-   "text": "/tmp/g3b-q4QA0A/GDTF",
+   "text": "/tmp/g3b-pjFDM7/GDTF",
    "userSelect": "all",
-   "selected": "/tmp/g3b-q4QA0A/GDTF",
-   "want": "/tmp/g3b-q4QA0A/GDTF",
+   "selected": "/tmp/g3b-pjFDM7/GDTF",
+   "want": "/tmp/g3b-pjFDM7/GDTF",
+   "ok": true
+  },
+  {
+   "scene": "ok",
+   "action": "About from another device (LAN address): no path, said why",
+   "url": "http://192.0.2.2:5892",
+   "words": "Version dev build (not a release) · commit unknown · built unknown Exactly what benny512.exe --version prints benny512 dev (commit unknown, built unknown) Data folder Shown only on the computer running Benny512, in its o",
+   "hasPath": false,
+   "libraryFolder": "",
+   "withheld": true,
    "ok": true
   },
   {

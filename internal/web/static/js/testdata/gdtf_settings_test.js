@@ -180,6 +180,11 @@ async function show(s) { current = s; await GdtfSettings.refresh(); await tick()
   await show(status({ libraryFolder: 'C:\\Users\\dom\\AppData\\Roaming\\Benny512\\GDTF' }));
   const folder = about.querySelector('[data-gdtf-folder]');
   check(folder && folder.textContent === 'C:\\Users\\dom\\AppData\\Roaming\\Benny512\\GDTF' && folder.classList.contains('b5-gdtf-path'), 'About › Data folder shows the GDTF library folder, in the selectable style', folder && folder.textContent);
+  // Another device: the server withholds the path; the page says why.
+  await show(status({ libraryFolder: '', libraryFolderWithheld: true }));
+  check(/Data folder\s*Shown only on the computer running Benny512/.test(text(about)) && /This browser is on another device/.test(text(about)) && !about.querySelector('[data-gdtf-folder]') && !/off in this mode/.test(text(about)),
+    'About › Data folder from another device: "shown only on the computer running Benny512", no path', text(about));
+  await show(status({ libraryFolder: 'C:\\Users\\dom\\AppData\\Roaming\\Benny512\\GDTF' }));
   const before = about.firstChild;
   await show(status({ libraryFolder: 'C:\\Users\\dom\\AppData\\Roaming\\Benny512\\GDTF' }));
   check(about.firstChild === before, 'a status refresh with nothing new does not repaint About (a selection survives)');

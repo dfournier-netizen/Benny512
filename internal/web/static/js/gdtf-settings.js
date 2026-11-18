@@ -350,6 +350,7 @@ const GdtfSettings = (() => {
     // computer, selectable so it can be copied. Off in a demo: said in words.
     let folder;
     if (!st) folder = loadError ? `<span class="b5-text-muted">not read: ${esc(loadError)}</span>` : 'reading…';
+    else if (st.enabled && !st.libraryFolder && st.libraryFolderWithheld) folder = 'Shown only on the computer running Benny512, in its own Benny512 window. This browser is on another device, so the folder is not shown here.';
     else if (!st.enabled || !st.libraryFolder) folder = 'The GDTF library is off in this mode: a demo or rehearsal run has no GDTF folder.';
     else folder = `<code class="b5-gdtf-path" data-gdtf-folder>${esc(st.libraryFolder)}</code><span class="b5-gdtf-sub">The GDTF library: the downloaded .gdtf files and their index. Click the line to select it, then copy.</span>`;
     const html = `<div class="b5-grid-2">

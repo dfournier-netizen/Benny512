@@ -891,11 +891,21 @@
   {
    "theme": "light",
    "fg": "#1c1815",
+   "bg": "#f6f4ef",
+   "ratio": 16.04,
+   "min": 4.5,
+   "disabled": false,
+   "count": 2,
+   "example": "button.b5-btn “Search by name”"
+  },
+  {
+   "theme": "light",
+   "fg": "#1c1815",
    "bg": "#f7f5f0",
    "ratio": 16.19,
    "min": 4.5,
    "disabled": false,
-   "count": 159,
+   "count": 157,
    "example": "strong.b5-statecard__name “Wash”"
   }
  ],
@@ -903,7 +913,7 @@
   "runs": 36,
   "failedRuns": 0,
   "failures": 0,
-  "pairs": 30,
+  "pairs": 31,
   "pairFails": 0,
   "lowestPair": {
    "theme": "light",
