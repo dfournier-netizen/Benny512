@@ -194,8 +194,12 @@ func TestGDTFPasswordNeverLeaves(t *testing.T) {
 
 	// The scheduler's start-up sync, with the login saved.
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go h.srv.gdtf.Run(ctx)
+	// Wait for the scheduler to stop before the temp folder is removed: a
+	// sync the test triggered may still be writing index.json (seen as
+	// "TempDir RemoveAll cleanup: ... directory not empty", 1-2 in 30 runs).
+	runDone := make(chan struct{})
+	defer func() { cancel(); <-runDone }()
+	go func() { h.srv.gdtf.Run(ctx); close(runDone) }()
 	st := waitGDTFIdle(t, h)
 	if st.State != gdtfshare.StateOK || st.Files != 2 || st.Login.User != "dom" {
 		t.Fatalf("after start-up sync: state %q files %d login %+v", st.State, st.Files, st.Login)
@@ -308,8 +312,12 @@ func TestGDTFRefusesTheLightingAdapter(t *testing.T) {
 		t.Fatal(rr.Body.String())
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go h.srv.gdtf.Run(ctx)
+	// Wait for the scheduler to stop before the temp folder is removed: a
+	// sync the test triggered may still be writing index.json (seen as
+	// "TempDir RemoveAll cleanup: ... directory not empty", 1-2 in 30 runs).
+	runDone := make(chan struct{})
+	defer func() { cancel(); <-runDone }()
+	go func() { h.srv.gdtf.Run(ctx); close(runDone) }()
 	st := waitGDTFIdle(t, h)
 	if st.State != gdtfshare.StateRefused || st.Message != "the only route to the internet is the lighting network adapter" {
 		t.Fatalf("state %q message %q", st.State, st.Message)
