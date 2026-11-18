@@ -125,3 +125,9 @@ The sandbox cannot reach gdtf-share.com, so G4 is the first real contact.
 3. **Sync while ARMED is allowed, but never over the lighting network.** Requests go only over
    the internet route, never the adapter selected for Art-Net or sACN. If the only route to
    the internet is the lighting adapter, the sync does not run and says why.
+
+## Progress
+
+| Chunk | State | When | Notes |
+|---|---|---|---|
+| G1 | Built on `feat/gdtf-g1-sync`, awaiting coordinator review | 2026-11-17 21:36:42 -0500 | Fake-server tests and all gates green. Same fixture = uuid + uploader label. Not yet run against the real GDTF Share (G4). Open for the owner: the API page's "cached files no more than 24 h old" vs decision 2; default names that may not match GDTF Share's spelling. |

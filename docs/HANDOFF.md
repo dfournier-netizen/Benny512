@@ -1,6 +1,16 @@
 # Benny512 — Session Handoff Brief (current)
 
-**Last updated:** 2026-11-17 13:22:56 -0500
+**Last updated:** 2026-11-17 21:36:42 -0500
+
+## Current delta — G1 GDTF library sync, server only (`feat/gdtf-g1-sync`, on v0.3.4+)
+
+Plan and owner decisions: `docs/plans/gdtf-library-brief_2026-11-17_2101.md`. G1 (2026-11-17 21:36:42 -0500): new package `internal/gdtfshare` (GDTF Share client: login/getList/downloadFile, shapes from the API page cited in the code; on-disk library `files/<rid>.gdtf` + `index.json` + `sync.json` + `list.json`; sync, single pull, search, scheduler) and `/api/gdtf/*` (`internal/web/gdtf.go`, route table there). Real mode only: `%APPDATA%\Benny512\GDTF` (cmd/benny512 `gdtfLibraryDir`); --demo, tests and the rehearsal child get a disabled service. Sync at start-up when a login is saved, every 120 min, and `POST /api/gdtf/sync`; one conversation with GDTF Share at a time (ErrBusy/409), downloads sequential and 1 s apart. Keep newest only: same fixture = same uuid **and** same uploader label (a user edit never replaces the manufacturer's file); newest by lastModified, creationDate, rid. Never over the lighting network: the dialer checks the route (UDP connect, sends nothing) and the TCP local address against the Art-Net/sACN adapters' subnets and refuses with "the only route to the internet is the lighting network adapter". Login in `benny512-settings.json` (`gdtfShareUser`, `gdtfSharePasswordDpapi`); password DPAPI-encrypted on Windows, memory-only elsewhere; never in any API response (GET /api/settings drops the blob), log, show, export, diagnostics or capture. The full reset clears the login with the rest of Settings, not the GDTF folder.
+
+**Verified:** fake-GDTF-Share tests (`internal/gdtfshare/*_test.go`, `internal/web/gdtf_test.go`), each failing first against a stub; all gates incl. `-race` and the Windows cross-build (+ Windows `go vet` of the three packages).
+
+**Known limits:** not yet exercised against the real GDTF Share — **G4 bench test**. The DPAPI round-trip test runs only on Windows (not run here). getList has no LongName, so search covers the listed name only (API terms ask for Name + LongName; G2 can read it from description.xml). The library import caps a GDTF at 8 MB; the GDTF folder accepts up to 64 MB. Default followed names are matched exactly (case-insensitive): "Martin", "ChromaQ" etc. may not be GDTF Share's spelling — G4 shows which are reported unmatched (with similar names offered). If Art-Net is left on the auto-picked first adapter and that is the internet adapter, every sync is refused (by the rule). The API page says cached files must be no more than 24 h old; owner decision 2 keeps files offline indefinitely — flagged, not changed.
+
+**Next:** G2 (RDM block from each file), G3a mockup.
 
 ## Current delta — M3 Arrange menu (`feat/m3-plan-menu`, on v0.3.4)
 
