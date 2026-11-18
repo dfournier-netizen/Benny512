@@ -300,7 +300,7 @@
         <div class="b5-statecard__state"><span class="b5-pill b5-pill--md b5-pill--info">Fixture</span></div></article>
       <div class="b5-tabs" style="margin-top:var(--b5-space-4)">
         <div class="b5-tabs__list" role="tablist" aria-label="Device detail">
-          <button class="b5-tabs__tab is-active" role="tab" aria-selected="true">Info</button><button class="b5-tabs__tab" role="tab" aria-selected="false" tabindex="-1">Parameters</button><button class="b5-tabs__tab" role="tab" aria-selected="false" tabindex="-1">Sensors</button><button class="b5-tabs__tab" role="tab" aria-selected="false" tabindex="-1">Status</button>
+          <button class="b5-tabs__tab is-active" role="tab" aria-selected="true">Info</button><button class="b5-tabs__tab" role="tab" aria-selected="false">Parameters</button><button class="b5-tabs__tab" role="tab" aria-selected="false">Sensors</button><button class="b5-tabs__tab" role="tab" aria-selected="false">Status</button>
         </div>
         <div class="b5-tabs__panel" role="tabpanel" aria-label="Info">
           <section class="b5-group" aria-labelledby="ddIdentityHead"><h4 class="b5-group__head" id="ddIdentityHead">What this device says it is</h4>

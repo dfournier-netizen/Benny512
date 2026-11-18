@@ -1696,7 +1696,7 @@
   },
   {
    "id": "s12",
-   "stops": 29,
+   "stops": 32,
    "reached": [
     "inspector",
     "controls",
@@ -1716,7 +1716,7 @@
   },
   {
    "id": "s16",
-   "stops": 30,
+   "stops": 33,
    "reached": [
     "inspector",
     "controls",
