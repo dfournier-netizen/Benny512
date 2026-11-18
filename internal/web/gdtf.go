@@ -16,6 +16,7 @@
 //	POST   /api/gdtf/manufacturers   <- gdtfManufacturersRequest -> gdtfManufacturersResponse
 //	POST   /api/gdtf/sync            -> 202 {"status":"started"} (409 while one runs)
 //	GET    /api/gdtf/search?q=&in=library|share&limit= -> gdtfSearchResponse
+//	GET    /api/gdtf/match?manufacturerId=&deviceModelId=[&softwareVersionId=][&personality=] -> gdtfMatchResponse
 //	POST   /api/gdtf/pull            <- gdtfPullRequest    -> gdtfshare.IndexEntry
 //	GET    /api/gdtf/file/{rid}      -> the .gdtf bytes (application/octet-stream)
 //
@@ -392,6 +393,95 @@ func (s *Server) handleGDTFSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, gdtfSearchResponse{In: in, Query: q.Get("q"), Count: len(res), Results: res})
+}
+
+// gdtfMatchQuery echoes what was asked. The optional values are null when
+// not given, never 0 (a plausible 0 is not "unknown").
+type gdtfMatchQuery struct {
+	ManufacturerID    uint16  `json:"manufacturerId"`
+	DeviceModelID     uint16  `json:"deviceModelId"`
+	SoftwareVersionID *uint32 `json:"softwareVersionId"`
+	Personality       *uint8  `json:"personality"`
+}
+
+type gdtfMatchResponse struct {
+	Query gdtfMatchQuery `json:"query"`
+	// Count deliberately has no omitempty: zero candidates is an answer.
+	Count int `json:"count"`
+	gdtfshare.MatchResult
+}
+
+// parseRDMNumber reads an RDM ID from a query value: decimal ("8870", as
+// the Devices JSON carries it) or hex with a 0x prefix ("0x22A6", as RDM
+// IDs are written). Hex needs the prefix, so "1093" is always decimal.
+func parseRDMNumber(name, v string, bits int) (uint64, error) {
+	t := strings.TrimSpace(v)
+	base := 10
+	if len(t) > 2 && (t[:2] == "0x" || t[:2] == "0X") {
+		t, base = t[2:], 16
+	}
+	n, err := strconv.ParseUint(t, base, bits)
+	if err != nil || t == "" {
+		return 0, fmt.Errorf("%s must be a whole number from 0 to %d, decimal or 0x hex; got %q", name, uint64(1)<<bits-1, v)
+	}
+	return n, nil
+}
+
+// handleGDTFMatch: library files for a discovered device's RDM identity
+// (gdtfshare.Match, whose doc comment explains the ranking). manufacturerId
+// and deviceModelId are required; softwareVersionId and personality are
+// optional (leave them out when unknown). personality is 1-255: RDM
+// numbers DMX personalities from 1 (params.SetDMXPersonality). No RDM match
+// is 200 with an empty list; there is no fallback to names.
+func (s *Server) handleGDTFMatch(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	var mq gdtfshare.MatchQuery
+	for _, p := range []struct {
+		name string
+		dst  *uint16
+	}{{"manufacturerId", &mq.ManufacturerID}, {"deviceModelId", &mq.DeviceModelID}} {
+		if !q.Has(p.name) {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("%s is required", p.name))
+			return
+		}
+		n, err := parseRDMNumber(p.name, q.Get(p.name), 16)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		*p.dst = uint16(n)
+	}
+	if q.Has("softwareVersionId") {
+		n, err := parseRDMNumber("softwareVersionId", q.Get("softwareVersionId"), 32)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		v := uint32(n)
+		mq.SoftwareVersionID = &v
+	}
+	if q.Has("personality") {
+		n, err := parseRDMNumber("personality", q.Get("personality"), 8)
+		if err == nil && n == 0 {
+			err = errors.New("personality must be 1-255: RDM numbers DMX personalities from 1 (leave it out when unknown)")
+		}
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		v := uint8(n)
+		mq.Personality = &v
+	}
+	res, err := s.gdtf.Match(mq)
+	if err != nil {
+		writeError(w, gdtfErrStatus(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, gdtfMatchResponse{
+		Query: gdtfMatchQuery{ManufacturerID: mq.ManufacturerID, DeviceModelID: mq.DeviceModelID,
+			SoftwareVersionID: mq.SoftwareVersionID, Personality: mq.Personality},
+		Count: len(res.Candidates), MatchResult: res,
+	})
 }
 
 type gdtfPullRequest struct {

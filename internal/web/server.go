@@ -653,6 +653,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/gdtf/manufacturers", s.handleGDTFSetManufacturers)
 	s.mux.HandleFunc("POST /api/gdtf/sync", s.handleGDTFSync)
 	s.mux.HandleFunc("GET /api/gdtf/search", s.handleGDTFSearch)
+	s.mux.HandleFunc("GET /api/gdtf/match", s.handleGDTFMatch)
 	s.mux.HandleFunc("POST /api/gdtf/pull", s.handleGDTFPull)
 	s.mux.HandleFunc("GET /api/gdtf/file/{rid}", s.handleGDTFFile)
 
