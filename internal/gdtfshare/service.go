@@ -628,18 +628,46 @@ func (s *Service) manufacturerResults(followed []string, shareName map[string]st
 			mr.Result = fmt.Sprintf("%d on GDTF Share (%d manufacturer, %d user); %d downloaded, %d replaced, %d pending",
 				manuf[fm]+user[fm], manuf[fm], user[fm], down[fm], repl[fm], fail[fm])
 		} else {
-			for fold, name := range shareName {
-				if fm != "" && (strings.Contains(fold, fm) || strings.Contains(fm, fold)) && fold != "" {
-					mr.Similar = append(mr.Similar, name)
-				}
-			}
-			sort.Strings(mr.Similar)
-			if len(mr.Similar) > 5 {
-				mr.Similar = mr.Similar[:5]
-			}
+			mr.Similar = similarNames(n, shareName)
 			mr.Result = fmt.Sprintf("No manufacturer named %q on GDTF Share; nothing was downloaded for it", n)
 		}
 		out = append(out, mr)
+	}
+	return out
+}
+
+// alnumFold is s lower-cased with everything but letters and digits
+// dropped: "Chroma-Q" and "ChromaQ" both become "chromaq".
+func alnumFold(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return unicode.ToLower(r)
+		}
+		return -1
+	}, s)
+}
+
+// similarNames lists GDTF Share manufacturer names that contain the
+// followed name, or that it contains, once both are reduced by alnumFold
+// (owner round 6 #1: ignore punctuation, spacing and case). At most 5, A to
+// Z. These are SUGGESTIONS only: nothing is followed or aliased until the
+// user presses "Follow 'X' instead". A substring can still suggest an
+// unrelated name ("Robe" is inside "Robert Juliat"); the user decides.
+func similarNames(followed string, shareName map[string]string) []string {
+	out := make([]string, 0)
+	fm := alnumFold(followed)
+	if fm == "" {
+		return out
+	}
+	for _, name := range shareName {
+		f := alnumFold(name)
+		if f != "" && (strings.Contains(f, fm) || strings.Contains(fm, f)) {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	if len(out) > 5 {
+		out = out[:5]
 	}
 	return out
 }

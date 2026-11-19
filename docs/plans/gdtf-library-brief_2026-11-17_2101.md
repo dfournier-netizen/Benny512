@@ -138,6 +138,7 @@ The sandbox cannot reach gdtf-share.com, so G4 is the first real contact.
 | G3b2 | Built on `feat/gdtf-g3b2-settings` (on G3b1), awaiting coordinator review | 2026-11-18 08:37:36 -0500 | Settings › 7 GDTF Share (status words, which-network box, refusal guidance + jump, login, Sync now, waiting/unreadable, follow/stop/instead; acts at once) and 9 About (version, credit). Render-proved on the --demo build with a real synced GDTF folder. |
 | G3b3 | Built on `feat/gdtf-g3b3-library` (on G3b2), awaiting coordinator review | 2026-11-18 08:50:38 -0500 | Fixture library › Add from GDTF library: offline search with labels, GDTF Share single pull, import through the existing parse → confirm → /api/library/import path carrying the label, 20 MB refusal. |
 | G3b4 | Built on `feat/gdtf-g3b4-devices` (on G3b3), awaiting coordinator review | 2026-11-18 09:13:55 -0500 | Inspector GDTF group (all match states, verbatim basis/warning, footprint check option C, name search without guessing, Add to Fixture library) and a GDTF tag on every device card (cached per identity, one request at a time). /api/fixtures gains softwareVersionId/currentPersonality. G3b complete; next G4. |
+| G3c | Built on `feat/gdtf-g3c-polish` (on G3b4), awaiting coordinator review | 2026-11-18 10:20:01 -0500 | Round 6: similar-name suggestions ignore punctuation/spacing (ChromaQ → Chroma-Q offered, never followed); Settings › About › Data folder (GDTF folder, selectable; "off" in a demo; only to loopback requests, others told why). |
 
 ## Owner decisions, round 3 (2026-11-17 21:53, after G1)
 
@@ -171,3 +172,8 @@ The mockup (`docs/design/gdtf-library/mockup_2026-11-17_2309.html`) is the appro
 4. **Stop following keeps the downloaded files** (current G1 behaviour).
 5. **Every device card gets a GDTF tag**, "GDTF: found / likely / none" in words (exact states follow the match API).
 6. **Footprint check, option C:** on a guess (`likely`, `other-versions`) always show "Footprints agree / differ"; on an exact match (`found`) show it only when the footprints differ, as a warning.
+
+## Owner decisions, round 6 (2026-11-18 10:09, after G3b)
+
+1. **Similar-name suggestions ignore punctuation, spacing and case**, so a followed "ChromaQ" is offered GDTF Share's "Chroma-Q". Still a suggestion only: never followed or aliased automatically.
+2. **Settings › About shows a "Data folder" line** with the GDTF library folder (copyable), and says so in words when the library is off. Not shown in show files, exports or diagnostics, and **shown only on the computer running Benny512** (owner, 11:40: requests from a loopback address; any other browser is told it is shown only there). (The Fixture Library file path is not shown: the server deliberately does not hold it.)

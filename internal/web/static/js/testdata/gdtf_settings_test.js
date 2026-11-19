@@ -174,7 +174,20 @@ async function show(s) { current = s; await GdtfSettings.refresh(); await tick()
   check(/Off/.test(text(q('[role="status"]'))) && !q('[data-gdtf-sync]') && /no adapter is bound in this mode/.test(text(q('[data-gdtf-route]'))), 'demo: the library is off, said in words; no adapter named');
 
   // --- 8. About + credit --------------------------------------------------------
-  const about = document.getElementById('aboutRoot');
+  let about = document.getElementById('aboutRoot');
+  check(/Data folder\s*The GDTF library is off in this mode: a demo or rehearsal run has no GDTF folder\./.test(text(about)) && !about.querySelector('[data-gdtf-folder]'),
+    'About › Data folder: off in a demo, said in words, no path', text(about));
+  await show(status({ libraryFolder: 'C:\\Users\\dom\\AppData\\Roaming\\Benny512\\GDTF' }));
+  const folder = about.querySelector('[data-gdtf-folder]');
+  check(folder && folder.textContent === 'C:\\Users\\dom\\AppData\\Roaming\\Benny512\\GDTF' && folder.classList.contains('b5-gdtf-path'), 'About › Data folder shows the GDTF library folder, in the selectable style', folder && folder.textContent);
+  // Another device: the server withholds the path; the page says why.
+  await show(status({ libraryFolder: '', libraryFolderWithheld: true }));
+  check(/Data folder\s*Shown only on the computer running Benny512/.test(text(about)) && /This browser is on another device/.test(text(about)) && !about.querySelector('[data-gdtf-folder]') && !/off in this mode/.test(text(about)),
+    'About › Data folder from another device: "shown only on the computer running Benny512", no path', text(about));
+  await show(status({ libraryFolder: 'C:\\Users\\dom\\AppData\\Roaming\\Benny512\\GDTF' }));
+  const before = about.firstChild;
+  await show(status({ libraryFolder: 'C:\\Users\\dom\\AppData\\Roaming\\Benny512\\GDTF' }));
+  check(about.firstChild === before, 'a status refresh with nothing new does not repaint About (a selection survives)');
   check(/benny512 v0\.3\.5 \(commit abc1234, built 2026-11-18T09:00:00Z\)/.test(text(about)), 'About shows exactly the --version line', text(about));
   const ph = about.querySelector('.b5-gdtf-logo-ph');
   check(/Powered by GDTF/.test(text(about)) && ph && ph.getAttribute('role') === 'img' && /logo goes here/.test(ph.getAttribute('aria-label')) && !ph.querySelector('svg, img'),

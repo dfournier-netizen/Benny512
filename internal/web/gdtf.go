@@ -181,6 +181,16 @@ type gdtfStatusResponse struct {
 	// (internal/library.MaxSourceFileBytes), for an honest refusal before
 	// an import is tried.
 	FixtureLibraryMaxBytes int64 `json:"fixtureLibraryMaxBytes"`
+	// LibraryFolder (G3c, owner round 6 #2) is the GDTF library folder on
+	// this computer, for Settings › About; "" when the library is off (demo,
+	// rehearsal). Sent only to a browser on this computer (fromThisComputer;
+	// owner, 2026-11-18 11:40), and never in a show file, an export or
+	// diagnostics. The Fixture Library's file path is not given: the
+	// server deliberately does not keep it (see library.go, store wiring).
+	LibraryFolder string `json:"libraryFolder"`
+	// LibraryFolderWithheld: the library has a folder, but this request did
+	// not come from the computer running Benny512, so the path is not sent.
+	LibraryFolderWithheld bool `json:"libraryFolderWithheld"`
 }
 
 // gdtfLightingAdapter is one adapter the lighting output uses.
@@ -269,10 +279,33 @@ func adapterHolding(a string) string {
 	return ""
 }
 
+// fromThisComputer reports whether r came from the computer Benny512 runs
+// on: the connection's own RemoteAddr is a loopback address (127.0.0.0/8 or
+// ::1, IPv4-mapped included). Benny512 is served directly, with no reverse
+// proxy, so RemoteAddr is the truth and X-Forwarded-For / X-Real-IP are
+// never read: any LAN client could write them. An address that does not
+// parse is not loopback. (The Benny512 window opens http://127.0.0.1:<port>,
+// appwindow.go; a browser on this computer that uses the LAN address is
+// treated as another device.)
+func fromThisComputer(r *http.Request) bool {
+	ap, err := netip.ParseAddrPort(r.RemoteAddr)
+	if err != nil {
+		return false
+	}
+	return ap.Addr().Unmap().IsLoopback()
+}
+
 func (s *Server) handleGDTFStatus(w http.ResponseWriter, r *http.Request) {
 	st := s.gdtf.Status()
 	resp := gdtfStatusResponse{Status: st, Login: s.gdtfLogin(), LightingAdapters: s.gdtfLightingAdapters(),
 		FixtureLibraryMaxBytes: library.MaxSourceFileBytes}
+	if root := s.gdtf.Root(); root != "" {
+		if fromThisComputer(r) {
+			resp.LibraryFolder = root
+		} else {
+			resp.LibraryFolderWithheld = true
+		}
+	}
 	if st.InternetRoute != nil {
 		resp.InternetRoute = &gdtfRoute{Route: *st.InternetRoute, Adapter: adapterHolding(st.InternetRoute.LocalAddress)}
 	}

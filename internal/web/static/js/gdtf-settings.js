@@ -32,6 +32,7 @@ const GdtfSettings = (() => {
   let busy = false;
   let timer = null;
   let fastUntil = 0;      // poll quickly for a while after starting a sync
+  let aboutHtml = '';     // last About paint (repaint only on a change)
 
   const icon = n => UI.icon(n);
   const param = (label, html) => `<div class="b5-param"><span class="b5-param__label">${esc(label)}</span><span class="b5-param__value">${html}</span></div>`;
@@ -345,11 +346,22 @@ const GdtfSettings = (() => {
     const vWords = version && version.error ? `could not be read: ${esc(version.error)}` : !v ? 'reading…' : v.version === 'dev'
       ? `dev build (not a release) · commit ${esc(v.commit)} · built ${esc(v.built)}`
       : `${esc(v.version)} · commit ${esc(v.commit)} · built ${esc(v.built)}`;
-    root.innerHTML = `<div class="b5-grid-2">
+    // Data folder (owner round 6 #2): where the GDTF library is on this
+    // computer, selectable so it can be copied. Off in a demo: said in words.
+    let folder;
+    if (!st) folder = loadError ? `<span class="b5-text-muted">not read: ${esc(loadError)}</span>` : 'reading…';
+    else if (st.enabled && !st.libraryFolder && st.libraryFolderWithheld) folder = 'Shown only on the computer running Benny512, in its own Benny512 window. This browser is on another device, so the folder is not shown here.';
+    else if (!st.enabled || !st.libraryFolder) folder = 'The GDTF library is off in this mode: a demo or rehearsal run has no GDTF folder.';
+    else folder = `<code class="b5-gdtf-path" data-gdtf-folder>${esc(st.libraryFolder)}</code><span class="b5-gdtf-sub">The GDTF library: the downloaded .gdtf files and their index. Click the line to select it, then copy.</span>`;
+    const html = `<div class="b5-grid-2">
         ${param('Version', vWords)}
         ${param('Exactly what benny512.exe --version prints', v ? `<span class="b5-text-mono">${esc(v.line)}</span>` : '—')}
+        ${param('Data folder', folder)}
       </div>
       ${creditBlock()}`;
+    // Repaint only on a change, so the 20 s status refresh never drops a
+    // selection someone is about to copy.
+    if (aboutHtml !== html || !root.firstChild) { root.innerHTML = html; aboutHtml = html; }
   }
 
   // --- actions (act at once) -------------------------------------------------

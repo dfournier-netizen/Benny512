@@ -36,16 +36,19 @@ async function startHarness(state) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'g3b-'));
   const gdtf = path.join(tmp, 'GDTF');
   fs.cpSync(path.join(dataDir, state), gdtf, { recursive: true });
-  const addr = `127.0.0.1:${++port}`;
+  // Listen on every address, so a page can also come in by this machine's
+  // LAN address: that request is "another device" to the server (G3c).
+  const p0 = ++port, addr = `127.0.0.1:${p0}`;
+  const lanIp = Object.values(os.networkInterfaces()).flat().find(i => i && i.family === 'IPv4' && !i.internal);
   const env = { ...process.env, HTTPS_PROXY: 'http://127.0.0.1:9', HTTP_PROXY: 'http://127.0.0.1:9', NO_PROXY: '',
-    BENNY512_RENDER_GDTF: gdtf, BENNY512_RENDER_DIR: tmp, BENNY512_RENDER_ADDR: addr };
+    BENNY512_RENDER_GDTF: gdtf, BENNY512_RENDER_DIR: tmp, BENNY512_RENDER_ADDR: `:${p0}` };
   const p = spawn(harness, ['-test.run', 'TestRenderHarness', '-test.timeout', '0'], { cwd: tmp, env, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = ''; p.stdout.on('data', d => { log += d; }); p.stderr.on('data', d => { log += d; });
   for (let i = 0; i < 100; i++) {
     try { const r = await fetch(`http://${addr}/api/version`); if (r.ok) break; } catch (e) { /* not yet */ }
     await new Promise(r => setTimeout(r, 100));
   }
-  return { url: `http://${addr}`, stop: () => { p.kill('SIGKILL'); }, log: () => log, tmp };
+  return { url: `http://${addr}`, lanUrl: lanIp ? `http://${lanIp.address}:${p0}` : '', stop: () => { p.kill('SIGKILL'); }, log: () => log, tmp };
 }
 
 async function post(url, body, method) {
@@ -89,7 +92,10 @@ function measure(sels) {
 
 const results = { part, runs: [], focus: [], actions: [], pairs: {} };
 let failures = 0;
-const browser = await chromium.launch();
+// Direct connections only: every page here is this machine's own server,
+// and a proxy would stand between the page and the server's RemoteAddr.
+const noProxyEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/proxy/i.test(k)));
+const browser = await chromium.launch({ args: ['--no-proxy-server'], env: noProxyEnv });
 
 async function openPage(url, w, h, theme, tab, routes) {
   const ctx = await browser.newContext({ viewport: { width: w, height: h } });
@@ -164,7 +170,7 @@ if (part === 'settings') {
   const SCENES = [
     // name, state folder, save a login?, page routes (only for what the demo cannot produce), words to find
     { name: 'not-set-up', state: 'empty', login: false, words: ['Not set up', 'No GDTF Share login saved', 'Which network sync uses', 'Save login', 'Powered by GDTF'] },
-    { name: 'ok', state: 'ok', login: true, words: ['Up to date', 'Library up to date', 'user dfournier', 'Manufacturers you follow (14)', 'Not found on GDTF Share', 'Follow “Martin Professional” instead', 'GDTF Share has no similar name either.'] },
+    { name: 'ok', state: 'ok', login: true, words: ['Up to date', 'Library up to date', 'user dfournier', 'Manufacturers you follow (14)', 'Not found on GDTF Share', 'Follow “Martin Professional” instead', 'Follow “Chroma-Q” instead'] },
     { name: 'partial', state: 'partial', login: true, words: ['Partly synced', 'Waiting to download (1)', 'answered HTTP 503', 'Files that could not be read (1)', 'JDC2', 'User file'] },
     { name: 'offline', state: 'offline', login: true, words: ['Offline', 'offline · last synced', 'used as they are'] },
     { name: 'refused', state: 'refused', login: true, words: ['Sync refused', 'Sync refused: the only route to the internet is the lighting network adapter', 'Go to Art-Net network adapter', 'no adapter is bound in this mode'] },
@@ -221,6 +227,33 @@ if (part === 'settings') {
       if (f !== 'nicSelect') failures++;
     }
     if (sc.name === 'ok') {
+      // G3c: About › Data folder shows the real GDTF folder; one click
+      // selects the whole line (user-select: all), so it can be copied.
+      await page.evaluate(() => { document.getElementById('setAboutHead').scrollIntoView({ block: 'start' }); window.scrollBy(0, -300); });
+      await page.click('[data-gdtf-folder]');
+      const df = await page.evaluate(() => { const el = document.querySelector('[data-gdtf-folder]'); return { text: el.textContent, userSelect: getComputedStyle(el).userSelect, selected: String(window.getSelection()) }; });
+      const wantDir = path.join(h.tmp, 'GDTF');
+      const okDf = df.text === wantDir && df.userSelect === 'all' && df.selected === wantDir;
+      results.actions.push({ scene: sc.name, action: 'About › Data folder (G3c): the real GDTF folder, selected by one click', ...df, want: wantDir, ok: okDf });
+      if (!okDf) failures++;
+      await page.screenshot({ path: path.join(outDir, 'settings-1440-dark-about-data-folder.png') });
+      // The same About from "another device" (this machine's LAN address):
+      // the server sends no path and the page says why.
+      if (!h.lanUrl) { failures++; results.actions.push({ action: 'About from another device', ok: false, why: 'no LAN address on this machine' }); }
+      else {
+        const other = await openPage(h.lanUrl, 1440, 900, 'dark', 'settings');
+        await other.page.waitForFunction(() => /Data folder/.test(document.getElementById('aboutRoot').innerText));
+        await other.page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+        await other.page.waitForTimeout(300);
+        const o = await other.page.evaluate(dir => ({ words: document.getElementById('aboutRoot').innerText.replace(/\s+/g, ' '), hasPath: document.documentElement.innerHTML.includes(dir), status: null }), path.join(h.tmp, 'GDTF'));
+        const st = JSON.parse(await other.page.evaluate(async () => (await fetch('/api/gdtf/status')).text()));
+        const okOther = /Shown only on the computer running Benny512/.test(o.words) && !o.hasPath && st.libraryFolder === '' && st.libraryFolderWithheld === true;
+        results.actions.push({ scene: sc.name, action: 'About from another device (LAN address): no path, said why', url: h.lanUrl, words: o.words.slice(0, 220), hasPath: o.hasPath, libraryFolder: st.libraryFolder, withheld: st.libraryFolderWithheld, ok: okOther });
+        if (!okOther) failures++;
+        await other.page.screenshot({ path: path.join(outDir, 'settings-1440-dark-about-other-device.png') });
+        if (other.errors.length) { failures++; results.actions.push({ action: 'About from another device', consoleErrors: other.errors }); }
+        await other.ctx.close();
+      }
       // Real: Sync now -> POST /api/gdtf/sync -> the sync runs, cannot reach
       // GDTF Share (proxy on a closed port) and the screen says offline.
       await page.click('[data-gdtf-sync]');
