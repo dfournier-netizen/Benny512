@@ -446,8 +446,14 @@ const GdtfSettings = (() => {
   async function refresh(force) {
     if (busy && !force) { schedule(); return; }
     try {
+      const before = st;
       st = await Api.gdtfStatus();
       loadError = '';
+      // A sync ended or the file count moved: the device matches and the
+      // Fixture library's GDTF search may answer differently now.
+      if (before && (before.running !== st.running || before.files !== st.files || before.lastSync !== st.lastSync)) {
+        window.dispatchEvent(new CustomEvent('b5-gdtf-library-changed'));
+      }
     } catch (e) {
       loadError = e.message;
     }

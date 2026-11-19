@@ -925,6 +925,11 @@ type fixtureJSON struct {
 	// same defect class as Entry.Universe.
 	DeviceModelID uint16 `json:"deviceModelId"`
 	HasDeviceInfo bool   `json:"hasDeviceInfo"`
+	// SoftwareVersionID/CurrentPersonality: DEVICE_INFO's, for the GDTF
+	// library match on each Devices card (G3b4). No omitempty, like
+	// DeviceModelID: read them beside hasDeviceInfo, never as "absent".
+	SoftwareVersionID  uint32 `json:"softwareVersionId"`
+	CurrentPersonality uint8  `json:"currentPersonality"`
 
 	// DMXStartAddress/DMXFootprint are DEVICE_INFO's addressing pair, served
 	// from the registry so the Devices list no longer has to fetch
@@ -1060,6 +1065,7 @@ func toFixtureJSON(f registry.Fixture, read autoread.State, attempts int) fixtur
 		ManufacturerLabel: f.ManufacturerLabel, ManufacturerLabelKnown: f.ManufacturerLabelKnown,
 		ModelDescription: f.ModelDescription, ModelDescriptionKnown: f.ModelDescriptionKnown,
 		DeviceModelID: f.DeviceModelID, HasDeviceInfo: f.HasDeviceInfo,
+		SoftwareVersionID: f.SoftwareVersionID, CurrentPersonality: f.CurrentPersonality,
 		Unreachable: f.ProxyUnreachable, UnreachableNote: unreachableNote(f),
 		ProxiedDeviceCount: f.ProxiedDeviceCount, ProxiedDeviceCountKnown: f.ProxiedDeviceCountKnown,
 		ProxiedListChanged: f.ProxiedListChanged,

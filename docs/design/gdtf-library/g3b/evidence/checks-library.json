@@ -9,6 +9,7 @@
    "hscroll": 0,
    "dialogHscroll": 0,
    "missing": [],
+   "rdmNacks": 0,
    "consoleErrors": [],
    "measured": 20,
    "textFails": []
@@ -21,6 +22,7 @@
    "hscroll": 0,
    "dialogHscroll": 0,
    "missing": [],
+   "rdmNacks": 0,
    "consoleErrors": [],
    "measured": 20,
    "textFails": []
@@ -33,6 +35,7 @@
    "hscroll": 0,
    "dialogHscroll": 0,
    "missing": [],
+   "rdmNacks": 0,
    "consoleErrors": [],
    "measured": 20,
    "textFails": []
@@ -45,6 +48,7 @@
    "hscroll": 0,
    "dialogHscroll": 0,
    "missing": [],
+   "rdmNacks": 0,
    "consoleErrors": [],
    "measured": 20,
    "textFails": []
@@ -57,6 +61,7 @@
    "hscroll": 0,
    "dialogHscroll": 0,
    "missing": [],
+   "rdmNacks": 0,
    "consoleErrors": [],
    "measured": 20,
    "textFails": []
@@ -69,6 +74,7 @@
    "hscroll": 0,
    "dialogHscroll": 0,
    "missing": [],
+   "rdmNacks": 0,
    "consoleErrors": [],
    "measured": 20,
    "textFails": []
@@ -81,6 +87,7 @@
    "hscroll": 0,
    "dialogHscroll": 0,
    "missing": [],
+   "rdmNacks": 0,
    "consoleErrors": [],
    "measured": 14,
    "textFails": []
@@ -93,6 +100,7 @@
    "hscroll": 0,
    "dialogHscroll": 0,
    "missing": [],
+   "rdmNacks": 0,
    "consoleErrors": [],
    "measured": 14,
    "textFails": []
@@ -105,6 +113,7 @@
    "hscroll": 0,
    "dialogHscroll": 0,
    "missing": [],
+   "rdmNacks": 0,
    "consoleErrors": [],
    "measured": 14,
    "textFails": []
@@ -117,6 +126,7 @@
    "hscroll": 0,
    "dialogHscroll": 0,
    "missing": [],
+   "rdmNacks": 0,
    "consoleErrors": [],
    "measured": 14,
    "textFails": []
@@ -129,6 +139,7 @@
    "hscroll": 0,
    "dialogHscroll": 0,
    "missing": [],
+   "rdmNacks": 0,
    "consoleErrors": [],
    "measured": 14,
    "textFails": []
@@ -141,6 +152,7 @@
    "hscroll": 0,
    "dialogHscroll": 0,
    "missing": [],
+   "rdmNacks": 0,
    "consoleErrors": [],
    "measured": 14,
    "textFails": []
@@ -153,6 +165,7 @@
    "hscroll": 0,
    "dialogHscroll": 0,
    "missing": [],
+   "rdmNacks": 0,
    "consoleErrors": [],
    "measured": 24,
    "textFails": []
@@ -165,6 +178,7 @@
    "hscroll": 0,
    "dialogHscroll": 0,
    "missing": [],
+   "rdmNacks": 0,
    "consoleErrors": [],
    "measured": 24,
    "textFails": []
@@ -177,6 +191,7 @@
    "hscroll": 0,
    "dialogHscroll": 0,
    "missing": [],
+   "rdmNacks": 0,
    "consoleErrors": [],
    "measured": 24,
    "textFails": []
@@ -189,6 +204,7 @@
    "hscroll": 0,
    "dialogHscroll": 0,
    "missing": [],
+   "rdmNacks": 0,
    "consoleErrors": [],
    "measured": 24,
    "textFails": []
@@ -201,6 +217,7 @@
    "hscroll": 0,
    "dialogHscroll": 0,
    "missing": [],
+   "rdmNacks": 0,
    "consoleErrors": [],
    "measured": 24,
    "textFails": []
@@ -213,6 +230,7 @@
    "hscroll": 0,
    "dialogHscroll": 0,
    "missing": [],
+   "rdmNacks": 0,
    "consoleErrors": [],
    "measured": 24,
    "textFails": []
@@ -256,9 +274,10 @@
   },
   {
    "consoleErrors": [
+    "HTTP 503 /api/gdtf/pull",
     "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
    ],
-   "expected": "one 503 from the deliberate offline pull",
+   "expected": "one 503 from the deliberate offline pull (named, and as Chromium logs it)",
    "unexpected": []
   }
  ],

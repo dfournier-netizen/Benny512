@@ -459,6 +459,11 @@ const Api = (() => {
     gdtfSync: () => req('POST', '/api/gdtf/sync'),
     // in: 'library' (files on this computer) or 'share' (GDTF Share's list).
     gdtfSearch: (q, inWhere, limit) => req('GET', '/api/gdtf/search?q=' + encodeURIComponent(q || '') + '&in=' + encodeURIComponent(inWhere || 'library') + (limit ? '&limit=' + limit : '')),
+    // gdtfMatch: library files for a device's RDM identity (gdtf.go
+    // handleGDTFMatch). softwareVersionId and personality are left out when
+    // not known (never sent as 0).
+    gdtfMatch: (manufacturerId, deviceModelId, softwareVersionId, personality) => req('GET', '/api/gdtf/match?manufacturerId=' + manufacturerId + '&deviceModelId=' + deviceModelId +
+      (softwareVersionId !== undefined && softwareVersionId !== null ? '&softwareVersionId=' + softwareVersionId : '') + (personality ? '&personality=' + personality : '')),
     // gdtfPull downloads one file from GDTF Share (a single pull).
     gdtfPull: (rid) => req('POST', '/api/gdtf/pull', { rid }),
     // gdtfFileBytes: a library file's bytes for the browser import, with

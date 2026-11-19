@@ -1,6 +1,18 @@
 # Benny512 — Session Handoff Brief (current)
 
-**Last updated:** 2026-11-18 08:50:38 -0500
+**Last updated:** 2026-11-18 09:13:55 -0500
+
+## Current delta — G3b4 Devices: GDTF group and card tags (`feat/gdtf-g3b4-devices`, on G3b3) — G3b complete
+
+G3b4 (2026-11-18 09:13:55 -0500): **Device inspector › Info › GDTF file for this device** (`static/js/gdtf-devices.js`, inserted by devicedetail.js right after "What this device says it is"; mockup scenes 12–16), asked with the device's exact RDM identity (UID manufacturer; DEVICE_INFO model, software version, personality) over `/api/gdtf/match`. States in words: found / likely / other-versions / not-mapped / mode not named / no RDM match / no RDM data / zero ID; `modeBasis` and `modeWarning` word for word; other `modeChoices` listed; further matches in a "N more files match" list. **Footprint check (round 5 #6, option C):** mode channel count (GDTF Share list) vs the device's DMX footprint — always shown on likely/other-versions, on found only when they differ (warning). **Search by name** only when pressed, results "Found by name · Not confirmed" with why RDM could not match. **Add to Fixture library…** → `LibraryPanel.openGdtfImport` → the existing confirm step. **Every Devices card** has a "GDTF: …" tag (round 5 #5). Server: registry caches DEVICE_INFO's software version ID and current personality; `/api/fixtures` carries `softwareVersionId`/`currentPersonality`.
+
+**Load on the server:** lookups cached per identity in the browser, one at a time, 2-minute life, dropped on `b5-gdtf-library-changed` (Settings dispatches it when a sync ends or the file count changes; the Fixture library after an import). Demo: 10 cards → 8 requests, max 1 in flight. Each is an in-memory index scan; nothing reaches GDTF Share.
+
+**Verified:** `gdtf_devices_test.js` (literal devicedetail.js etc.) failing first against the old devicedetail.js; registry/JSON tests failing first (proof in ca16513, 8504a37); render-proof 36 runs clean (contrast ≥ 5.85:1, focus ring on every stop), real Add-to-library from the inspector; all gates incl. `-race` and the Windows cross-build (+ Windows vet). Also fixed a pre-existing G1 test flake (scheduler still writing when the temp folder was removed; 792df9e).
+
+**Differences from the mockup:** tags use "GDTF: likely" for both guesses (likely and other-versions; the inspector tells them apart), and add states the mockup did not draw (checking…, no RDM data yet, no model ID, library off, file found / file, no mode). The demo has no zero-ID device, so that state is proved in the JS test only.
+
+**Next:** coordinator review of G3b1–G3b4; then G4 (Dom's bench sync). Open for Dom: see the G3b report (similar-name rule for "ChromaQ", About's data folder row).
 
 ## Current delta — G3b3 Fixture library › Add from GDTF library (`feat/gdtf-g3b3-library`, on G3b2)
 

@@ -85,7 +85,7 @@ const LibraryPanel=(()=>{
     area.innerHTML=pending?`<div class="b5-inset"><strong>${esc(pending.name)}</strong> · ${pending.doc.records?.length||0} fixture types${from}${pending.warnings.map(w=>`<p>${esc(typeof w==='string'?w:JSON.stringify(w))}</p>`).join('')}<div class="b5-row"><button class="b5-btn b5-btn--primary" data-apply-library>Apply import</button><button class="b5-btn" data-cancel-library>Cancel</button></div></div>`:'';
     if(!pending)return;
     area.querySelector('[data-cancel-library]').onclick=()=>{pending=null;paintImport();};
-    area.querySelector('[data-apply-library]').onclick=()=>action(async()=>{const res=await Api.importLibrary(pending.doc,'merge');pending=null;chosen=null;return res;},'Library imported; changed mode data invalidates its old verification');
+    area.querySelector('[data-apply-library]').onclick=()=>action(async()=>{const res=await Api.importLibrary(pending.doc,'merge');pending=null;chosen=null;window.dispatchEvent(new CustomEvent('b5-gdtf-library-changed'));return res;},'Library imported; changed mode data invalidates its old verification');
   }
   function paintUse(){
     const area=dialog.querySelector('[data-library-use]');if(!chosen){area.innerHTML='';return;}
@@ -105,6 +105,10 @@ const LibraryPanel=(()=>{
       await action(()=>Api.libraryReprofile({key:r.key,mode:m.name,entryIds:ids}),'Profile applied. Check the patch for address overlaps.');
     };
   }
+  // openGdtfImport (G3b4): the Device inspector's "Add to Fixture library…"
+  // opens this panel on Add from GDTF library and starts that file's import,
+  // which ends in the same confirm step as every other import.
+  async function openGdtfImport(rid,name){gdtfOpen=true;await open();if(typeof GdtfLibraryPicker!=='undefined')await GdtfLibraryPicker.importFrom(rid,name);}
   window.addEventListener('b5-show-changed',()=>{chosen=null;entries=[];if(dialog?.open)dialog.close();});
-  return {open};
+  return {open,openGdtfImport};
 })();

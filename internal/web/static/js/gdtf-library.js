@@ -174,14 +174,28 @@ const GdtfLibraryPicker = (() => {
   // remembered source and words. hooks.propose(pending) hands a built
   // import to library.js's confirm step; hooks.status(text) uses its status
   // line.
+  let mounted = Promise.resolve();
   async function mount(container, h) {
     host = container; hooks = h;
     paint();
-    try { st.status = await Api.gdtfStatus(); st.statusError = ''; } catch (e) { st.statusError = e.message; }
-    if (host !== container) return;
-    paint();
-    await search();
+    mounted = (async () => {
+      try { st.status = await Api.gdtfStatus(); st.statusError = ''; } catch (e) { st.statusError = e.message; }
+      if (host !== container) return;
+      paint();
+      await search();
+    })();
+    return mounted;
   }
 
-  return { mount };
+  // importFrom: search this computer's files for name and start the import
+  // of rid (the Device inspector's "Add to Fixture library…").
+  async function importFrom(rid, name) {
+    await mounted;
+    st.source = 'library'; st.query = name || '';
+    await search();
+    if (st.results.some(r => r.rid === rid)) await pick(rid);
+    else if (hooks) hooks.status(`Not found on this computer: ${name}. Search for it below.`);
+  }
+
+  return { mount, importFrom };
 })();

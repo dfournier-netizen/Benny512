@@ -62,3 +62,12 @@
 .b5-gdtf-result__modes { color: var(--b5-color-text-secondary); font-size: var(--b5-font-size-sm); }
 .b5-gdtf-result .b5-row { margin-top: var(--b5-space-1); }
 .b5-gdtf-refusal { margin-top: var(--b5-space-2); }
+
+/* ---- Device inspector › GDTF file for this device; card tags ------------- */
+.b5-gdtf-match { display: grid; gap: var(--b5-space-3); padding: var(--b5-space-3); border: 1px solid var(--b5-color-border-strong); border-radius: var(--b5-radius-md); }
+.b5-gdtf-match__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--b5-space-1) var(--b5-space-3); }
+.b5-gdtf-match__mode { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2) var(--b5-space-3); }
+.b5-gdtf-match__list { margin: var(--b5-space-1) 0 0; padding-left: var(--b5-space-5, 1.25rem); display: grid; gap: var(--b5-space-2); }
+.b5-gdtf-also { margin-top: var(--b5-space-3); }
+.b5-gdtf-also summary { cursor: pointer; min-height: var(--b5-size-touch-min, 44px); padding-block: var(--b5-space-2); }
+.b5-gdtf-tag { white-space: nowrap; }

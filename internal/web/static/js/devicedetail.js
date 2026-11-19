@@ -768,6 +768,19 @@ const DeviceDetail = (() => {
   }
 
   function renderInfoSection(container, f) {
+    // G3b4: a re-render (an RDM answer, a GDTF lookup) must not take the
+    // name-search field away from someone typing in it.
+    const typing = document.activeElement && container.contains(document.activeElement) && document.activeElement.id === 'ddNameSearch'
+      ? { at: document.activeElement.selectionStart } : null;
+    renderInfoSectionBody(container, f);
+    if (typeof GdtfDevices !== 'undefined') GdtfDevices.wire(container, f, (infoCache[f.uid] || {}).deviceInfo || null, () => renderInfoSection(container, f));
+    if (typing) {
+      const el = container.querySelector('#ddNameSearch');
+      if (el) { el.focus(); if (typeof typing.at === 'number' && el.setSelectionRange) el.setSelectionRange(typing.at, typing.at); }
+    }
+  }
+
+  function renderInfoSectionBody(container, f) {
     const uid = f.uid;
     const st = infoCache[uid];
     if (!st || (st.loading && st.deviceInfo === undefined)) {
@@ -822,6 +835,9 @@ const DeviceDetail = (() => {
           ${infoRow('Software version', st.swVersion ? escapeHtml(st.swVersion) : notRead)}
         </div>
       </section>
+      ${/* G3b4: the GDTF library's answer for exactly this identity
+            (gdtf-devices.js), right after what the device says it is. */
+        typeof GdtfDevices !== 'undefined' ? GdtfDevices.infoGroupHtml(f, di, st.modelVal || '', st.currentPersonalityDesc) : ''}
       <section class="b5-group" aria-labelledby="ddPatchHead">
         <h4 class="b5-group__head" id="ddPatchHead">Where it sits on the line</h4>
         <div class="b5-grid-2">
@@ -2654,6 +2670,9 @@ const DeviceDetail = (() => {
   function init(onUpdateFn) {
     if (onUpdateFn) onUpdate(onUpdateFn);
     wireLiveUpdates();
+    // G3b4: a GDTF library answer arrived (gdtf-devices.js): the Info tab
+    // redraws its GDTF group from the cache.
+    window.addEventListener('b5-gdtf-match', () => notify('info'));
   }
 
   return {
