@@ -19,6 +19,7 @@
 //	GET    /api/gdtf/match?manufacturerId=&deviceModelId=[&softwareVersionId=][&personality=] -> gdtfMatchResponse
 //	POST   /api/gdtf/pull            <- gdtfPullRequest    -> gdtfshare.IndexEntry
 //	GET    /api/gdtf/file/{rid}      -> the .gdtf bytes (application/octet-stream)
+//	GET    /api/version              -> BuildInfo (version.go; for Settings › About)
 //
 // THE PASSWORD. It is accepted by POST /api/gdtf/login and /login/test and
 // is never returned by any endpoint, never logged, and never in show files,
@@ -48,6 +49,7 @@ import (
 	"time"
 
 	"benny512/internal/gdtfshare"
+	"benny512/internal/library"
 )
 
 // gdtfConfig builds the sync's configuration over this server's settings
@@ -169,10 +171,112 @@ func (s *Server) gdtfLogin() gdtfLoginStatus {
 type gdtfStatusResponse struct {
 	gdtfshare.Status
 	Login gdtfLoginStatus `json:"login"`
+	// LightingAdapters (G3b1) are the adapters sync never uses: Art-Net's,
+	// then sACN's, in that order, always both (owner round 3 #1: say which
+	// adapter is the lighting network before the user meets a refusal).
+	LightingAdapters []gdtfLightingAdapter `json:"lightingAdapters"`
+	// InternetRoute shadows gdtfshare's with the adapter named.
+	InternetRoute *gdtfRoute `json:"internetRoute"`
+	// FixtureLibraryMaxBytes is the largest GDTF the Fixture Library takes
+	// (internal/library.MaxSourceFileBytes), for an honest refusal before
+	// an import is tried.
+	FixtureLibraryMaxBytes int64 `json:"fixtureLibraryMaxBytes"`
+}
+
+// gdtfLightingAdapter is one adapter the lighting output uses.
+type gdtfLightingAdapter struct {
+	Protocol string `json:"protocol"` // "Art-Net" or "sACN"
+	// Bound false: no adapter is bound for this protocol (--demo and the
+	// rehearsal child bind none; an sACN adapter named in Settings that
+	// this computer does not have). Name is then "" for Art-Net, or the
+	// missing sACN adapter's name.
+	Bound     bool     `json:"bound"`
+	Name      string   `json:"name"`
+	Addresses []string `json:"addresses"` // CIDR, e.g. 2.0.0.10/8; never null
+	// Auto (Art-Net): picked automatically, because Settings › Art-Net
+	// network adapter is "(default / any)" (or the saved one is missing).
+	Auto bool `json:"auto"`
+	// SameAsArtNet (sACN): Settings says "Same adapter as Art-Net".
+	SameAsArtNet bool `json:"sameAsArtNet"`
+}
+
+// gdtfRoute is where the last connection to GDTF Share left this computer
+// (gdtfshare.Route) with the adapter that holds that address ("" when no
+// adapter here holds it, e.g. it has since gone).
+type gdtfRoute struct {
+	gdtfshare.Route
+	Adapter string `json:"adapter"`
+}
+
+func ifiAddrs(ifi *net.Interface) []string {
+	out := make([]string, 0, 2)
+	if ifi == nil {
+		return out
+	}
+	addrs, err := ifi.Addrs()
+	if err != nil {
+		return out
+	}
+	for _, a := range addrs {
+		if n, ok := a.(*net.IPNet); ok {
+			out = append(out, n.String())
+		}
+	}
+	return out
+}
+
+// gdtfLightingAdapters describes the adapters gdtfLightingNetworks takes
+// its subnets from, in words for the Settings screen.
+func (s *Server) gdtfLightingAdapters() []gdtfLightingAdapter {
+	art := gdtfLightingAdapter{Protocol: "Art-Net", Addresses: make([]string, 0), Auto: s.OutputNICAuto}
+	switch {
+	case s.OutputInterface != nil:
+		art.Bound, art.Name, art.Addresses = true, s.OutputInterface.Name, ifiAddrs(s.OutputInterface)
+	case s.OutputBindIP != nil && !s.OutputBindIP.IsUnspecified():
+		art.Bound, art.Addresses = true, []string{s.OutputBindIP.String()}
+	}
+	sacn := gdtfLightingAdapter{Protocol: "sACN", Addresses: make([]string, 0)}
+	if name := s.SettingsSnapshot().SACNNIC; name == "" {
+		sacn.SameAsArtNet, sacn.Bound, sacn.Name = true, art.Bound, art.Name
+		sacn.Addresses = append(sacn.Addresses, art.Addresses...)
+	} else {
+		sacn.Name = name
+		if ifi, err := net.InterfaceByName(name); err == nil {
+			sacn.Bound, sacn.Addresses = true, ifiAddrs(ifi)
+		}
+	}
+	return []gdtfLightingAdapter{art, sacn}
+}
+
+// adapterHolding names the adapter that holds address a, "" when none.
+func adapterHolding(a string) string {
+	ip := net.ParseIP(a)
+	if ip == nil {
+		return ""
+	}
+	ifs, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	for i := range ifs {
+		addrs, _ := ifs[i].Addrs()
+		for _, ad := range addrs {
+			if n, ok := ad.(*net.IPNet); ok && n.IP.Equal(ip) {
+				return ifs[i].Name
+			}
+		}
+	}
+	return ""
 }
 
 func (s *Server) handleGDTFStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, gdtfStatusResponse{Status: s.gdtf.Status(), Login: s.gdtfLogin()})
+	st := s.gdtf.Status()
+	resp := gdtfStatusResponse{Status: st, Login: s.gdtfLogin(), LightingAdapters: s.gdtfLightingAdapters(),
+		FixtureLibraryMaxBytes: library.MaxSourceFileBytes}
+	if st.InternetRoute != nil {
+		resp.InternetRoute = &gdtfRoute{Route: *st.InternetRoute, Adapter: adapterHolding(st.InternetRoute.LocalAddress)}
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 type gdtfLoginRequest struct {
@@ -364,8 +468,23 @@ type gdtfSearchResponse struct {
 	In    string `json:"in"`
 	Query string `json:"query"`
 	// Count deliberately has no omitempty: zero hits is an answer.
-	Count   int                      `json:"count"`
-	Results []gdtfshare.SearchResult `json:"results"`
+	Count   int             `json:"count"`
+	Results []gdtfSearchHit `json:"results"`
+}
+
+// gdtfSearchHit is a search result plus inFixtureLibrary (G3b1): the
+// Fixture Library already keeps these exact bytes (same SHA-256 as one of
+// its stored source files). False for a GDTF Share entry not downloaded.
+// Worked out here rather than in the browser so neither the browser nor the
+// Devices tags need the whole library to answer it.
+type gdtfSearchHit struct {
+	gdtfshare.SearchResult
+	InFixtureLibrary bool `json:"inFixtureLibrary"`
+}
+
+type gdtfMatchHit struct {
+	gdtfshare.MatchCandidate
+	InFixtureLibrary bool `json:"inFixtureLibrary"`
 }
 
 func (s *Server) handleGDTFSearch(w http.ResponseWriter, r *http.Request) {
@@ -392,7 +511,12 @@ func (s *Server) handleGDTFSearch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, gdtfErrStatus(err), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, gdtfSearchResponse{In: in, Query: q.Get("q"), Count: len(res), Results: res})
+	have := s.LibraryStore.SourceHashes()
+	hits := make([]gdtfSearchHit, 0, len(res))
+	for _, r := range res {
+		hits = append(hits, gdtfSearchHit{SearchResult: r, InFixtureLibrary: r.SHA256 != "" && have[r.SHA256]})
+	}
+	writeJSON(w, http.StatusOK, gdtfSearchResponse{In: in, Query: q.Get("q"), Count: len(res), Results: hits})
 }
 
 // gdtfMatchQuery echoes what was asked. The optional values are null when
@@ -409,6 +533,8 @@ type gdtfMatchResponse struct {
 	// Count deliberately has no omitempty: zero candidates is an answer.
 	Count int `json:"count"`
 	gdtfshare.MatchResult
+	// Candidates shadows MatchResult's with inFixtureLibrary added.
+	Candidates []gdtfMatchHit `json:"candidates"`
 }
 
 // parseRDMNumber reads an RDM ID from a query value: decimal ("8870", as
@@ -477,10 +603,15 @@ func (s *Server) handleGDTFMatch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, gdtfErrStatus(err), err)
 		return
 	}
+	have := s.LibraryStore.SourceHashes()
+	hits := make([]gdtfMatchHit, 0, len(res.Candidates))
+	for _, c := range res.Candidates {
+		hits = append(hits, gdtfMatchHit{MatchCandidate: c, InFixtureLibrary: c.SHA256 != "" && have[c.SHA256]})
+	}
 	writeJSON(w, http.StatusOK, gdtfMatchResponse{
 		Query: gdtfMatchQuery{ManufacturerID: mq.ManufacturerID, DeviceModelID: mq.DeviceModelID,
 			SoftwareVersionID: mq.SoftwareVersionID, Personality: mq.Personality},
-		Count: len(res.Candidates), MatchResult: res,
+		Count: len(res.Candidates), MatchResult: res, Candidates: hits,
 	})
 }
 

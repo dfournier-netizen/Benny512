@@ -174,6 +174,15 @@ type Server struct {
 	// concurrently; must not be mutated after startup.
 	OutputInterface *net.Interface
 	OutputBindIP    net.IP
+	// OutputNICAuto is true when the Art-Net adapter above was picked
+	// automatically (Settings › Art-Net network adapter is "(default /
+	// any)", or the saved one is not on this computer, and no --iface).
+	// GDTF Share's status says so (G3b, owner round 3 #1). Set once at
+	// startup by cmd/benny512 in real mode.
+	OutputNICAuto bool
+
+	// build is the binary's identity for GET /api/version (SetBuildInfo).
+	build BuildInfo
 
 	// SACNSettings is the persisted sACN configuration (internal/sacn's
 	// Store): the generated-once CID, the sACN start universe, the priority
@@ -352,6 +361,7 @@ func New(nodes *session.ArtNetSession, rdmc *session.RDMController, dmx *session
 		showRevision: uint64(time.Now().UnixNano()),
 		Nodes:        nodes, RDM: rdmc, DMX: dmx, Registry: reg, Capture: cap, RDMCapture: rdmCap,
 		settings: defaultSettings(),
+		build:    unstampedBuild(),
 		// An in-memory-only settings store: no path, so nothing is read from
 		// or written to disk and this Server's settings live and die with the
 		// process — what every test, --demo and every offline-rehearsal child
@@ -646,6 +656,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/library/reprofile", s.handleLibraryReprofile)
 
 	// --- GDTF library: files kept in sync with GDTF Share (gdtf.go) ---
+	s.mux.HandleFunc("GET /api/version", s.handleVersion)
 	s.mux.HandleFunc("GET /api/gdtf/status", s.handleGDTFStatus)
 	s.mux.HandleFunc("POST /api/gdtf/login", s.handleGDTFSetLogin)
 	s.mux.HandleFunc("DELETE /api/gdtf/login", s.handleGDTFClearLogin)

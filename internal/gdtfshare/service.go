@@ -69,6 +69,7 @@ type Service struct {
 	list      *listDoc
 	runActive bool
 	trigger   chan struct{}
+	route     *Route // last connection to GDTF Share, this run (G3b1)
 }
 
 // New builds a Service. It reads nothing until first used.
@@ -148,9 +149,28 @@ func (s *Service) setRunning(on bool) {
 }
 
 func (s *Service) setProgress(done, total int) {
+	s.setProgressAt(Progress{Done: done, Total: total})
+}
+
+func (s *Service) setProgressAt(p Progress) {
 	s.mu.Lock()
-	s.progress = Progress{Done: done, Total: total}
+	s.progress = p
 	s.mu.Unlock()
+}
+
+// newClient is NewClient with the route recorded for Status.
+func (s *Service) newClient() (*Client, error) {
+	c, err := NewClient(s.cfg.BaseURL, s.cfg.LightingNetworks, s.cfg.RequestTimeout)
+	if err != nil {
+		return nil, err
+	}
+	c.OnConnect = func(a netip.Addr) {
+		r := &Route{LocalAddress: a.String(), At: s.now()}
+		s.mu.Lock()
+		s.route = r
+		s.mu.Unlock()
+	}
+	return c, nil
 }
 
 // saveIndex writes files (by rid) as index.json and publishes it.
@@ -260,7 +280,7 @@ func (s *Service) newSession(ctx context.Context) (*gsession, error) {
 	if !ok || user == "" || pass == "" {
 		return nil, ErrNoLogin
 	}
-	c, err := NewClient(s.cfg.BaseURL, s.cfg.LightingNetworks, s.cfg.RequestTimeout)
+	c, err := s.newClient()
 	if err != nil {
 		return nil, err
 	}
@@ -472,8 +492,17 @@ func (s *Service) runSync(ctx context.Context) (Result, error) {
 		return finish(r, err)
 	}
 
+	// The manufacturers in plan order, for progress ("now Robe, manufacturer
+	// 2 of 2"). plan is sorted by manufacturer, so each runs together.
+	mfrIndex := map[string]int{}
+	for _, e := range plan {
+		if _, ok := mfrIndex[foldName(e.Manufacturer)]; !ok {
+			mfrIndex[foldName(e.Manufacturer)] = len(mfrIndex) + 1
+		}
+	}
 	for i, e := range plan {
-		s.setProgress(i, len(plan))
+		s.setProgressAt(Progress{Done: i, Total: len(plan), Manufacturer: e.Manufacturer,
+			ManufacturerIndex: mfrIndex[foldName(e.Manufacturer)], ManufacturerCount: len(mfrIndex)})
 		if ctx.Err() != nil {
 			return stop(ctx.Err())
 		}
@@ -774,7 +803,7 @@ func (s *Service) TestLogin(ctx context.Context, user, password string) error {
 		return ErrBusy
 	}
 	defer s.netMu.Unlock()
-	c, err := NewClient(s.cfg.BaseURL, s.cfg.LightingNetworks, s.cfg.RequestTimeout)
+	c, err := s.newClient()
 	if err != nil {
 		return err
 	}
@@ -850,7 +879,8 @@ func (s *Service) Trigger() error {
 // Status reports the library's state.
 func (s *Service) Status() Status {
 	st := Status{Enabled: s.Enabled(), State: StateNever, IntervalMin: int(s.cfg.Interval / time.Minute),
-		Followed: make([]string, 0), Manufacturers: make([]ManufacturerResult, 0), Pending: make([]Pending, 0)}
+		Followed: make([]string, 0), Manufacturers: make([]ManufacturerResult, 0), Pending: make([]Pending, 0),
+		UnreadableFiles: make([]UnreadableFile, 0)}
 	if !st.Enabled {
 		st.State, st.Message = StateError, ErrDisabled.Error()
 		return st
@@ -858,6 +888,10 @@ func (s *Service) Status() Status {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	st.Running, st.Progress = s.running, s.progress
+	if s.route != nil {
+		r := *s.route
+		st.InternetRoute = &r
+	}
 	sd, err := s.syncLocked()
 	if err != nil {
 		st.State, st.Message = StateError, err.Error()
@@ -882,8 +916,20 @@ func (s *Service) Status() Status {
 				st.NotYetRead++
 			case e.Description.State == DescUnreadable:
 				st.Unreadable++
+				st.UnreadableFiles = append(st.UnreadableFiles, UnreadableFile{RID: e.RID, Manufacturer: e.Manufacturer,
+					Fixture: e.Fixture, Revision: e.Revision, UploaderLabel: e.UploaderLabel, Reason: e.Description.Reason})
 			}
 		}
+		sort.Slice(st.UnreadableFiles, func(i, j int) bool {
+			a, b := st.UnreadableFiles[i], st.UnreadableFiles[j]
+			if fa, fb := foldName(a.Manufacturer), foldName(b.Manufacturer); fa != fb {
+				return fa < fb
+			}
+			if fa, fb := foldName(a.Fixture), foldName(b.Fixture); fa != fb {
+				return fa < fb
+			}
+			return a.RID < b.RID
+		})
 	}
 	for _, n := range sd.Followed {
 		var mr *ManufacturerResult
@@ -994,10 +1040,11 @@ func (s *Service) Search(q string, share bool, limit int) ([]SearchResult, error
 		return out, err
 	}
 	have := make(map[int64]*Description, len(idx.Files))
+	sums := make(map[int64]string, len(idx.Files))
 	for _, e := range idx.Files {
-		have[e.RID] = e.Description
+		have[e.RID], sums[e.RID] = e.Description, e.SHA256
 		if !share && match(e.Entry, e.Description) {
-			out = append(out, SearchResult{Entry: e.Entry, InLibrary: true, Description: e.Description})
+			out = append(out, SearchResult{Entry: e.Entry, InLibrary: true, SHA256: e.SHA256, Description: e.Description})
 		}
 	}
 	if share {
@@ -1009,7 +1056,7 @@ func (s *Service) Search(q string, share bool, limit int) ([]SearchResult, error
 		for _, e := range l.List {
 			d, in := have[e.RID]
 			if match(e, d) {
-				out = append(out, SearchResult{Entry: e, InLibrary: in, Description: d})
+				out = append(out, SearchResult{Entry: e, InLibrary: in, SHA256: sums[e.RID], Description: d})
 			}
 		}
 	}

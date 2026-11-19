@@ -205,10 +205,39 @@ const (
 	StateNoLogin     = "no-login"     // nothing to log in with
 )
 
-// Progress is the running sync's position.
+// Progress is the running sync's position: Done of Total files in this
+// sync's plan. Manufacturer is the GDTF Share manufacturer of the file being
+// worked on, ManufacturerIndex its place (from 1) among the
+// ManufacturerCount manufacturers the plan works through, in the plan's
+// order (A to Z). Between syncs Manufacturer is "" and both numbers are 0:
+// the index counts from 1, so 0 is never a position.
 type Progress struct {
-	Done  int `json:"done"`
-	Total int `json:"total"`
+	Done              int    `json:"done"`
+	Total             int    `json:"total"`
+	Manufacturer      string `json:"manufacturer"`
+	ManufacturerIndex int    `json:"manufacturerIndex"`
+	ManufacturerCount int    `json:"manufacturerCount"`
+}
+
+// UnreadableFile is a library file whose description.xml could not be read
+// (Description.State "unreadable"), with the reason. The file stays in the
+// library; it cannot be matched to devices.
+type UnreadableFile struct {
+	RID           int64  `json:"rid"`
+	Manufacturer  string `json:"manufacturer"`
+	Fixture       string `json:"fixture"`
+	Revision      string `json:"revision"`
+	UploaderLabel string `json:"uploaderLabel"`
+	Reason        string `json:"reason"`
+}
+
+// Route is where the last connection to GDTF Share left this computer:
+// LocalAddress is the TCP connection's own local address (guardedDial's
+// authoritative check), At when it was made. It is held in memory, so it
+// covers this run of Benny512 only.
+type Route struct {
+	LocalAddress string    `json:"localAddress"`
+	At           time.Time `json:"at"`
 }
 
 // Status is everything the UI needs to show the library's state. The login
@@ -232,6 +261,12 @@ type Status struct {
 	// Backfill). Neither has omitempty: zero is an answer.
 	Unreadable int `json:"unreadable"`
 	NotYetRead int `json:"notYetRead"`
+	// UnreadableFiles lists the Unreadable files with their reasons, by
+	// manufacturer then fixture. Never null.
+	UnreadableFiles []UnreadableFile `json:"unreadableFiles"`
+	// InternetRoute is null until Benny512 has connected to GDTF Share in
+	// this run: no route is guessed.
+	InternetRoute *Route `json:"internetRoute"`
 }
 
 // SearchResult is one hit. Label is always set (API terms: every listed
@@ -239,6 +274,9 @@ type Status struct {
 type SearchResult struct {
 	Entry
 	InLibrary bool `json:"inLibrary"`
+	// SHA256 is the file's local checksum when it is on this computer, ""
+	// for a GDTF Share entry not downloaded.
+	SHA256 string `json:"sha256"`
 	// Description is the file's description.xml reading when the file is
 	// in the library; null otherwise (a GDTF Share list entry not
 	// downloaded, or a file not read yet).
