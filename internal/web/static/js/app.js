@@ -149,6 +149,9 @@
     AnalyzerScreen.init();
     WalkScreen.init();
     SettingsScreen.init();
+    // G3b2: Settings › 7 GDTF Share and 9 About fill the roots settings.js
+    // just drew. Guarded like ThemeSettings for harnesses without it.
+    if (typeof GdtfSettings !== 'undefined') GdtfSettings.init();
     if (typeof ThemeSettings !== 'undefined') ThemeSettings.init(); // test harnesses that load app.js without it
     Workspace.init();
     ConsoleScreen.init();

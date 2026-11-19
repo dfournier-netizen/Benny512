@@ -1,0 +1,51 @@
+/* screens-gdtf.css — the GDTF library screens (G3b): Settings › 7 GDTF Share
+   and 9 About (gdtf-settings.js), Fixture library › Add from GDTF library,
+   and the Device inspector's GDTF group and the device cards' GDTF tags.
+
+   Built from the approved G3a mockup's layout rules
+   (docs/design/gdtf-library/src/mockup.css, g3-* there, b5-gdtf-* here).
+   Layout only: every colour is a production role (--b5-color-*), never a
+   literal or a palette ramp (console_i1b_test.go enforces it). State is
+   always carried by words and the badge/tag icons; colour only reinforces. */
+
+.b5-gdtf-section { display: flex; flex-direction: column; gap: var(--b5-space-4); }
+
+/* Status line: badge, the server's sentence, then details in words. */
+.b5-gdtf-status {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2) var(--b5-space-3);
+  margin: 0;
+  padding: var(--b5-space-3) var(--b5-space-4);
+  border: var(--b5-border-width-thin) solid var(--b5-color-border-control);
+  border-radius: var(--b5-radius-md);
+  background: var(--b5-color-bg-surface-raised);
+}
+.b5-gdtf-status__msg { font-weight: var(--b5-font-weight-medium); }
+.b5-gdtf-status__meta { flex-basis: 100%; color: var(--b5-color-text-secondary); font-size: var(--b5-font-size-sm); }
+.b5-gdtf-progress { flex-basis: 100%; display: grid; gap: var(--b5-space-1); }
+.b5-gdtf-progress .b5-progress { height: 10px; border: 1px solid var(--b5-color-border-control); }
+
+.b5-gdtf-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--b5-space-3) var(--b5-space-4); max-width: 44rem; }
+@media (max-width: 640px) { .b5-gdtf-fields { grid-template-columns: minmax(0, 1fr); } }
+.b5-gdtf-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2) var(--b5-space-3); margin-top: var(--b5-space-2); }
+.b5-gdtf-login { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2) var(--b5-space-3); margin: 0; }
+
+.b5-gdtf-table-wrap { overflow-x: auto; border: 1px solid var(--b5-color-border-default); border-radius: var(--b5-radius-md); }
+.b5-gdtf-table-wrap .b5-table { margin: 0; }
+.b5-gdtf-table-wrap .b5-table tbody tr { cursor: default; }
+.b5-gdtf-table-wrap .b5-table td { vertical-align: top; }
+.b5-gdtf-similar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2); margin-top: var(--b5-space-2); }
+.b5-gdtf-sub { display: block; color: var(--b5-color-text-secondary); font-size: var(--b5-font-size-xs); }
+.b5-gdtf-addrow { display: flex; flex-wrap: wrap; align-items: end; gap: var(--b5-space-2) var(--b5-space-3); }
+.b5-gdtf-addrow .b5-field { flex: 1 1 16rem; max-width: 26rem; }
+
+/* "Powered by GDTF": the logo is a labelled placeholder until the official
+   asset is supplied; it is never drawn. */
+.b5-gdtf-credit { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-3); margin-top: var(--b5-space-2); }
+.b5-gdtf-credit p { margin: 0; }
+.b5-gdtf-logo-ph {
+  display: inline-flex; align-items: center; justify-content: center; text-align: center;
+  width: 9rem; min-height: 3.5rem; padding: var(--b5-space-2);
+  border: var(--b5-border-width-thick) dashed var(--b5-color-border-strong);
+  color: var(--b5-color-text-secondary); font-size: var(--b5-font-size-xs); line-height: 1.3;
+}
+.b5-gdtf-credit__text { font-weight: var(--b5-font-weight-bold); }

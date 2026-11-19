@@ -40,6 +40,7 @@ type fakeFile struct {
 	UUID         string
 	LastModified int64
 	Data         []byte
+	Modes        []map[string]any // getList modes; nil = one 16-channel "Standard"
 }
 
 type fakeShare struct {
@@ -189,13 +190,17 @@ func (f *fakeShare) list(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]map[string]any, 0, len(f.files))
 	for _, ff := range f.files {
+		modes := ff.Modes
+		if modes == nil {
+			modes = []map[string]any{{"name": "Standard", "dmxfootprint": 16}}
+		}
 		items = append(items, map[string]any{
 			"rid": ff.RID, "fixture": ff.Fixture, "manufacturer": ff.Manufacturer,
 			"revision": ff.Revision, "creationDate": strconv.FormatInt(ff.LastModified-100, 10),
 			"lastModified": strconv.FormatInt(ff.LastModified, 10), "uploader": ff.Uploader,
 			"rating": "4.1", "version": "1.2", "creator": "someone", "uuid": ff.UUID,
 			"filesize": len(ff.Data),
-			"modes":    []map[string]any{{"name": "Standard", "dmxfootprint": 16}},
+			"modes":    modes,
 		})
 	}
 	writeFakeJSON(w, 200, map[string]any{"result": true, "list": items})
