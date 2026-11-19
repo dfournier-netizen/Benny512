@@ -1,6 +1,6 @@
 // One persistent, rig-independent library; no duplicate store in the browser.
 const LibraryPanel=(()=>{
-  let dialog, records=[], entries=[], query='', verifiedOnly=false, chosen=null, pending=null, busy=false;
+  let dialog, records=[], entries=[], query='', verifiedOnly=false, chosen=null, pending=null, busy=false, gdtfOpen=false;
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const verified=m=>!!m.verifiedHash && !!m.verifiedAt && !m.verifiedAt.startsWith('0001-');
   // Full channel detail (every function, set and wheel) exists only for modes
@@ -22,15 +22,22 @@ const LibraryPanel=(()=>{
     dialog.innerHTML=`<div class="b5-row"><h2>Fixture library</h2><button class="b5-btn" data-close-library>Close</button></div>
       <p class="b5-caption">Shared across shows. Saved on this PC. Verification is per mode, by the operator.</p>
       <p data-library-status role="status"></p>
-      <div class="b5-row"><label class="b5-btn">Import GDTF / library JSON<input data-library-file type="file" accept=".gdtf,.json" class="b5-visually-hidden"></label><button class="b5-btn" data-library-harvest>Save profiles from this patch</button><a class="b5-btn" href="${Api.libraryExportUrl()}">Export library JSON</a></div>
+      <div class="b5-row"><label class="b5-btn">Import GDTF / library JSON<input data-library-file type="file" accept=".gdtf,.json" class="b5-visually-hidden"></label>${typeof GdtfLibraryPicker==='undefined'?'':`<button type="button" class="b5-btn" data-gdtf-add-toggle aria-pressed="${gdtfOpen}" aria-controls="gdtfAddSection">${UI.icon('filter')}Add from GDTF library</button>`}<button class="b5-btn" data-library-harvest>Save profiles from this patch</button><a class="b5-btn" href="${Api.libraryExportUrl()}">Export library JSON</a></div>
       <p class="b5-caption">Exports profiles, verification records, and original GDTFs imported here.</p>
       <div data-library-import></div>
+      <section id="gdtfAddSection" aria-labelledby="gdtfAddHead" data-gdtf-add ${gdtfOpen?'':'hidden'}></section>
       <div class="b5-row"><label>Search <input class="b5-input" type="search" data-library-search value="${esc(query)}" placeholder="Manufacturer or fixture"></label><label><input type="checkbox" data-library-verified ${verifiedOnly?'checked':''}>Verified modes only</label></div>
       <div class="b5-workspace-list" data-library-records></div><section data-library-use></section>`;
     dialog.querySelector('[data-close-library]').onclick=()=>dialog.close();
     dialog.querySelector('[data-library-search]').oninput=e=>{query=e.target.value;paintRecords();};
     dialog.querySelector('[data-library-verified]').onchange=e=>{verifiedOnly=e.target.checked;paintRecords();};
     dialog.querySelector('[data-library-file]').onchange=importChosen;
+    // G3b3: Add from GDTF library (gdtf-library.js) hands a built import to
+    // the same confirm step as a file from disk.
+    const gdtfBtn=dialog.querySelector('[data-gdtf-add-toggle]'),gdtfArea=dialog.querySelector('[data-gdtf-add]');
+    const gdtfMount=()=>GdtfLibraryPicker.mount(gdtfArea,{status,propose:p=>{pending=p;paintImport();status('Review the import, then apply. Existing types are merged.');const a=dialog.querySelector('[data-library-import]');if(a.scrollIntoView)a.scrollIntoView({block:'nearest'});const ap=a.querySelector('[data-apply-library]');if(ap)ap.focus({preventScroll:true});}});
+    if(gdtfBtn)gdtfBtn.onclick=()=>{gdtfOpen=!gdtfOpen;gdtfBtn.setAttribute('aria-pressed',String(gdtfOpen));gdtfArea.hidden=!gdtfOpen;if(gdtfOpen)gdtfMount();};
+    if(gdtfBtn&&gdtfOpen)gdtfMount();
     dialog.querySelector('[data-library-harvest]').onclick=()=>action(()=>Api.libraryFromPatch([]),r=>`${r.added} added · ${r.updated} updated · ${r.unchanged} unchanged · ${r.skipped} skipped`);
     paintRecords();paintImport();paintUse();
   }
@@ -41,7 +48,7 @@ const LibraryPanel=(()=>{
       const modes=r.modes.map((m,mi)=>verifiedOnly&&!verified(m)?'':`<div class="b5-workspace-item"><strong>${esc(m.name||'Unnamed mode')}</strong> · ${m.footprint} channels <span class="b5-pill b5-pill--tag ${verified(m)?'b5-pill--ok':'b5-pill--unread'}">${verified(m)?'Operator verified':'Not verified'}</span><div class="b5-caption">${esc(m.origin?.detail||m.origin?.source||'Source unknown')}${verified(m)?' · '+esc(new Date(m.verifiedAt).toLocaleDateString())+' · '+esc(m.verificationNote):''} · Channel detail: ${detailKnown(m)?'full':'not imported'}</div><div class="b5-row"><button class="b5-btn b5-btn--sm" data-use-mode="${ri}:${mi}">Use in patch</button><button class="b5-btn b5-btn--sm" data-verify-mode="${ri}:${mi}">${verified(m)?'Clear verification':'Mark verified…'}</button></div></div>`).join('');
       const missing=r.modes.some(m=>!detailKnown(m)),files=r.sourceFiles||[];
       const reread=!missing?'':files.length?files.map((f,fi)=>`<button class="b5-btn b5-btn--sm" data-reread="${ri}:${fi}">Re-read channel detail from ${esc(f.name)}</button>`).join(''):'<p class="b5-caption" data-detail-missing>Channel detail not imported — no original GDTF is stored for this type. Re-import the GDTF to get full channel detail.</p>';
-      return modes?`<section><h3>${esc(r.manufacturer+' '+r.model)}</h3><div class="b5-row">${files.map(f=>`<a class="b5-btn b5-btn--sm" href="/api/library/source?key=${encodeURIComponent(r.key)}&amp;hash=${encodeURIComponent(f.sha256)}" download>${esc(f.name)}</a>`).join('')}</div>${reread?`<div class="b5-row">${reread}</div>`:''}${modes}</section>`:'';
+      return modes?`<section><h3>${esc(r.manufacturer+' '+r.model)}</h3><div class="b5-row">${files.map(f=>`<a class="b5-btn b5-btn--sm" href="/api/library/source?key=${encodeURIComponent(r.key)}&amp;hash=${encodeURIComponent(f.sha256)}" download>${esc(f.name)}</a>${f.uploaderLabel&&typeof GdtfCommon!=='undefined'?`<span class="b5-text-sm">${esc(GdtfCommon.labelWords(f.uploaderLabel))}, from the GDTF library</span>`:''}`).join('')}</div>${reread?`<div class="b5-row">${reread}</div>`:''}${modes}</section>`:'';
     }).join('')||'<p>No matching modes. Import a GDTF or save profiles from a patch.</p>';
     list.querySelectorAll('[data-use-mode]').forEach(b=>b.onclick=()=>{const [ri,mi]=b.dataset.useMode.split(':').map(Number);chosen={r:records[ri],m:records[ri].modes[mi]};paintUse();const area=dialog.querySelector('[data-library-use]');area.scrollIntoView({block:'start'});area.querySelector('input').focus({preventScroll:true});});
     list.querySelectorAll('[data-reread]').forEach(b=>b.onclick=()=>{
@@ -74,7 +81,8 @@ const LibraryPanel=(()=>{
   }
   function paintImport(){
     const area=dialog.querySelector('[data-library-import]');
-    area.innerHTML=pending?`<div class="b5-inset"><strong>${esc(pending.name)}</strong> · ${pending.doc.records?.length||0} fixture types${pending.warnings.map(w=>`<p>${esc(typeof w==='string'?w:JSON.stringify(w))}</p>`).join('')}<div class="b5-row"><button class="b5-btn b5-btn--primary" data-apply-library>Apply import</button><button class="b5-btn" data-cancel-library>Cancel</button></div></div>`:'';
+    const from=pending&&pending.gdtfLabel?`${pending.pulled?'<p>Downloaded from GDTF Share and kept in the GDTF library.</p>':''}<p class="b5-text-sm">From the GDTF library · ${esc(GdtfCommon.labelWords(pending.gdtfLabel))}</p>`:'';
+    area.innerHTML=pending?`<div class="b5-inset"><strong>${esc(pending.name)}</strong> · ${pending.doc.records?.length||0} fixture types${from}${pending.warnings.map(w=>`<p>${esc(typeof w==='string'?w:JSON.stringify(w))}</p>`).join('')}<div class="b5-row"><button class="b5-btn b5-btn--primary" data-apply-library>Apply import</button><button class="b5-btn" data-cancel-library>Cancel</button></div></div>`:'';
     if(!pending)return;
     area.querySelector('[data-cancel-library]').onclick=()=>{pending=null;paintImport();};
     area.querySelector('[data-apply-library]').onclick=()=>action(async()=>{const res=await Api.importLibrary(pending.doc,'merge');pending=null;chosen=null;return res;},'Library imported; changed mode data invalidates its old verification');

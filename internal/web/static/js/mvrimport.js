@@ -298,7 +298,13 @@ const MvrImport = (() => {
   // sourceBuffer is optional: pass the original .gdtf ArrayBuffer to retain
   // the archive (deduplicated by checksum server-side), omit it when the
   // bytes are not at hand.
-  function libraryDocFromGdtf(parsed, fileName, sourceBuffer) {
+  //
+  // meta is optional too (G3b3): meta.uploaderLabel ("Manufacturer", "User"
+  // or "Unknown") is the label of a file picked from the GDTF library, kept
+  // on the retained archive (internal/library SourceFile.uploaderLabel; owner
+  // round 2 #2). Left out for a file from disk: the label is then "not
+  // recorded", never guessed.
+  function libraryDocFromGdtf(parsed, fileName, sourceBuffer, meta) {
     const at = new Date().toISOString();
     const origin = { source: 'gdtf', detail: fileName, at };
     const record = {
@@ -323,6 +329,7 @@ const MvrImport = (() => {
         binary += String.fromCharCode(...bytes.subarray(i, i + 32768));
       }
       record.sourceFiles = [{ name: fileName, data: btoa(binary) }];
+      if (meta && meta.uploaderLabel) record.sourceFiles[0].uploaderLabel = meta.uploaderLabel;
     }
     // schemaVersion 2: records carry full channel detail and wheels
     // (internal/library CurrentSchemaVersion).

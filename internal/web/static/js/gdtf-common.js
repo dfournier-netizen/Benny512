@@ -30,7 +30,12 @@ const GdtfCommon = (() => {
   }
   function labelTag(l) { return UI.tag(labelWords(l), l === 'Manufacturer' ? 'info' : undefined); }
 
-  const mb = bytes => (Number(bytes || 0) / 1048576).toFixed(1) + ' MB';
+  // mb: a file size in words; under 1 MB in KB, so a small file never
+  // reads "0.0 MB" (which looks like an empty file).
+  const mb = bytes => {
+    const n = Number(bytes || 0);
+    return n < 1048576 ? Math.max(1, Math.round(n / 1024)) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
+  };
 
   // modeText: "Mode 1 · 49 ch". A footprint GDTF Share did not give is said
   // so; it is never shown as 0.
