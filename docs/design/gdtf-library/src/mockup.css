@@ -1,0 +1,121 @@
+/* G3a mockup-only styles. Every colour is a production role
+   (--b5-color-*) from benny512-tokens.css / console-tokens.css: this file
+   adds layout, never a new colour value. Classes start g3- so nothing here
+   can be mistaken for a production class. */
+
+/* ---- mockup controls (not part of the app) ---------------------------- */
+:root { --g3-review-h: 0px; }
+body { padding-bottom: var(--g3-review-h); }
+.g3-review {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 2000;
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2) var(--b5-space-3);
+  padding: var(--b5-space-2) var(--b5-space-4);
+  background: var(--b5-color-bg-inset);
+  border-top: var(--b5-border-width-thick) dashed var(--b5-color-border-strong);
+  color: var(--b5-color-text-primary);
+  font-size: var(--b5-font-size-sm);
+}
+.g3-review__kicker { font-weight: var(--b5-font-weight-bold); letter-spacing: 0.04em; text-transform: uppercase; }
+.g3-review__about { flex: 1 1 22rem; min-width: 0; color: var(--b5-color-text-secondary); }
+@media (max-width: 1279px) {
+  /* Keep the mockup controls to one row on a 1024 laptop: the scene note is
+     one line there (the whole note is its tooltip and in README.md). */
+  .g3-review { flex-wrap: nowrap; }
+  .g3-review__about { flex: 1 1 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .g3-review__kicker { display: none; }
+}
+.g3-review label { display: inline-flex; align-items: center; gap: var(--b5-space-2); }
+.g3-review .b5-select { width: auto; max-width: 30rem; }
+/* Sticky bottom bars sit above the mockup controls. */
+.b5-actionbar { bottom: var(--g3-review-h); }
+.b5-workspace-dialog.b5-nmpanel { max-height: calc(100dvh - var(--b5-chrome-height, 120px) - var(--g3-review-h) - var(--b5-space-4)); }
+.b5-inspector { bottom: calc(var(--g3-review-h) + var(--b5-space-4)); }
+
+/* "NEW" data notes: data the current API does not provide yet. */
+.g3-new {
+  display: inline-flex; align-items: center; gap: var(--b5-space-1);
+  margin-inline: var(--b5-space-1);
+  padding: 0 var(--b5-space-2);
+  border: 1px dashed var(--b5-color-warn-border);
+  border-radius: var(--b5-radius-sm);
+  color: var(--b5-color-text-warning);
+  font-size: var(--b5-font-size-xs);
+  font-weight: var(--b5-font-weight-bold);
+  font-family: var(--b5-font-mono);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+body.g3-hide-notes .g3-new { display: none; }
+.g3-elided {
+  margin: var(--b5-space-4) 0;
+  padding: var(--b5-space-3) var(--b5-space-4);
+  border: 1px dashed var(--b5-color-border-default);
+  color: var(--b5-color-text-secondary);
+  font-size: var(--b5-font-size-sm);
+}
+
+/* ---- GDTF Share section -------------------------------------------------- */
+.g3-status {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2) var(--b5-space-3);
+  margin: 0 0 var(--b5-space-3);
+  padding: var(--b5-space-3) var(--b5-space-4);
+  border: var(--b5-border-width-thin) solid var(--b5-color-border-control);
+  border-radius: var(--b5-radius-md);
+  background: var(--b5-color-bg-surface-raised);
+}
+.g3-status__msg { font-weight: var(--b5-font-weight-medium); }
+.g3-status__meta { flex-basis: 100%; color: var(--b5-color-text-secondary); font-size: var(--b5-font-size-sm); }
+.g3-progress { flex-basis: 100%; display: grid; gap: var(--b5-space-1); }
+.g3-progress .b5-progress { height: 10px; border: 1px solid var(--b5-color-border-control); }
+.g3-section-body { display: flex; flex-direction: column; gap: var(--b5-space-4); }
+.g3-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--b5-space-3) var(--b5-space-4); max-width: 44rem; }
+.g3-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2) var(--b5-space-3); }
+.g3-login { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2) var(--b5-space-3); margin: 0; }
+.g3-table-wrap { overflow-x: auto; border: 1px solid var(--b5-color-border-default); border-radius: var(--b5-radius-md); }
+.g3-table-wrap .b5-table { margin: 0; }
+.g3-table-wrap .b5-table tbody tr { cursor: default; }
+.g3-table-wrap .b5-table td { vertical-align: top; }
+.g3-similar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2); margin-top: var(--b5-space-2); }
+.g3-sub { display: block; color: var(--b5-color-text-secondary); font-size: var(--b5-font-size-xs); }
+.g3-addrow { display: flex; flex-wrap: wrap; align-items: end; gap: var(--b5-space-2) var(--b5-space-3); }
+.g3-addrow .b5-field { flex: 1 1 16rem; max-width: 26rem; }
+.g3-credit { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-3); margin-top: var(--b5-space-2); }
+.g3-logo-ph {
+  display: inline-flex; align-items: center; justify-content: center; text-align: center;
+  width: 9rem; min-height: 3.5rem; padding: var(--b5-space-2);
+  border: var(--b5-border-width-thick) dashed var(--b5-color-border-strong);
+  color: var(--b5-color-text-secondary); font-size: var(--b5-font-size-xs); line-height: 1.3;
+}
+.g3-credit__text { font-weight: var(--b5-font-weight-bold); }
+.g3-stub { opacity: 1; }
+.g3-stub .b5-step-section__head { margin-bottom: 0; }
+
+/* ---- Fixture Library › Add from GDTF library ----------------------------- */
+.g3-lib-source { display: flex; flex-wrap: wrap; gap: var(--b5-space-2); margin: var(--b5-space-3) 0; }
+.g3-lib-source .b5-seg { min-width: 12rem; }
+.g3-search { display: flex; flex-wrap: wrap; align-items: end; gap: var(--b5-space-2) var(--b5-space-3); }
+.g3-search .b5-field { flex: 1 1 18rem; }
+.g3-result { display: grid; gap: var(--b5-space-1); }
+.g3-result__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--b5-space-1) var(--b5-space-3); }
+.g3-result__name { font-size: var(--b5-font-size-md, 1rem); }
+.g3-result__mfr { color: var(--b5-color-text-secondary); }
+.g3-result__modes { color: var(--b5-color-text-secondary); font-size: var(--b5-font-size-sm); }
+.g3-result .b5-row { margin-top: var(--b5-space-1); }
+.g3-refusal { margin-top: var(--b5-space-2); }
+
+/* ---- Devices › GDTF match ------------------------------------------------- */
+.g3-match { display: grid; gap: var(--b5-space-3); padding: var(--b5-space-3); border: 1px solid var(--b5-color-border-strong); border-radius: var(--b5-radius-md); background: var(--b5-color-bg-surface); }
+.g3-match__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--b5-space-1) var(--b5-space-3); }
+.g3-match__mode { display: flex; flex-wrap: wrap; align-items: center; gap: var(--b5-space-2); }
+.g3-match__list { margin: 0; padding-left: 1.25rem; }
+.g3-match__list li + li { margin-top: var(--b5-space-1); }
+.g3-also { border-top: 1px solid var(--b5-color-border-default); padding-top: var(--b5-space-3); }
+.g3-also summary { cursor: pointer; min-height: var(--b5-size-touch-min); display: flex; align-items: center; font-weight: var(--b5-font-weight-medium); }
+
+@media (max-width: 1100px) {
+  .g3-fields { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Scroll targets clear the sticky app chrome. */
+.b5-app [id], .b5-step-section, .g3-table-wrap tr, .b5-field { scroll-margin-top: calc(var(--b5-chrome-height, 80px) + 1rem); }
+.b5-inspector [id], .b5-workspace-dialog [id] { scroll-margin-top: 4.5rem; }

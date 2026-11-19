@@ -133,6 +133,7 @@ The sandbox cannot reach gdtf-share.com, so G4 is the first real contact.
 | G1 | Built on `feat/gdtf-g1-sync`, awaiting coordinator review | 2026-11-17 21:36:42 -0500 | Fake-server tests and all gates green. Same fixture = uuid + uploader label. Not yet run against the real GDTF Share (G4). Open for the owner: the API page's "cached files no more than 24 h old" vs decision 2; default names that may not match GDTF Share's spelling. |
 | G2 | Built on `feat/gdtf-g2-rdm` (on G1), awaiting coordinator review | 2026-11-17 22:13:43 -0500 | description.xml read into the index (download + one-time backfill; unreadable files kept with the reason); zero RDM ID = not given (GLP JDC1 `DeviceModelID="0x0"`); LongName search; `GET /api/gdtf/match` ranked software-version → model, labels kept, no name fallback. Real files carry RDM IDs but no software versions/personalities, so personality → mode is proved on synthetic files. Open for the owner: within a tier, Manufacturer uploads before User; model-only mode given only when all versions agree. |
 | G2b | Built on `feat/gdtf-g2-rdm` (on G2), awaiting coordinator review | 2026-11-17 22:32:24 -0500 | Round-4 answers: "likely" mode with warning/basis/choices when versions disagree; "other-versions" fallback when the device's version maps nothing (tier stays software-version); most-likely rule = most versions, then highest software version ID, then name. |
+| G3a | Mockup on `docs/gdtf-g3-mockup` (on G2b), awaiting coordinator review, then Dom | 2026-11-17 23:20:11 -0500 | `docs/design/gdtf-library/` (README first; `mockup_2026-11-17_2309.html`). 16 scenes: Settings › GDTF Share, Fixture library › Add from GDTF library, Device inspector › Info match group. Data not in the API is tagged NEW (lightingAdapters, internetRoute, progress.manufacturer, unreadableFiles, version, inFixtureLibrary, imported-fixture label). Open for the owner: the 8 MB import cap; About's home; act-at-once GDTF section; unfollow keeps files; a GDTF tag per device card; the footprint check. |
 
 ## Owner decisions, round 3 (2026-11-17 21:53, after G1)
 
@@ -155,3 +156,14 @@ The sandbox cannot reach gdtf-share.com, so G4 is the first real contact.
 Most-likely rule (G2b, `internal/gdtfshare/match.go` rankModes): the mode mapped by the most
 software versions; ties to the mode mapped by the highest software version ID (a version with
 no ID counts lowest); then the mode name A to Z.
+
+## Owner decisions, round 5 (2026-11-17 23:41 and 2026-11-18 07:58, on the G3a mockup)
+
+The mockup (`docs/design/gdtf-library/mockup_2026-11-17_2309.html`) is the approved basis for G3b, with these answers to its open questions:
+
+1. **Raise the Fixture Library import cap from 8 MB to 20 MB** per GDTF file.
+2. **About is the last section of Settings**, as drawn.
+3. **GDTF Share buttons act at once**; no Apply settings needed (as drawn).
+4. **Stop following keeps the downloaded files** (current G1 behaviour).
+5. **Every device card gets a GDTF tag**, "GDTF: found / likely / none" in words (exact states follow the match API).
+6. **Footprint check, option C:** on a guess (`likely`, `other-versions`) always show "Footprints agree / differ"; on an exact match (`found`) show it only when the footprints differ, as a warning.

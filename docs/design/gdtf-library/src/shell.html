@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Benny512 · GDTF library · design mockup G3a</title>
+<!-- G3a design mockup, built by build-mockup.mjs from src/. Self-contained:
+     the production CSS (every file index.html links, in the same order) and
+     the production icon sprite are inlined below, followed by the mockup's
+     own layout-only CSS. All data is made up. Nothing here talks to a server. -->
+<style>
+/*@PRODUCTION_CSS@*/
+</style>
+<style>
+/*@MOCKUP_CSS@*/
+</style>
+</head>
+<body>
+<!--@SPRITE@-->
+<div class="b5-app">
+  <header class="b5-header">
+    <span class="b5-header__brand">Benny512</span>
+    <span class="b5-header__spacer"></span>
+    <span class="b5-connection" id="connStatus"><span class="b5-connection__dot"></span>Connected</span>
+  </header>
+  <div id="showContext" class="b5-show-context" aria-label="Show and output context" data-out-state="disarmed">
+    <strong class="b5-show-context__name">Arena tour — Detroit</strong>
+    <span class="b5-show-context__nic b5-text-sm" id="ctxNic">Ethernet 2 (2.0.0.10)</span>
+    <span class="b5-out">
+      <span role="status" class="b5-out-state b5-out-state--off"><svg aria-hidden="true"><use href="#b5-icon-disarm"/></svg>DISARMED · no output</span>
+      <span class="b5-out-link"><svg aria-hidden="true"><use href="#b5-icon-link-ok"/></svg>Shared control · link OK</span>
+    </span>
+    <span class="b5-out-armslot"><button type="button" class="b5-btn b5-out-arm b5-out-arm--go" aria-label="ARM: let DMX output reach the rig (mockup: does nothing)"><svg aria-hidden="true"><use href="#b5-icon-arm"/></svg>ARM</button></span>
+    <button type="button" class="b5-btn b5-out-stop" aria-label="DISARM and BLACKOUT: stop all DMX output (mockup: does nothing)"><svg aria-hidden="true"><use href="#b5-icon-disarm"/></svg><span>DISARM<br>BLACKOUT</span></button>
+    <span class="b5-menu b5-show-menu"><button type="button" class="b5-btn b5-menu__trigger" id="showMenuBtn" aria-haspopup="menu" aria-expanded="false"><span class="b5-menu__label">Show</span><svg class="b5-menu__chev" aria-hidden="true"><use href="#b5-icon-chevron-expand"/></svg></button></span>
+  </div>
+  <nav class="b5-nav" id="tabs" aria-label="Screens">
+    <span class="b5-nav__group" role="group" aria-labelledby="navGroupShow">
+      <span class="b5-nav__grouplabel" id="navGroupShow">Show</span>
+      <button class="b5-nav__item" data-tab="patch"><svg aria-hidden="true"><use href="#b5-icon-network-node"/></svg>Patch</button>
+      <button class="b5-nav__item" data-tab="console"><svg aria-hidden="true"><use href="#b5-icon-nav-console"/></svg>Console</button>
+      <button class="b5-nav__item b5-nav__item--wide" data-tab="tests"><svg aria-hidden="true"><use href="#b5-icon-nav-tests"/></svg>Tests</button>
+      <button class="b5-nav__item" data-tab="walk"><svg aria-hidden="true"><use href="#b5-icon-nav-rig-walk"/></svg>Rig Walk</button>
+    </span>
+    <span class="b5-nav__group" role="group" aria-labelledby="navGroupNetwork">
+      <span class="b5-nav__grouplabel" id="navGroupNetwork">Network</span>
+      <button class="b5-nav__item" data-tab="nodes"><svg aria-hidden="true"><use href="#b5-icon-nav-nodes"/></svg>Nodes</button>
+      <button class="b5-nav__item" data-tab="devices"><svg aria-hidden="true"><use href="#b5-icon-nav-devices"/></svg>Devices</button>
+      <button class="b5-nav__item" data-tab="analyzer"><svg aria-hidden="true"><use href="#b5-icon-nav-analyzer"/></svg>Analyzer</button>
+    </span>
+    <button class="b5-nav__item" data-tab="settings"><svg aria-hidden="true"><use href="#b5-icon-nav-settings"/></svg>Settings</button>
+  </nav>
+  <main id="main" class="b5-app__body">
+    <section id="screen-settings" class="screen" aria-label="Settings"></section>
+    <section id="screen-devices" class="screen" aria-label="Devices"></section>
+  </main>
+</div>
+<dialog id="libDialog" class="b5-workspace-dialog b5-nmpanel" aria-label="Fixture library"></dialog>
+
+<div class="g3-review" role="region" aria-label="Mockup controls (not part of Benny512)">
+  <span class="g3-review__kicker">Mockup G3a</span>
+  <label for="g3Scene">Scene</label>
+  <select id="g3Scene" class="b5-select"></select>
+  <button type="button" class="b5-btn b5-btn--sm" id="g3Prev">Previous</button>
+  <button type="button" class="b5-btn b5-btn--sm" id="g3Next">Next</button>
+  <label for="g3Theme">Theme</label>
+  <select id="g3Theme" class="b5-select"><option value="dark">Dark</option><option value="light">Daylight</option></select>
+  <label><input type="checkbox" id="g3Notes" checked> Show data notes</label>
+  <span class="g3-review__about" id="g3About" aria-live="polite"></span>
+</div>
+<script>
+/*@SCENES_JS@*/
+</script>
+</body>
+</html>

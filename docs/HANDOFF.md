@@ -1,6 +1,12 @@
 # Benny512 — Session Handoff Brief (current)
 
-**Last updated:** 2026-11-17 22:32:24 -0500
+**Last updated:** 2026-11-17 23:20:11 -0500
+
+## Current delta — G3a GDTF library mockup, design only (`docs/gdtf-g3-mockup`, on G2b)
+
+G3a (2026-11-17 23:20:11 -0500): `docs/design/gdtf-library/` — start at its README. Open `mockup_2026-11-17_2309.html` by double-click (self-contained; production CSS + sprite inlined by `build-mockup.mjs` from `src/`). 16 scenes: Settings › 7 GDTF Share (states never/ok/syncing/offline/refused/partial, unmatched names with similar names, pending + unreadable, credit + proposed About section 9 with a labelled logo placeholder); Fixture library panel › **Add from GDTF library** (offline search → existing import confirm step; GDTF Share single pull; 8 MB refusal); **Device inspector › Info › GDTF file for this device** (found / likely / other-versions / no RDM match → Search by name / name results with "the file gives no model ID" and "No RDM data"). Data not in today's API is tagged NEW in the mockup and listed in the README (`lightingAdapters` is the one round 3 #1 needs). Verified in Chromium: 96 runs clean, 78 rendered contrast pairs pass (status box border fixed), focus visible, switching works. No production file changed.
+
+**Next:** Dom reviews the mockup and answers the README's six questions (8 MB cap first); then G3b on `feat/gdtf-g3-ui`.
 
 ## Current delta — G2b mode guesses (`feat/gdtf-g2-rdm`, on G2)
 
